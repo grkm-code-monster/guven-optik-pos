@@ -1,6 +1,130 @@
-import { CashMovementType, PaymentType, Prisma, SaleStatus, ShiftStatus } from '@prisma/client';
+import {
+  CashMovementType,
+  PaymentType,
+  Prisma,
+  ProductCategory,
+  SaleStatus,
+  ShiftStatus,
+} from '@prisma/client';
 import ExcelJS from 'exceljs';
 import { prisma } from '../../database/prisma';
+
+const ODOO_OPTIK_CAM_CATEGORY_IDS = new Set([
+  4, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+  37, 38, 39, 40, 41,
+]);
+
+type DashboardKategori =
+  | 'GUNES_GOZLUGU'
+  | 'CAM'
+  | 'LENS'
+  | 'OPTIK_CERCEVE'
+  | 'AKSESUAR'
+  | 'SOLUSYON';
+
+const EMPTY_KATEGORI: Record<DashboardKategori, number> = {
+  GUNES_GOZLUGU: 0,
+  CAM: 0,
+  LENS: 0,
+  OPTIK_CERCEVE: 0,
+  AKSESUAR: 0,
+  SOLUSYON: 0,
+};
+
+const PRODUCT_CATEGORY_MAP: Partial<Record<ProductCategory, DashboardKategori>> = {
+  [ProductCategory.SUNGLASSES_READY]: 'GUNES_GOZLUGU',
+  [ProductCategory.SUNGLASSES_RX]: 'GUNES_GOZLUGU',
+  [ProductCategory.LENS_RX]: 'CAM',
+  [ProductCategory.OPTICAL_FRAME_READY]: 'OPTIK_CERCEVE',
+  [ProductCategory.OPTICAL_FRAME_RX]: 'OPTIK_CERCEVE',
+  [ProductCategory.CONTACT_LENS_READY]: 'LENS',
+  [ProductCategory.CONTACT_LENS_RX]: 'LENS',
+  [ProductCategory.SOLUTION]: 'SOLUSYON',
+  [ProductCategory.ACCESSORY]: 'AKSESUAR',
+};
+
+function zeroExtras() {
+  return {
+    netCiro: '0',
+    kasaNakit: '0',
+    toplamBanka: '0',
+    toplamSgkHakki: '0',
+    toplamVakifOdemesi: '0',
+    satisAdedi: 0,
+    ortalamaSepet: '0',
+    kategoriBreakdown: { ...EMPTY_KATEGORI },
+    kampanyaBreakdown: [] as Array<{ type: string; count: number }>,
+    temsilciBreakdown: [] as Array<{ repName: string; saleCount: number; ciro: string }>,
+  };
+}
+
+function resolveItemKategori(item: {
+  odooCategoryId: number | null;
+  odooProductName: string | null;
+  product: { category: ProductCategory; name: string } | null;
+}): DashboardKategori {
+  const pc = item.product?.category;
+  if (pc && PRODUCT_CATEGORY_MAP[pc]) {
+    return PRODUCT_CATEGORY_MAP[pc]!;
+  }
+
+  const catId = item.odooCategoryId;
+  if (catId != null) {
+    if (ODOO_OPTIK_CAM_CATEGORY_IDS.has(catId)) return 'CAM';
+    if (catId === 6) return 'OPTIK_CERCEVE';
+    if (catId === 8) return 'AKSESUAR';
+    if (catId === 7) {
+      const n = (item.odooProductName ?? item.product?.name ?? '').toLowerCase();
+      if (n.includes('kontakt') || n.includes('lens')) return 'LENS';
+      return 'GUNES_GOZLUGU';
+    }
+  }
+
+  const name = (item.odooProductName ?? item.product?.name ?? '').toLowerCase();
+  if (/güneş|gunes|gözlük|gozluk/.test(name)) return 'GUNES_GOZLUGU';
+  if (/solüsyon|solusyon/.test(name)) return 'SOLUSYON';
+  if (/aksesuar/.test(name)) return 'AKSESUAR';
+  if (/çerçeve|cerceve|frame/.test(name)) return 'OPTIK_CERCEVE';
+  if (/kontakt/.test(name) || (/\blens\b/.test(name) && !/cam/.test(name))) return 'LENS';
+  if (/cam|progresif|bifokal/.test(name)) return 'CAM';
+  return 'AKSESUAR';
+}
+
+function buildDerivedMetrics(params: {
+  totalSales: Prisma.Decimal;
+  taxTotal: Prisma.Decimal;
+  totalCommission: Prisma.Decimal;
+  cashTotal: Prisma.Decimal;
+  cashOut: Prisma.Decimal;
+  cardNet: Prisma.Decimal;
+  transferTotal: Prisma.Decimal;
+  totalNet: Prisma.Decimal;
+  saleCount: number;
+  toplamSgkHakki: Prisma.Decimal;
+  toplamVakifOdemesi: Prisma.Decimal;
+  kategoriBreakdown: Record<DashboardKategori, number>;
+  kampanyaBreakdown: Array<{ type: string; count: number }>;
+  temsilciBreakdown: Array<{ repName: string; saleCount: number; ciro: string }>;
+}) {
+  const netCiro = params.totalSales.minus(params.taxTotal).minus(params.totalCommission);
+  const kasaNakit = params.cashTotal.minus(params.cashOut);
+  const toplamBanka = params.cardNet.plus(params.transferTotal).minus(params.totalCommission);
+  const ortalamaSepet =
+    params.saleCount > 0 ? params.totalNet.div(params.saleCount) : new Prisma.Decimal(0);
+
+  return {
+    netCiro: netCiro.toString(),
+    kasaNakit: kasaNakit.toString(),
+    toplamBanka: toplamBanka.toString(),
+    toplamSgkHakki: params.toplamSgkHakki.toString(),
+    toplamVakifOdemesi: params.toplamVakifOdemesi.toString(),
+    satisAdedi: params.saleCount,
+    ortalamaSepet: ortalamaSepet.toString(),
+    kategoriBreakdown: params.kategoriBreakdown,
+    kampanyaBreakdown: params.kampanyaBreakdown,
+    temsilciBreakdown: params.temsilciBreakdown,
+  };
+}
 
 function codeError(code: string, message: string) {
   const err = new Error(code) as Error & { code: string; message: string };
@@ -66,15 +190,38 @@ export async function getDailyReport(branchId: string, date: Date) {
       diff: null,
       saleCount: 0,
       bankBreakdown: [],
+      ...zeroExtras(),
     };
   }
 
-  const salesAgg = await prisma.sale.aggregate({
-    where: {
-      branchId,
-      shiftId: shift.id,
-      status: SaleStatus.PAID,
+  const paidSaleWhere = {
+    branchId,
+    shiftId: shift.id,
+    status: SaleStatus.PAID,
+  };
+
+  const paidSales = await prisma.sale.findMany({
+    where: paidSaleWhere,
+    select: {
+      id: true,
+      netTotal: true,
+      sgkAmount: true,
+      discountTotal: true,
+      userId: true,
+      user: { select: { name: true } },
+      items: {
+        select: {
+          qty: true,
+          odooCategoryId: true,
+          odooProductName: true,
+          product: { select: { category: true, name: true } },
+        },
+      },
     },
+  });
+
+  const salesAgg = await prisma.sale.aggregate({
+    where: paidSaleWhere,
     _sum: {
       grossTotal: true,
       discountTotal: true,
@@ -163,6 +310,61 @@ export async function getDailyReport(branchId: string, date: Date) {
     net: (b._sum.netAmount ?? new Prisma.Decimal(0)).toString(),
   }));
 
+  const saleCount = salesAgg._count._all;
+
+  const kategoriBreakdown: Record<DashboardKategori, number> = { ...EMPTY_KATEGORI };
+  for (const sale of paidSales) {
+    for (const item of sale.items) {
+      const key = resolveItemKategori(item);
+      kategoriBreakdown[key] += item.qty ?? 1;
+    }
+  }
+
+  let toplamSgkHakki = new Prisma.Decimal(0);
+  let toplamVakifOdemesi = new Prisma.Decimal(0);
+  const repMap = new Map<string, { repName: string; saleCount: number; ciro: Prisma.Decimal }>();
+
+  for (const sale of paidSales) {
+    if (sale.sgkAmount) {
+      toplamSgkHakki = toplamSgkHakki.plus(sale.sgkAmount);
+    }
+    const repKey = sale.userId;
+    const prev = repMap.get(repKey) ?? {
+      repName: sale.user?.name ?? '—',
+      saleCount: 0,
+      ciro: new Prisma.Decimal(0),
+    };
+    prev.saleCount += 1;
+    prev.ciro = prev.ciro.plus(sale.netTotal);
+    repMap.set(repKey, prev);
+  }
+
+  const kampanyaBreakdown: Array<{ type: string; count: number }> = [];
+  const temsilciBreakdown = Array.from(repMap.values())
+    .map((r) => ({
+      repName: r.repName,
+      saleCount: r.saleCount,
+      ciro: r.ciro.toString(),
+    }))
+    .sort((a, b) => Number(b.ciro) - Number(a.ciro));
+
+  const derived = buildDerivedMetrics({
+    totalSales,
+    taxTotal,
+    totalCommission,
+    cashTotal,
+    cashOut,
+    cardNet,
+    transferTotal,
+    totalNet,
+    saleCount,
+    toplamSgkHakki,
+    toplamVakifOdemesi,
+    kategoriBreakdown,
+    kampanyaBreakdown,
+    temsilciBreakdown,
+  });
+
   return {
     date,
     branchId,
@@ -186,8 +388,9 @@ export async function getDailyReport(branchId: string, date: Date) {
     expectedCash: expectedCash.toString(),
     physicalCash: shift.physicalCash ? shift.physicalCash.toString() : null,
     diff: shift.diff ? shift.diff.toString() : null,
-    saleCount: salesAgg._count._all,
+    saleCount,
     bankBreakdown,
+    ...derived,
   };
 }
 

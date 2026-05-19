@@ -8,6 +8,7 @@ import ReportsPage from './pages/ReportsPage'
 import TransferlerPage from './pages/TransferlerPage'
 import SettingsPage from './pages/SettingsPage'
 import ShiftOpenPage from './pages/ShiftOpenPage'
+import MasraflarPage from './pages/MasraflarPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="sales/new" element={<NewSalePage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="transferler" element={<TransferlerPage />} />
+          <Route path="masraflar" element={<MasraflarPage />} />
           <Route
             path="settings"
             element={

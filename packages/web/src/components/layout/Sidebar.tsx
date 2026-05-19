@@ -99,6 +99,42 @@ export default function Sidebar() {
         >
           📊 Raporlar
         </NavLink>
+        <NavLink
+          to="/masraflar"
+          style={({ isActive }) => ({
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            marginBottom: '4px',
+            backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
+            color: 'white',
+            textDecoration: 'none',
+            fontSize: '14px',
+            fontWeight: '500',
+          })}
+        >
+          💸 Masraflar
+        </NavLink>
+        <NavLink
+          to="/acik-hesap"
+          style={({ isActive }) => ({
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            marginBottom: '4px',
+            backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
+            color: 'white',
+            textDecoration: 'none',
+            fontSize: '14px',
+            fontWeight: '500',
+          })}
+        >
+          📋 Açık Hesap
+        </NavLink>
       </nav>
 
       {/* ALT: Kullanıcı */}

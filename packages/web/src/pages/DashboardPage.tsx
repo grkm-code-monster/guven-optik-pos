@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import Button from '../components/ui/Button'
-import Badge from '../components/ui/Badge'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth.store'
 import { apiClient } from '../api/client'
 import { searchCustomers } from '../api/customers.api'
@@ -19,7 +18,46 @@ function todayYMD() {
   return new Date().toISOString().split('T')[0]
 }
 
+function todayRangeLocal() {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+  return { dateFrom: start.toISOString(), dateTo: end.toISOString() }
+}
+
+function SaleStatusBadge({ status }: { status: string }) {
+  const s = status?.toUpperCase?.() ?? ''
+  const map: Record<string, { label: string; bg: string; color: string }> = {
+    PAID: { label: 'Tamamlandı', bg: '#d1fae5', color: '#065f46' },
+    DELIVERED: { label: 'Tamamlandı', bg: '#d1fae5', color: '#065f46' },
+    ORDERED: { label: 'Laboratuvara Gönderildi', bg: '#fef3c7', color: '#92400e' },
+    IN_LAB: { label: 'Laboratuvara Gönderildi', bg: '#fef3c7', color: '#92400e' },
+    DRAFT: { label: 'Beklemede', bg: '#f3f4f6', color: '#374151' },
+    PENDING: { label: 'Beklemede', bg: '#f3f4f6', color: '#374151' },
+    READY: { label: 'Hazır', bg: '#dbeafe', color: '#1e40af' },
+  }
+  const c = map[s] ?? { label: status || '—', bg: '#f3f4f6', color: '#374151' }
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        borderRadius: '999px',
+        backgroundColor: c.bg,
+        color: c.color,
+        padding: '3px 10px',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {c.label}
+    </span>
+  )
+}
+
 export default function DashboardPage() {
+  const navigate = useNavigate()
   const shiftId = useAuthStore((s) => s.shiftId)
   const user = useAuthStore((s) => s.user)
 
@@ -74,13 +112,16 @@ export default function DashboardPage() {
           console.error('Dashboard report API error', e)
           setReport(null)
         }),
-      Promise.allSettled([getSales({ status: 'ORDERED' }), getSales({ status: 'IN_LAB' })]).then((r) => {
-        const list: any[] = []
-        for (const x of r) {
-          if (x.status === 'fulfilled') list.push(...x.value)
-        }
-        setSales(list.slice(0, 10))
-      }),
+      getSales(todayRangeLocal())
+        .then((list) => {
+          console.log('[Dashboard] open sales', list)
+          const open = (list ?? []).filter((s) => s.status !== 'VOID')
+          setSales(open.slice(0, 20))
+        })
+        .catch((e: any) => {
+          console.error('Dashboard open sales API error', e)
+          setSales([])
+        }),
     ]).catch((e: any) => {
       console.error('Dashboard API error', e)
     })
@@ -184,89 +225,316 @@ export default function DashboardPage() {
 
       {error ? <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div> : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        {[
-          { title: 'Toplam Satış', value: formatMoney(report?.totalSales), hint: 'Brüt' },
-          { title: 'Net Ciro', value: formatMoney(report?.totalNet), hint: 'Net' },
-          { title: 'Komisyon', value: formatMoney(report?.totalCommission), hint: 'Kart' },
-          { title: 'Beklenen Kasa', value: formatMoney(report?.expectedCash), hint: 'Kasa' },
-        ].map((k) => (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflow: 'hidden' }}>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '14px',
+            overflow: 'hidden',
+          }}
+        >
+            {[
+              { title: 'Toplam Ciro', value: formatMoney(report?.netCiro) },
+              { title: 'Kasa Nakit', value: formatMoney(report?.kasaNakit) },
+              { title: 'Toplam Banka', value: formatMoney(report?.toplamBanka) },
+              { title: 'Beklenen Kasa', value: formatMoney(report?.expectedCash) },
+            ].map((k) => (
+              <div
+                key={k.title}
+                style={{
+                  flex: '1 1 180px',
+                  minWidth: 0,
+                  maxWidth: '100%',
+                  backgroundColor: 'white',
+                  borderRadius: '14px',
+                  padding: '22px 20px',
+                  boxShadow: '0 4px 18px rgba(0,0,0,0.08)',
+                  border: '1px solid #f3f4f6',
+                  borderTop: '4px solid #B91C1C',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: '#6b7280',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    fontWeight: 700,
+                  }}
+                >
+                  {k.title}
+                </div>
+                <div
+                  style={{
+                    fontSize: 'clamp(1.2rem, 2.5vw, 1.8rem)',
+                    fontWeight: 800,
+                    color: '#B91C1C',
+                    marginTop: '10px',
+                    lineHeight: 1.1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {k.value}
+                </div>
+              </div>
+            ))}
+        </div>
+
+        <div
+          className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(260px,300px)]"
+          style={{ gap: '16px', alignItems: 'start', overflow: 'hidden' }}
+        >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0, overflow: 'hidden' }}>
           <div
-            key={k.title}
             style={{
-              backgroundColor: 'white',
-              border: '1px solid #e5e7eb',
-              borderRadius: '12px',
-              padding: '20px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '12px',
+              overflow: 'hidden',
             }}
           >
+            {[
+              { title: 'Satış Adedi', value: String(report?.satisAdedi ?? report?.saleCount ?? 0) },
+              { title: 'Ortalama Sepet', value: formatMoney(report?.ortalamaSepet) },
+              { title: 'SGK Hakkı', value: formatMoney(report?.toplamSgkHakki) },
+              { title: 'Vakıf Ödemesi', value: formatMoney(report?.toplamVakifOdemesi) },
+            ].map((k) => (
+              <div
+                key={k.title}
+                style={{
+                  flex: '1 1 140px',
+                  minWidth: 0,
+                  maxWidth: '100%',
+                  backgroundColor: 'white',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  boxShadow: '0 2px 10px rgba(0,0,0,0.06)',
+                  border: '1px solid #f3f4f6',
+                  overflow: 'hidden',
+                }}
+              >
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  {k.title}
+                </div>
+                <div style={{ fontSize: '26px', fontWeight: 800, color: '#111827', marginTop: '8px' }}>{k.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: '#374151', marginBottom: '10px' }}>Kategori Dağılımı</div>
             <div
               style={{
-                fontSize: '11px',
-                color: '#6b7280',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                fontWeight: 700,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                gap: '10px',
               }}
             >
-              {k.title}
+              {(
+                [
+                  ['GUNES_GOZLUGU', 'Güneş Gözlüğü'],
+                  ['CAM', 'Cam'],
+                  ['LENS', 'Lens'],
+                  ['OPTIK_CERCEVE', 'Çerçeve'],
+                  ['AKSESUAR', 'Aksesuar'],
+                  ['SOLUSYON', 'Solüsyon'],
+                ] as const
+              ).map(([key, label]) => (
+                <div
+                  key={key}
+                  style={{
+                    backgroundColor: 'white',
+                    borderRadius: '10px',
+                    padding: '14px 12px',
+                    textAlign: 'center',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+                    border: '1px solid #f3f4f6',
+                  }}
+                >
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#6b7280' }}>{label}</div>
+                  <div style={{ fontSize: '28px', fontWeight: 800, color: '#B91C1C', marginTop: '6px' }}>
+                    {report?.kategoriBreakdown?.[key] ?? 0}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div style={{ fontSize: '28px', fontWeight: 800, color: '#111', marginTop: '6px' }}>{k.value}</div>
-            <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px' }}>{k.hint}</div>
           </div>
-        ))}
+        </div>
+
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '14px',
+            padding: '16px',
+            boxShadow: '0 4px 18px rgba(0,0,0,0.08)',
+            border: '1px solid #f3f4f6',
+            minWidth: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ fontSize: '14px', fontWeight: 800, color: '#B91C1C', marginBottom: '12px' }}>Personel</div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr auto auto',
+              gap: '8px',
+              fontSize: '11px',
+              fontWeight: 700,
+              color: '#6b7280',
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #f3f4f6',
+            }}
+          >
+            <div>Temsilci</div>
+            <div style={{ textAlign: 'right' }}>Adet</div>
+            <div style={{ textAlign: 'right' }}>Ciro</div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px', maxHeight: '420px', overflow: 'auto' }}>
+            {(report?.temsilciBreakdown ?? []).length === 0 ? (
+              <div style={{ fontSize: '13px', color: '#9ca3af' }}>Kayıt yok.</div>
+            ) : null}
+            {(report?.temsilciBreakdown ?? []).map((r: { repName: string; saleCount: number; ciro: string }) => (
+              <div
+                key={`${r.repName}-${r.saleCount}`}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto auto',
+                  gap: '8px',
+                  alignItems: 'center',
+                  fontSize: '13px',
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#111827', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.repName}
+                </div>
+                <div style={{ fontWeight: 800, color: '#374151', textAlign: 'right' }}>{r.saleCount}</div>
+                <div style={{ fontWeight: 800, color: '#B91C1C', textAlign: 'right' }}>{formatMoney(r.ciro)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        </div>
       </div>
 
-      <div className="rounded-xl bg-white border border-gray-200 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="font-bold">Açık Satışlar</div>
-          <a className="text-sm font-semibold text-brand-red hover:underline" href="#">
+      <div
+        style={{
+          marginTop: '16px',
+          borderRadius: '12px',
+          border: '1px solid #e5e7eb',
+          overflow: 'hidden',
+          backgroundColor: 'white',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: 'white',
+            padding: '16px 20px',
+            borderBottom: '1px solid #e5e7eb',
+          }}
+        >
+          <div style={{ fontWeight: 600, fontSize: '1rem', color: '#111' }}>Açık Satışlar</div>
+          <a
+            href="#"
+            style={{
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              color: '#c0392b',
+              textDecoration: 'none',
+            }}
+          >
             Tümü →
           </a>
         </div>
-        <div className="space-y-2">
-          {sales.length === 0 ? <div className="text-sm text-gray-500">Kayıt yok.</div> : null}
-          {sales.map((s) => (
-            <div key={s.id} className="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold truncate">{s.customer?.name ?? '—'}</div>
-                <div className="text-xs text-gray-500 truncate">{s.itemsCount ? `${s.itemsCount} kalem` : ''}</div>
+        {sales.length === 0 ? (
+          <div style={{ padding: '14px 20px', fontSize: '0.875rem', color: '#6b7280' }}>Kayıt yok.</div>
+        ) : null}
+        {sales.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => navigate('/sales/new')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              width: '100%',
+              padding: '14px 20px',
+              border: 'none',
+              borderBottom: '1px solid #f3f4f6',
+              backgroundColor: 'white',
+              cursor: 'pointer',
+              transition: 'background 0.15s',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#fafafa'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'white'
+            }}
+          >
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: '0.95rem',
+                  color: '#111',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {s.customer?.name ?? '—'}
               </div>
-              <div className="flex items-center gap-2">
-                <Badge status={s.status} />
-                <div className="text-sm font-bold">{formatMoney(s.netTotal)}</div>
+              <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '2px' }}>
+                {s.itemsCount ? `${s.itemsCount} kalem` : ''}
               </div>
             </div>
-          ))}
-        </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, marginLeft: '12px' }}>
+              <SaleStatusBadge status={s.status} />
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#111' }}>{formatMoney(s.netTotal)}</div>
+            </div>
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Button onClick={() => (window.location.href = '/sales/new')}>+ Yeni Satış</Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            setCashError(null)
-            setCashModalOpen(true)
-          }}
-        >
-          Kasa Hareketi
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            setCustError(null)
-            setCustQ('')
-            setCustResults([])
-            setCustomerModalOpen(true)
-          }}
-        >
-          Müşteri Ara
-        </Button>
-        <Button variant="secondary" onClick={() => (window.location.href = '/reports')}>
-          Raporlar
-        </Button>
-      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setCashError(null)
+          setCashModalOpen(true)
+        }}
+        style={{
+          width: '100%',
+          padding: '14px 20px',
+          borderRadius: '12px',
+          border: '1px solid #e5e7eb',
+          backgroundColor: 'white',
+          fontWeight: 600,
+          fontSize: '0.95rem',
+          color: '#111',
+          cursor: 'pointer',
+          marginTop: '12px',
+          transition: 'background 0.15s',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = '#fafafa'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'white'
+        }}
+      >
+        Kasa Hareketi
+      </button>
 
       {/* KASA HAREKETİ MODAL */}
       {cashModalOpen ? (
