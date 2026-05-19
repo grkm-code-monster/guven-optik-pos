@@ -25,14 +25,20 @@ export async function getDailyReport(branchId: string, date: Date) {
     throw codeError('BRANCH_NOT_FOUND', 'Şube bulunamadı.');
   }
 
-  const shift = await prisma.shift.findFirst({
-    where: {
-      branchId,
-      status: { in: [ShiftStatus.OPEN, ShiftStatus.CLOSED] },
-      openedAt: { gte: start, lte: end },
-    },
+  let shift = await prisma.shift.findFirst({
+    where: { branchId, status: ShiftStatus.OPEN },
     orderBy: { openedAt: 'desc' },
   });
+
+  if (!shift) {
+    shift = await prisma.shift.findFirst({
+      where: {
+        branchId,
+        openedAt: { gte: start },
+      },
+      orderBy: { openedAt: 'desc' },
+    });
+  }
 
   if (!shift) {
     return {
