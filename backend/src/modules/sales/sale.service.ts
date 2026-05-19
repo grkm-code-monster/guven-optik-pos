@@ -10,6 +10,7 @@ import {
   ShiftStatus,
 } from '@prisma/client';
 import { prisma } from '../../database/prisma';
+import { execute } from '../odoo/odoo.service';
 import { calculateCommission } from '../payments/commission.service';
 import type { AddSaleItemInputType, ConfirmSaleInputType, CreateSaleInputType, VoidSaleInputType } from './sale.types';
 
@@ -503,10 +504,8 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     new Prisma.Decimal(0),
   );
 
-  const diff = totalPayments.minus(sale.netTotal).abs();
-  if (diff.greaterThan(new Prisma.Decimal('0.01'))) {
-    throw codeError('PAYMENT_AMOUNT_MISMATCH', 'Ödeme tutarı satış toplamı ile eşleşmiyor.');
-  }
+  const thirdParty = new Prisma.Decimal(input.thirdPartyAmount ?? 0);
+  const expectedTotal = sale.netTotal.minus(thirdParty);
 
   const result = await prisma.$transaction(async (tx) => {
     await tx.payment.createMany({ data: paymentsToCreate });
@@ -520,6 +519,176 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     const payments = await tx.payment.findMany({ where: { saleId } });
     return { sale: updatedSale, payments };
   });
+
+  try {
+    // 1. Müşteriyi bul
+    const customer = sale.customerId
+      ? await prisma.customer.findUnique({ where: { id: sale.customerId } })
+      : null;
+
+    // 2. Odoo partner ID al veya oluştur
+    let odooPartnerId = customer?.odooPartnerId ?? null;
+    if (!odooPartnerId && customer) {
+      odooPartnerId = await execute('res.partner', 'create', [
+        {
+          name: customer.name,
+          phone: customer.phone ?? '',
+          customer_rank: 1,
+        },
+      ]);
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: { odooPartnerId },
+      });
+    }
+
+    // 3. Satış kalemlerini al
+    const saleItems = await prisma.saleItem.findMany({
+      where: { saleId, status: { not: ItemStatus.VOID } },
+      include: { product: true },
+    });
+
+    // 4. Ödeme journal map
+    const JOURNAL_MAP: Record<string, number> = {
+      CASH: 17,
+      CARD: 18,
+      BANK_TRANSFER: 19,
+      SGK: 20,
+      VAKIF: 21,
+    };
+
+    // 5. order_line oluştur
+    const orderLines = saleItems
+      .filter((item) => item.odooProductId)
+      .map((item) => [
+        0,
+        0,
+        {
+          product_id: parseInt(item.odooProductId!, 10),
+          product_uom_qty: item.qty,
+          price_unit: Number(item.unitPrice),
+          discount:
+            Number(item.discount) > 0
+              ? (Number(item.discount) / (Number(item.unitPrice) * item.qty)) * 100
+              : 0,
+          name: item.odooProductName ?? item.product?.name ?? 'Ürün',
+          tax_id: [[6, 0, []]],
+        },
+      ]);
+
+    if (orderLines.length === 0) {
+      orderLines.push([
+        0,
+        0,
+        {
+          product_id: 1,
+          product_uom_qty: 1,
+          price_unit: Number(sale.netTotal),
+          discount: 0,
+          name: 'POS Satışı',
+          tax_id: [[6, 0, []]],
+        },
+      ]);
+    }
+
+    // 6. Odoo sale.order oluştur ve onayla
+    const odooOrderId = await execute('sale.order', 'create', [
+      {
+        partner_id: odooPartnerId ?? 1,
+        note: `POS Satış ID: ${saleId}`,
+        order_line: orderLines,
+      },
+    ]);
+    await execute('sale.order', 'action_confirm', [[odooOrderId]]);
+
+    // 7. Teslimatı otomatik tamamla (validate)
+    try {
+      const pickings = await execute(
+        'stock.picking',
+        'search_read',
+        [[['sale_id', '=', odooOrderId]]],
+        { fields: ['id', 'state'], limit: 5 },
+      );
+      for (const picking of pickings) {
+        if (picking.state !== 'done' && picking.state !== 'cancel') {
+          const moveLines = await execute(
+            'stock.move.line',
+            'search_read',
+            [[['picking_id', '=', picking.id]]],
+            { fields: ['id', 'reserved_qty', 'qty_done'], limit: 50 },
+          );
+          for (const ml of moveLines) {
+            await execute('stock.move.line', 'write', [[ml.id], { qty_done: ml.reserved_qty || 1 }]);
+          }
+          await execute('stock.picking', 'button_validate', [[picking.id]]);
+        }
+      }
+    } catch (deliveryErr) {
+      console.error('[Odoo] Teslimat hatası:', deliveryErr);
+    }
+
+    // 8. Fatura oluştur
+    await execute(
+      'sale.order',
+      'action_invoice_create' in {} ? 'action_invoice_create' : '_create_invoices',
+      [[odooOrderId]],
+      {},
+      undefined,
+    );
+
+    await execute('sale.order', 'action_view_invoice', [[odooOrderId]]);
+
+    const invoices = await execute(
+      'account.move',
+      'search_read',
+      [[['invoice_origin', '=', `S${String(odooOrderId).padStart(5, '0')}`]]],
+      { fields: ['id', 'state', 'name'], limit: 1 },
+    );
+
+    let invoiceId: number | null = null;
+    if (invoices && invoices.length > 0) {
+      invoiceId = invoices[0].id;
+      await execute('account.move', 'action_post', [[invoiceId]]);
+
+      // 9. Ödemeleri kaydet
+      for (const payment of result.payments) {
+        const journalId = JOURNAL_MAP[payment.paymentType] ?? 17;
+        try {
+          await execute('account.payment', 'create', [
+            {
+              payment_type: 'inbound',
+              partner_type: 'customer',
+              partner_id: odooPartnerId ?? 1,
+              amount: Number(payment.netAmount),
+              journal_id: journalId,
+              ref: `POS ${payment.paymentType} - ${saleId}`,
+              move_id: invoiceId,
+            },
+          ]);
+        } catch (payErr) {
+          console.error('[Odoo] Ödeme kayıt hatası:', payErr);
+        }
+      }
+    }
+
+    // 10. PostgreSQL güncelle
+    await prisma.sale.update({
+      where: { id: saleId },
+      data: {
+        odooSaleOrderId: odooOrderId,
+        odooSynced: true,
+        odooSyncError: null,
+      },
+    });
+  } catch (err) {
+    console.error('[Odoo] Satış sync hatası:', err);
+    await prisma.sale
+      .update({
+        where: { id: saleId },
+        data: { odooSyncError: String(err) },
+      })
+      .catch(() => {});
+  }
 
   return result;
 }

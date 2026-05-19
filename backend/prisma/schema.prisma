@@ -89,6 +89,7 @@ model Customer {
   eRx_hospital     String?
   eRx_doctor       String?
   eRx_diagnosis    String?
+  odooPartnerId    Int?
   createdAt        DateTime  @default(now())
   sales            Sale[]
   prescriptions    CustomerPrescription[]
@@ -225,6 +226,9 @@ model Sale {
   odooSaleId         String?
   syncStatus         SyncStatus @default(PENDING)
   syncError          String?
+  odooSaleOrderId    Int?
+  odooSynced         Boolean    @default(false)
+  odooSyncError      String?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
   customer Customer @relation(fields: [customerId], references: [id])

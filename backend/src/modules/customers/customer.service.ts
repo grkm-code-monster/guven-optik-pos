@@ -1,4 +1,5 @@
 import { prisma } from '../../database/prisma';
+import { syncCustomerToOdoo } from '../odoo/odoo.service';
 
 function codeError(code: string, message: string) {
   const err = new Error(code) as Error & { code: string; message: string };
@@ -87,7 +88,21 @@ export async function createCustomer(input: any) {
     },
   });
 
-  return customer;
+  try {
+    const odooPartnerId = await syncCustomerToOdoo({
+      name: customer.name,
+      phone: customer.phone,
+      identityNo: customer.identityNo ?? undefined,
+    });
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: { odooPartnerId },
+    });
+    return { ...customer, odooPartnerId };
+  } catch (err) {
+    console.error('[Odoo] Müşteri sync hatası:', err);
+    return customer;
+  }
 }
 
 export async function updateCustomer(id: string, input: any) {

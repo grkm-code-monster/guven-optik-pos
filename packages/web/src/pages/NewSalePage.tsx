@@ -130,14 +130,17 @@ export default function NewSalePage() {
     }
     setError(null)
     try {
-      await confirmSale(sale.id, pendingPayments)
+      await confirmSale(sale.id, {
+        ...pendingPayments,
+        thirdPartyAmount: pricingOverview?.thirdPartyCoverageTRY ?? 0,
+      })
       const refreshed = await getSaleById(sale.id)
       setSale(refreshed)
       setSaleConfirmed(true)
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Satış onaylanamadı')
     }
-  }, [sale?.id, pendingPayments])
+  }, [sale?.id, pendingPayments, pricingOverview?.thirdPartyCoverageTRY])
 
   const canGoToStep = (target: Step): boolean => {
     if (target === 1) return true
@@ -221,6 +224,7 @@ export default function NewSalePage() {
           <PaymentStep
             sale={sale}
             deferConfirm
+            pricingOverview={pricingOverview}
             onBack={() => setCurrentStep(3)}
             onNext={handlePaymentContinue}
           />

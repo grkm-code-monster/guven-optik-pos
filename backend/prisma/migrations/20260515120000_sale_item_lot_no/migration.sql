@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "SaleItem" ADD COLUMN IF NOT EXISTS "lotNo" TEXT;

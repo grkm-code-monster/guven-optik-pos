@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Sale } from '../../api/types'
+import type { PricingOverview } from '../../utils/sgkPricing'
 import { apiClient } from '../../api/client'
 import { confirmSale } from '../../api/sales.api'
 
@@ -29,14 +30,19 @@ export default function PaymentStep({
   onNext,
   onBack,
   deferConfirm = false,
+  pricingOverview = null,
 }: {
   sale: Sale | null
   onNext: (payload?: PendingPaymentPayload) => void
   onBack: () => void
   /** true: ödemeyi kaydetmeden sonraki adıma geç (onay adımında confirm) */
   deferConfirm?: boolean
+  pricingOverview?: PricingOverview | null
 }) {
-  const netTotal = Number(sale?.netTotal ?? 0)
+  const netTotal =
+    pricingOverview?.customerPaysTRY != null
+      ? pricingOverview.customerPaysTRY
+      : Number(sale?.netTotal ?? 0)
 
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [type, setType] = useState<UiPaymentType>('CASH')
