@@ -601,74 +601,136 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     ]);
     await execute('sale.order', 'action_confirm', [[odooOrderId]]);
 
-    // 7. Teslimatı otomatik tamamla (validate)
     try {
       const pickings = await execute(
         'stock.picking',
         'search_read',
-        [[['sale_id', '=', odooOrderId]]],
-        { fields: ['id', 'state'], limit: 5 },
+        [[['sale_id', '=', odooOrderId], ['state', 'not in', ['done', 'cancel']]]],
+        { fields: ['id', 'state'], limit: 10 },
       );
       for (const picking of pickings) {
-        if (picking.state !== 'done' && picking.state !== 'cancel') {
-          const moveLines = await execute(
-            'stock.move.line',
-            'search_read',
-            [[['picking_id', '=', picking.id]]],
-            { fields: ['id', 'reserved_qty', 'qty_done'], limit: 50 },
-          );
-          for (const ml of moveLines) {
-            await execute('stock.move.line', 'write', [[ml.id], { qty_done: ml.reserved_qty || 1 }]);
-          }
-          await execute('stock.picking', 'button_validate', [[picking.id]]);
-        }
+        await execute('stock.picking', 'button_validate', [[picking.id]]);
       }
     } catch (deliveryErr) {
       console.error('[Odoo] Teslimat hatası:', deliveryErr);
     }
 
-    // 8. Fatura oluştur
-    await execute(
-      'sale.order',
-      'action_invoice_create' in {} ? 'action_invoice_create' : '_create_invoices',
-      [[odooOrderId]],
-      {},
-      undefined,
-    );
+    try {
+      await execute(
+        'sale.advance.payment.inv',
+        'create_invoices',
+        [
+          [
+            await execute(
+              'sale.advance.payment.inv',
+              'create',
+              [{ advance_payment_method: 'delivered' }],
+              { context: { active_ids: [odooOrderId], active_model: 'sale.order', active_id: odooOrderId } },
+            ),
+          ],
+        ],
+        { context: { active_ids: [odooOrderId], active_model: 'sale.order', active_id: odooOrderId } },
+      ).catch(() => {});
 
-    await execute('sale.order', 'action_view_invoice', [[odooOrderId]]);
+      await new Promise((r) => setTimeout(r, 2000));
 
-    const invoices = await execute(
-      'account.move',
-      'search_read',
-      [[['invoice_origin', '=', `S${String(odooOrderId).padStart(5, '0')}`]]],
-      { fields: ['id', 'state', 'name'], limit: 1 },
-    );
+      console.log('[Odoo] Fatura aranıyor:', `S${String(odooOrderId).padStart(5, '0')}`);
 
-    let invoiceId: number | null = null;
-    if (invoices && invoices.length > 0) {
-      invoiceId = invoices[0].id;
-      await execute('account.move', 'action_post', [[invoiceId]]);
+      const invoices = await execute(
+        'account.move',
+        'search_read',
+        [
+          [
+            ['invoice_origin', 'like', `S${String(odooOrderId).padStart(5, '0')}`],
+            ['move_type', '=', 'out_invoice'],
+          ],
+        ],
+        { fields: ['id', 'state', 'name'], limit: 1 },
+      );
 
-      // 9. Ödemeleri kaydet
-      for (const payment of result.payments) {
-        const journalId = JOURNAL_MAP[payment.paymentType] ?? 17;
-        try {
-          await execute('account.payment', 'create', [
+      console.log('[Odoo] Bulunan faturalar:', JSON.stringify(invoices));
+
+      if (invoices && invoices.length > 0) {
+        const invoiceId = invoices[0].id;
+        if (invoices[0].state === 'draft') {
+          await execute('account.move', 'write', [
+            [invoiceId],
             {
-              payment_type: 'inbound',
-              partner_type: 'customer',
-              partner_id: odooPartnerId ?? 1,
-              amount: Number(payment.netAmount),
-              journal_id: journalId,
-              ref: `POS ${payment.paymentType} - ${saleId}`,
-              move_id: invoiceId,
+              invoice_date: new Date().toISOString().split('T')[0],
             },
           ]);
-        } catch (payErr) {
-          console.error('[Odoo] Ödeme kayıt hatası:', payErr);
+          await execute('account.move', 'action_post', [[invoiceId]]).catch((e) =>
+            console.error('[Odoo] Fatura onay hatası:', e),
+          );
+        }
+
+        const JOURNAL_MAP: Record<string, number> = {
+          CASH: 17,
+          CARD: 18,
+          BANK_TRANSFER: 19,
+          SGK: 20,
+          VAKIF: 21,
+        };
+        for (const payment of result.payments) {
+          const journalId = JOURNAL_MAP[payment.paymentType] ?? 17;
+          try {
+            const paymentId = await execute('account.payment', 'create', [
+              {
+                payment_type: 'inbound',
+                partner_type: 'customer',
+                partner_id: odooPartnerId ?? 1,
+                amount: Number(payment.netAmount),
+                journal_id: journalId,
+                ref: `POS ${payment.paymentType} - ${saleId}`,
+                date: new Date().toISOString().split('T')[0],
+              },
+            ]);
+            await execute('account.payment', 'action_post', [[paymentId]]).catch(() => {});
+            console.log('[Odoo] Ödeme oluşturuldu:', paymentId);
+
+            const paymentMoves = await execute('account.payment', 'read', [[paymentId]], {
+              fields: ['move_id'],
+            });
+            if (paymentMoves?.[0]?.move_id?.[0]) {
+              const paymentMoveId = paymentMoves[0].move_id[0];
+              const invoiceLines = await execute(
+                'account.move.line',
+                'search_read',
+                [
+                  [
+                    ['move_id', '=', invoiceId],
+                    ['account_type', 'in', ['asset_receivable']],
+                    ['reconciled', '=', false],
+                  ],
+                ],
+                { fields: ['id'], limit: 1 },
+              );
+              const paymentLines = await execute(
+                'account.move.line',
+                'search_read',
+                [
+                  [
+                    ['move_id', '=', paymentMoveId],
+                    ['account_type', 'in', ['asset_receivable']],
+                    ['reconciled', '=', false],
+                  ],
+                ],
+                { fields: ['id'], limit: 1 },
+              );
+              if (invoiceLines?.[0] && paymentLines?.[0]) {
+                await execute('account.move.line', 'reconcile', [
+                  [invoiceLines[0].id, paymentLines[0].id],
+                ]).catch((e) => console.error('[Odoo] Mutabakat hatası:', e));
+                console.log('[Odoo] Ödeme faturaya bağlandı');
+              }
+            }
+          } catch (e) {
+            console.error('[Odoo] Ödeme hatası:', e);
+          }
         }
       }
+    } catch (invErr) {
+      console.error('[Odoo] Fatura/ödeme hatası:', invErr);
     }
 
     // 10. PostgreSQL güncelle
