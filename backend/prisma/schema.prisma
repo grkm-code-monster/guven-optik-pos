@@ -1,0 +1,481 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(uuid())
+  name       String
+  username   String   @unique
+  pin        String // bcrypt hash
+  role       Role
+  branchId   String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  branch     Branch   @relation(fields: [branchId], references: [id])
+  sales      Sale[]
+  shifts     Shift[]
+}
+
+enum Role {
+  SALES_STAFF
+  STORE_MANAGER
+  REGIONAL_MANAGER
+  ACCOUNTANT
+  ADMIN
+}
+
+model Branch {
+  id       String  @id @default(uuid())
+  name     String
+  code     String  @unique
+  isActive Boolean @default(true)
+  users    User[]
+}
+
+model Customer {
+  id               String    @id @default(uuid())
+  name             String
+  phone            String    @unique
+  note             String?
+  // V2 alanları — şimdi ekle, V2'de aktive et
+  identityNo       String?
+  birthDate        DateTime?
+  sgkType          String?
+  medulaNo         String?
+  doctorName       String?
+  prescriptionNo   String?
+  hasPresciption   Boolean   @default(false)
+  // Daimi
+  far_r_pd         String?
+  far_r_sph        String?
+  far_r_cyl        String?
+  far_r_aks        String?
+  far_r_diagnosis  String?
+  far_l_pd         String?
+  far_l_sph        String?
+  far_l_cyl        String?
+  far_l_aks        String?
+  far_l_diagnosis  String?
+  // Yakın
+  near_r_pd        String?
+  near_r_sph       String?
+  near_r_cyl       String?
+  near_r_aks       String?
+  near_r_diagnosis String?
+  near_l_pd        String?
+  near_l_sph       String?
+  near_l_cyl       String?
+  near_l_aks       String?
+  near_l_diagnosis String?
+  // Lens
+  lens_r_bc        String?
+  lens_r_sph       String?
+  lens_r_cyl       String?
+  lens_r_aks       String?
+  lens_r_add       String?
+  lens_l_bc        String?
+  lens_l_sph       String?
+  lens_l_cyl       String?
+  lens_l_aks       String?
+  lens_l_add       String?
+  // E-Reçete
+  eRx_no           String?
+  eRx_date         String?
+  eRx_hospital     String?
+  eRx_doctor       String?
+  eRx_diagnosis    String?
+  createdAt        DateTime  @default(now())
+  sales            Sale[]
+  prescriptions    CustomerPrescription[]
+}
+
+model CustomerPrescription {
+  id            String   @id @default(uuid())
+  customerId    String
+  date          DateTime @default(now())
+  source        String   @default("MANUAL")
+
+  far_r_pd   String?
+  far_r_sph  String?
+  far_r_cyl  String?
+  far_r_aks  String?
+  far_r_note String?
+  far_l_pd   String?
+  far_l_sph  String?
+  far_l_cyl  String?
+  far_l_aks  String?
+  far_l_note String?
+
+  near_r_pd   String?
+  near_r_sph  String?
+  near_r_cyl  String?
+  near_r_aks  String?
+  near_r_note String?
+  near_l_pd   String?
+  near_l_sph  String?
+  near_l_cyl  String?
+  near_l_aks  String?
+  near_l_note String?
+
+  lens_r_bc   String?
+  lens_r_sph  String?
+  lens_r_cyl  String?
+  lens_r_aks  String?
+  lens_r_add  String?
+  lens_r_note String?
+  lens_l_bc   String?
+  lens_l_sph  String?
+  lens_l_cyl  String?
+  lens_l_aks  String?
+  lens_l_add  String?
+  lens_l_note String?
+
+  eRx_no        String?
+  eRx_date      String?
+  eRx_hospital  String?
+  eRx_doctor    String?
+  eRx_diagnosis String?
+
+  createdAt DateTime @default(now())
+  customer  Customer @relation(fields: [customerId], references: [id])
+}
+
+model Product {
+  id          String          @id @default(uuid())
+  barcode     String?         @unique
+  name        String
+  productType ProductType     // READY veya PRESCRIBED
+  category    ProductCategory // Ana kategori
+  subCategory String?         // Alt kategori (serbest metin)
+  group       ProductGroup?   // Fiyat/rapor grubu
+  price       Decimal         @db.Decimal(10, 2)
+  taxRate     Decimal         @db.Decimal(5, 2) @default(20)
+  brand       String?         // Marka
+  model       String?         // Model
+  isActive    Boolean         @default(true)
+  odooId      String?
+  saleItems   SaleItem[]
+}
+
+enum ProductType {
+  READY
+  PRESCRIBED
+}
+
+enum ProductCategory {
+  SUNGLASSES_READY
+  OPTICAL_FRAME_READY
+  CONTACT_LENS_READY
+  SOLUTION
+  ACCESSORY
+
+  SUNGLASSES_RX
+  OPTICAL_FRAME_RX
+  LENS_RX
+  CONTACT_LENS_RX
+}
+
+enum ProductGroup {
+  UPPER
+  UPPER_MID
+  MID
+  LOWER
+
+  PROGRESSIVE_UPPER
+  PROGRESSIVE_UPPER_MID
+  PROGRESSIVE_MID
+  PROGRESSIVE_LOWER
+  OFFICE_LENS
+  SPECIAL_LENS
+  SINGLE_CUSTOM
+  SINGLE_NON_STOCK
+  SINGLE_STOCK
+
+  CONTACT_SPH
+  CONTACT_DAILY
+  CONTACT_TORIC
+  CONTACT_MULTIFOCAL
+  CONTACT_COLORED_RX
+}
+
+model Sale {
+  id                 String     @id @default(uuid())
+  customerId         String
+  userId             String // satışı yapan personel
+  branchId           String
+  shiftId            String
+  grossTotal         Decimal    @db.Decimal(10, 2)
+  discountTotal      Decimal    @db.Decimal(10, 2) @default(0)
+  netTotal           Decimal    @db.Decimal(10, 2)
+  taxTotal           Decimal    @db.Decimal(10, 2)
+  status             SaleStatus @default(DRAFT)
+  // VOID alanları
+  voidReason         String?
+  voidUserId         String?
+  voidAt             DateTime?
+  // V2 SGK alanları — şimdi ekle
+  prescriptionAmount Decimal?   @db.Decimal(10, 2)
+  sgkAmount          Decimal?   @db.Decimal(10, 2)
+  // Odoo sync
+  odooSaleId         String?
+  syncStatus         SyncStatus @default(PENDING)
+  syncError          String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  customer Customer @relation(fields: [customerId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+  shift    Shift    @relation(fields: [shiftId], references: [id])
+  items    SaleItem[]
+  payments Payment[]
+}
+
+enum SaleStatus {
+  DRAFT
+  PAID
+  ORDERED
+  IN_LAB
+  READY
+  DELIVERED
+  VOID
+}
+
+enum SyncStatus {
+  PENDING
+  SYNCED
+  ERROR
+  CONFLICT
+}
+
+model SaleItem {
+  id              String  @id @default(uuid())
+  saleId          String
+  productId       String
+  odooCategoryId  Int?
+  odooProductId   String?
+  odooProductName String?
+  lotNo           String?
+  qty             Int     @default(1)
+  unitPrice       Decimal @db.Decimal(10, 2)
+  discount        Decimal @db.Decimal(10, 2) @default(0)
+  taxAmount       Decimal @db.Decimal(10, 2)
+  lineTotal       Decimal @db.Decimal(10, 2)
+
+  linkedItemId String?
+  linkType     LinkType?
+
+  prescription Prescription?
+  frames       Frame[]
+
+  status ItemStatus @default(PENDING)
+
+  sale    Sale    @relation(fields: [saleId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+enum LinkType {
+  FRAME_LENS
+  CUSTOMER_FRAME
+}
+
+enum ItemStatus {
+  PENDING
+  ORDERED
+  IN_LAB
+  READY
+  DELIVERED
+  VOID
+}
+
+model Prescription {
+  id               String             @id @default(uuid())
+  saleItemId       String             @unique
+  prescriptionType PrescriptionType
+
+  r_pd   Decimal? @db.Decimal(5, 2)
+  r_sph  Decimal? @db.Decimal(5, 2)
+  r_cyl  Decimal? @db.Decimal(5, 2)
+  r_aks  Int?
+  r_add  Decimal? @db.Decimal(5, 2)
+
+  l_pd   Decimal? @db.Decimal(5, 2)
+  l_sph  Decimal? @db.Decimal(5, 2)
+  l_cyl  Decimal? @db.Decimal(5, 2)
+  l_aks  Int?
+  l_add  Decimal? @db.Decimal(5, 2)
+
+  near_r_sph Decimal? @db.Decimal(5, 2)
+  near_l_sph Decimal? @db.Decimal(5, 2)
+
+  lens_r_sph   Decimal? @db.Decimal(5, 2)
+  lens_r_cyl   Decimal? @db.Decimal(5, 2)
+  lens_r_aks   Int?
+  lens_r_bc    Decimal? @db.Decimal(5, 2)
+  lens_r_dia   Decimal? @db.Decimal(5, 2)
+  lens_r_add   Decimal? @db.Decimal(5, 2)
+  lens_r_color String?
+  lens_r_brand String?
+
+  lens_l_sph   Decimal? @db.Decimal(5, 2)
+  lens_l_cyl   Decimal? @db.Decimal(5, 2)
+  lens_l_aks   Int?
+  lens_l_bc    Decimal? @db.Decimal(5, 2)
+  lens_l_dia   Decimal? @db.Decimal(5, 2)
+  lens_l_add   Decimal? @db.Decimal(5, 2)
+  lens_l_color String?
+  lens_l_brand String?
+
+  solution    String?
+  solutionQty Int?
+
+  prescriptionSource PrescriptionSource @default(MANUAL)
+  doctorName         String?
+  prescriptionDate   DateTime?
+  eReceteCode        String?
+
+  saleItem SaleItem @relation(fields: [saleItemId], references: [id])
+}
+
+enum PrescriptionType {
+  SINGLE
+  PROGRESSIVE
+  BIFOCAL
+  SUNGLASSES
+  CONTACT_LENS
+}
+
+enum PrescriptionSource {
+  MANUAL
+  DOCTOR_RX
+  OLD_GLASSES
+}
+
+model Frame {
+  id        String @id @default(uuid())
+  saleItemId String
+  sortOrder Int    @default(1)
+
+  barcode String?
+  brand   String?
+  model   String?
+
+  h          Decimal? @db.Decimal(5, 2)
+  cap        Decimal? @db.Decimal(5, 2)
+  vertex     Decimal? @db.Decimal(5, 2)
+  pantos     Decimal? @db.Decimal(5, 2)
+  frameAngle Decimal? @db.Decimal(5, 2)
+
+  saleItem SaleItem @relation(fields: [saleItemId], references: [id])
+}
+model Payment {
+  id               String      @id @default(uuid())
+  saleId           String
+  paymentType      PaymentType
+  bankId           String? // sadece CARD için
+  posDeviceId      String? // sadece CARD için
+  installment      Int? // taksit sayısı
+  grossAmount      Decimal     @db.Decimal(10, 2)
+  commissionRate   Decimal?    @db.Decimal(5, 4) // örn: 0.0400
+  commissionAmount Decimal?    @db.Decimal(10, 2)
+  netAmount        Decimal     @db.Decimal(10, 2)
+  createdAt        DateTime    @default(now())
+  sale             Sale        @relation(fields: [saleId], references: [id])
+}
+
+enum PaymentType {
+  CASH
+  CARD
+  TRANSFER
+  OPEN_ACCOUNT
+}
+
+model Bank {
+  id         String              @id @default(uuid())
+  name       String
+  isActive   Boolean             @default(true)
+  posDevices PosDevice[]
+  rates      InstallmentRate[]
+}
+
+model PosDevice {
+  id       String  @id @default(uuid())
+  bankId   String
+  branchId String
+  name     String
+  isActive Boolean @default(true)
+  bank     Bank    @relation(fields: [bankId], references: [id])
+}
+
+model InstallmentRate {
+  id             String    @id @default(uuid())
+  bankId         String
+  installment    Int // 1, 3, 6, 9, 12
+  commissionRate Decimal   @db.Decimal(5, 4) // örn: 0.0400 = %4
+  startDate      DateTime
+  endDate        DateTime?
+  bank           Bank      @relation(fields: [bankId], references: [id])
+}
+
+model CashMovement {
+  id          String           @id @default(uuid())
+  branchId    String
+  shiftId     String
+  userId      String
+  type        CashMovementType
+  amount      Decimal          @db.Decimal(10, 2)
+  description String
+  createdAt   DateTime         @default(now())
+}
+
+enum CashMovementType {
+  CASH_IN
+  CASH_OUT
+  ADVANCE
+  TRANSFER_OUT
+}
+
+model Shift {
+  id           String      @id @default(uuid())
+  branchId     String
+  userId       String // vardiyayı açan kişi
+  openCash     Decimal     @db.Decimal(10, 2)
+  closeCash    Decimal?    @db.Decimal(10, 2)
+  physicalCash Decimal?    @db.Decimal(10, 2) // gün sonu sayılan
+  diff         Decimal?    @db.Decimal(10, 2) // fiziki - hesaplanan
+  diffReason   String?
+  status       ShiftStatus @default(OPEN)
+  openedAt     DateTime    @default(now())
+  closedAt     DateTime?
+  user  User   @relation(fields: [userId], references: [id])
+  sales Sale[]
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+model SyncLog {
+  id        String   @id @default(uuid())
+  saleId    String?
+  action    String // create_order, create_payment, stock_move
+  status    String // success, error, conflict
+  payload   Json
+  response  Json?
+  error     String?
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  entity    String
+  entityId  String
+  payload   Json
+  createdAt DateTime @default(now())
+}

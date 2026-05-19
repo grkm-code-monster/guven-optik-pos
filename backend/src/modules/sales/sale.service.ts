@@ -1,0 +1,595 @@
+import {
+  CashMovementType,
+  ItemStatus,
+  PaymentType,
+  Prisma,
+  ProductCategory,
+  ProductType,
+  Role,
+  SaleStatus,
+  ShiftStatus,
+} from '@prisma/client';
+import { prisma } from '../../database/prisma';
+import { calculateCommission } from '../payments/commission.service';
+import type { AddSaleItemInputType, ConfirmSaleInputType, CreateSaleInputType, VoidSaleInputType } from './sale.types';
+
+function codeError(code: string, message: string) {
+  const err = new Error(code) as Error & { code: string; message: string };
+  err.code = code;
+  err.message = message;
+  return err;
+}
+
+function calcNearSph(farSph: Prisma.Decimal, add: Prisma.Decimal): Prisma.Decimal {
+  return farSph.plus(add);
+}
+
+const ODOO_PLACEHOLDER_NAME = '__ODOO_PLACEHOLDER__';
+let odooPlaceholderProductIdCache: string | null = null;
+
+async function getOdooPlaceholderProduct() {
+  if (odooPlaceholderProductIdCache) {
+    const cached = await prisma.product.findUnique({ where: { id: odooPlaceholderProductIdCache } });
+    if (cached) return cached;
+    odooPlaceholderProductIdCache = null;
+  }
+  const existing = await prisma.product.findFirst({ where: { name: ODOO_PLACEHOLDER_NAME } });
+  if (existing) {
+    odooPlaceholderProductIdCache = existing.id;
+    return existing;
+  }
+  const created = await prisma.product.create({
+    data: {
+      name: ODOO_PLACEHOLDER_NAME,
+      productType: ProductType.READY,
+      category: ProductCategory.ACCESSORY,
+      price: new Prisma.Decimal(0),
+      taxRate: new Prisma.Decimal(0),
+      isActive: false,
+    },
+  });
+  odooPlaceholderProductIdCache = created.id;
+  return created;
+}
+
+async function resolveProductForInput(input: AddSaleItemInputType) {
+  const raw = input.productId;
+  const isOdoo = typeof raw === 'string' && raw.startsWith('odoo_');
+  if (isOdoo) {
+    const odooId = (input.odooProductId ?? raw.replace(/^odoo_/, '')) || null;
+    const odooName = input.odooProductName ?? null;
+    const local = await prisma.product.findUnique({ where: { id: raw } });
+    if (local?.isActive) {
+      return {
+        product: local,
+        resolvedProductId: local.id,
+        resolvedOdooProductId: odooId,
+        resolvedOdooProductName: odooName,
+        isOdooPlaceholder: false,
+      };
+    }
+    const placeholder = await getOdooPlaceholderProduct();
+    return {
+      product: placeholder,
+      resolvedProductId: placeholder.id,
+      resolvedOdooProductId: odooId,
+      resolvedOdooProductName: odooName,
+      isOdooPlaceholder: true,
+    };
+  }
+  const local = await prisma.product.findUnique({ where: { id: raw } });
+  if (!local?.isActive) throw codeError('PRODUCT_NOT_FOUND', 'Ürün bulunamadı.');
+  return {
+    product: local,
+    resolvedProductId: local.id,
+    resolvedOdooProductId: input.odooProductId ?? null,
+    resolvedOdooProductName: input.odooProductName ?? null,
+    isOdooPlaceholder: false,
+  };
+}
+
+function isLensCategory(product: { category: ProductCategory }, input: AddSaleItemInputType) {
+  if (product.category === ProductCategory.LENS_RX) return true;
+  if (input.odooCategoryId != null && input.linkType) return true;
+  return false;
+}
+
+async function recalcSaleTotals(
+  db: Prisma.TransactionClient | typeof prisma,
+  saleId: string,
+) {
+  const items = await db.saleItem.findMany({
+    where: { saleId, status: { not: ItemStatus.VOID } },
+    select: { unitPrice: true, qty: true, discount: true, taxAmount: true },
+  });
+
+  const grossTotal = items.reduce(
+    (acc, it) => acc.plus(it.unitPrice.times(it.qty)),
+    new Prisma.Decimal(0),
+  );
+  const discountTotal = items.reduce((acc, it) => acc.plus(it.discount), new Prisma.Decimal(0));
+  const taxTotal = items.reduce((acc, it) => acc.plus(it.taxAmount), new Prisma.Decimal(0));
+  const netTotal = grossTotal.minus(discountTotal).plus(taxTotal);
+
+  return db.sale.update({
+    where: { id: saleId },
+    data: { grossTotal, discountTotal, taxTotal, netTotal },
+  });
+}
+
+export async function createSale(userId: string, branchId: string, input: CreateSaleInputType) {
+  const shift = await prisma.shift.findUnique({ where: { id: input.shiftId } });
+  if (!shift || shift.status !== ShiftStatus.OPEN || shift.branchId !== branchId) {
+    throw codeError('SHIFT_NOT_OPEN', 'Vardiya açık olmalı.');
+  }
+
+  return prisma.sale.create({
+    data: {
+      customerId: input.customerId,
+      userId,
+      branchId,
+      shiftId: input.shiftId,
+      grossTotal: new Prisma.Decimal(0),
+      discountTotal: new Prisma.Decimal(0),
+      netTotal: new Prisma.Decimal(0),
+      taxTotal: new Prisma.Decimal(0),
+      status: SaleStatus.DRAFT,
+    },
+  });
+}
+
+export async function addSaleItem(saleId: string, input: AddSaleItemInputType) {
+  const sale = await prisma.sale.findUnique({ where: { id: saleId } });
+  if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
+  if (sale.status !== SaleStatus.DRAFT) throw codeError('SALE_NOT_EDITABLE', 'Satış düzenlenemez.');
+
+  const { product, resolvedProductId, resolvedOdooProductId, resolvedOdooProductName, isOdooPlaceholder } =
+    await resolveProductForInput(input);
+
+  if (isLensCategory(product, input)) {
+    const hasLinked = Boolean(input.linkedItemId);
+    const hasCustomerFrame = input.linkType === 'CUSTOMER_FRAME';
+    if (!hasLinked && !hasCustomerFrame) {
+      throw codeError('LENS_REQUIRES_FRAME_LINK', 'Cam kalemi bir çerçeveye bağlı olmalı.');
+    }
+  }
+
+  const unitPrice = new Prisma.Decimal(input.unitPrice);
+  const discount = new Prisma.Decimal(input.discount);
+  const qty = input.qty;
+  const taxRate = isOdooPlaceholder
+    ? new Prisma.Decimal(20)
+    : new Prisma.Decimal(product.taxRate.toString());
+
+  const base = unitPrice.times(qty);
+  const taxAmount = base.times(taxRate.div(100));
+  const lineTotal = base.minus(discount).plus(taxAmount);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const saleItem = await tx.saleItem.create({
+      data: {
+        saleId,
+        productId: resolvedProductId,
+        odooCategoryId: input.odooCategoryId ?? null,
+        odooProductId: resolvedOdooProductId,
+        odooProductName: resolvedOdooProductName,
+        lotNo: input.lotNo?.trim() || null,
+        qty,
+        unitPrice,
+        discount,
+        taxAmount,
+        lineTotal,
+        linkedItemId: input.linkedItemId,
+        linkType: input.linkType,
+        status: ItemStatus.PENDING,
+      },
+    });
+
+    let prescription = null as any;
+    let prescriptionMissing = false;
+
+    if (product.productType === ProductType.PRESCRIBED) {
+      if (input.prescription) {
+        const r_sph = input.prescription.r_sph ? new Prisma.Decimal(input.prescription.r_sph) : null;
+        const r_add = input.prescription.r_add ? new Prisma.Decimal(input.prescription.r_add) : null;
+        const l_sph = input.prescription.l_sph ? new Prisma.Decimal(input.prescription.l_sph) : null;
+        const l_add = input.prescription.l_add ? new Prisma.Decimal(input.prescription.l_add) : null;
+
+        const near_r_sph =
+          r_sph && r_add ? calcNearSph(r_sph, r_add) : (input.prescription.near_r_sph ? new Prisma.Decimal(input.prescription.near_r_sph) : null);
+        const near_l_sph =
+          l_sph && l_add ? calcNearSph(l_sph, l_add) : (input.prescription.near_l_sph ? new Prisma.Decimal(input.prescription.near_l_sph) : null);
+
+        prescription = await tx.prescription.create({
+          data: {
+            saleItemId: saleItem.id,
+            prescriptionType: input.prescription.prescriptionType,
+            prescriptionSource: input.prescription.prescriptionSource,
+            doctorName: input.prescription.doctorName,
+            prescriptionDate: input.prescription.prescriptionDate ? new Date(input.prescription.prescriptionDate) : undefined,
+            eReceteCode: input.prescription.eReceteCode,
+
+            r_pd: input.prescription.r_pd ? new Prisma.Decimal(input.prescription.r_pd) : undefined,
+            r_sph: input.prescription.r_sph ? new Prisma.Decimal(input.prescription.r_sph) : undefined,
+            r_cyl: input.prescription.r_cyl ? new Prisma.Decimal(input.prescription.r_cyl) : undefined,
+            r_aks: input.prescription.r_aks,
+            r_add: input.prescription.r_add ? new Prisma.Decimal(input.prescription.r_add) : undefined,
+
+            l_pd: input.prescription.l_pd ? new Prisma.Decimal(input.prescription.l_pd) : undefined,
+            l_sph: input.prescription.l_sph ? new Prisma.Decimal(input.prescription.l_sph) : undefined,
+            l_cyl: input.prescription.l_cyl ? new Prisma.Decimal(input.prescription.l_cyl) : undefined,
+            l_aks: input.prescription.l_aks,
+            l_add: input.prescription.l_add ? new Prisma.Decimal(input.prescription.l_add) : undefined,
+
+            near_r_sph: near_r_sph ?? undefined,
+            near_l_sph: near_l_sph ?? undefined,
+
+            lens_r_sph: input.prescription.lens_r_sph ? new Prisma.Decimal(input.prescription.lens_r_sph) : undefined,
+            lens_r_cyl: input.prescription.lens_r_cyl ? new Prisma.Decimal(input.prescription.lens_r_cyl) : undefined,
+            lens_r_aks: input.prescription.lens_r_aks,
+            lens_r_bc: input.prescription.lens_r_bc ? new Prisma.Decimal(input.prescription.lens_r_bc) : undefined,
+            lens_r_dia: input.prescription.lens_r_dia ? new Prisma.Decimal(input.prescription.lens_r_dia) : undefined,
+            lens_r_add: input.prescription.lens_r_add ? new Prisma.Decimal(input.prescription.lens_r_add) : undefined,
+            lens_r_color: input.prescription.lens_r_color,
+            lens_r_brand: input.prescription.lens_r_brand,
+
+            lens_l_sph: input.prescription.lens_l_sph ? new Prisma.Decimal(input.prescription.lens_l_sph) : undefined,
+            lens_l_cyl: input.prescription.lens_l_cyl ? new Prisma.Decimal(input.prescription.lens_l_cyl) : undefined,
+            lens_l_aks: input.prescription.lens_l_aks,
+            lens_l_bc: input.prescription.lens_l_bc ? new Prisma.Decimal(input.prescription.lens_l_bc) : undefined,
+            lens_l_dia: input.prescription.lens_l_dia ? new Prisma.Decimal(input.prescription.lens_l_dia) : undefined,
+            lens_l_add: input.prescription.lens_l_add ? new Prisma.Decimal(input.prescription.lens_l_add) : undefined,
+            lens_l_color: input.prescription.lens_l_color,
+            lens_l_brand: input.prescription.lens_l_brand,
+
+            solution: input.prescription.solution,
+            solutionQty: input.prescription.solutionQty,
+          },
+        });
+      } else {
+        prescriptionMissing = true;
+      }
+    }
+
+    let frames = [] as any[];
+    if (input.frames?.length) {
+      frames = await Promise.all(
+        input.frames.map((f) =>
+          tx.frame.create({
+            data: {
+              saleItemId: saleItem.id,
+              sortOrder: f.sortOrder,
+              barcode: f.barcode,
+              brand: f.brand,
+              model: f.model,
+              h: f.h ? new Prisma.Decimal(f.h) : undefined,
+              cap: f.cap ? new Prisma.Decimal(f.cap) : undefined,
+              vertex: f.vertex ? new Prisma.Decimal(f.vertex) : undefined,
+              pantos: f.pantos ? new Prisma.Decimal(f.pantos) : undefined,
+              frameAngle: f.frameAngle ? new Prisma.Decimal(f.frameAngle) : undefined,
+            },
+          }),
+        ),
+      );
+    }
+
+    await recalcSaleTotals(tx, saleId);
+
+    return { saleItem, prescription, frames, prescription_missing: prescriptionMissing };
+  });
+
+  return result;
+}
+
+export async function updateSaleItem(saleItemId: string, input: AddSaleItemInputType) {
+  const saleItem = await prisma.saleItem.findUnique({ where: { id: saleItemId }, include: { sale: true, product: true } });
+  if (!saleItem) throw codeError('SALE_ITEM_NOT_FOUND', 'Kalem bulunamadı.');
+  if (saleItem.sale.status !== SaleStatus.DRAFT) throw codeError('SALE_NOT_EDITABLE', 'Satış düzenlenemez.');
+
+  const { product, resolvedProductId, resolvedOdooProductId, resolvedOdooProductName, isOdooPlaceholder } =
+    await resolveProductForInput(input);
+
+  if (isLensCategory(product, input)) {
+    const hasLinked = Boolean(input.linkedItemId);
+    const hasCustomerFrame = input.linkType === 'CUSTOMER_FRAME';
+    if (!hasLinked && !hasCustomerFrame) {
+      throw codeError('LENS_REQUIRES_FRAME_LINK', 'Cam kalemi bir çerçeveye bağlı olmalı.');
+    }
+  }
+
+  const unitPrice = new Prisma.Decimal(input.unitPrice);
+  const discount = new Prisma.Decimal(input.discount);
+  const qty = input.qty;
+  const taxRate = isOdooPlaceholder
+    ? new Prisma.Decimal(20)
+    : new Prisma.Decimal(product.taxRate.toString());
+  const base = unitPrice.times(qty);
+  const taxAmount = base.times(taxRate.div(100));
+  const lineTotal = base.minus(discount).plus(taxAmount);
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const upd = await tx.saleItem.update({
+      where: { id: saleItemId },
+      data: {
+        productId: resolvedProductId,
+        odooCategoryId: input.odooCategoryId ?? null,
+        odooProductId: resolvedOdooProductId,
+        odooProductName: resolvedOdooProductName,
+        lotNo: input.lotNo?.trim() || null,
+        qty,
+        unitPrice,
+        discount,
+        taxAmount,
+        lineTotal,
+        linkedItemId: input.linkedItemId,
+        linkType: input.linkType,
+      },
+    });
+
+    await tx.prescription.deleteMany({ where: { saleItemId: saleItemId } });
+    if (product.productType === ProductType.PRESCRIBED && input.prescription) {
+      const r_sph = input.prescription.r_sph ? new Prisma.Decimal(input.prescription.r_sph) : null;
+      const r_add = input.prescription.r_add ? new Prisma.Decimal(input.prescription.r_add) : null;
+      const l_sph = input.prescription.l_sph ? new Prisma.Decimal(input.prescription.l_sph) : null;
+      const l_add = input.prescription.l_add ? new Prisma.Decimal(input.prescription.l_add) : null;
+
+      const near_r_sph = r_sph && r_add ? calcNearSph(r_sph, r_add) : (input.prescription.near_r_sph ? new Prisma.Decimal(input.prescription.near_r_sph) : null);
+      const near_l_sph = l_sph && l_add ? calcNearSph(l_sph, l_add) : (input.prescription.near_l_sph ? new Prisma.Decimal(input.prescription.near_l_sph) : null);
+
+      await tx.prescription.create({
+        data: {
+          saleItemId: upd.id,
+          prescriptionType: input.prescription.prescriptionType,
+          prescriptionSource: input.prescription.prescriptionSource,
+          doctorName: input.prescription.doctorName,
+          prescriptionDate: input.prescription.prescriptionDate ? new Date(input.prescription.prescriptionDate) : undefined,
+          eReceteCode: input.prescription.eReceteCode,
+          r_pd: input.prescription.r_pd ? new Prisma.Decimal(input.prescription.r_pd) : undefined,
+          r_sph: input.prescription.r_sph ? new Prisma.Decimal(input.prescription.r_sph) : undefined,
+          r_cyl: input.prescription.r_cyl ? new Prisma.Decimal(input.prescription.r_cyl) : undefined,
+          r_aks: input.prescription.r_aks,
+          r_add: input.prescription.r_add ? new Prisma.Decimal(input.prescription.r_add) : undefined,
+          l_pd: input.prescription.l_pd ? new Prisma.Decimal(input.prescription.l_pd) : undefined,
+          l_sph: input.prescription.l_sph ? new Prisma.Decimal(input.prescription.l_sph) : undefined,
+          l_cyl: input.prescription.l_cyl ? new Prisma.Decimal(input.prescription.l_cyl) : undefined,
+          l_aks: input.prescription.l_aks,
+          l_add: input.prescription.l_add ? new Prisma.Decimal(input.prescription.l_add) : undefined,
+          near_r_sph: near_r_sph ?? undefined,
+          near_l_sph: near_l_sph ?? undefined,
+          lens_r_sph: input.prescription.lens_r_sph ? new Prisma.Decimal(input.prescription.lens_r_sph) : undefined,
+          lens_r_cyl: input.prescription.lens_r_cyl ? new Prisma.Decimal(input.prescription.lens_r_cyl) : undefined,
+          lens_r_aks: input.prescription.lens_r_aks,
+          lens_r_bc: input.prescription.lens_r_bc ? new Prisma.Decimal(input.prescription.lens_r_bc) : undefined,
+          lens_r_dia: input.prescription.lens_r_dia ? new Prisma.Decimal(input.prescription.lens_r_dia) : undefined,
+          lens_r_add: input.prescription.lens_r_add ? new Prisma.Decimal(input.prescription.lens_r_add) : undefined,
+          lens_r_color: input.prescription.lens_r_color,
+          lens_r_brand: input.prescription.lens_r_brand,
+          lens_l_sph: input.prescription.lens_l_sph ? new Prisma.Decimal(input.prescription.lens_l_sph) : undefined,
+          lens_l_cyl: input.prescription.lens_l_cyl ? new Prisma.Decimal(input.prescription.lens_l_cyl) : undefined,
+          lens_l_aks: input.prescription.lens_l_aks,
+          lens_l_bc: input.prescription.lens_l_bc ? new Prisma.Decimal(input.prescription.lens_l_bc) : undefined,
+          lens_l_dia: input.prescription.lens_l_dia ? new Prisma.Decimal(input.prescription.lens_l_dia) : undefined,
+          lens_l_add: input.prescription.lens_l_add ? new Prisma.Decimal(input.prescription.lens_l_add) : undefined,
+          lens_l_color: input.prescription.lens_l_color,
+          lens_l_brand: input.prescription.lens_l_brand,
+          solution: input.prescription.solution,
+          solutionQty: input.prescription.solutionQty,
+        },
+      });
+    }
+
+    await tx.frame.deleteMany({ where: { saleItemId: saleItemId } });
+    if (input.frames?.length) {
+      await Promise.all(
+        input.frames.map((f) =>
+          tx.frame.create({
+            data: {
+              saleItemId: upd.id,
+              sortOrder: f.sortOrder,
+              barcode: f.barcode,
+              brand: f.brand,
+              model: f.model,
+              h: f.h ? new Prisma.Decimal(f.h) : undefined,
+              cap: f.cap ? new Prisma.Decimal(f.cap) : undefined,
+              vertex: f.vertex ? new Prisma.Decimal(f.vertex) : undefined,
+              pantos: f.pantos ? new Prisma.Decimal(f.pantos) : undefined,
+              frameAngle: f.frameAngle ? new Prisma.Decimal(f.frameAngle) : undefined,
+            },
+          }),
+        ),
+      );
+    }
+
+    await recalcSaleTotals(tx, upd.saleId);
+    return upd;
+  });
+
+  return updated;
+}
+
+export async function removeSaleItem(saleItemId: string) {
+  const saleItem = await prisma.saleItem.findUnique({ where: { id: saleItemId }, include: { sale: true } });
+  if (!saleItem) throw codeError('SALE_ITEM_NOT_FOUND', 'Kalem bulunamadı.');
+  if (saleItem.sale.status !== SaleStatus.DRAFT) throw codeError('SALE_NOT_EDITABLE', 'Satış düzenlenemez.');
+
+  await prisma.saleItem.update({
+    where: { id: saleItemId },
+    data: { status: ItemStatus.VOID },
+  });
+
+  await recalcSaleTotals(prisma, saleItem.saleId);
+  return { ok: true };
+}
+
+export async function updateSaleItemStatus(saleItemId: string, status: ItemStatus) {
+  const saleItem = await prisma.saleItem.update({
+    where: { id: saleItemId },
+    data: { status },
+  });
+  return saleItem;
+}
+
+export async function confirmSale(saleId: string, userId: string, role: Role, input: ConfirmSaleInputType) {
+  const sale = await prisma.sale.findUnique({ where: { id: saleId } });
+  if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
+  if (sale.status !== SaleStatus.DRAFT) throw codeError('SALE_NOT_EDITABLE', 'Satış düzenlenemez.');
+
+  const now = new Date();
+  const paymentsToCreate: Array<{
+    saleId: string;
+    paymentType: PaymentType;
+    bankId: string | null;
+    posDeviceId: string | null;
+    installment: number | null;
+    grossAmount: Prisma.Decimal;
+    commissionRate: Prisma.Decimal | null;
+    commissionAmount: Prisma.Decimal | null;
+    netAmount: Prisma.Decimal;
+  }> = [];
+  const cashMovementsToCreate: Array<{
+    branchId: string;
+    shiftId: string;
+    userId: string;
+    type: CashMovementType;
+    amount: Prisma.Decimal;
+    description: string;
+  }> = [];
+
+  for (const p of input.payments) {
+    if (p.paymentType === PaymentType.CARD) {
+      if (!p.bankId || !p.posDeviceId || !p.installment) {
+        throw codeError('CARD_PAYMENT_FIELDS_REQUIRED', 'Kart ödemesi için bankId, posDeviceId ve installment zorunludur.');
+      }
+      const commission = await calculateCommission(p.bankId, p.installment, p.grossAmount, now);
+      paymentsToCreate.push({
+        saleId,
+        paymentType: p.paymentType,
+        bankId: p.bankId,
+        posDeviceId: p.posDeviceId,
+        installment: p.installment,
+        grossAmount: new Prisma.Decimal(p.grossAmount),
+        commissionRate: new Prisma.Decimal(commission.commissionRate),
+        commissionAmount: new Prisma.Decimal(commission.commissionAmount),
+        netAmount: new Prisma.Decimal(commission.netAmount),
+      });
+    } else {
+      paymentsToCreate.push({
+        saleId,
+        paymentType: p.paymentType,
+        bankId: null,
+        posDeviceId: null,
+        installment: null,
+        grossAmount: new Prisma.Decimal(p.grossAmount),
+        commissionRate: null,
+        commissionAmount: null,
+        netAmount: new Prisma.Decimal(p.grossAmount),
+      });
+
+      if (p.paymentType === PaymentType.CASH) {
+        cashMovementsToCreate.push({
+          branchId: sale.branchId,
+          shiftId: sale.shiftId,
+          userId,
+          type: CashMovementType.CASH_IN,
+          amount: new Prisma.Decimal(p.grossAmount),
+          description: `SALE_CASH_PAYMENT:${saleId}`,
+        });
+      }
+    }
+  }
+
+  const totalPayments = paymentsToCreate.reduce(
+    (acc, p) => acc.plus(p.netAmount),
+    new Prisma.Decimal(0),
+  );
+
+  const diff = totalPayments.minus(sale.netTotal).abs();
+  if (diff.greaterThan(new Prisma.Decimal('0.01'))) {
+    throw codeError('PAYMENT_AMOUNT_MISMATCH', 'Ödeme tutarı satış toplamı ile eşleşmiyor.');
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.payment.createMany({ data: paymentsToCreate });
+    if (cashMovementsToCreate.length) {
+      await tx.cashMovement.createMany({ data: cashMovementsToCreate });
+    }
+    const updatedSale = await tx.sale.update({
+      where: { id: saleId },
+      data: { status: SaleStatus.PAID },
+    });
+    const payments = await tx.payment.findMany({ where: { saleId } });
+    return { sale: updatedSale, payments };
+  });
+
+  return result;
+}
+
+export async function voidSale(saleId: string, userId: string, role: Role, input: VoidSaleInputType) {
+  if (role !== Role.STORE_MANAGER && role !== Role.ADMIN) {
+    throw codeError('INSUFFICIENT_PERMISSION', 'Bu işlem için yetkiniz yok.');
+  }
+
+  const sale = await prisma.sale.findUnique({ where: { id: saleId } });
+  if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
+  if (sale.status === SaleStatus.VOID) throw codeError('SALE_ALREADY_VOID', 'Satış zaten iptal.');
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const s = await tx.sale.update({
+      where: { id: saleId },
+      data: {
+        status: SaleStatus.VOID,
+        voidReason: input.voidReason,
+        voidUserId: userId,
+        voidAt: new Date(),
+      },
+    });
+    await tx.saleItem.updateMany({
+      where: { saleId },
+      data: { status: ItemStatus.VOID },
+    });
+    return s;
+  });
+
+  return updated;
+}
+
+export async function getSales(branchId: string, filters?: any) {
+  const where: any = { branchId };
+  if (filters?.status) where.status = filters.status;
+  if (filters?.customerId) where.customerId = filters.customerId;
+  if (filters?.dateFrom || filters?.dateTo) {
+    where.createdAt = {};
+    if (filters.dateFrom) where.createdAt.gte = new Date(filters.dateFrom);
+    if (filters.dateTo) where.createdAt.lte = new Date(filters.dateTo);
+  }
+
+  const sales = await prisma.sale.findMany({
+    where,
+    include: {
+      customer: { select: { name: true, phone: true } },
+      _count: { select: { items: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+
+  return sales.map((s) => ({
+    ...s,
+    itemsCount: s._count.items,
+    _count: undefined,
+  }));
+}
+
+export async function getSaleById(saleId: string) {
+  const sale = await prisma.sale.findUnique({
+    where: { id: saleId },
+    include: {
+      customer: true,
+      items: { include: { prescription: true, frames: true, product: true } },
+      payments: true,
+    },
+  });
+  if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
+  return sale;
+}
+

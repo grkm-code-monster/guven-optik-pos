@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-brand-red: #C8102E;
+  --color-brand-red2: #a50d25;
+  --color-brand-light: #fdf2f4;
+  --color-brand-mid: #fce8ec;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: #f3f4f6;
+  color: #111827;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Transfer */
+.transfer-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.tab {
+  padding: 8px 20px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+.tab-active {
+  padding: 8px 20px;
+  border-radius: 6px;
+  background: #c8102e;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+.banner-warning {
+  background: #fff8e1;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #92400e;
+  margin-bottom: 12px;
+}
+.banner-success {
+  background: #f0fdf4;
+  border: 1px solid #22c55e;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #166534;
+  margin-bottom: 12px;
+}
+.uts-ok {
+  background: #dcfce7;
+  color: #166534;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.uts-wait {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.transfer-kart {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  background: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.transfer-kart-baslik {
+  font-weight: 600;
+  font-size: 14px;
+}
+.transfer-kart-meta {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+.btn-kabul {
+  background: #c8102e;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn-detay {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-right: 6px;
+}
