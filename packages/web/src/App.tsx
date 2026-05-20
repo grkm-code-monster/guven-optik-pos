@@ -9,6 +9,7 @@ import TransferlerPage from './pages/TransferlerPage'
 import SettingsPage from './pages/SettingsPage'
 import ShiftOpenPage from './pages/ShiftOpenPage'
 import MasraflarPage from './pages/MasraflarPage'
+import AcikHesapPage from './pages/AcikHesapPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="reports" element={<ReportsPage />} />
           <Route path="transferler" element={<TransferlerPage />} />
           <Route path="masraflar" element={<MasraflarPage />} />
+          <Route path="acik-hesap" element={<AcikHesapPage />} />
           <Route
             path="settings"
             element={
