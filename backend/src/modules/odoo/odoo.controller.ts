@@ -61,4 +61,18 @@ router.get('/products/barcode/:barcode', async (req: Request, res: Response, nex
   }
 });
 
+router.get('/taxes', async (req, res) => {
+  try {
+    const taxes = await execute(
+      'account.tax',
+      'search_read',
+      [[['type_tax_use', '=', 'sale'], ['active', '=', true]]],
+      { fields: ['id', 'name', 'amount'], limit: 50 },
+    );
+    res.json({ success: true, data: taxes });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;

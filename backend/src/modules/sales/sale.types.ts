@@ -81,12 +81,16 @@ export const AddSaleItemInput = z.object({
   qty: z.number().int().min(1).optional().default(1),
   unitPrice: decimalString,
   discount: decimalString.optional().default('0'),
+  taxRate: z.number().min(0).max(100).optional(),
   linkedItemId: z.string().uuid().optional(),
   linkType: z.nativeEnum(LinkType).optional(),
   prescription: PrescriptionInput.optional(),
   frames: z.array(FrameInput).optional(),
 });
 export type AddSaleItemInputType = z.infer<typeof AddSaleItemInput>;
+
+export const UpdateSaleItemInput = AddSaleItemInput;
+export type UpdateSaleItemInputType = z.infer<typeof UpdateSaleItemInput>;
 
 export const PaymentInput = z.object({
   paymentType: z.nativeEnum(PaymentType),

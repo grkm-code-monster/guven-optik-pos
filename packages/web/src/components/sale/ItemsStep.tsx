@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { searchTransferProducts, type TransferUrun } from '../../api/transfer.api'
 import { addItem, deleteItem, getSaleById, updateItem } from '../../api/sales.api'
+import { apiClient } from '../../api/client'
 import { getAktifLokasyon } from '../../utils/aktifLokasyon'
 import {
   DIREKT_KATEGORI_ID,
@@ -79,10 +80,27 @@ export default function ItemsStep({
 
   const [qty, setQty] = useState('1')
   const [unitPrice, setUnitPrice] = useState('')
-  const [discount, setDiscount] = useState('0')
+
+  const [taxes, setTaxes] = useState<Array<{ id: number; name: string; amount: number }>>([])
+  const [selectedTaxId, setSelectedTaxId] = useState<number | null>(null)
+  const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount')
+  const [discountInput, setDiscountInput] = useState('0')
 
   const [error, setError] = useState<string | null>(null)
   const [editingItem, setEditingItem] = useState<any | null>(null)
+
+  useEffect(() => {
+    apiClient
+      .get('/odoo/taxes')
+      .then((res) => {
+        const list = res.data?.data ?? []
+        const filtered = (Array.isArray(list) ? list : []).filter(
+          (t: any) => Number(t?.amount) > 0 && typeof t?.name === 'string' && !t.name.startsWith('WH'),
+        )
+        setTaxes(filtered)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!modalOpen || step !== 3) return
@@ -137,7 +155,9 @@ export default function ItemsStep({
     setPickedProduct(null)
     setQty('1')
     setUnitPrice('')
-    setDiscount('0')
+    setDiscountType('amount')
+    setDiscountInput('0')
+    setSelectedTaxId(null)
     setError(null)
     setEditingItem(null)
   }
@@ -238,6 +258,10 @@ export default function ItemsStep({
     setError(null)
     try {
       const variantId = String(pickedProduct.odooVariantId).replace(/^odoo_/, '')
+      const discountAmount =
+        discountType === 'percent'
+          ? (Number(unitPrice) * Number(qty) * Number(discountInput)) / 100
+          : Number(discountInput)
       const payload: Record<string, unknown> = {
         productId: `odoo_${variantId}`,
         odooProductId: variantId,
@@ -245,7 +269,9 @@ export default function ItemsStep({
         lotNo: pickedProduct.lotNo || null,
         qty: Math.max(1, Number(qty || 1)),
         unitPrice: toDecimalString(unitPrice || pickedProduct.price),
-        discount: toDecimalString(discount || '0'),
+        discount: String(discountAmount),
+        taxId: selectedTaxId,
+        taxRate: selectedTaxId ? (taxes.find((t) => t.id === selectedTaxId)?.amount ?? null) : null,
       }
       if (pickedKategoriId != null) {
         payload.odooCategoryId = pickedKategoriId
@@ -285,9 +311,21 @@ export default function ItemsStep({
     })
     setQty(String(item?.qty ?? 1))
     setUnitPrice(String(item?.unitPrice ?? item?.product?.price ?? ''))
-    setDiscount(String(item?.discount ?? '0'))
+    setDiscountInput(String(item?.discount ?? '0'))
+    setDiscountType('amount')
+    const match = taxes.find((t) => Math.abs(t.amount - Number(item.product?.taxRate ?? 20)) < 0.1)
+    if (match) setSelectedTaxId(match.id)
     setStep(4)
   }
+
+  useEffect(() => {
+    if (!modalOpen || step !== 4) return
+    if (selectedTaxId != null) return
+    if (!taxes.length) return
+    const baseRate = Number(editingItem?.product?.taxRate ?? 20)
+    const match = taxes.find((t) => Math.abs(t.amount - baseRate) < 0.1)
+    if (match) setSelectedTaxId(match.id)
+  }, [modalOpen, step, taxes, editingItem?.product?.taxRate, selectedTaxId])
 
   return (
     <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px' }}>
@@ -502,7 +540,55 @@ export default function ItemsStep({
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                   <Field label="Adet" value={qty} onChange={setQty} />
                   <Field label="Birim Fiyat" value={unitPrice} onChange={setUnitPrice} />
-                  <Field label="İndirim (opsiyonel)" value={discount} onChange={setDiscount} />
+                  <Field label="İndirim" value={discountInput} onChange={setDiscountInput} />
+                </div>
+                <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700 }}>
+                    <input
+                      type="radio"
+                      name="discountType"
+                      checked={discountType === 'amount'}
+                      onChange={() => setDiscountType('amount')}
+                    />
+                    ₺ Tutar
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700 }}>
+                    <input
+                      type="radio"
+                      name="discountType"
+                      checked={discountType === 'percent'}
+                      onChange={() => setDiscountType('percent')}
+                    />
+                    % Oran
+                  </label>
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <label>
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color: '#6b7280',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: '6px',
+                      }}
+                    >
+                      KDV ORANI
+                    </div>
+                    <select
+                      value={selectedTaxId ?? ''}
+                      onChange={(e) => setSelectedTaxId(e.target.value ? Number(e.target.value) : null)}
+                      style={inputStyle}
+                    >
+                      <option value="">Seçiniz</option>
+                      {taxes.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} ({t.amount}%)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
                 <div style={{ marginTop: '12px', display: 'flex', gap: '10px' }}>
                   <button type="button" onClick={() => (editingItem ? close() : setStep(3))} style={{ ...ghostBtnStyle, flex: 1 }}>

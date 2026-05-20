@@ -158,9 +158,12 @@ export async function addSaleItem(saleId: string, input: AddSaleItemInputType) {
   const unitPrice = new Prisma.Decimal(input.unitPrice);
   const discount = new Prisma.Decimal(input.discount);
   const qty = input.qty;
-  const taxRate = isOdooPlaceholder
-    ? new Prisma.Decimal(20)
-    : new Prisma.Decimal(product.taxRate.toString());
+  const taxRate =
+    (input as any).taxRate != null
+      ? new Prisma.Decimal((input as any).taxRate)
+      : isOdooPlaceholder
+        ? new Prisma.Decimal(20)
+        : new Prisma.Decimal(product.taxRate.toString());
 
   const base = unitPrice.times(qty);
   const taxAmount = base.times(taxRate.div(100));
@@ -301,9 +304,12 @@ export async function updateSaleItem(saleItemId: string, input: AddSaleItemInput
   const unitPrice = new Prisma.Decimal(input.unitPrice);
   const discount = new Prisma.Decimal(input.discount);
   const qty = input.qty;
-  const taxRate = isOdooPlaceholder
-    ? new Prisma.Decimal(20)
-    : new Prisma.Decimal(product.taxRate.toString());
+  const taxRate =
+    (input as any).taxRate != null
+      ? new Prisma.Decimal((input as any).taxRate)
+      : isOdooPlaceholder
+        ? new Prisma.Decimal(20)
+        : new Prisma.Decimal(product.taxRate.toString());
   const base = unitPrice.times(qty);
   const taxAmount = base.times(taxRate.div(100));
   const lineTotal = base.minus(discount).plus(taxAmount);
@@ -564,15 +570,18 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
         0,
         0,
         {
+          ...(typeof (item as any).odooTaxId === 'number' && (item as any).odooTaxId > 0
+            ? { tax_id: [[6, 0, [(item as any).odooTaxId]]] }
+            : {}),
           product_id: parseInt(item.odooProductId!, 10),
           product_uom_qty: item.qty,
           price_unit: Number(item.unitPrice),
+          // KDV Odoo'da hesaplanmasın — fiyat KDV dahil
           discount:
-            Number(item.discount) > 0
-              ? (Number(item.discount) / (Number(item.unitPrice) * item.qty)) * 100
+            Number(item.unitPrice) * item.qty > 0
+              ? Math.min(100, (Number(item.discount) / (Number(item.unitPrice) * item.qty)) * 100)
               : 0,
           name: item.odooProductName ?? item.product?.name ?? 'Ürün',
-          tax_id: [[6, 0, []]],
         },
       ]);
 
@@ -586,7 +595,6 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
           price_unit: Number(sale.netTotal),
           discount: 0,
           name: 'POS Satışı',
-          tax_id: [[6, 0, []]],
         },
       ]);
     }
@@ -597,6 +605,7 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
         partner_id: odooPartnerId ?? 1,
         note: `POS Satış ID: ${saleId}`,
         order_line: orderLines,
+        fiscal_position_id: false,
       },
     ]);
     await execute('sale.order', 'action_confirm', [[odooOrderId]]);
@@ -664,14 +673,18 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
           );
         }
 
-        const JOURNAL_MAP: Record<string, number> = {
-          CASH: 17,
-          CARD: 18,
-          BANK_TRANSFER: 19,
-          SGK: 20,
-          VAKIF: 21,
-        };
+        const createdPaymentIds: number[] = [];
         for (const payment of result.payments) {
+          const JOURNAL_MAP: Record<string, number> = {
+            CASH: 17,
+            CARD: 18,
+            BANK_TRANSFER: 19,
+            TRANSFER: 19,
+            HAVALE: 19,
+            SGK: 20,
+            VAKIF: 21,
+            OPEN_ACCOUNT: 15,
+          };
           const journalId = JOURNAL_MAP[payment.paymentType] ?? 17;
           try {
             const paymentId = await execute('account.payment', 'create', [
@@ -679,15 +692,22 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
                 payment_type: 'inbound',
                 partner_type: 'customer',
                 partner_id: odooPartnerId ?? 1,
-                amount: Number(payment.netAmount),
+                amount: Number(payment.grossAmount),
                 journal_id: journalId,
                 ref: `POS ${payment.paymentType} - ${saleId}`,
                 date: new Date().toISOString().split('T')[0],
               },
             ]);
             await execute('account.payment', 'action_post', [[paymentId]]).catch(() => {});
-            console.log('[Odoo] Ödeme oluşturuldu:', paymentId);
+            createdPaymentIds.push(paymentId);
+            console.log('[Odoo] Ödeme oluşturuldu:', paymentId, payment.paymentType);
+          } catch (e) {
+            console.error('[Odoo] Ödeme hatası:', e);
+          }
+        }
 
+        for (const paymentId of createdPaymentIds) {
+          try {
             const paymentMoves = await execute('account.payment', 'read', [[paymentId]], {
               fields: ['move_id'],
             });
@@ -721,11 +741,10 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
                 await execute('account.move.line', 'reconcile', [
                   [invoiceLines[0].id, paymentLines[0].id],
                 ]).catch((e) => console.error('[Odoo] Mutabakat hatası:', e));
-                console.log('[Odoo] Ödeme faturaya bağlandı');
               }
             }
           } catch (e) {
-            console.error('[Odoo] Ödeme hatası:', e);
+            console.error('[Odoo] Bağlama hatası:', e);
           }
         }
       }
@@ -821,6 +840,15 @@ export async function getSaleById(saleId: string) {
     },
   });
   if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
-  return sale;
+  return {
+    ...sale,
+    items: sale.items.map((item) => ({
+      ...item,
+      name:
+        item.product?.name === '__ODOO_PLACEHOLDER__'
+          ? (item.odooProductName ?? 'Odoo Ürünü')
+          : (item.product?.name ?? 'Ürün'),
+    })),
+  };
 }
 
