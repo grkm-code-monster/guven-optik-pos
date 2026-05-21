@@ -1,11 +1,30 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { apiClient } from '../api/client'
+import { searchCustomers } from '../api/customers.api'
 
-type Row = {
+type SummaryRow = {
   customer: { id: string; name: string; phone: string }
   totalDebt: number
   paidAmount: number
   remainingDebt: number
+}
+
+type SaleRow = {
+  saleId: string
+  createdAt: string
+  itemsCount: number
+  netTotal: number
+  openAccountTotal: number
+  paidTotal: number
+  remaining: number
+}
+
+type CustomerDetail = {
+  customer: { id: string; name: string; phone: string }
+  totalDebt: number
+  paidAmount: number
+  remainingDebt: number
+  sales: SaleRow[]
 }
 
 const cardStyle: CSSProperties = {
@@ -18,70 +37,191 @@ const cardStyle: CSSProperties = {
 const danger = '#c0392b'
 const primary = '#C8102E'
 
+function money(v?: number | string | null) {
+  const n = Number(v ?? 0)
+  return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(
+    Number.isFinite(n) ? n : 0,
+  )
+}
+
+function fmtDate(iso: string) {
+  try {
+    return new Date(iso).toLocaleString('tr-TR')
+  } catch {
+    return iso
+  }
+}
+
 export default function AcikHesapPage() {
-  const [rows, setRows] = useState<Row[]>([])
-  const [loading, setLoading] = useState(true)
+  const [summary, setSummary] = useState<SummaryRow[]>([])
+  const [summaryLoading, setSummaryLoading] = useState(true)
+
+  const [searchQ, setSearchQ] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<CustomerDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const [modalOpen, setModalOpen] = useState(false)
-  const [selected, setSelected] = useState<Row | null>(null)
+  const [modalSale, setModalSale] = useState<SaleRow | null>(null)
 
   const [amount, setAmount] = useState('')
   const [paymentType, setPaymentType] = useState<'CASH' | 'CARD' | 'HAVALE'>('CASH')
   const [note, setNote] = useState('')
+  const [havaleBankName, setHavaleBankName] = useState('')
+
+  const [banks, setBanks] = useState<Array<{ id: string; name: string }>>([])
+  const [posDevicesByBankId, setPosDevicesByBankId] = useState<Map<string, Array<{ id: string; name: string }>>>(
+    new Map(),
+  )
+  const [bankId, setBankId] = useState('')
+  const [posDeviceId, setPosDeviceId] = useState('')
+  const [installment, setInstallment] = useState(1)
+
   const [saving, setSaving] = useState(false)
 
   const totals = useMemo(() => {
-    const customerCount = rows.length
-    const totalRemaining = rows.reduce((acc, r) => acc + Number(r.remainingDebt || 0), 0)
+    const customerCount = summary.length
+    const totalRemaining = summary.reduce((acc, r) => acc + Number(r.remainingDebt || 0), 0)
     return { customerCount, totalRemaining }
-  }, [rows])
+  }, [summary])
 
-  async function load() {
-    setLoading(true)
-    setError(null)
+  async function loadSummary() {
+    setSummaryLoading(true)
     try {
       const res = await apiClient.get('/open-account')
       const list = res.data?.data ?? []
-      setRows(Array.isArray(list) ? list : [])
+      setSummary(Array.isArray(list) ? list : [])
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? 'Açık hesaplar alınamadı')
-      setRows([])
+      setError(e?.response?.data?.error ?? 'Özet alınamadı')
+      setSummary([])
     } finally {
-      setLoading(false)
+      setSummaryLoading(false)
+    }
+  }
+
+  async function loadDetail(customerId: string) {
+    setDetailLoading(true)
+    setError(null)
+    try {
+      const res = await apiClient.get(`/open-account/customer/${customerId}`)
+      setDetail(res.data?.data ?? null)
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? 'Müşteri detayı alınamadı')
+      setDetail(null)
+    } finally {
+      setDetailLoading(false)
     }
   }
 
   useEffect(() => {
-    void load()
+    void loadSummary()
   }, [])
 
-  function openPaymentModal(r: Row) {
-    setSelected(r)
-    setAmount('')
+  useEffect(() => {
+    const q = searchQ.trim()
+    if (q.length < 3) {
+      setSearchResults([])
+      return
+    }
+    const t = setTimeout(() => {
+      setSearchLoading(true)
+      searchCustomers(q)
+        .then((rows) => setSearchResults(Array.isArray(rows) ? rows : []))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearchLoading(false))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchQ])
+
+  useEffect(() => {
+    if (!selectedCustomerId) {
+      setDetail(null)
+      return
+    }
+    void loadDetail(selectedCustomerId)
+  }, [selectedCustomerId])
+
+  useEffect(() => {
+    if (paymentType !== 'CARD') return
+    apiClient
+      .get('/admin/banks')
+      .then((res) => {
+        const data = res.data ?? []
+        setBanks(data.map((b: any) => ({ id: b.id, name: b.name })))
+        const map = new Map<string, Array<{ id: string; name: string }>>()
+        for (const b of data) {
+          map.set(
+            b.id,
+            (b.posDevices ?? []).map((p: any) => ({ id: p.id, name: p.name })),
+          )
+        }
+        setPosDevicesByBankId(map)
+      })
+      .catch(() => {})
+  }, [paymentType])
+
+  function selectCustomer(c: { id: string; name: string; phone: string }) {
+    setSelectedCustomerId(c.id)
+    setSearchQ('')
+    setSearchResults([])
+    setSuccess(null)
+  }
+
+  function openPaymentModal(sale: SaleRow) {
+    setModalSale(sale)
+    setAmount(String(sale.remaining))
     setPaymentType('CASH')
     setNote('')
+    setHavaleBankName('')
+    setBankId('')
+    setPosDeviceId('')
+    setInstallment(1)
     setModalOpen(true)
   }
 
   async function submitPayment() {
-    if (!selected) return
+    if (!selectedCustomerId || !modalSale) return
     const n = Number(String(amount).replace(',', '.'))
     if (!Number.isFinite(n) || n <= 0) {
       setError('Tutar geçerli olmalı.')
       return
     }
+    if (paymentType === 'CARD' && (!bankId || !posDeviceId)) {
+      setError('Banka ve POS seçin.')
+      return
+    }
+
     setSaving(true)
     setError(null)
+    setSuccess(null)
     try {
-      await apiClient.post('/open-account/payment', {
-        customerId: selected.customer.id,
+      const body: Record<string, unknown> = {
+        customerId: selectedCustomerId,
+        saleId: modalSale.saleId,
         amount: n,
-        paymentType,
-        note: note?.trim() || null,
-      })
+        paymentType: paymentType === 'HAVALE' ? 'BANK_TRANSFER' : paymentType,
+        note:
+          paymentType === 'HAVALE' && havaleBankName.trim()
+            ? `Havale bankası: ${havaleBankName.trim()}${note ? ` — ${note}` : ''}`
+            : note?.trim() || null,
+      }
+      if (paymentType === 'CARD') {
+        body.bankId = bankId
+        body.posDeviceId = posDeviceId
+        body.installment = installment
+      }
+
+      await apiClient.post('/open-account/payment', body)
       setModalOpen(false)
-      await load()
+      setSuccess('Ödeme kaydedildi.')
+      await loadSummary()
+      await loadDetail(selectedCustomerId)
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Ödeme kaydedilemedi')
     } finally {
@@ -89,9 +229,17 @@ export default function AcikHesapPage() {
     }
   }
 
+  const posOptions = bankId ? posDevicesByBankId.get(bankId) ?? [] : []
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ fontWeight: 900, fontSize: 18 }}>Açık Hesap</div>
+
+      {success ? (
+        <div style={{ ...cardStyle, borderColor: '#bbf7d0', backgroundColor: '#f0fdf4', color: '#166534' }}>
+          {success}
+        </div>
+      ) : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
         <div style={cardStyle}>
@@ -101,102 +249,156 @@ export default function AcikHesapPage() {
         <div style={cardStyle}>
           <div style={{ fontSize: 12, fontWeight: 800, color: '#6b7280' }}>Toplam açık bakiye</div>
           <div style={{ fontSize: 28, fontWeight: 900, marginTop: 6, color: danger }}>
-            {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totals.totalRemaining)}
+            {money(totals.totalRemaining)}
           </div>
         </div>
       </div>
 
       <div style={cardStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-          <div style={{ fontWeight: 900 }}>Müşteriler</div>
-          <button
-            type="button"
-            onClick={() => void load()}
+        <div style={{ fontWeight: 900, marginBottom: 8 }}>Müşteri Ara</div>
+        <input
+          value={searchQ}
+          onChange={(e) => setSearchQ(e.target.value)}
+          placeholder="İsim veya telefon (en az 3 karakter)"
+          style={{
+            width: '100%',
+            padding: '10px 12px',
+            border: '1px solid #e5e7eb',
+            borderRadius: 10,
+            outline: 'none',
+            fontSize: 14,
+          }}
+        />
+        {searchLoading ? <div style={{ marginTop: 8, fontSize: 13, color: '#6b7280' }}>Aranıyor...</div> : null}
+        {searchResults.length > 0 ? (
+          <div
             style={{
+              marginTop: 8,
               border: '1px solid #e5e7eb',
-              backgroundColor: 'white',
               borderRadius: 10,
-              padding: '8px 12px',
-              cursor: 'pointer',
-              fontWeight: 800,
+              overflow: 'hidden',
             }}
           >
-            Yenile
-          </button>
-        </div>
-
-        {error ? <div style={{ marginTop: 10, color: danger, fontSize: 13 }}>{error}</div> : null}
-        {loading ? <div style={{ marginTop: 10, color: '#6b7280', fontSize: 13 }}>Yükleniyor...</div> : null}
-
-        {!loading ? (
-          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {rows.length === 0 ? (
-              <div style={{ fontSize: 13, color: '#6b7280' }}>Açık hesap bulunamadı.</div>
-            ) : null}
-            {rows.map((r) => (
-              <div
-                key={r.customer.id}
+            {searchResults.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => selectCustomer({ id: c.id, name: c.name, phone: c.phone })}
                 style={{
-                  border: '1px solid #e5e7eb',
-                  borderRadius: 12,
-                  padding: 12,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 12,
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '10px 12px',
+                  border: 'none',
+                  borderBottom: '1px solid #f3f4f6',
+                  backgroundColor: 'white',
+                  cursor: 'pointer',
                 }}
               >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 900, color: '#111' }}>{r.customer.name}</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{r.customer.phone}</div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 800 }}>Toplam borç</div>
-                    <div style={{ fontWeight: 900 }}>
-                      {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(r.totalDebt)}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      backgroundColor: '#fef2f2',
-                      border: '1px solid #fecaca',
-                      color: danger,
-                      padding: '6px 10px',
-                      borderRadius: 999,
-                      fontWeight: 900,
-                      fontSize: 12,
-                      minWidth: 110,
-                      textAlign: 'center',
-                    }}
-                  >
-                    {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(r.remainingDebt)}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => openPaymentModal(r)}
-                    style={{
-                      backgroundColor: '#16a34a',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: 10,
-                      padding: '10px 12px',
-                      cursor: 'pointer',
-                      fontWeight: 900,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    Ödeme Gir
-                  </button>
-                </div>
-              </div>
+                <div style={{ fontWeight: 800 }}>{c.name}</div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>{c.phone}</div>
+              </button>
             ))}
+          </div>
+        ) : null}
+
+        {!summaryLoading && summary.length > 0 ? (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: '#6b7280', marginBottom: 8 }}>
+              Açık hesaplı müşteriler
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {summary.map((r) => (
+                <button
+                  key={r.customer.id}
+                  type="button"
+                  onClick={() => selectCustomer(r.customer)}
+                  style={{
+                    textAlign: 'left',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    backgroundColor: selectedCustomerId === r.customer.id ? '#fef2f2' : 'white',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ fontWeight: 900 }}>{r.customer.name}</div>
+                  <div style={{ fontSize: 12, color: danger, fontWeight: 800, marginTop: 4 }}>
+                    Kalan: {money(r.remainingDebt)}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         ) : null}
       </div>
 
-      {modalOpen && selected ? (
+      {selectedCustomerId ? (
+        <div style={cardStyle}>
+          {detailLoading ? (
+            <div style={{ color: '#6b7280', fontSize: 13 }}>Yükleniyor...</div>
+          ) : detail ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 900, fontSize: 16 }}>{detail.customer.name}</div>
+                  <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>{detail.customer.phone}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#6b7280' }}>Toplam kalan</div>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: danger }}>{money(detail.remainingDebt)}</div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {detail.sales.length === 0 ? (
+                  <div style={{ fontSize: 13, color: '#6b7280' }}>Açık bakiyeli satış yok.</div>
+                ) : null}
+                {detail.sales.map((s) => (
+                  <div
+                    key={s.saleId}
+                    style={{
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 12,
+                      padding: 12,
+                      display: 'grid',
+                      gridTemplateColumns: '1.2fr repeat(4, minmax(0, 1fr)) auto',
+                      gap: 10,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{fmtDate(s.createdAt)}</div>
+                    <div style={{ fontSize: 12 }}>{s.itemsCount} kalem</div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>{money(s.netTotal)}</div>
+                    <div style={{ fontSize: 12 }}>{money(s.paidTotal)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: danger }}>{money(s.remaining)}</div>
+                    <button
+                      type="button"
+                      onClick={() => openPaymentModal(s)}
+                      style={{
+                        backgroundColor: '#16a34a',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 10,
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        fontWeight: 900,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Ödeme Gir
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      {error ? <div style={{ color: danger, fontSize: 13 }}>{error}</div> : null}
+
+      {modalOpen && modalSale && detail ? (
         <div
           style={{
             position: 'fixed',
@@ -209,8 +411,8 @@ export default function AcikHesapPage() {
             zIndex: 50,
           }}
         >
-          <div style={{ ...cardStyle, width: '100%', maxWidth: 560 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <div style={{ ...cardStyle, width: '100%', maxWidth: 620 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontWeight: 900 }}>Ödeme Gir</div>
               <button
                 type="button"
@@ -228,79 +430,161 @@ export default function AcikHesapPage() {
               </button>
             </div>
 
-            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.06em' }}>MÜŞTERİ</div>
-                <div style={{ fontWeight: 900, marginTop: 4 }}>{selected.customer.name}</div>
-                <div style={{ fontSize: 12, color: '#6b7280' }}>{selected.customer.phone}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.06em' }}>KALAN BORÇ</div>
-                <div style={{ fontWeight: 900, marginTop: 4, color: danger }}>
-                  {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(selected.remainingDebt)}
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 10,
+                backgroundColor: '#f9fafb',
+                border: '1px solid #e5e7eb',
+              }}
+            >
+              <div style={{ fontSize: 12, color: '#6b7280' }}>Satış özeti</div>
+              <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280' }}>TARİH</div>
+                  <div style={{ fontWeight: 800 }}>{fmtDate(modalSale.createdAt)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280' }}>TOPLAM</div>
+                  <div style={{ fontWeight: 800 }}>{money(modalSale.netTotal)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280' }}>KALAN</div>
+                  <div style={{ fontWeight: 900, color: danger }}>{money(modalSale.remaining)}</div>
                 </div>
               </div>
             </div>
 
-            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+            <div style={{ marginTop: 12 }}>
               <label>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.06em', marginBottom: 6 }}>
-                  TUTAR
-                </div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>ÖDEME TUTARI</div>
                 <input
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0,00"
                   style={{
                     width: '100%',
                     padding: '10px 12px',
                     border: '1px solid #e5e7eb',
                     borderRadius: 10,
                     outline: 'none',
-                    fontSize: 14,
                   }}
                 />
               </label>
+            </div>
 
-              <label>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.06em', marginBottom: 6 }}>
-                  ÖDEME TİPİ
+            <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {(['CASH', 'CARD', 'HAVALE'] as const).map((t) => (
+                <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13 }}>
+                  <input
+                    type="radio"
+                    name="payType"
+                    checked={paymentType === t}
+                    onChange={() => setPaymentType(t)}
+                  />
+                  {t === 'CASH' ? 'Nakit' : t === 'CARD' ? 'Kredi Kartı' : 'Havale'}
+                </label>
+              ))}
+            </div>
+
+            {paymentType === 'CARD' ? (
+              <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                <label>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>BANKA</div>
+                  <select
+                    value={bankId}
+                    onChange={(e) => {
+                      setBankId(e.target.value)
+                      setPosDeviceId('')
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 10,
+                    }}
+                  >
+                    <option value="">Seçiniz</option>
+                    {banks.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>POS</div>
+                  <select
+                    value={posDeviceId}
+                    onChange={(e) => setPosDeviceId(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 10,
+                    }}
+                  >
+                    <option value="">Seçiniz</option>
+                    {posOptions.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>TAKSİT</div>
+                  <select
+                    value={installment}
+                    onChange={(e) => setInstallment(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 10,
+                    }}
+                  >
+                    {[1, 3, 6, 9, 12].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
+
+            {paymentType === 'HAVALE' ? (
+              <label style={{ display: 'block', marginTop: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>
+                  HAVALE BANKASI
                 </div>
-                <select
-                  value={paymentType}
-                  onChange={(e) => setPaymentType(e.target.value as any)}
+                <input
+                  value={havaleBankName}
+                  onChange={(e) => setHavaleBankName(e.target.value)}
+                  placeholder="Hangi bankaya yatırıldı?"
                   style={{
                     width: '100%',
                     padding: '10px 12px',
                     border: '1px solid #e5e7eb',
                     borderRadius: 10,
                     outline: 'none',
-                    fontSize: 14,
-                    backgroundColor: 'white',
                   }}
-                >
-                  <option value="CASH">Nakit</option>
-                  <option value="CARD">Kart</option>
-                  <option value="HAVALE">Havale</option>
-                </select>
+                />
               </label>
-            </div>
+            ) : null}
 
             <label style={{ display: 'block', marginTop: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.06em', marginBottom: 6 }}>
-                NOT (opsiyonel)
-              </div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>NOT (opsiyonel)</div>
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Not"
                 style={{
                   width: '100%',
                   padding: '10px 12px',
                   border: '1px solid #e5e7eb',
                   borderRadius: 10,
                   outline: 'none',
-                  fontSize: 14,
                 }}
               />
             </label>
@@ -346,4 +630,3 @@ export default function AcikHesapPage() {
     </div>
   )
 }
-

@@ -675,6 +675,9 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
 
         const createdPaymentIds: number[] = [];
         for (const payment of result.payments) {
+          // OPEN_ACCOUNT Odoo'ya ödeme olarak gönderilmez — borç kaydıdır
+          if (payment.paymentType === PaymentType.OPEN_ACCOUNT) continue;
+
           const JOURNAL_MAP: Record<string, number> = {
             CASH: 17,
             CARD: 18,
