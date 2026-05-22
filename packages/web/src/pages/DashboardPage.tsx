@@ -461,7 +461,7 @@ export default function DashboardPage() {
           <button
             key={s.id}
             type="button"
-            onClick={() => navigate('/sales/new')}
+            onClick={() => navigate(`/sales/${s.id}`)}
             style={{
               display: 'flex',
               alignItems: 'center',

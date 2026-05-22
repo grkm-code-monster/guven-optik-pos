@@ -10,6 +10,7 @@ import SettingsPage from './pages/SettingsPage'
 import ShiftOpenPage from './pages/ShiftOpenPage'
 import MasraflarPage from './pages/MasraflarPage'
 import AcikHesapPage from './pages/AcikHesapPage'
+import SaleDetailPage from './pages/SaleDetailPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -44,6 +45,7 @@ export default function App() {
         >
           <Route index element={<DashboardPage />} />
           <Route path="sales/new" element={<NewSalePage />} />
+          <Route path="sales/:id" element={<SaleDetailPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="transferler" element={<TransferlerPage />} />
           <Route path="masraflar" element={<MasraflarPage />} />

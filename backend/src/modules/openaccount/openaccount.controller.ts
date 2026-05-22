@@ -24,15 +24,33 @@ function normalizePaymentType(raw: string): PaymentType {
   return t as PaymentType;
 }
 
-function saleBalances(payments: { paymentType: PaymentType; grossAmount: Prisma.Decimal }[]) {
+function saleBalances(
+  payments: { paymentType: PaymentType; grossAmount: Prisma.Decimal; createdAt: Date }[],
+) {
+  // Borç: OPEN_ACCOUNT ödemeleri
   const openAccountTotal = payments
     .filter((p) => p.paymentType === PaymentType.OPEN_ACCOUNT)
     .reduce((acc, p) => acc + Number(p.grossAmount), 0);
-  const paidTotal = payments
-    .filter((p) => p.paymentType !== PaymentType.OPEN_ACCOUNT)
+
+  if (openAccountTotal === 0) return { openAccountTotal: 0, paidTotal: 0, remaining: 0 };
+
+  // OPEN_ACCOUNT'un en erken tarihi
+  const firstOpenDate = payments
+    .filter((p) => p.paymentType === PaymentType.OPEN_ACCOUNT)
+    .map((p) => p.createdAt)
+    .sort((a, b) => a.getTime() - b.getTime())[0];
+
+  // Kapatma ödemeleri: OPEN_ACCOUNT tarihinden SONRA yapılan CASH/CARD/TRANSFER
+  const closedAmount = payments
+    .filter(
+      (p) =>
+        p.paymentType !== PaymentType.OPEN_ACCOUNT &&
+        p.createdAt > firstOpenDate,
+    )
     .reduce((acc, p) => acc + Number(p.grossAmount), 0);
-  const remaining = openAccountTotal - paidTotal;
-  return { openAccountTotal, paidTotal, remaining };
+
+  const remaining = Math.max(0, openAccountTotal - closedAmount);
+  return { openAccountTotal, paidTotal: closedAmount, remaining };
 }
 
 async function syncPaymentToOdoo(
@@ -136,7 +154,7 @@ router.get('/', async (req: Request, res: Response) => {
       },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
-        payments: true,
+        payments: { select: { paymentType: true, grossAmount: true, createdAt: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -220,7 +238,7 @@ router.get('/customer/:customerId', async (req: Request, res: Response) => {
         payments: { some: { paymentType: PaymentType.OPEN_ACCOUNT } },
       },
       include: {
-        payments: true,
+        payments: { select: { paymentType: true, grossAmount: true, createdAt: true } },
         _count: { select: { items: true } },
       },
       orderBy: { createdAt: 'desc' },
