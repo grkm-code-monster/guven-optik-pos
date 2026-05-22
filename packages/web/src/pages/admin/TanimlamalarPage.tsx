@@ -4,7 +4,14 @@ import { adminApi } from './AdminLayout'
 type TabId = 'komisyon' | 'personeller' | 'subeler'
 
 const INSTALLMENTS = [1, 2, 3, 6, 9, 12] as const
-const ROLES = ['SALES_STAFF', 'STORE_MANAGER', 'REGIONAL_MANAGER', 'ACCOUNTANT', 'ADMIN'] as const
+const ROLE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'SALES_STAFF', label: 'Satış Personeli' },
+  { value: 'SALES_PERSON', label: 'Satış Temsilcisi' },
+  { value: 'STORE_MANAGER', label: 'Mağaza Müdürü' },
+  { value: 'REGIONAL_MANAGER', label: 'Bölge Müdürü' },
+  { value: 'ACCOUNTANT', label: 'Muhasebe' },
+  { value: 'ADMIN', label: 'Yönetici' },
+]
 
 type Rate = {
   id: string
@@ -80,22 +87,37 @@ export default function TanimlamalarPage() {
       <div
         style={{
           display: 'flex',
+          flexWrap: 'nowrap',
           gap: 4,
           borderBottom: '1px solid #e5e7eb',
           marginBottom: 24,
           backgroundColor: 'white',
           borderRadius: '12px 12px 0 0',
           padding: '0 8px',
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
         }}
       >
-        <button type="button" style={tabBtn(tab === 'komisyon')} onClick={() => setTab('komisyon')}>
+        <button
+          type="button"
+          style={{ ...tabBtn(tab === 'komisyon'), flexShrink: 0, whiteSpace: 'nowrap' }}
+          onClick={() => setTab('komisyon')}
+        >
           Komisyon Oranları
         </button>
-        <button type="button" style={tabBtn(tab === 'personeller')} onClick={() => setTab('personeller')}>
+        <button
+          type="button"
+          style={{ ...tabBtn(tab === 'personeller'), flexShrink: 0, whiteSpace: 'nowrap' }}
+          onClick={() => setTab('personeller')}
+        >
           Personeller
         </button>
-        <button type="button" style={tabBtn(tab === 'subeler')} onClick={() => setTab('subeler')}>
-          Şubeler
+        <button
+          type="button"
+          style={{ ...tabBtn(tab === 'subeler'), flexShrink: 0, whiteSpace: 'nowrap', minWidth: 72 }}
+          onClick={() => setTab('subeler')}
+        >
+          <span style={{ fontFamily: 'system-ui, sans-serif' }}>Şubeler</span>
         </button>
       </div>
 
@@ -284,8 +306,15 @@ function KomisyonTab() {
   )
 }
 
+type OdooLocation = {
+  id: number
+  name: string
+  complete_name?: string
+  company_id?: [number, string] | false
+}
+
 function SubelerTab() {
-  const [branches, setBranches] = useState<OdooBranch[]>([])
+  const [locations, setLocations] = useState<OdooLocation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -295,14 +324,14 @@ function SubelerTab() {
     try {
       const res = await adminApi.get('/admin/branches')
       if (!res.data?.success) {
-        setError(res.data?.error ?? 'Şubeler yüklenemedi')
-        setBranches([])
+        setError(res.data?.error ?? 'Lokasyonlar yüklenemedi')
+        setLocations([])
         return
       }
-      setBranches(res.data.data ?? [])
+      setLocations(res.data.data ?? [])
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? 'Şubeler yüklenemedi')
-      setBranches([])
+      setError(e?.response?.data?.error ?? 'Lokasyonlar yüklenemedi')
+      setLocations([])
     } finally {
       setLoading(false)
     }
@@ -314,10 +343,10 @@ function SubelerTab() {
 
   return (
     <div>
-      <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 900 }}>{'\u015Eubeler'}</h2>
+      <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 900 }}>Şubeler</h2>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
         <a
-          href="https://www.odoo.com"
+          href="http://localhost:8069/web#action=stock.action_location_form"
           target="_blank"
           rel="noopener noreferrer"
           style={{
@@ -331,44 +360,41 @@ function SubelerTab() {
             fontSize: 14,
           }}
         >
-          + Yeni {'\u015E'}ube (Odoo&apos;da oluştur)
+          Odoo&apos;da Yönet
         </a>
       </div>
       <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
-        Yeni {'\u015F'}ubeler Odoo üzerinden oluşturulur. Aşağıdaki liste Odoo şirket kayıtlarından çekilir.
+        Mağaza lokasyonları Odoo stok modülünden yönetilir. Aşağıdaki liste aktif iç lokasyonlardan çekilir.
       </p>
 
       {error ? <p style={{ color: '#ef4444', fontSize: 13 }}>{error}</p> : null}
       {loading ? <p style={{ color: '#6b7280' }}>Yükleniyor...</p> : null}
 
-      {!loading && branches.length > 0 ? (
+      {!loading && locations.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {branches.map((b) => (
+          {locations.map((loc) => (
             <div
-              key={b.id}
+              key={loc.id}
               style={{
                 border: '1px solid #e5e7eb',
                 borderRadius: 10,
                 padding: 14,
               }}
             >
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{b.name}</div>
-              {b.phone ? (
-                <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>📞 {String(b.phone)}</div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>{loc.name}</div>
+              {loc.complete_name ? (
+                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{loc.complete_name}</div>
               ) : null}
-              {b.street ? (
-                <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>📍 {String(b.street)}</div>
-              ) : null}
-              {b.email ? (
-                <div style={{ fontSize: 13, color: '#9ca3af', marginTop: 4 }}>{String(b.email)}</div>
+              {Array.isArray(loc.company_id) ? (
+                <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>{loc.company_id[1]}</div>
               ) : null}
             </div>
           ))}
         </div>
       ) : null}
 
-      {!loading && branches.length === 0 && !error ? (
-        <p style={{ color: '#6b7280' }}>Odoo&apos;da şube kaydı bulunamadı.</p>
+      {!loading && locations.length === 0 && !error ? (
+        <p style={{ color: '#6b7280' }}>Aktif lokasyon bulunamadı.</p>
       ) : null}
     </div>
   )
@@ -790,9 +816,9 @@ function PersonellerTab() {
                 style={inputStyle}
               />
               <select value={role} onChange={(ev) => setRole(ev.target.value)} style={inputStyle}>
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
+                {ROLE_OPTIONS.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
                   </option>
                 ))}
               </select>

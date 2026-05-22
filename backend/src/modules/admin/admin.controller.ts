@@ -339,15 +339,23 @@ router.post('/sync-override/:saleId', async (req: Request, res: Response, next: 
 });
 
 // Odoo'dan şubeleri çek
-router.get('/branches', async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/branches', async (_req: Request, res: Response) => {
   try {
-    const companies = await execute(
-      'res.company',
+    const locations = await execute(
+      'stock.location',
       'search_read',
-      [[]],
-      { fields: ['id', 'name', 'street', 'phone', 'email'], limit: 50 },
+      [
+        [
+          ['usage', '=', 'internal'],
+          ['active', '=', true],
+          '|',
+          ['name', 'like', 'GVN'],
+          ['name', '=', 'ANA-DEPO'],
+        ],
+      ],
+      { fields: ['id', 'name', 'complete_name', 'company_id'], limit: 50 },
     );
-    return res.json({ success: true, data: companies });
+    return res.json({ success: true, data: locations });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
