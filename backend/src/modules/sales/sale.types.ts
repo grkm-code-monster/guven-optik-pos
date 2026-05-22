@@ -98,6 +98,7 @@ export const PaymentInput = z.object({
   bankId: z.string().uuid().optional(),
   posDeviceId: z.string().uuid().optional(),
   installment: z.number().int().optional(),
+  bankName: z.string().optional(),
 });
 export type PaymentInputType = z.infer<typeof PaymentInput>;
 

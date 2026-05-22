@@ -4,6 +4,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { prisma } from '../../database/prisma';
 import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
+import { execute } from '../odoo/odoo.service';
 
 const router = Router();
 
@@ -334,6 +335,192 @@ router.post('/sync-override/:saleId', async (req: Request, res: Response, next: 
   } catch (err) {
     if (handleAdminError(err, res)) return;
     next(err);
+  }
+});
+
+// Odoo'dan şubeleri çek
+router.get('/branches', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companies = await execute(
+      'res.company',
+      'search_read',
+      [[]],
+      { fields: ['id', 'name', 'street', 'phone', 'email'], limit: 50 },
+    );
+    return res.json({ success: true, data: companies });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Odoo'dan kullanıcıları çek
+router.get('/odoo-users', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const users = await execute(
+      'res.users',
+      'search_read',
+      [[['active', '=', true]]],
+      { fields: ['id', 'name', 'login', 'email', 'company_id'], limit: 100 },
+    );
+    return res.json({ success: true, data: users });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POS + Odoo'ya birlikte kullanıcı ekle
+router.post('/users-sync', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, username, pin, role, branchId, email } = req.body;
+    if (!name || !username || !pin || !role) {
+      return res.status(400).json({ success: false, error: 'Zorunlu alanlar eksik' });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { username: String(username).trim().toLowerCase() },
+    });
+    if (existing) {
+      return res.status(409).json({ success: false, error: 'Bu kullanıcı adı zaten kayıtlı.' });
+    }
+
+    const hashedPin = await bcrypt.hash(String(pin), 10);
+    const posUser = await prisma.user.create({
+      data: {
+        name: String(name).trim(),
+        username: String(username).trim().toLowerCase(),
+        pin: hashedPin,
+        role: role as Role,
+        branchId: String(branchId ?? '').trim(),
+        isActive: true,
+      },
+    });
+
+    try {
+      const odooUserId = await execute('res.users', 'create', [
+        {
+          name: String(name).trim(),
+          login: email || username,
+          email: email || `${username}@guvenoptik.com`,
+          password: String(pin),
+          company_id: 1,
+        },
+      ]);
+      console.log('[Admin] Odoo kullanıcı oluşturuldu:', odooUserId);
+    } catch (odooErr) {
+      console.error('[Admin] Odoo kullanıcı hatası:', odooErr);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: posUser.id,
+        name: posUser.name,
+        username: posUser.username,
+        role: posUser.role,
+        branchId: posUser.branchId,
+        isActive: posUser.isActive,
+        createdAt: posUser.createdAt,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Odoo personel listesi
+router.get('/employees', async (_req: Request, res: Response) => {
+  try {
+    const employees = await execute(
+      'hr.employee',
+      'search_read',
+      [[['active', '=', true]]],
+      {
+        fields: [
+          'id',
+          'name',
+          'work_email',
+          'mobile_phone',
+          'job_title',
+          'department_id',
+          'company_id',
+          'ssnid',
+          'birthday',
+        ],
+        limit: 200,
+      },
+    );
+    return res.json({ success: true, data: employees });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Odoo departmanları
+router.get('/departments', async (_req: Request, res: Response) => {
+  try {
+    const departments = await execute(
+      'hr.department',
+      'search_read',
+      [[]],
+      { fields: ['id', 'name', 'company_id'], limit: 100 },
+    );
+    return res.json({ success: true, data: departments });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Personel oluştur (Odoo + POS)
+router.post('/employees', async (req: Request, res: Response) => {
+  try {
+    const {
+      name,
+      workEmail,
+      mobilePhone,
+      jobTitle,
+      departmentId,
+      companyId,
+      tcKimlik,
+      dogumTarihi,
+      username,
+      pin,
+      role,
+      branchId,
+    } = req.body;
+
+    if (!name) return res.status(400).json({ success: false, error: 'Ad zorunlu' });
+
+    const employeeId = await execute('hr.employee', 'create', [
+      {
+        name: String(name).trim(),
+        work_email: workEmail || '',
+        mobile_phone: mobilePhone || '',
+        job_title: jobTitle || '',
+        department_id: departmentId || false,
+        company_id: companyId || 1,
+        ssnid: tcKimlik || '',
+        birthday: dogumTarihi || false,
+      },
+    ]);
+
+    let posUser = null;
+    if (username && pin) {
+      const hashedPin = await bcrypt.hash(String(pin), 10);
+      posUser = await prisma.user.create({
+        data: {
+          name: String(name).trim(),
+          username: String(username).trim().toLowerCase(),
+          pin: hashedPin,
+          role: (role as Role) || Role.SALES_STAFF,
+          branchId: String(branchId ?? '').trim(),
+          isActive: true,
+        },
+      });
+    }
+
+    return res.json({ success: true, data: { employeeId, posUser } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

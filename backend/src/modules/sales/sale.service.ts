@@ -674,7 +674,11 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
         }
 
         const createdPaymentIds: number[] = [];
-        for (const payment of result.payments) {
+        for (let i = 0; i < result.payments.length; i++) {
+          const payment = result.payments[i];
+          const inputPayment = input.payments[i];
+          const bankName = inputPayment?.bankName ?? null;
+
           // OPEN_ACCOUNT Odoo'ya ödeme olarak gönderilmez — borç kaydıdır
           if (payment.paymentType === PaymentType.OPEN_ACCOUNT) continue;
 
@@ -697,7 +701,10 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
                 partner_id: odooPartnerId ?? 1,
                 amount: Number(payment.grossAmount),
                 journal_id: journalId,
-                ref: `POS ${payment.paymentType} - ${saleId}`,
+                ref:
+                  payment.paymentType === PaymentType.TRANSFER && bankName
+                    ? `POS HAVALE ${bankName} - ${saleId}`
+                    : `POS ${payment.paymentType} - ${saleId}`,
                 date: new Date().toISOString().split('T')[0],
               },
             ]);

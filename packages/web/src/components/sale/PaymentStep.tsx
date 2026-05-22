@@ -4,6 +4,23 @@ import type { PricingOverview } from '../../utils/sgkPricing'
 import { apiClient } from '../../api/client'
 import { confirmSale } from '../../api/sales.api'
 
+const HAVALE_BANKALARI = [
+  'Ziraat Bankası',
+  'Halkbank',
+  'Vakıfbank',
+  'Garanti BBVA',
+  'İş Bankası',
+  'Yapı Kredi',
+  'Akbank',
+  'Denizbank',
+  'QNB Finansbank',
+  'TEB',
+  'ING Bank',
+  'HSBC',
+  'Enpara',
+  'Papara',
+] as const
+
 type UiPaymentType = 'CASH' | 'CARD' | 'TRANSFER' | 'OPEN_ACCOUNT'
 
 type PaymentRow = {
@@ -13,6 +30,7 @@ type PaymentRow = {
   bankId?: string
   posDeviceId?: string
   installment?: number
+  bankName?: string
 }
 
 export type PendingPaymentPayload = {
@@ -22,6 +40,7 @@ export type PendingPaymentPayload = {
     bankId?: string
     posDeviceId?: string
     installment?: number
+    bankName?: string
   }>
 }
 
@@ -50,6 +69,7 @@ export default function PaymentStep({
   const [bankId, setBankId] = useState('')
   const [posDeviceId, setPosDeviceId] = useState('')
   const [installment, setInstallment] = useState(1)
+  const [transferBankName, setTransferBankName] = useState('')
   const [banks, setBanks] = useState<Array<{ id: string; name: string }>>([])
   const [posDevicesByBankId, setPosDevicesByBankId] = useState<Map<string, Array<{ id: string; name: string }>>>(new Map())
   const [loadingBanks, setLoadingBanks] = useState(false)
@@ -99,6 +119,10 @@ export default function PaymentStep({
         return
       }
     }
+    if (type === 'TRANSFER' && !transferBankName.trim()) {
+      setError('Havale için banka adı giriniz.')
+      return
+    }
 
     const row: PaymentRow = {
       id: crypto.randomUUID(),
@@ -107,9 +131,11 @@ export default function PaymentStep({
       bankId: type === 'CARD' ? bankId : undefined,
       posDeviceId: type === 'CARD' ? posDeviceId : undefined,
       installment: type === 'CARD' ? installment : undefined,
+      bankName: type === 'TRANSFER' ? transferBankName.trim() : undefined,
     }
     setRows((r) => [...r, row])
     setAmount('')
+    setTransferBankName('')
   }
 
   function removeRow(id: string) {
@@ -124,6 +150,7 @@ export default function PaymentStep({
         bankId: r.bankId,
         posDeviceId: r.posDeviceId,
         installment: r.installment,
+        bankName: r.bankName,
       })),
     }
   }
@@ -203,7 +230,12 @@ export default function PaymentStep({
               marginTop: '8px',
             }}
           >
-            <div style={{ fontSize: '13px', fontWeight: 800, color: '#111' }}>{labelType(r.paymentType)}</div>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#111' }}>{labelType(r.paymentType)}</div>
+              {r.paymentType === 'TRANSFER' && r.bankName ? (
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{r.bankName}</div>
+              ) : null}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ fontSize: '13px', fontWeight: 900 }}>{formatMoney(r.grossAmount)}</div>
               <button
@@ -265,6 +297,35 @@ export default function PaymentStep({
             />
           </div>
         ) : null}
+
+        {type === 'TRANSFER' && (
+          <div style={{ marginTop: 8 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>
+              BANKA (hangi bankaya yatırıldı) *
+            </label>
+            <select
+              value={transferBankName}
+              onChange={(e) => setTransferBankName(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                marginTop: 4,
+                border: '1px solid #e5e7eb',
+                borderRadius: 8,
+                fontSize: 14,
+                background: 'white',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="">Banka seçin...</option>
+              {HAVALE_BANKALARI.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {type === 'CARD' ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' }}>

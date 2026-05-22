@@ -11,6 +11,14 @@ import ShiftOpenPage from './pages/ShiftOpenPage'
 import MasraflarPage from './pages/MasraflarPage'
 import AcikHesapPage from './pages/AcikHesapPage'
 import SaleDetailPage from './pages/SaleDetailPage'
+import AdminLoginPage from './pages/admin/AdminLoginPage'
+import AdminLayout from './pages/admin/AdminLayout'
+import TanimlamalarPage from './pages/admin/TanimlamalarPage'
+import KampanyalarPage from './pages/admin/KampanyalarPage'
+import DepoPage from './pages/admin/DepoPage'
+import MuhasebePage from './pages/admin/MuhasebePage'
+import FinansPage from './pages/admin/FinansPage'
+import PatronPage from './pages/admin/PatronPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -27,6 +35,19 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route path="dashboard" element={<Navigate to="/admin/tanimlamalar" replace />} />
+          <Route path="tanimlamalar" element={<TanimlamalarPage />} />
+          <Route path="komisyon" element={<Navigate to="/admin/tanimlamalar" replace />} />
+          <Route path="kullanicilar" element={<Navigate to="/admin/tanimlamalar" replace />} />
+          <Route path="subeler" element={<Navigate to="/admin/tanimlamalar" replace />} />
+          <Route path="kampanyalar" element={<KampanyalarPage />} />
+          <Route path="depo" element={<DepoPage />} />
+          <Route path="muhasebe" element={<MuhasebePage />} />
+          <Route path="finans" element={<FinansPage />} />
+          <Route path="patron" element={<PatronPage />} />
+        </Route>
         <Route
           path="/shift/open"
           element={
