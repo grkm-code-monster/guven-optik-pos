@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { ItemStatus, Role } from '@prisma/client';
+import { ItemStatus, Role, SaleStatus } from '@prisma/client';
+import { prisma } from '../../database/prisma';
 import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
 import {
@@ -118,6 +119,34 @@ router.post('/:id/void', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: 
     return res.status(200).json(sale);
   } catch (err) {
     if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+router.get('/delivery', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { branchId } = req.query;
+    const sales = await prisma.sale.findMany({
+      where: {
+        status: SaleStatus.PAID,
+        ...(branchId ? { branchId: String(branchId) } : {}),
+        items: {
+          some: {
+            status: { in: [ItemStatus.ORDERED, ItemStatus.IN_LAB, ItemStatus.READY] },
+          },
+        },
+      },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        items: {
+          include: { product: { select: { name: true, category: true } } },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return res.json({ success: true, data: sales });
+  } catch (err: any) {
     next(err);
   }
 });
