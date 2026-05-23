@@ -10,6 +10,7 @@ import SettingsPage from './pages/SettingsPage'
 import ShiftOpenPage from './pages/ShiftOpenPage'
 import MasraflarPage from './pages/MasraflarPage'
 import AcikHesapPage from './pages/AcikHesapPage'
+import StokSorgulaPage from './pages/StokSorgulaPage'
 import SaleDetailPage from './pages/SaleDetailPage'
 import AdminLoginPage from './pages/admin/AdminLoginPage'
 import AdminLayout from './pages/admin/AdminLayout'
@@ -71,6 +72,7 @@ export default function App() {
           <Route path="transferler" element={<TransferlerPage />} />
           <Route path="masraflar" element={<MasraflarPage />} />
           <Route path="acik-hesap" element={<AcikHesapPage />} />
+          <Route path="stok-sorgula" element={<StokSorgulaPage />} />
           <Route
             path="settings"
             element={

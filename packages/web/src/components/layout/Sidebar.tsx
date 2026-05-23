@@ -135,6 +135,24 @@ export default function Sidebar() {
         >
           📋 Açık Hesap
         </NavLink>
+        <NavLink
+          to="/stok-sorgula"
+          style={({ isActive }) => ({
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            marginBottom: '4px',
+            backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
+            color: 'white',
+            textDecoration: 'none',
+            fontSize: '14px',
+            fontWeight: '500',
+          })}
+        >
+          📦 Stok Sorgula
+        </NavLink>
       </nav>
 
       {/* ALT: Kullanıcı */}

@@ -361,6 +361,39 @@ router.get('/branches', async (_req: Request, res: Response) => {
   }
 });
 
+router.get('/stock', async (req: Request, res: Response) => {
+  try {
+    const { locationId, search } = req.query;
+
+    const domain: any[] = [
+      ['location_id.usage', '=', 'internal'],
+      ['quantity', '>', 0],
+    ];
+
+    if (locationId) {
+      domain.push(['location_id', '=', Number(locationId)]);
+    }
+    if (search) {
+      domain.push(['product_id.name', 'ilike', String(search)]);
+    }
+
+    const quants = await execute(
+      'stock.quant',
+      'search_read',
+      [domain],
+      {
+        fields: ['product_id', 'location_id', 'quantity', 'reserved_quantity'],
+        limit: 100,
+        order: 'quantity desc',
+      },
+    );
+
+    return res.json({ success: true, data: quants });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Odoo'dan kullanıcıları çek
 router.get('/odoo-users', async (_req: Request, res: Response, next: NextFunction) => {
   try {
