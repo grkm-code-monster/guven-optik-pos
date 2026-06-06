@@ -52,6 +52,8 @@ export interface SaleItem {
   taxAmount: string
   lineTotal: string
   status: string
+  linkType?: string | null
+  linkedItemId?: string | null
   prescription?: Prescription
   frames?: Frame[]
   product?: Product

@@ -1,19 +1,19 @@
 import type { ReactNode } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Sale } from '../../api/types'
 import Button from '../ui/Button'
 import {
   allMeasurementDraftsComplete,
   buildInitialMeasurementDrafts,
   getLensMeasurementSaleItems,
-  getMountFrameItems,
-  lensPairingLabel,
   prescriptionReadoutForItem,
   prescriptionReadoutFromCustomerRx,
   type LensMeasurementDraft,
   type LensOrderFrameTypeApi,
   updateDraftAt,
 } from '../../utils/saleMeasurements'
+
+const BASE_OPTS = ['1', '2', '3', '4', '5', '6']
 
 function star(): ReactNode {
   return <span style={{ color: '#dc2626' }}> *</span>
@@ -56,8 +56,6 @@ function NumField({
   )
 }
 
-const BASE_OPTS = ['1', '2', '3', '4', '5', '6']
-
 export default function LensMeasurementStep({
   sale,
   customerPrescription,
@@ -70,59 +68,18 @@ export default function LensMeasurementStep({
   onBack: () => void
 }) {
   const lenses = getLensMeasurementSaleItems(sale.items)
-  const frames = getMountFrameItems(sale.items)
   const [drafts, setDrafts] = useState<LensMeasurementDraft[]>(() => buildInitialMeasurementDrafts(sale))
   const [ix, setIx] = useState(0)
+  const [activeIx, setActiveIx] = useState<number | null>(null)
 
-  const n = drafts.length
-  const cur = drafts[ix]
+  useEffect(() => {
+    if (activeIx !== null) setIx(activeIx)
+  }, [activeIx])
+
+  const cur = activeIx !== null ? drafts[activeIx] : null
   const lens = useMemo(() => lenses.find((l) => l.id === cur?.saleItemId), [lenses, cur?.saleItemId])
-  const { farR, farL } = useMemo(() => {
-    if (lens?.prescription) return prescriptionReadoutForItem(lens)
-    return prescriptionReadoutFromCustomerRx(customerPrescription)
-  }, [lens, customerPrescription])
 
-  const patch = (p: Partial<LensMeasurementDraft>) => {
-    if (!cur) return
-    setDrafts(updateDraftAt(drafts, ix, p))
-  }
-
-  const setCam = (saleItemId: string) => {
-    setDrafts(updateDraftAt(drafts, ix, { saleItemId }))
-  }
-
-  const setFrameSel = (value: string) => {
-    if (value === '__OWN__') {
-      patch({ ownFrame: true, frameItemId: null })
-      return
-    }
-    patch({ ownFrame: false, frameItemId: value || null })
-  }
-
-  const frameSelVal = cur?.ownFrame ? '__OWN__' : cur?.frameItemId ?? ''
-
-  const ft = (id: LensOrderFrameTypeApi, label: string) => (
-    <button
-      key={id}
-      type="button"
-      onClick={() => patch({ frameType: id })}
-      style={{
-        padding: '10px 14px',
-        borderRadius: '10px',
-        border: cur?.frameType === id ? '2px solid #C8102E' : '1px solid #e5e7eb',
-        backgroundColor: cur?.frameType === id ? '#fdf2f4' : '#fff',
-        fontWeight: 800,
-        fontSize: '13px',
-        cursor: 'pointer',
-      }}
-    >
-      {label}
-    </button>
-  )
-
-  const canContinueAll = allMeasurementDraftsComplete(drafts)
-
-  if (!cur || n === 0) {
+  if (lenses.length === 0) {
     return (
       <div style={{ padding: 16 }}>
         <div style={{ fontWeight: 800 }}>Ölçü kalemi yok.</div>
@@ -134,345 +91,484 @@ export default function LensMeasurementStep({
   }
 
   return (
-    <div
-      style={{
-        backgroundColor: 'white',
-        border: '1px solid #e5e7eb',
-        borderRadius: '12px',
-        padding: '18px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '16px',
-      }}
-    >
-      <div style={{ fontWeight: 900, fontSize: '18px' }}>5. Ölçüler</div>
+    <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
+      <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 12 }}>5. Ölçümler</div>
 
-      {/* Bölüm 1 */}
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px' }}>
-        <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 1: Ürün eşleştirme ──</div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '10px' }}>
-          Cam ürünü
-          <select
-            value={cur.saleItemId}
-            onChange={(e) => setCam(e.target.value)}
-            style={{ display: 'block', width: '100%', marginTop: '6px', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
-          >
-            {lenses.map((l, i) => (
-              <option key={l.id} value={l.id}>
-                {lensPairingLabel(l, i)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700 }}>
-          Çerçeve / güneş gözlüğü
-          <select
-            value={frameSelVal}
-            onChange={(e) => setFrameSel(e.target.value)}
-            style={{ display: 'block', width: '100%', marginTop: '6px', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
-          >
-            <option value="">— Seçin —</option>
-            {frames.map((f, fi) => (
-              <option key={f.id} value={f.id}>
-                Çerçeve {fi + 1} (
-                {(() => {
-                  const urunAdi =
-                    f.odooProductName ||
-                    (f.product?.name !== '__ODOO_PLACEHOLDER__' ? f.product?.name : null) ||
-                    'Odoo Ürünü'
-                  return urunAdi
-                })()}
-                )
-              </option>
-            ))}
-            <option value="__OWN__">Kendi çerçevesi</option>
-          </select>
-        </label>
-        {cur.ownFrame ? (
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginTop: '10px' }}>
-            Kendi çerçevesi notu (montaj)
-            <textarea
-              value={cur.ownFrameNote}
-              onChange={(e) => patch({ ownFrameNote: e.target.value })}
-              rows={3}
-              placeholder="Hangi çerçeve, marka/model…"
+      {/* Kalem listesi */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+        {lenses.map((lensItem, i) => {
+          const draft = drafts[i]
+          const isDone = draft && (draft.rph || draft.lph || draft.corridor)
+          const urunAdi = lensItem.odooProductName || lensItem.product?.name || 'Cam'
+          const rxTipi = lensItem.prescription?.prescriptionType ?? ''
+          const rxTipiLabel: Record<string, string> = {
+            SINGLE_FAR: 'Daimi',
+            SINGLE_NEAR: 'Yakın',
+            PROGRESSIVE: 'Progresif',
+            BIFOCAL: 'Bifokal',
+            SUNGLASSES: 'Düzeltmesiz',
+            SINGLE: 'Tek Odaklı',
+          }
+          return (
+            <div
+              key={lensItem.id}
               style={{
-                display: 'block',
-                width: '100%',
-                marginTop: '6px',
-                padding: '10px',
-                borderRadius: '8px',
-                border: '1px solid #e5e7eb',
-                fontSize: '13px',
+                border: `1px solid ${isDone ? '#10b981' : '#e5e7eb'}`,
+                borderRadius: 10,
+                padding: '12px 14px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
               }}
-            />
-          </label>
-        ) : null}
-      </div>
-
-      {/* Bölüm 2 */}
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px', backgroundColor: '#fafafa' }}>
-        <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 2: Reçete (salt okunur) ──</div>
-        <div style={{ fontSize: '12px', lineHeight: 1.55, marginBottom: '12px' }}>
-          <div>
-            <strong>Daimi R:</strong> {farR}
-          </div>
-          <div>
-            <strong>Daimi L:</strong> {farL}
-          </div>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={cur.rightEyeActive} onChange={(e) => patch({ rightEyeActive: e.target.checked })} />
-            Sağ göz aktif
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={cur.leftEyeActive} onChange={(e) => patch({ leftEyeActive: e.target.checked })} />
-            Sol göz aktif
-          </label>
-        </div>
-      </div>
-
-      {/* Bölüm 3 */}
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px' }}>
-        <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 3: Montaj ölçüleri ──</div>
-        <div style={{ marginBottom: '10px' }}>
-          <div style={{ fontSize: '12px', fontWeight: 800, marginBottom: '8px' }}>
-            Çerçeve tipi
-            {star()}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {ft('KAPALI', 'Kapalı')}
-            {ft('NILOR', 'Nilör')}
-            {ft('FASET', 'Faset')}
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
-          <NumField
-            label="RPH (sağ montaj yüksekliği)"
-            value={cur.rph}
-            onChange={(v) => patch({ rph: v })}
-            required={cur.rightEyeActive}
-            disabled={!cur.rightEyeActive}
-          />
-          <NumField
-            label="LPH (sol montaj yüksekliği)"
-            value={cur.lph}
-            onChange={(v) => patch({ lph: v })}
-            required={cur.leftEyeActive}
-            disabled={!cur.leftEyeActive}
-          />
-          <NumField label="Koridor yüksekliği" value={cur.corridor} onChange={(v) => patch({ corridor: v })} required />
-          <NumField
-            label="Sağ çap"
-            value={cur.rightDia}
-            onChange={(v) => patch({ rightDia: v })}
-            required={cur.rightEyeActive}
-            disabled={!cur.rightEyeActive}
-          />
-          <NumField
-            label="Sol çap"
-            value={cur.leftDia}
-            onChange={(v) => patch({ leftDia: v })}
-            required={cur.leftEyeActive}
-            disabled={!cur.leftEyeActive}
-          />
-          <NumField label="Vertex mesafesi (v)" value={cur.vertex} onChange={(v) => patch({ vertex: v })} required />
-          <NumField label="Pantoskopik açı (p)" value={cur.pantoscopic} onChange={(v) => patch({ pantoscopic: v })} required />
-          <NumField label="Çerçeve bombe açısı (W)" value={cur.frameBow} onChange={(v) => patch({ frameBow: v })} required />
-        </div>
-      </div>
-
-      {/* Bölüm 4 */}
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px' }}>
-        <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 4: Çerçeve ölçüleri ──</div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-          <input type="checkbox" checked={cur.frameDimsEnabled} onChange={(e) => patch({ frameDimsEnabled: e.target.checked })} />
-          Çerçeve ölçüleri
-        </label>
-        {cur.frameDimsEnabled ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px', marginTop: '10px' }}>
-            <NumField label="Şablon genişliği (A)" value={cur.templateA} onChange={(v) => patch({ templateA: v })} required />
-            <NumField label="Şablon yüksekliği (B)" value={cur.templateB} onChange={(v) => patch({ templateB: v })} required />
-            <NumField label="Köprü mesafesi (DBL)" value={cur.dbl} onChange={(v) => patch({ dbl: v })} required />
-            <NumField label="Çapraz genişlik (ED)" value={cur.ed} onChange={(v) => patch({ ed: v })} required />
-          </div>
-        ) : null}
-      </div>
-
-      {/* Bölüm 5 */}
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px' }}>
-        <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 5: Opsiyonel alanlar ──</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={cur.customBaseEnabled} onChange={(e) => patch({ customBaseEnabled: e.target.checked })} />
-            Özel baz
-          </label>
-          {cur.customBaseEnabled ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <label style={{ fontSize: '12px', fontWeight: 700 }}>
-                Sağ baz
-                <select
-                  value={cur.customBaseRight}
-                  onChange={(e) => patch({ customBaseRight: e.target.value })}
-                  style={{ display: 'block', width: '100%', marginTop: '6px', padding: '8px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
-                >
-                  <option value="">—</option>
-                  {BASE_OPTS.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={{ fontSize: '12px', fontWeight: 700 }}>
-                Sol baz
-                <select
-                  value={cur.customBaseLeft}
-                  onChange={(e) => patch({ customBaseLeft: e.target.value })}
-                  style={{ display: 'block', width: '100%', marginTop: '6px', padding: '8px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
-                >
-                  <option value="">—</option>
-                  {BASE_OPTS.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          ) : null}
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={cur.prismEnabled} onChange={(e) => patch({ prismEnabled: e.target.checked })} />
-            Prizma
-          </label>
-          {cur.prismEnabled ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '8px', fontSize: '12px' }}>
-              <NumField label="R P1" value={cur.prismR1Val} onChange={(v) => patch({ prismR1Val: v })} />
-              <NumField label="R P1 aks" value={cur.prismR1Aks} onChange={(v) => patch({ prismR1Aks: v })} />
-              <NumField label="R P2" value={cur.prismR2Val} onChange={(v) => patch({ prismR2Val: v })} />
-              <NumField label="R P2 aks" value={cur.prismR2Aks} onChange={(v) => patch({ prismR2Aks: v })} />
-              <NumField label="L P1" value={cur.prismL1Val} onChange={(v) => patch({ prismL1Val: v })} />
-              <NumField label="L P1 aks" value={cur.prismL1Aks} onChange={(v) => patch({ prismL1Aks: v })} />
-              <NumField label="L P2" value={cur.prismL2Val} onChange={(v) => patch({ prismL2Val: v })} />
-              <NumField label="L P2 aks" value={cur.prismL2Aks} onChange={(v) => patch({ prismL2Aks: v })} />
-            </div>
-          ) : null}
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={cur.shiftSectionEnabled} onChange={(e) => patch({ shiftSectionEnabled: e.target.checked })} />
-            Odak kaydırma
-          </label>
-          {cur.shiftSectionEnabled ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
+            >
               <div>
-                <div style={{ fontWeight: 800, marginBottom: '6px' }}>R</div>
-                {(
-                  [
-                    ['shiftRIn', 'shiftRInVal', 'İçe'],
-                    ['shiftROut', 'shiftROutVal', 'Dışa'],
-                    ['shiftRUp', 'shiftRUpVal', 'Yukarı'],
-                    ['shiftRDown', 'shiftRDownVal', 'Aşağı'],
-                  ] as const
-                ).map(([ck, vk, lab]) => (
-                  <label key={ck} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                    <input
-                      type="checkbox"
-                      checked={cur[ck]}
-                      onChange={(e) => patch({ [ck]: e.target.checked } as Partial<LensMeasurementDraft>)}
-                    />
-                    {lab}
-                    <input
-                      type="number"
-                      step={0.01}
-                      value={cur[vk]}
-                      disabled={!cur[ck]}
-                      onChange={(e) => patch({ [vk]: e.target.value } as Partial<LensMeasurementDraft>)}
-                      style={{ width: 72, padding: '4px 6px', borderRadius: '6px', border: '1px solid #e5e7eb' }}
-                    />
-                  </label>
-                ))}
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{urunAdi}</div>
+                {rxTipi ? (
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{rxTipiLabel[rxTipi] ?? rxTipi}</div>
+                ) : null}
+                {isDone ? <div style={{ fontSize: 11, color: '#10b981', marginTop: 2 }}>✓ Ölçüm girildi</div> : null}
               </div>
-              <div>
-                <div style={{ fontWeight: 800, marginBottom: '6px' }}>L</div>
-                {(
-                  [
-                    ['shiftLIn', 'shiftLInVal', 'İçe'],
-                    ['shiftLOut', 'shiftLOutVal', 'Dışa'],
-                    ['shiftLUp', 'shiftLUpVal', 'Yukarı'],
-                    ['shiftLDown', 'shiftLDownVal', 'Aşağı'],
-                  ] as const
-                ).map(([ck, vk, lab]) => (
-                  <label key={ck} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                    <input
-                      type="checkbox"
-                      checked={cur[ck]}
-                      onChange={(e) => patch({ [ck]: e.target.checked } as Partial<LensMeasurementDraft>)}
-                    />
-                    {lab}
-                    <input
-                      type="number"
-                      step={0.01}
-                      value={cur[vk]}
-                      disabled={!cur[ck]}
-                      onChange={(e) => patch({ [vk]: e.target.value } as Partial<LensMeasurementDraft>)}
-                      style={{ width: 72, padding: '4px 6px', borderRadius: '6px', border: '1px solid #e5e7eb' }}
-                    />
-                  </label>
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => setActiveIx(i)}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${isDone ? '#10b981' : '#C8102E'}`,
+                  backgroundColor: 'white',
+                  color: isDone ? '#10b981' : '#C8102E',
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {isDone ? '✏️ Düzenle' : '+ Ölçüm Ekle'}
+              </button>
             </div>
-          ) : null}
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={cur.engravingEnabled} onChange={(e) => patch({ engravingEnabled: e.target.checked })} />
-            Özel engraving (max 3 karakter)
-          </label>
-          {cur.engravingEnabled ? (
-            <input
-              value={cur.engraving}
-              maxLength={3}
-              onChange={(e) => patch({ engraving: e.target.value.replace(/[^a-zA-Z0-9]/g, '') })}
-              style={{ maxWidth: 120, padding: '8px 10px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
-            />
-          ) : null}
-        </div>
+          )
+        })}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <Button variant="secondary" onClick={onBack}>
-          ← Geri
+      {/* Alt butonlar */}
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Button onClick={onBack}>← Geri</Button>
+        <Button disabled={!allMeasurementDraftsComplete(drafts)} onClick={() => onComplete(drafts)}>
+          Onaya Geç →
         </Button>
-        <div style={{ fontSize: '13px', fontWeight: 800, color: '#6b7280' }}>
-          {ix + 1} / {n} eşleşme
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {ix > 0 ? (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setIx((i) => Math.max(0, i - 1))
-              }}
-            >
-              ← Önceki
-            </Button>
-          ) : null}
-          {ix < n - 1 ? (
-            <Button
-              onClick={() => {
-                setIx((i) => Math.min(n - 1, i + 1))
-              }}
-            >
-              Sonraki →
-            </Button>
-          ) : (
-            <Button disabled={!canContinueAll} onClick={() => onComplete(drafts)}>
-              Onaya Geç →
-            </Button>
-          )}
-        </div>
       </div>
+
+      {/* Ölçüm formu popup */}
+      {activeIx !== null && drafts[activeIx]
+        ? (() => {
+            const i = activeIx
+            const draft = drafts[i]
+            const activeLens = lenses.find((l) => l.id === draft.saleItemId) ?? lenses[i]
+            const { farR, farL } = activeLens?.prescription
+              ? prescriptionReadoutForItem(activeLens)
+              : prescriptionReadoutFromCustomerRx(customerPrescription)
+            const patchActive = (p: Partial<LensMeasurementDraft>) => {
+              setDrafts(updateDraftAt(drafts, i, p))
+            }
+            const urunAdi = activeLens?.odooProductName || activeLens?.product?.name || 'Cam'
+            const frameSelVal = draft.ownFrame ? '__OWN__' : draft.frameItemId ?? ''
+            const ft = (id: LensOrderFrameTypeApi, label: string) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => patchActive({ frameType: id })}
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: '10px',
+                  border: draft.frameType === id ? '2px solid #C8102E' : '1px solid #e5e7eb',
+                  backgroundColor: draft.frameType === id ? '#fdf2f4' : '#fff',
+                  fontWeight: 800,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+              >
+                {label}
+              </button>
+            )
+
+            return (
+              <div
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  backgroundColor: 'rgba(0,0,0,0.5)',
+                  zIndex: 1000,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 16,
+                }}
+              >
+                <div
+                  style={{
+                    backgroundColor: 'white',
+                    borderRadius: 16,
+                    padding: 24,
+                    width: '100%',
+                    maxWidth: 640,
+                    maxHeight: '90vh',
+                    overflowY: 'auto',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <div style={{ fontWeight: 900, fontSize: 15 }}>{urunAdi} — Ölçümler</div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveIx(null)}
+                      style={{ border: 'none', background: 'none', fontSize: 20, cursor: 'pointer' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Reçete özeti */}
+                  <div style={{ backgroundColor: '#f8fafc', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
+                    <div style={{ fontWeight: 700, color: '#6b7280', fontSize: 11, marginBottom: 8 }}>REÇETE</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div style={{ backgroundColor: '#fef2f2', borderRadius: 8, padding: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: '#C8102E', marginBottom: 6 }}>SAĞ GÖZ</div>
+                        {(
+                          [
+                            ['SPH', farR.split(' / ')[0]],
+                            ['CYL', farR.split(' / ')[1]],
+                            ['AKS', farR.split(' / ')[2]],
+                            ['ADD', farR.split(' / ')[3]],
+                          ] as const
+                        ).map(([label, val]) => (
+                          <div key={label} style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#6b7280' }}>{label}</span>
+                            <span>{val ?? '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ backgroundColor: '#eff6ff', borderRadius: 8, padding: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: '#1d4ed8', marginBottom: 6 }}>SOL GÖZ</div>
+                        {(
+                          [
+                            ['SPH', farL.split(' / ')[0]],
+                            ['CYL', farL.split(' / ')[1]],
+                            ['AKS', farL.split(' / ')[2]],
+                            ['ADD', farL.split(' / ')[3]],
+                          ] as const
+                        ).map(([label, val]) => (
+                          <div key={label} style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#6b7280' }}>{label}</span>
+                            <span>{val ?? '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BÖLÜM 1: Göz aktif */}
+                  <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px', marginBottom: 14, backgroundColor: '#fafafa' }}>
+                    <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 1: Göz aktif ──</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={draft.rightEyeActive}
+                          onChange={(e) => patchActive({ rightEyeActive: e.target.checked })}
+                        />
+                        Sağ göz aktif
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={draft.leftEyeActive}
+                          onChange={(e) => patchActive({ leftEyeActive: e.target.checked })}
+                        />
+                        Sol göz aktif
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* BÖLÜM 2: Montaj ölçüleri */}
+                  <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px', marginBottom: 14 }}>
+                    <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 2: Montaj ölçüleri ──</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
+                      <NumField
+                        label="RPH (sağ montaj yüksekliği)"
+                        value={draft.rph}
+                        onChange={(v) => patchActive({ rph: v })}
+                        required={draft.rightEyeActive}
+                        disabled={!draft.rightEyeActive}
+                      />
+                      <NumField
+                        label="LPH (sol montaj yüksekliği)"
+                        value={draft.lph}
+                        onChange={(v) => patchActive({ lph: v })}
+                        required={draft.leftEyeActive}
+                        disabled={!draft.leftEyeActive}
+                      />
+                      <NumField label="Koridor yüksekliği" value={draft.corridor} onChange={(v) => patchActive({ corridor: v })} required />
+                      <NumField
+                        label="Sağ çap"
+                        value={draft.rightDia}
+                        onChange={(v) => patchActive({ rightDia: v })}
+                        required={draft.rightEyeActive}
+                        disabled={!draft.rightEyeActive}
+                      />
+                      <NumField
+                        label="Sol çap"
+                        value={draft.leftDia}
+                        onChange={(v) => patchActive({ leftDia: v })}
+                        required={draft.leftEyeActive}
+                        disabled={!draft.leftEyeActive}
+                      />
+                      <NumField label="Vertex mesafesi (v)" value={draft.vertex} onChange={(v) => patchActive({ vertex: v })} required />
+                      <NumField label="Pantoskopik açı (p)" value={draft.pantoscopic} onChange={(v) => patchActive({ pantoscopic: v })} required />
+                      <NumField label="Çerçeve bombe açısı (W)" value={draft.frameBow} onChange={(v) => patchActive({ frameBow: v })} required />
+                    </div>
+                  </div>
+
+                  {/* BÖLÜM 3: Çerçeve tipi */}
+                  <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px', marginBottom: 14 }}>
+                    <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 3: Çerçeve tipi ──</div>
+                    <div style={{ marginBottom: '10px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 800, marginBottom: '8px' }}>
+                        Çerçeve tipi
+                        {star()}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {ft('KAPALI', 'Kapalı')}
+                        {ft('NILOR', 'Nilör')}
+                        {ft('FASET', 'Faset')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BÖLÜM 4: Çerçeve ölçüleri */}
+                  <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px', marginBottom: 14 }}>
+                    <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 4: Çerçeve ölçüleri ──</div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={draft.frameDimsEnabled}
+                        onChange={(e) => patchActive({ frameDimsEnabled: e.target.checked })}
+                      />
+                      Çerçeve ölçüleri
+                    </label>
+                    {draft.frameDimsEnabled ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px', marginTop: '10px' }}>
+                        <NumField label="Şablon genişliği (A)" value={draft.templateA} onChange={(v) => patchActive({ templateA: v })} required />
+                        <NumField label="Şablon yüksekliği (B)" value={draft.templateB} onChange={(v) => patchActive({ templateB: v })} required />
+                        <NumField label="Köprü mesafesi (DBL)" value={draft.dbl} onChange={(v) => patchActive({ dbl: v })} required />
+                        <NumField label="Çapraz genişlik (ED)" value={draft.ed} onChange={(v) => patchActive({ ed: v })} required />
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* BÖLÜM 5–8: Opsiyonel alanlar */}
+                  <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px', marginBottom: 14 }}>
+                    <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 5–8: Opsiyonel alanlar ──</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13px', marginBottom: '8px' }}>Bölüm 5: Özel baz</div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={draft.customBaseEnabled}
+                            onChange={(e) => patchActive({ customBaseEnabled: e.target.checked })}
+                          />
+                          Özel baz
+                        </label>
+                        {draft.customBaseEnabled ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' }}>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>
+                              Sağ baz
+                              <select
+                                value={draft.customBaseRight}
+                                onChange={(e) => patchActive({ customBaseRight: e.target.value })}
+                                style={{ display: 'block', width: '100%', marginTop: '6px', padding: '8px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
+                              >
+                                <option value="">—</option>
+                                {BASE_OPTS.map((o) => (
+                                  <option key={o} value={o}>
+                                    {o}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>
+                              Sol baz
+                              <select
+                                value={draft.customBaseLeft}
+                                onChange={(e) => patchActive({ customBaseLeft: e.target.value })}
+                                style={{ display: 'block', width: '100%', marginTop: '6px', padding: '8px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
+                              >
+                                <option value="">—</option>
+                                {BASE_OPTS.map((o) => (
+                                  <option key={o} value={o}>
+                                    {o}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13px', marginBottom: '8px' }}>Bölüm 6: Prizma</div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={draft.prismEnabled} onChange={(e) => patchActive({ prismEnabled: e.target.checked })} />
+                          Prizma
+                        </label>
+                        {draft.prismEnabled ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '8px', fontSize: '12px', marginTop: '10px' }}>
+                            <NumField label="R P1" value={draft.prismR1Val} onChange={(v) => patchActive({ prismR1Val: v })} />
+                            <NumField label="R P1 aks" value={draft.prismR1Aks} onChange={(v) => patchActive({ prismR1Aks: v })} />
+                            <NumField label="R P2" value={draft.prismR2Val} onChange={(v) => patchActive({ prismR2Val: v })} />
+                            <NumField label="R P2 aks" value={draft.prismR2Aks} onChange={(v) => patchActive({ prismR2Aks: v })} />
+                            <NumField label="L P1" value={draft.prismL1Val} onChange={(v) => patchActive({ prismL1Val: v })} />
+                            <NumField label="L P1 aks" value={draft.prismL1Aks} onChange={(v) => patchActive({ prismL1Aks: v })} />
+                            <NumField label="L P2" value={draft.prismL2Val} onChange={(v) => patchActive({ prismL2Val: v })} />
+                            <NumField label="L P2 aks" value={draft.prismL2Aks} onChange={(v) => patchActive({ prismL2Aks: v })} />
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13px', marginBottom: '8px' }}>Bölüm 7: Odak kaydırma</div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={draft.shiftSectionEnabled}
+                            onChange={(e) => patchActive({ shiftSectionEnabled: e.target.checked })}
+                          />
+                          Odak kaydırma
+                        </label>
+                        {draft.shiftSectionEnabled ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px', marginTop: '10px' }}>
+                            <div>
+                              <div style={{ fontWeight: 800, marginBottom: '6px' }}>R</div>
+                              {(
+                                [
+                                  ['shiftRIn', 'shiftRInVal', 'İçe'],
+                                  ['shiftROut', 'shiftROutVal', 'Dışa'],
+                                  ['shiftRUp', 'shiftRUpVal', 'Yukarı'],
+                                  ['shiftRDown', 'shiftRDownVal', 'Aşağı'],
+                                ] as const
+                              ).map(([ck, vk, lab]) => (
+                                <label key={ck} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={draft[ck]}
+                                    onChange={(e) => patchActive({ [ck]: e.target.checked } as Partial<LensMeasurementDraft>)}
+                                  />
+                                  {lab}
+                                  <input
+                                    type="number"
+                                    step={0.01}
+                                    value={draft[vk]}
+                                    disabled={!draft[ck]}
+                                    onChange={(e) => patchActive({ [vk]: e.target.value } as Partial<LensMeasurementDraft>)}
+                                    style={{ width: 72, padding: '4px 6px', borderRadius: '6px', border: '1px solid #e5e7eb' }}
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 800, marginBottom: '6px' }}>L</div>
+                              {(
+                                [
+                                  ['shiftLIn', 'shiftLInVal', 'İçe'],
+                                  ['shiftLOut', 'shiftLOutVal', 'Dışa'],
+                                  ['shiftLUp', 'shiftLUpVal', 'Yukarı'],
+                                  ['shiftLDown', 'shiftLDownVal', 'Aşağı'],
+                                ] as const
+                              ).map(([ck, vk, lab]) => (
+                                <label key={ck} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={draft[ck]}
+                                    onChange={(e) => patchActive({ [ck]: e.target.checked } as Partial<LensMeasurementDraft>)}
+                                  />
+                                  {lab}
+                                  <input
+                                    type="number"
+                                    step={0.01}
+                                    value={draft[vk]}
+                                    disabled={!draft[ck]}
+                                    onChange={(e) => patchActive({ [vk]: e.target.value } as Partial<LensMeasurementDraft>)}
+                                    style={{ width: 72, padding: '4px 6px', borderRadius: '6px', border: '1px solid #e5e7eb' }}
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13px', marginBottom: '8px' }}>Bölüm 8: Özel engraving</div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={draft.engravingEnabled}
+                            onChange={(e) => patchActive({ engravingEnabled: e.target.checked })}
+                          />
+                          Özel engraving (max 3 karakter)
+                        </label>
+                        {draft.engravingEnabled ? (
+                          <input
+                            value={draft.engraving}
+                            maxLength={3}
+                            onChange={(e) => patchActive({ engraving: e.target.value.replace(/[^a-zA-Z0-9]/g, '') })}
+                            style={{ maxWidth: 120, padding: '8px 10px', borderRadius: '8px', border: '1px solid #e5e7eb', marginTop: '8px' }}
+                          />
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => setActiveIx(null)}
+                      style={{
+                        flex: 1,
+                        padding: 12,
+                        borderRadius: 10,
+                        border: '1px solid #e5e7eb',
+                        backgroundColor: 'white',
+                        cursor: 'pointer',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Kapat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveIx(null)
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: 12,
+                        borderRadius: 10,
+                        border: 'none',
+                        backgroundColor: '#C8102E',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontWeight: 800,
+                      }}
+                    >
+                      Kaydet
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })()
+        : null}
     </div>
   )
 }

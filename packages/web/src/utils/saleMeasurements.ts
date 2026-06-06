@@ -24,6 +24,9 @@ function isLensMeasurementSaleItem(item: SaleItem): boolean {
   const hasOdooProductName = item.odooProductName != null && String(item.odooProductName).trim() !== ''
   if (hasOdooProductId && inList) return true
   if (hasOdooProductName && inList) return true
+  // Çerçeveye bağlı cam kalemleri (linkType ile)
+  const linkType = item.linkType
+  if (linkType === 'FRAME_LENS' || linkType === 'CUSTOMER_FRAME') return true
   return false
 }
 
