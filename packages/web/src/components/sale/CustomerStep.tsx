@@ -79,6 +79,7 @@ export default function CustomerStep({
 
   const [editInfoOpen, setEditInfoOpen] = useState(false)
   const [rxModalOpen, setRxModalOpen] = useState(false)
+  const [lensRxModalOpen, setLensRxModalOpen] = useState(false)
 
   // Daimi (Far)
   const [far_r_pd, setFar_r_pd] = useState('')
@@ -541,6 +542,25 @@ export default function CustomerStep({
             >
               + Yeni Reçete Ekle
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLensRxModalOpen(true)
+                setError(null)
+              }}
+              style={{
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: '1px solid #1d4ed8',
+                backgroundColor: 'white',
+                cursor: 'pointer',
+                fontWeight: 800,
+                fontSize: 13,
+                color: '#1d4ed8',
+              }}
+            >
+              + Lens Reçetesi Ekle
+            </button>
           </div>
 
           <button
@@ -834,7 +854,7 @@ export default function CustomerStep({
               padding: '24px',
             }}
           >
-            <div style={{ fontWeight: 800, fontSize: '16px', marginBottom: '12px' }}>Yeni Reçete Ekle</div>
+            <div style={{ fontWeight: 800, fontSize: '16px', marginBottom: '12px' }}>Gözlük Reçetesi Ekle</div>
 
             <div style={{ marginTop: '14px' }}>
               <SectionTitle title="DAİMİ GÖZ NUMARALARI" />
@@ -865,27 +885,6 @@ export default function CustomerStep({
                 onCopySame={() => copyRtoL('yakin')}
                 r={{ pd: [near_r_pd, setNear_r_pd], sph: [near_r_sph, setNear_r_sph], cyl: [near_r_cyl, setNear_r_cyl], aks: [near_r_aks, setNear_r_aks], dx: [near_r_diagnosis, setNear_r_diagnosis] }}
                 l={{ pd: [near_l_pd, setNear_l_pd], sph: [near_l_sph, setNear_l_sph], cyl: [near_l_cyl, setNear_l_cyl], aks: [near_l_aks, setNear_l_aks], dx: [near_l_diagnosis, setNear_l_diagnosis] }}
-              />
-
-              <SectionTitle title="LENS NUMARALARI" />
-              <LensRow
-                onCopySame={() => copyRtoL('lens')}
-                r={{
-                  bc: [lens_r_bc, setLens_r_bc],
-                  sph: [lens_r_sph, setLens_r_sph],
-                  cyl: [lens_r_cyl, setLens_r_cyl],
-                  aks: [lens_r_aks, setLens_r_aks],
-                  add: [lens_r_add, setLens_r_add],
-                  note: [lens_r_note, setLens_r_note],
-                }}
-                l={{
-                  bc: [lens_l_bc, setLens_l_bc],
-                  sph: [lens_l_sph, setLens_l_sph],
-                  cyl: [lens_l_cyl, setLens_l_cyl],
-                  aks: [lens_l_aks, setLens_l_aks],
-                  add: [lens_l_add, setLens_l_add],
-                  note: [lens_l_note, setLens_l_note],
-                }}
               />
 
               <SectionTitle title="E-REÇETE BİLGİLERİ" />
@@ -967,19 +966,6 @@ export default function CustomerStep({
                         undefined,
                       near_l_note: near_l_diagnosis || undefined,
 
-                      lens_r_bc: lens_r_bc || undefined,
-                      lens_r_sph: lens_r_sph || undefined,
-                      lens_r_cyl: lens_r_cyl || undefined,
-                      lens_r_aks: lens_r_aks || undefined,
-                      lens_r_add: lens_r_add || undefined,
-                      lens_r_note: lens_r_note || undefined,
-                      lens_l_bc: lens_l_bc || undefined,
-                      lens_l_sph: lens_l_sph || undefined,
-                      lens_l_cyl: lens_l_cyl || undefined,
-                      lens_l_aks: lens_l_aks || undefined,
-                      lens_l_add: lens_l_add || undefined,
-                      lens_l_note: lens_l_note || undefined,
-
                       eRx_no: eRx_no.trim() || undefined,
                       eRx_date: eRx_date || undefined,
                       eRx_hospital: eRx_hospital.trim() || undefined,
@@ -998,6 +984,131 @@ export default function CustomerStep({
                   borderRadius: '10px',
                   border: 'none',
                   backgroundColor: '#C8102E',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                }}
+              >
+                Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {lensRxModalOpen ? (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: 16,
+              padding: 24,
+              width: '100%',
+              maxWidth: 600,
+              maxHeight: '85vh',
+              overflowY: 'auto',
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 12, color: '#1d4ed8' }}>Lens Reçetesi Ekle</div>
+
+            <SectionTitle title="LENS NUMARALARI" />
+            <LensRow
+              onCopySame={() => copyRtoL('lens')}
+              r={{
+                bc: [lens_r_bc, setLens_r_bc],
+                sph: [lens_r_sph, setLens_r_sph],
+                cyl: [lens_r_cyl, setLens_r_cyl],
+                aks: [lens_r_aks, setLens_r_aks],
+                add: [lens_r_add, setLens_r_add],
+                note: [lens_r_note, setLens_r_note],
+              }}
+              l={{
+                bc: [lens_l_bc, setLens_l_bc],
+                sph: [lens_l_sph, setLens_l_sph],
+                cyl: [lens_l_cyl, setLens_l_cyl],
+                aks: [lens_l_aks, setLens_l_aks],
+                add: [lens_l_add, setLens_l_add],
+                note: [lens_l_note, setLens_l_note],
+              }}
+            />
+
+            <SectionTitle title="E-REÇETE BİLGİLERİ (LENS)" />
+            <Field label="E-Reçete No" value={eRx_no} onChange={setERx_no} />
+            <Field label="Tarih" value={eRx_date} onChange={setERx_date} type="date" />
+            <Field label="Hastane" value={eRx_hospital} onChange={setERx_hospital} />
+            <Field label="Doktor" value={eRx_doctor} onChange={setERx_doctor} />
+            <Field label="Tanı" value={eRx_diagnosis} onChange={setERx_diagnosis} />
+
+            {error ? <div style={{ color: '#ef4444', fontSize: 13, marginTop: 8 }}>{error}</div> : null}
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+              <button
+                type="button"
+                onClick={() => setLensRxModalOpen(false)}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: 10,
+                  border: '1px solid #e5e7eb',
+                  backgroundColor: 'white',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                }}
+              >
+                Kapat
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!selectedCustomer?.id) return
+                  setError(null)
+                  try {
+                    await (addPrescription as any)(selectedCustomer.id, {
+                      source: 'LENS',
+                      lens_r_bc: lens_r_bc || undefined,
+                      lens_r_sph: lens_r_sph || undefined,
+                      lens_r_cyl: lens_r_cyl || undefined,
+                      lens_r_aks: lens_r_aks || undefined,
+                      lens_r_add: lens_r_add || undefined,
+                      lens_r_note: lens_r_note || undefined,
+                      lens_l_bc: lens_l_bc || undefined,
+                      lens_l_sph: lens_l_sph || undefined,
+                      lens_l_cyl: lens_l_cyl || undefined,
+                      lens_l_aks: lens_l_aks || undefined,
+                      lens_l_add: lens_l_add || undefined,
+                      lens_l_note: lens_l_note || undefined,
+                      eRx_no: eRx_no || undefined,
+                      eRx_date: eRx_date || undefined,
+                      eRx_hospital: eRx_hospital || undefined,
+                      eRx_doctor: eRx_doctor || undefined,
+                      eRx_diagnosis: eRx_diagnosis || undefined,
+                    })
+                    await refreshPrescriptionCard(selectedCustomer.id)
+                    setLensRxModalOpen(false)
+                  } catch (e: any) {
+                    setError(e?.response?.data?.message ?? 'Lens reçetesi eklenemedi')
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: 10,
+                  border: 'none',
+                  backgroundColor: '#1d4ed8',
                   color: 'white',
                   cursor: 'pointer',
                   fontWeight: 800,

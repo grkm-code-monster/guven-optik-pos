@@ -96,9 +96,12 @@ export default function ItemsStep({
   const [selectedTaxId, setSelectedTaxId] = useState<number | null>(null)
   const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount')
   const [discountInput, setDiscountInput] = useState('0')
+  const [prescriptionType, setPrescriptionType] = useState<string>('')
 
   const [error, setError] = useState<string | null>(null)
   const [editingItem, setEditingItem] = useState<any | null>(null)
+  const [pendingLinkedItemId, setPendingLinkedItemId] = useState<string | null>(null)
+  const [frameAkis, setFrameAkis] = useState<'secim' | 'urunAra' | 'sadeceCerceve' | 'kendiCercevesi' | null>(null)
 
   useEffect(() => {
     apiClient
@@ -281,9 +284,12 @@ export default function ItemsStep({
     setUnitPrice('')
     setDiscountType('amount')
     setDiscountInput('0')
+    setPrescriptionType('')
     setSelectedTaxId(null)
     setError(null)
     setEditingItem(null)
+    setPendingLinkedItemId(null)
+    setFrameAkis(null)
   }
 
   function open() {
@@ -316,6 +322,12 @@ export default function ItemsStep({
 
     const directId = DIREKT_KATEGORI_ID[t.type]
     if (directId != null) {
+      if (t.type === 'FRAME' || t.type === 'SUN') {
+        setPickedKategoriId(directId)
+        setFrameAkis('secim')
+        setStep(1.5 as any)
+        return
+      }
       setPickedKategoriId(directId)
       setStep(3)
       return
@@ -417,8 +429,23 @@ export default function ItemsStep({
         payload.odooCategoryId = pickedKategoriId
       }
       if (pickedType?.type === 'LENS') {
-        payload.linkType = editingItem?.linkType ?? 'CUSTOMER_FRAME'
-        if (editingItem?.linkedItemId) payload.linkedItemId = editingItem.linkedItemId
+        if (pendingLinkedItemId && pendingLinkedItemId !== 'KENDI_CERCEVE') {
+          payload.linkType = 'FRAME_LENS'
+          payload.linkedItemId = pendingLinkedItemId
+        } else if (pendingLinkedItemId === 'KENDI_CERCEVE') {
+          payload.linkType = 'CUSTOMER_FRAME'
+          payload.linkedItemId = undefined
+        } else {
+          payload.linkType = editingItem?.linkType ?? 'CUSTOMER_FRAME'
+          payload.linkedItemId = editingItem?.linkedItemId ?? undefined
+        }
+        if (prescriptionType) {
+          const backendType = prescriptionType.startsWith('SINGLE_') ? 'SINGLE' : prescriptionType
+          payload.prescription = {
+            prescriptionType: backendType,
+            prescriptionSource: 'MANUAL',
+          }
+        }
       }
 
       console.log('[addItem] payload:', payload)
@@ -430,6 +457,7 @@ export default function ItemsStep({
       }
       const updated = await getSaleById(saleId)
       onSaleUpdated(updated)
+      setPendingLinkedItemId(null)
       close()
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Kalem eklenemedi')
@@ -439,6 +467,7 @@ export default function ItemsStep({
   function openEdit(item: any) {
     setModalOpen(true)
     setEditingItem(item)
+    setPrescriptionType(item?.prescription?.prescriptionType ?? '')
     setError(null)
     const matchedType = typeCards.find((t) => t.type === item?.product?.category) ?? typeCards[0]
     setPickedType(matchedType)
@@ -513,6 +542,39 @@ export default function ItemsStep({
                 })()}
               </div>
               <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                {(it.odooCategoryId === 6 || it.odooCategoryId === 7) &&
+                !items.some((other) => other.linkedItemId === it.id) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const lensType = typeCards.find((t) => t.type === 'LENS')
+                      if (!lensType) return
+                      setModalOpen(true)
+                      setPickedType(lensType)
+                      setCatStack([getKategoriTreeRoot('LENS')])
+                      setCatPath([])
+                      setStep(2)
+                      setPickedKategoriId(null)
+                      setPickedKategoriIds(null)
+                      setPickedProduct(null)
+                      setQ('')
+                      setEditingItem(null)
+                      setPendingLinkedItemId(it.id)
+                    }}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      border: '1px solid #059669',
+                      backgroundColor: 'white',
+                      color: '#059669',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    + Cam Ekle
+                  </button>
+                ) : null}
                 <button type="button" onClick={() => openEdit(it)} style={editBtnStyle}>
                   Düzenle
                 </button>
@@ -577,6 +639,95 @@ export default function ItemsStep({
                     </button>
                   ))}
                 </div>
+              </div>
+            ) : null}
+
+            {step === (1.5 as any) && frameAkis === 'secim' ? (
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 4 }}>
+                  {pickedType?.type === 'FRAME' ? 'Optik Çerçeve' : 'Güneş Gözlüğü'} — nasıl devam edelim?
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFrameAkis('kendiCercevesi')
+                    const lensType = typeCards.find((t) => t.type === 'LENS')
+                    if (lensType) setPickedType(lensType)
+                    setCatStack([getKategoriTreeRoot('LENS')])
+                    setCatPath([])
+                    setStep(2)
+                    setPendingLinkedItemId('KENDI_CERCEVE')
+                  }}
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: 12,
+                    border: '1px solid #e5e7eb',
+                    backgroundColor: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 800,
+                    fontSize: 14,
+                    textAlign: 'left',
+                  }}
+                >
+                  👓 Kendi Çerçevesi → Cam Ekle
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFrameAkis('urunAra')
+                    setStep(3)
+                  }}
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: 12,
+                    border: '1px solid #e5e7eb',
+                    backgroundColor: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 800,
+                    fontSize: 14,
+                    textAlign: 'left',
+                  }}
+                >
+                  🔍 Ürün Ara → Çerçeve Seç
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFrameAkis('sadeceCerceve')
+                    setStep(3)
+                  }}
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: 12,
+                    border: '1px solid #e5e7eb',
+                    backgroundColor: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 800,
+                    fontSize: 14,
+                    textAlign: 'left',
+                  }}
+                >
+                  🕶 Sadece Çerçeve (Cam Yok)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  style={{
+                    padding: '10px',
+                    borderRadius: 10,
+                    border: '1px solid #e5e7eb',
+                    backgroundColor: 'white',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    color: '#6b7280',
+                  }}
+                >
+                  ← Geri
+                </button>
               </div>
             ) : null}
 
@@ -720,6 +871,40 @@ export default function ItemsStep({
                 <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '10px', fontWeight: 700 }}>
                   Adım 4 — Miktar / Fiyat ({pickedProduct.name})
                 </div>
+                {pickedType?.type === 'LENS' ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Reçete Tipi
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {[
+                        { id: 'SINGLE', label: 'Daimi', sub: 'FAR' },
+                        { id: 'SINGLE', label: 'Yakın', sub: 'NEAR' },
+                        { id: 'PROGRESSIVE', label: 'Progresif', sub: '' },
+                        { id: 'BIFOCAL', label: 'Bifokal', sub: '' },
+                        { id: 'SUNGLASSES', label: 'Düzeltmesiz', sub: '' },
+                      ].map((t) => (
+                        <button
+                          key={t.label}
+                          type="button"
+                          onClick={() => setPrescriptionType(t.id === 'SINGLE' ? `SINGLE_${t.sub}` : t.id)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 8,
+                            border: `1px solid ${prescriptionType === (t.id === 'SINGLE' ? `SINGLE_${t.sub}` : t.id) ? '#C8102E' : '#e5e7eb'}`,
+                            backgroundColor: prescriptionType === (t.id === 'SINGLE' ? `SINGLE_${t.sub}` : t.id) ? '#C8102E' : 'white',
+                            color: prescriptionType === (t.id === 'SINGLE' ? `SINGLE_${t.sub}` : t.id) ? 'white' : '#374151',
+                            fontWeight: 700,
+                            fontSize: 12,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                   <Field label="Adet" value={qty} onChange={setQty} />
                   <Field label="Birim Fiyat" value={unitPrice} onChange={setUnitPrice} />
