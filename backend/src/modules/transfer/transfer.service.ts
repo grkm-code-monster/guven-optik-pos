@@ -214,14 +214,50 @@ export async export function searchUrun(q, yontem, lokasyon, options) {
         if (yontem === 'ad') {
             const kategoriId = resolveSearchKategoriId(options);
             const domain = [['name', 'ilike', term]];
-            if (kategoriId != null) {
+            const ids = options?.kategoriIds;
+            if (ids && ids.length > 0) {
+                if (ids.length === 1) {
+                    domain.push(['categ_id', 'child_of', ids[0]]);
+                }
+                else {
+                    domain.push(['categ_id', 'in', ids]);
+                }
+            }
+            else if (kategoriId != null) {
                 domain.push(['categ_id', 'child_of', kategoriId]);
             }
             const variants = (await odooService.execute('product.product', 'search_read', [domain], {
                 fields: ['id', 'display_name', 'lst_price'],
                 limit: 20,
             }, companyId));
-            return (variants ?? []).map(mapVariantToTransferUrun);
+            const results = [...(variants ?? [])];
+
+            // Nitelik değerlerinde de ara — model no, renk kodu gibi
+            const attrDomain: any[] = [
+                ['product_template_attribute_value_ids.name', 'ilike', term],
+                ['active', '=', true],
+                ['type', 'in', ['product', 'consu']],
+            ];
+            if (companyId) attrDomain.push(['company_id', 'in', [false, companyId]]);
+
+            try {
+                const attrResults = await odooService.execute('product.product', 'search_read',
+                    [attrDomain],
+                    { fields: ['id', 'name', 'display_name', 'default_code', 'barcode', 'list_price', 'lst_price', 'standard_price', 'tracking', 'product_tmpl_id'], limit: 100 },
+                    companyId);
+
+                for (const v of attrResults ?? []) {
+                    if (!results.find((r: any) => r.id === v.id)) {
+                        results.push({
+                            ...v,
+                            display_name: v.display_name ?? v.name,
+                            lst_price: v.lst_price ?? v.list_price ?? null,
+                        });
+                    }
+                }
+            } catch { }
+
+            return results.map(mapVariantToTransferUrun);
         }
         let productIds = [];
         let lotIds = [];
@@ -276,6 +312,16 @@ export async export function searchUrun(q, yontem, lokasyon, options) {
         }
         return sonuclar;
     }, MOCK_URUN_ARA);
+}
+export async function searchUrunAkilli(term: string, lokasyon: string, companyId?: number) {
+  const yontemler = ['barkod', 'uts', 'lot', 'ref', 'ad']
+  for (const yontem of yontemler) {
+    const results = await searchUrun(term, yontem, lokasyon, {}, companyId)
+    if (results && results.length > 0) {
+      return { results, yontem }
+    }
+  }
+  return { results: [], yontem: null }
 }
 export async export function createTransfer(input) {
     const cikisSirket = odooLocations.getLokasyonSirket(input.cikisLokasyon);

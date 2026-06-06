@@ -45,8 +45,8 @@ export function getOdooCredentials(companyId: number) {
 
 export function buildOdooCompanyContext(forceCompanyId: number) {
   return {
-    allowed_company_ids: [...ODOO_ALL_COMPANY_IDS],
-    force_company: forceCompanyId,
+    allowed_company_ids: [forceCompanyId],
+    company_id: forceCompanyId,
   };
 }
 
@@ -154,6 +154,9 @@ export async function syncCustomerToOdoo(customer: {
   name: string;
   phone?: string;
   identityNo?: string;
+  birthDate?: Date | string | null;
+  email?: string | null;
+  note?: string | null;
 }): Promise<number> {
   if (customer.phone) {
     const existing = await execute(
@@ -165,12 +168,67 @@ export async function syncCustomerToOdoo(customer: {
     if (Array.isArray(existing) && existing.length > 0) return existing[0].id;
   }
 
-  return execute('res.partner', 'create', [
-    {
-      name: customer.name,
-      phone: customer.phone,
-      vat: customer.identityNo,
-      customer_rank: 1,
-    },
-  ]);
+  const partnerVals: any = {
+    name: customer.name,
+    phone: customer.phone,
+    customer_rank: 1,
+  }
+  if (customer.identityNo) partnerVals.vat = customer.identityNo
+  if (customer.email) partnerVals.email = customer.email
+  if (customer.birthDate) {
+    try {
+      const d = new Date(customer.birthDate)
+      if (!isNaN(d.getTime())) {
+        partnerVals.x_birthdate = d.toISOString().slice(0, 10)
+      }
+    } catch { }
+  }
+  if (customer.note) partnerVals.comment = customer.note
+
+  return execute('res.partner', 'create', [partnerVals])
+}
+
+export async function syncPrescriptionToOdoo(
+  odooPartnerId: number,
+  rx: {
+    date?: string | null;
+    source?: string | null;
+    erx_no?: string | null;
+    erx_hospital?: string | null;
+    erx_doctor?: string | null;
+    erx_diagnosis?: string | null;
+    far_r_sph?: string | null; far_r_cyl?: string | null; far_r_aks?: string | null;
+    far_r_pd?: string | null;  far_r_add?: string | null; far_r_note?: string | null;
+    far_l_sph?: string | null; far_l_cyl?: string | null; far_l_aks?: string | null;
+    far_l_pd?: string | null;  far_l_add?: string | null; far_l_note?: string | null;
+    near_r_sph?: string | null; near_r_cyl?: string | null; near_r_aks?: string | null;
+    near_r_pd?: string | null;  near_r_note?: string | null;
+    near_l_sph?: string | null; near_l_cyl?: string | null; near_l_aks?: string | null;
+    near_l_pd?: string | null;  near_l_note?: string | null;
+    lens_r_bc?: string | null;  lens_r_sph?: string | null; lens_r_cyl?: string | null;
+    lens_r_aks?: string | null; lens_r_add?: string | null; lens_r_note?: string | null;
+    lens_l_bc?: string | null;  lens_l_sph?: string | null; lens_l_cyl?: string | null;
+    lens_l_aks?: string | null; lens_l_add?: string | null; lens_l_note?: string | null;
+  }
+): Promise<number> {
+  const vals: any = { partner_id: odooPartnerId };
+  const rawDate = (rx as any).date ?? (rx as any).erx_date ?? (rx as any).eRx_date;
+  if (rawDate) vals.date = String(rawDate).slice(0, 10);
+  if (rx.source) vals.source = rx.source;
+  if (rx.erx_no) vals.erx_no = rx.erx_no;
+  if (rx.erx_hospital) vals.erx_hospital = rx.erx_hospital;
+  if (rx.erx_doctor) vals.erx_doctor = rx.erx_doctor;
+  if (rx.erx_diagnosis) vals.erx_diagnosis = rx.erx_diagnosis;
+  const fields = [
+    'far_r_sph','far_r_cyl','far_r_aks','far_r_pd','far_r_add','far_r_note',
+    'far_l_sph','far_l_cyl','far_l_aks','far_l_pd','far_l_add','far_l_note',
+    'near_r_sph','near_r_cyl','near_r_aks','near_r_pd','near_r_note',
+    'near_l_sph','near_l_cyl','near_l_aks','near_l_pd','near_l_note',
+    'lens_r_bc','lens_r_sph','lens_r_cyl','lens_r_aks','lens_r_add','lens_r_note',
+    'lens_l_bc','lens_l_sph','lens_l_cyl','lens_l_aks','lens_l_add','lens_l_note',
+  ];
+  for (const f of fields) {
+    if ((rx as any)[f]) vals[f] = (rx as any)[f];
+  }
+  return execute('guven.prescription', 'create', [vals]);
 }

@@ -24,7 +24,7 @@ adminApi.interceptors.response.use(
 
 type MenuItem = {
   label: string
-  icon: string
+  icon?: string
   to?: string
   disabled?: boolean
 }
@@ -44,13 +44,14 @@ const MENU: MenuGroup[] = [
   },
   {
     title: '📦 DEPO',
-    items: [{ label: 'Depo Yönetimi', icon: '📦', to: '/admin/depo', disabled: true }],
+    items: [{ label: 'Depo Yönetimi', icon: '📦', to: '/admin/depo' }],
   },
   {
     title: '💰 MUHASEBE & FİNANS',
     items: [
-      { label: 'Muhasebe', icon: '💰', to: '/admin/muhasebe', disabled: true },
-      { label: 'Finans Raporu', icon: '📈', to: '/admin/finans', disabled: true },
+      { label: 'Muhasebe', to: '/admin/muhasebe' },
+      { label: 'Finans Yönetimi', to: '/admin/finans' },
+      { label: 'İK & Prim', to: '/admin/ik' },
     ],
   },
   {
@@ -116,7 +117,7 @@ export default function AdminLayout() {
                       fontSize: 14,
                     }}
                   >
-                    <span>{item.icon}</span>
+                    {item.icon ? <span>{item.icon}</span> : null}
                     <span style={{ flex: 1 }}>{item.label}</span>
                     <span
                       style={{
@@ -147,7 +148,7 @@ export default function AdminLayout() {
                       backgroundColor: isActive ? 'rgba(255,255,255,0.1)' : 'transparent',
                     })}
                   >
-                    <span>{item.icon}</span>
+                    {item.icon ? <span>{item.icon}</span> : null}
                     {item.label}
                   </NavLink>
                 ),

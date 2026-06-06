@@ -56,7 +56,7 @@ export async function deleteItem(saleId: string, itemId: string): Promise<any> {
 
 export async function confirmSale(
   saleId: string,
-  input: { payments: any[]; thirdPartyAmount?: number },
+  input: { payments: any[]; thirdPartyAmount?: number; lensOrderMeasurements?: any[] },
 ): Promise<Sale> {
   const res = await apiClient.post(`/sales/${saleId}/confirm`, input)
   return res.data

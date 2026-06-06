@@ -19,6 +19,7 @@ import TanimlamalarPage from './pages/admin/TanimlamalarPage'
 import KampanyalarPage from './pages/admin/KampanyalarPage'
 import DepoPage from './pages/admin/DepoPage'
 import MuhasebePage from './pages/admin/MuhasebePage'
+import IKPage from './pages/admin/IKPage'
 import FinansPage from './pages/admin/FinansPage'
 import PatronPage from './pages/admin/PatronPage'
 
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="kampanyalar" element={<KampanyalarPage />} />
           <Route path="depo" element={<DepoPage />} />
           <Route path="muhasebe" element={<MuhasebePage />} />
+          <Route path="ik" element={<IKPage />} />
           <Route path="finans" element={<FinansPage />} />
           <Route path="patron" element={<PatronPage />} />
         </Route>

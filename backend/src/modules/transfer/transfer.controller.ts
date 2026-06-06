@@ -41,12 +41,31 @@ router.get('/urun-ara', async (req, res) => {
       const n = Number(kategoriIdRaw);
       if (Number.isFinite(n) && n > 0) kategoriId = n;
     }
-    const rows = await transferService.searchUrun(q, yontem, lokasyon, { kategori, kategoriId });
+    const kategoriIdsRaw = req.query.kategoriIds
+    let kategoriIds: number[] | undefined
+    if (kategoriIdsRaw && typeof kategoriIdsRaw === 'string') {
+      const parsed = kategoriIdsRaw.split(',').map(Number).filter(n => Number.isFinite(n) && n > 0)
+      if (parsed.length > 0) kategoriIds = parsed
+    }
+    const rows = await transferService.searchUrun(q, yontem, lokasyon, { kategori, kategoriId, kategoriIds });
     return res.status(200).json(rows);
   } catch (err) {
     return handleOdooFailure(res, err);
   }
 });
+
+router.get('/urun-ara-akilli', async (req, res) => {
+  try {
+    const q = String(req.query.q ?? '').trim()
+    const lokasyon = String(req.query.lokasyon ?? '')
+    const sirketId = req.query.sirketId ? Number(req.query.sirketId) : undefined
+    if (!q || !lokasyon) return res.json([])
+    const { results, yontem } = await transferService.searchUrunAkilli(q, lokasyon, sirketId)
+    res.json({ results, yontem })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message })
+  }
+})
 
 router.post('/olustur', async (req, res) => {
   try {

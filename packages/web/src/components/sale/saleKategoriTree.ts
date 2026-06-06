@@ -15,6 +15,11 @@ export const DIREKT_KATEGORI_ID: Partial<Record<ItemType, number>> = {
   ACCESSORY: 8,
 }
 
+/** Tek tıkta tüm alt kategorileri birlikte ara */
+export const MULTI_KATEGORI_IDS: Partial<Record<string, number[]>> = {
+  'Progresif': [11, 12, 13, 14],
+}
+
 export function hasKategoriTree(type: ItemType): boolean {
   return Boolean(KATEGORI_TREE[type]?.length)
 }

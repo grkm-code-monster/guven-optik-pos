@@ -12,7 +12,9 @@ import type { PricingOverview } from '../utils/sgkPricing'
 import PaymentStep, { type PendingPaymentPayload } from '../components/sale/PaymentStep'
 import LensMeasurementStep from '../components/sale/LensMeasurementStep'
 import StatusStep from '../components/sale/StatusStep'
+import StokTeminStep from '../components/sale/StokTeminStep'
 import {
+  draftsToLensOrderMeasurements,
   saleNeedsLensMeasurementStep,
   type LensMeasurementDraft,
 } from '../utils/saleMeasurements'
@@ -24,7 +26,7 @@ function formatMoney(v?: string) {
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(n)
 }
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6
+type Step = 1 | 2 | 3 | 4 | 5 | 5.5 | 6
 
 export default function NewSalePage() {
   const storedShiftId = useAuthStore((s) => s.shiftId)
@@ -53,6 +55,7 @@ export default function NewSalePage() {
     { id: 3 as Step, label: 'Fiyat' },
     { id: 4 as Step, label: 'Ödeme' },
     { id: 5 as Step, label: 'Ölçüler' },
+    { id: 5.5 as Step, label: 'Temin' },
     { id: 6 as Step, label: 'Onay' },
   ]
 
@@ -91,6 +94,7 @@ export default function NewSalePage() {
 
   const handleCustomerSelect = (customer: any) => {
     setSelectedCustomer(customer)
+    ;(window as any).__aktifMusteriAdi = `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim()
     setLatestPrescription(customer.appliedPrescription ?? null)
     setSale(null)
     setPendingPayments(null)
@@ -120,7 +124,7 @@ export default function NewSalePage() {
     }
     setError(null)
     setPendingPayments(payload)
-    setCurrentStep(saleNeedsLensMeasurementStep(sale) ? 5 : 6)
+    setCurrentStep(saleNeedsLensMeasurementStep(sale) ? 5 : 5.5)
   }, [sale])
 
   const handleConfirmSale = useCallback(async () => {
@@ -133,6 +137,9 @@ export default function NewSalePage() {
       await confirmSale(sale.id, {
         ...pendingPayments,
         thirdPartyAmount: pricingOverview?.thirdPartyCoverageTRY ?? 0,
+        lensOrderMeasurements: lensMeasurementDrafts.length > 0
+          ? draftsToLensOrderMeasurements(lensMeasurementDrafts)
+          : undefined,
       })
       const refreshed = await getSaleById(sale.id)
       setSale(refreshed)
@@ -140,7 +147,7 @@ export default function NewSalePage() {
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Satış onaylanamadı')
     }
-  }, [sale?.id, pendingPayments, pricingOverview?.thirdPartyCoverageTRY])
+  }, [sale?.id, pendingPayments, pricingOverview?.thirdPartyCoverageTRY, lensMeasurementDrafts])
 
   const canGoToStep = (target: Step): boolean => {
     if (target === 1) return true
@@ -236,11 +243,26 @@ export default function NewSalePage() {
             customerPrescription={latestPrescription}
             onComplete={(drafts) => {
               setLensMeasurementDrafts(drafts)
-              setStep(6)
+              setStep(5.5)
             }}
             onBack={() => setStep(4)}
           />
         ) : null}
+
+        {currentStep === 5.5 && (
+          <StokTeminStep
+            sale={sale}
+            selectedCustomer={selectedCustomer}
+            latestPrescription={latestPrescription}
+            lensOrderMeasurements={
+              lensMeasurementDrafts.length > 0
+                ? draftsToLensOrderMeasurements(lensMeasurementDrafts)
+                : undefined
+            }
+            onDevam={() => setCurrentStep(6)}
+            onGeri={() => setCurrentStep(saleNeedsLensMeasurementStep(sale) ? 5 : 4)}
+          />
+        )}
 
         {currentStep === 6 && !saleConfirmed ? (
           <div

@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { searchTransferProducts, type TransferUrun } from '../../api/transfer.api'
 import { addItem, deleteItem, getSaleById, updateItem } from '../../api/sales.api'
 import { apiClient } from '../../api/client'
@@ -8,6 +8,7 @@ import {
   getKategoriTreeRoot,
   hasKategoriTree,
   isKategoriLeaf,
+  MULTI_KATEGORI_IDS,
   type KategoriNode,
 } from './saleKategoriTree'
 import type { ItemType } from './saleKategoriTree.types'
@@ -45,13 +46,20 @@ function money(v?: string | number | null) {
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(n)
 }
 
-function buildSearchUrl(q: string, yontem: string, lokasyon: string, kategoriId?: number | null) {
+function buildSearchUrl(
+  q: string,
+  yontem: string,
+  lokasyon: string,
+  kategoriId?: number | null,
+  kategoriIds?: number[] | null,
+) {
   const params = new URLSearchParams({
     q,
     yontem,
     lokasyon,
   })
   if (kategoriId != null) params.set('kategoriId', String(kategoriId))
+  if (kategoriIds?.length) params.set('kategoriIds', kategoriIds.join(','))
   return `/api/transfer/urun-ara?${params.toString()}`
 }
 
@@ -68,12 +76,15 @@ export default function ItemsStep({
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [pickedType, setPickedType] = useState<(typeof typeCards)[number] | null>(null)
   const [pickedKategoriId, setPickedKategoriId] = useState<number | null>(null)
+  const [pickedKategoriIds, setPickedKategoriIds] = useState<number[] | null>(null)
   const [pickedKategoriLabel, setPickedKategoriLabel] = useState<string | null>(null)
   const [catStack, setCatStack] = useState<KategoriNode[][]>([])
   const [catPath, setCatPath] = useState<string[]>([])
 
   const [q, setQ] = useState('')
   const [aramaYontemi, setAramaYontemi] = useState<string>('ad')
+  const [kameraAcik, setKameraAcik] = useState(false)
+  const quaggaRef = useRef<HTMLDivElement>(null)
   const [searchResults, setSearchResults] = useState<TransferUrun[]>([])
   const [productsLoading, setProductsLoading] = useState(false)
   const [pickedProduct, setPickedProduct] = useState<PickedProduct | null>(null)
@@ -109,10 +120,10 @@ export default function ItemsStep({
       setSearchResults([])
       return
     }
-    if (pickedKategoriId == null) return
+    if (aramaYontemi !== 'barkod' && pickedKategoriId == null && !pickedKategoriIds?.length) return
 
     const lokasyon = getAktifLokasyon()
-    const url = buildSearchUrl(term, aramaYontemi, lokasyon, pickedKategoriId)
+    const url = buildSearchUrl(term, aramaYontemi, lokasyon, pickedKategoriId, pickedKategoriIds)
     console.log('[search] fetching:', url)
 
     const t = setTimeout(() => {
@@ -122,7 +133,8 @@ export default function ItemsStep({
         q: term,
         yontem: aramaYontemi,
         lokasyon,
-        kategoriId: pickedKategoriId,
+        kategoriId: aramaYontemi === 'barkod' ? undefined : (pickedKategoriId ?? undefined),
+        kategoriIds: aramaYontemi === 'barkod' ? undefined : (pickedKategoriIds ?? undefined),
       })
         .then((data) => {
           console.log('[search] results:', data)
@@ -140,12 +152,124 @@ export default function ItemsStep({
     }, 300)
 
     return () => clearTimeout(t)
-  }, [modalOpen, step, q, aramaYontemi, pickedKategoriId])
+  }, [modalOpen, step, q, aramaYontemi, pickedKategoriId, pickedKategoriIds])
+
+  useEffect(() => {
+    if (!kameraAcik || !quaggaRef.current) return
+    let stopped = false
+    let stream: MediaStream | null = null
+
+    async function baslat() {
+      const lokasyon = getAktifLokasyon()
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+        })
+
+        // Video elementi oluştur
+        const video = document.createElement('video')
+        video.srcObject = stream
+        video.setAttribute('playsinline', 'true')
+        video.style.width = '100%'
+        video.style.maxHeight = '280px'
+        video.style.objectFit = 'cover'
+        quaggaRef.current!.innerHTML = ''
+        quaggaRef.current!.appendChild(video)
+        await video.play()
+
+        // BarcodeDetector varsa kullan (Chrome native)
+        if ('BarcodeDetector' in window) {
+          console.log('[Kamera] Native BarcodeDetector kullanılıyor')
+          const detector = new (window as any).BarcodeDetector({
+            formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'data_matrix']
+          })
+
+          async function tara() {
+            if (stopped) return
+            try {
+              const codes = await detector.detect(video)
+              if (codes.length > 0) {
+                const kod = codes[0].rawValue
+                console.log('[Kamera] Barkod:', kod)
+                stopped = true
+                setQ(kod)
+                setAramaYontemi('barkod')
+                // Akıllı arama — hangi alan olduğunu otomatik bul
+                try {
+                  const { data } = await import('axios').then(m => m.default.get(`/api/transfer/urun-ara-akilli?q=${encodeURIComponent(kod)}&lokasyon=${encodeURIComponent(lokasyon)}`))
+                  if (data?.yontem) {
+                    setAramaYontemi(data.yontem === 'ad' ? 'barkod' : data.yontem)
+                    console.log('[Kamera] Akıllı arama yöntemi:', data.yontem)
+                  }
+                } catch {}
+                kapat()
+                return
+              }
+            } catch {}
+            if (!stopped) requestAnimationFrame(tara)
+          }
+          requestAnimationFrame(tara)
+        } else {
+          // Fallback: jsQR
+          console.log('[Kamera] jsQR fallback kullanılıyor')
+          const { default: jsQR } = await import('jsqr')
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d')!
+
+          async function tara() {
+            if (stopped) return
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+              canvas.width = video.videoWidth
+              canvas.height = video.videoHeight
+              ctx.drawImage(video, 0, 0)
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+              const code = jsQR(imageData.data, imageData.width, imageData.height)
+              if (code) {
+                const kod = code.data
+                console.log('[Kamera] QR:', kod)
+                stopped = true
+                setQ(kod)
+                setAramaYontemi('barkod')
+                // Akıllı arama — hangi alan olduğunu otomatik bul
+                try {
+                  const { data } = await import('axios').then(m => m.default.get(`/api/transfer/urun-ara-akilli?q=${encodeURIComponent(kod)}&lokasyon=${encodeURIComponent(lokasyon)}`))
+                  if (data?.yontem) {
+                    setAramaYontemi(data.yontem === 'ad' ? 'barkod' : data.yontem)
+                    console.log('[Kamera] Akıllı arama yöntemi:', data.yontem)
+                  }
+                } catch {}
+                kapat()
+                return
+              }
+            }
+            if (!stopped) requestAnimationFrame(tara)
+          }
+          requestAnimationFrame(tara)
+        }
+      } catch (e) {
+        console.error('[Kamera] Hata:', e)
+        setKameraAcik(false)
+      }
+    }
+
+    function kapat() {
+      stopped = true
+      stream?.getTracks().forEach(t => t.stop())
+      if (quaggaRef.current) quaggaRef.current.innerHTML = ''
+      setKameraAcik(false)
+    }
+
+    void baslat()
+
+    return () => { kapat() }
+  }, [kameraAcik])
 
   function resetModalState() {
+    kameraKapat()
     setStep(1)
     setPickedType(null)
     setPickedKategoriId(null)
+    setPickedKategoriIds(null)
     setPickedKategoriLabel(null)
     setCatStack([])
     setCatPath([])
@@ -168,13 +292,23 @@ export default function ItemsStep({
   }
 
   function close() {
+    kameraKapat()
     setModalOpen(false)
+  }
+
+  async function kameraAc() {
+    setKameraAcik(true)
+  }
+
+  function kameraKapat() {
+    setKameraAcik(false)
   }
 
   function onTypePicked(t: (typeof typeCards)[number]) {
     setPickedType(t)
     setPickedKategoriLabel(null)
     setPickedKategoriId(null)
+    setPickedKategoriIds(null)
     setCatStack([])
     setCatPath([])
     setQ('')
@@ -195,12 +329,17 @@ export default function ItemsStep({
   }
 
   function onCategoryNodePicked(node: KategoriNode) {
+    // Çoklu kategori — grup adımı atlanır
+    const multiIds = MULTI_KATEGORI_IDS[node.label]
+    if (multiIds) {
+      setPickedKategoriIds(multiIds)
+      setPickedKategoriId(null)
+      setStep(3)
+      return
+    }
     if (isKategoriLeaf(node)) {
-      const path = [...catPath, node.label]
       setPickedKategoriId(node.kategoriId)
-      setPickedKategoriLabel(path.join(' · '))
-      setQ('')
-      setSearchResults([])
+      setPickedKategoriIds(null)
       setStep(3)
       return
     }
@@ -213,6 +352,7 @@ export default function ItemsStep({
       setCatStack([])
       setCatPath([])
       setPickedKategoriId(null)
+      setPickedKategoriIds(null)
       setStep(1)
       return
     }
@@ -495,16 +635,59 @@ export default function ItemsStep({
                     </button>
                   ))}
                 </div>
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="En az 1 karakter ara..."
-                  style={inputStyle}
-                />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder={aramaYontemi === 'barkod' ? 'Barkod okutun veya yazın...' : 'En az 1 karakter ara...'}
+                    style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+                  />
+                  {aramaYontemi === 'barkod' ? (
+                    <button
+                      type="button"
+                      onClick={() => (kameraAcik ? kameraKapat() : void kameraAc())}
+                      style={{
+                        padding: '0 14px',
+                        borderRadius: 8,
+                        border: '1px solid #e5e7eb',
+                        backgroundColor: kameraAcik ? '#fee2e2' : 'white',
+                        fontSize: 18,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                      title={kameraAcik ? 'Kamerayı kapat' : 'Kamera ile barkod oku'}
+                    >
+                      {kameraAcik ? '✕' : '📷'}
+                    </button>
+                  ) : null}
+                </div>
+                {kameraAcik ? (
+                  <div style={{ marginTop: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#000' }}>
+                    <div ref={quaggaRef} style={{ width: '100%', maxHeight: 280, overflow: 'hidden' }} />
+                  </div>
+                ) : null}
                 <div style={{ marginTop: '10px', maxHeight: '320px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {productsLoading ? <div style={{ fontSize: '13px', color: '#6b7280' }}>Aranıyor...</div> : null}
                   {!productsLoading && q.trim().length >= 1 && searchResults.length === 0 ? (
-                    <div style={{ fontSize: '13px', color: '#6b7280' }}>Sonuç bulunamadı.</div>
+                    <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                      Sonuç bulunamadı.
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Müşteri adını parent'tan almak için prop gerekirdiği için
+                          // şimdilik URL'e ürün adını geçiyoruz
+                          const params = new URLSearchParams({
+                            musteriAdi: (window as any).__aktifMusteriAdi || '',
+                            urunAdi: q,
+                            tip: 'STANDART',
+                          })
+                          window.open(`/admin/depo?sekme=siparisler&${params.toString()}`, '_blank')
+                        }}
+                        style={{ marginLeft: '10px', padding: '4px 10px', backgroundColor: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '6px', fontSize: '12px', fontWeight: 700, color: '#92400e', cursor: 'pointer' }}
+                      >
+                        🛒 Sipariş Oluştur
+                      </button>
+                    </div>
                   ) : null}
                   {searchResults.map((u) => (
                     <div key={String(u.id)} style={resultCardStyle}>

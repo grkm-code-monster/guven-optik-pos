@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Doğum Tarihi + Reçete sekmesi -->
+    <record id="view_partner_form_guven" model="ir.ui.view">
+        <field name="name">guven.partner.form.inherit</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <field name="phone" position="after">
+                <field name="x_birthdate" string="Doğum Tarihi" widget="date"/>
+            </field>
+            <notebook position="inside">
+                <page string="Reçeteler" name="guven_prescriptions">
+                    <field name="guven_prescription_ids" nolabel="1">
+                        <tree string="Reçeteler" editable="bottom">
+                            <field name="date" string="Tarih"/>
+                            <field name="erx_no" string="E-Reçete No"/>
+                            <field name="erx_doctor" string="Doktor"/>
+                            <field name="erx_hospital" string="Hastane"/>
+                            <field name="erx_diagnosis" string="Tanı"/>
+                            <field name="far_r_pd" string="D.Sağ PD"/>
+                            <field name="far_r_sph" string="D.Sağ SPH"/>
+                            <field name="far_r_cyl" string="D.Sağ CYL"/>
+                            <field name="far_r_aks" string="D.Sağ AKS"/>
+                            <field name="far_r_add" string="D.Sağ ADD"/>
+                            <field name="far_r_note" string="D.Sağ Not"/>
+                            <field name="far_l_pd" string="D.Sol PD"/>
+                            <field name="far_l_sph" string="D.Sol SPH"/>
+                            <field name="far_l_cyl" string="D.Sol CYL"/>
+                            <field name="far_l_aks" string="D.Sol AKS"/>
+                            <field name="far_l_add" string="D.Sol ADD"/>
+                            <field name="far_l_note" string="D.Sol Not"/>
+                            <field name="near_r_pd" string="Y.Sağ PD"/>
+                            <field name="near_r_sph" string="Y.Sağ SPH"/>
+                            <field name="near_r_cyl" string="Y.Sağ CYL"/>
+                            <field name="near_r_aks" string="Y.Sağ AKS"/>
+                            <field name="near_r_note" string="Y.Sağ Not"/>
+                            <field name="near_l_pd" string="Y.Sol PD"/>
+                            <field name="near_l_sph" string="Y.Sol SPH"/>
+                            <field name="near_l_cyl" string="Y.Sol CYL"/>
+                            <field name="near_l_aks" string="Y.Sol AKS"/>
+                            <field name="near_l_note" string="Y.Sol Not"/>
+                            <field name="lens_r_bc" string="L.Sağ BC"/>
+                            <field name="lens_r_sph" string="L.Sağ SPH"/>
+                            <field name="lens_r_cyl" string="L.Sağ CYL"/>
+                            <field name="lens_r_aks" string="L.Sağ AKS"/>
+                            <field name="lens_r_add" string="L.Sağ ADD"/>
+                            <field name="lens_r_note" string="L.Sağ Not"/>
+                            <field name="lens_l_bc" string="L.Sol BC"/>
+                            <field name="lens_l_sph" string="L.Sol SPH"/>
+                            <field name="lens_l_cyl" string="L.Sol CYL"/>
+                            <field name="lens_l_aks" string="L.Sol AKS"/>
+                            <field name="lens_l_add" string="L.Sol ADD"/>
+                            <field name="lens_l_note" string="L.Sol Not"/>
+                        </tree>
+                    </field>
+                </page>
+            </notebook>
+        </field>
+    </record>
+
+    <!-- res.partner'a one2many alan ekle -->
+    <record id="view_partner_form_guven_field" model="ir.ui.view">
+        <field name="name">guven.partner.form.inherit.field</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="before">
+                <field name="guven_prescription_ids" invisible="1"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

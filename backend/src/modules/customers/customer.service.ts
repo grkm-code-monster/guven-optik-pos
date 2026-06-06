@@ -93,6 +93,9 @@ export async function createCustomer(input: any) {
       name: customer.name,
       phone: customer.phone,
       identityNo: customer.identityNo ?? undefined,
+      birthDate: customer.birthDate ?? undefined,
+      email: input.ePostaEmail ?? undefined,
+      note: customer.note ?? undefined,
     });
     await prisma.customer.update({
       where: { id: customer.id },
@@ -240,6 +243,41 @@ export async function addPrescription(customerId: string, input: any) {
       eRx_diagnosis: input.eRx_diagnosis,
     },
   });
+
+  try {
+    const { syncCustomerToOdoo, syncPrescriptionToOdoo } = await import('../odoo/odoo.service');
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (customer) {
+      const odooId = await syncCustomerToOdoo({ name: customer.name, phone: customer.phone ?? undefined });
+      console.log('[Odoo] syncPrescription input:', JSON.stringify({
+        date: input.date,
+        erx_date: input.eRx_date,
+        source: input.source,
+      }, null, 2));
+      await syncPrescriptionToOdoo(odooId, {
+        date: input.date ?? input.eRx_date,
+        source: input.source,
+        erx_no: input.eRx_no,
+        erx_hospital: input.eRx_hospital,
+        erx_doctor: input.eRx_doctor,
+        erx_diagnosis: input.eRx_diagnosis,
+        far_r_sph: input.far_r_sph, far_r_cyl: input.far_r_cyl, far_r_aks: input.far_r_aks,
+        far_r_pd: input.far_r_pd, far_r_add: input.far_r_add, far_r_note: input.far_r_note,
+        far_l_sph: input.far_l_sph, far_l_cyl: input.far_l_cyl, far_l_aks: input.far_l_aks,
+        far_l_pd: input.far_l_pd, far_l_add: input.far_l_add, far_l_note: input.far_l_note,
+        near_r_sph: input.near_r_sph, near_r_cyl: input.near_r_cyl, near_r_aks: input.near_r_aks,
+        near_r_pd: input.near_r_pd, near_r_note: input.near_r_note,
+        near_l_sph: input.near_l_sph, near_l_cyl: input.near_l_cyl, near_l_aks: input.near_l_aks,
+        near_l_pd: input.near_l_pd, near_l_note: input.near_l_note,
+        lens_r_bc: input.lens_r_bc, lens_r_sph: input.lens_r_sph, lens_r_cyl: input.lens_r_cyl,
+        lens_r_aks: input.lens_r_aks, lens_r_add: input.lens_r_add, lens_r_note: input.lens_r_note,
+        lens_l_bc: input.lens_l_bc, lens_l_sph: input.lens_l_sph, lens_l_cyl: input.lens_l_cyl,
+        lens_l_aks: input.lens_l_aks, lens_l_add: input.lens_l_add, lens_l_note: input.lens_l_note,
+      });
+    }
+  } catch (e) {
+    console.error('[Odoo] Reçete sync hatası:', e);
+  }
 
   return created;
 }

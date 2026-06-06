@@ -581,7 +581,22 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
             Number(item.unitPrice) * item.qty > 0
               ? Math.min(100, (Number(item.discount) / (Number(item.unitPrice) * item.qty)) * 100)
               : 0,
-          name: item.odooProductName ?? item.product?.name ?? 'Ürün',
+          name: (() => {
+            const base = item.odooProductName ?? item.product?.name ?? 'Ürün';
+            const m = (input.lensOrderMeasurements ?? []).find((x: any) => x.saleItemId === item.id);
+            if (!m) return base;
+            const parts: string[] = [];
+            if (m.rph) parts.push(`RPH:${m.rph}`);
+            if (m.lph) parts.push(`LPH:${m.lph}`);
+            if (m.corridor) parts.push(`Kor:${m.corridor}`);
+            if (m.rightDia) parts.push(`RDia:${m.rightDia}`);
+            if (m.leftDia) parts.push(`LDia:${m.leftDia}`);
+            if (m.vertex) parts.push(`Vtx:${m.vertex}`);
+            if (m.pantoscopic) parts.push(`Pan:${m.pantoscopic}`);
+            if (m.frameBow) parts.push(`FBow:${m.frameBow}`);
+            if (parts.length === 0) return base;
+            return `${base} | ${parts.join(', ')}`;
+          })(),
         },
       ]);
 
@@ -605,7 +620,6 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
         partner_id: odooPartnerId ?? 1,
         note: `POS Satış ID: ${saleId}`,
         order_line: orderLines,
-        fiscal_position_id: false,
       },
     ]);
     await execute('sale.order', 'action_confirm', [[odooOrderId]]);

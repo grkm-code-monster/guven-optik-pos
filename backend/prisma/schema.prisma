@@ -483,3 +483,339 @@ model AuditLog {
   payload   Json
   createdAt DateTime @default(now())
 }
+
+enum CampaignType {
+  KASA
+  NAKIT_ORAN
+  IKI_AL_BIR_ODE
+  URUN_BAZLI
+  COMBO
+  FORMUL
+}
+
+enum CampaignScope {
+  ALL
+  CATEGORY
+  PRODUCT
+  CUSTOMER_SEGMENT
+}
+
+model Campaign {
+  id          String         @id @default(uuid())
+  name        String
+  description String?
+  type        CampaignType
+  scope       CampaignScope  @default(ALL)
+  scopeValue  String?
+  discountPct  Decimal?  @db.Decimal(5, 2)
+  discountTL   Decimal?  @db.Decimal(10, 2)
+  minBasket    Decimal?  @db.Decimal(10, 2)
+  minQty       Int?      @default(0)
+  formulMultiplier Decimal? @db.Decimal(8, 4)
+  formulExtra      Decimal? @db.Decimal(10, 2)
+  formulMargin     Decimal? @db.Decimal(5, 2)
+  comboConfig  Json?
+  startDate    DateTime?
+  endDate      DateTime?
+  priority     Int       @default(10)
+  autoApply    Boolean   @default(true)
+  manualAlso   Boolean   @default(false)
+  oodooPricelistId Int?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  branchOverrides CampaignBranchOverride[]
+  logs            CampaignLog[]
+}
+
+model CampaignBranchOverride {
+  id           String    @id @default(uuid())
+  campaignId   String
+  branchId     String
+  branchCode   String
+  isActive     Boolean?
+  discountPct  Decimal?  @db.Decimal(5, 2)
+  discountTL   Decimal?  @db.Decimal(10, 2)
+  startDate    DateTime?
+  endDate      DateTime?
+  autoApply    Boolean?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  campaign     Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  @@unique([campaignId, branchId])
+}
+
+model CampaignLog {
+  id           String   @id @default(uuid())
+  campaignId   String
+  saleId       String
+  branchId     String
+  branchCode   String
+  userId       String
+  discountTRY  Decimal  @db.Decimal(10, 2)
+  appliedAt    DateTime @default(now())
+  campaign     Campaign @relation(fields: [campaignId], references: [id])
+}
+
+// ── ORTAK ─────────────────────────────────────────────────────────
+model Ortak {
+  id         String   @id @default(cuid())
+  ad         String
+  soyad      String?
+  telefon    String?
+  email      String?
+  aktif      Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  hareketler FinansHareket[]
+  varliklar  FinansalVarlik[] @relation("OrtakVarlik")
+}
+
+// ── FİNANSAL VARLIK ───────────────────────────────────────────────
+model FinansalVarlik {
+  id              String   @id @default(cuid())
+  ad              String
+  tip             String   // BANKA | KASA | POS | ORTAK | CEK | DBS | EK_HESAP
+  katman          String   // RESMI | OPERASYONEL
+  sirketId        Int?     // Odoo company id
+  sirketAdi       String?
+  subeId          String?  // Mağaza/şube
+  subeAdi         String?
+  para_birimi     String   @default("TRY")
+  aktif           Boolean  @default(true)
+  aciklama        String?
+  odooHesapId     Int?     // Odoo account.account id (varsa)
+  ortakId         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  hareketler      FinansHareket[] @relation("KaynakVarlik")
+  hedefHareketler FinansHareket[] @relation("HedefVarlik")
+  ortak           Ortak?          @relation("OrtakVarlik", fields: [ortakId], references: [id])
+}
+
+// ── FİNANS HAREKETİ ───────────────────────────────────────────────
+model FinansHareket {
+  id             String   @id @default(cuid())
+  tarih          DateTime @default(now())
+  tip            String   // TAHSILAT | ODEME | VIRMAN | ORTAK_DESTEGI | ORTAK_ODEME | SIRKET_TRANSFER | POS_TAHSILAT | CEK_CIKIS | CEK_TAHSIL | NAKIT_CIKIS | OPERASYONEL | FATURASIZ
+  katman         String   // RESMI | OPERASYONEL
+  kaynakVarlikId String?
+  hedefVarlikId  String?
+  ortakId        String?
+  sirketId       Int?
+  sirketAdi      String?
+  subeId         String?
+  tutar          Float
+  paraBirimi     String   @default("TRY")
+  odemeYontemi   String?  // NAKIT | HAVALE | EFT | KART | CEK | DBS
+  aciklama       String?
+  evrakNo        String?
+  odooFaturaId   Int?
+  onaylayan      String?
+  olusturan      String?
+  iptalEdildi    Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  kaynakVarlik FinansalVarlik? @relation("KaynakVarlik", fields: [kaynakVarlikId], references: [id])
+  hedefVarlik  FinansalVarlik? @relation("HedefVarlik", fields: [hedefVarlikId], references: [id])
+  ortak        Ortak?          @relation(fields: [ortakId], references: [id])
+}
+
+// ── ORTAK CARİ ────────────────────────────────────────────────────
+model OrtakCari {
+  id        String   @id @default(cuid())
+  ortakId   String
+  sirketId  Int
+  sirketAdi String?
+  tarih     DateTime @default(now())
+  tip       String   // ALACAK | BORC
+  tutar     Float
+  aciklama  String?
+  odendi    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── ŞİRKETLER ARASI CARİ ─────────────────────────────────────────
+model SirketCari {
+  id            String   @id @default(cuid())
+  verenSirketId Int
+  alanSirketId  Int
+  verenAdi      String?
+  alanAdi       String?
+  tarih         DateTime @default(now())
+  tutar         Float
+  aciklama      String?
+  odendi        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ── PERSONEL ──────────────────────────────────────────────────────
+model Personel {
+  id              String   @id @default(cuid())
+  ad              String
+  soyad           String
+  telefon         String?
+  email           String?
+  pozisyon        String   // MUDUR | SATIS | KASIYER | TEKNIK | DIGER
+  subeId          String?
+  subeAdi         String?
+  sirketId        Int?
+  sirketAdi       String?
+  bolgeId         String?
+  maas            Float    @default(0)
+  aktif           Boolean  @default(true)
+  pdksId          String?  // Patron PDKS personel ID
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  primKazanimlari PrimKazanim[]
+}
+
+// ── PRİM KURALI ───────────────────────────────────────────────────
+model PrimKural {
+  id            String   @id @default(cuid())
+  ad            String
+  tip           String   // BIREYSEL | MAGAZA | BOLGESEL
+  kapsam        String   // GENEL_SATIS | URUN_KATEGORI | BELIRLI_URUN
+  donem         String   // AYLIK | HAFTALIK | GUNLUK
+  hedefTutar    Float?   // Satış hedefi (TL)
+  hedefAdet     Int?     // Satış adedi hedefi
+  primOrani     Float?   // % oran (hedef aşımının yüzdesi)
+  primSabit     Float?   // Sabit prim tutarı
+  kategoriId    String?  // Ürün kategorisi (kapsam=URUN_KATEGORI ise)
+  kategoriAdi   String?
+  subeId        String?  // Mağaza bazlı kural ise
+  subeAdi       String?
+  bolgeId       String?  // Bölgesel kural ise
+  sirketId      Int?
+  pozisyonlar   String?  // JSON: [{"pozisyon":"MUDUR","oran":0.4},{"pozisyon":"SATIS","oran":0.3}]
+  aktif         Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  kazanimlar    PrimKazanim[]
+}
+
+// ── PRİM KAZANIM ──────────────────────────────────────────────────
+model PrimKazanim {
+  id             String    @id @default(cuid())
+  personelId     String
+  primKuralId    String
+  donemBaslangic DateTime
+  donemBitis     DateTime
+  hedef          Float
+  gerceklesen    Float
+  primTutari     Float
+  odendi         Boolean   @default(false)
+  odemeTarihi    DateTime?
+  notlar         String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  personel       Personel  @relation(fields: [personelId], references: [id])
+  primKural      PrimKural @relation(fields: [primKuralId], references: [id])
+}
+
+// ── BÖLGE ────────────────────────────────────────────────────────
+model Bolge {
+  id        String   @id @default(cuid())
+  ad        String
+  mudurId   String?
+  subeler   String?  // JSON: ["GVN1","GVN3","GVN4"]
+  sirketId  Int?
+  aktif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── ÖZEL SİPARİŞ ─────────────────────────────────────────────────
+model OzelSiparis {
+  id                String   @id @default(cuid())
+
+  // Müşteri bilgileri
+  musteriAdi        String
+  musteriTelefon    String?
+  musteriId         String?  // POS müşteri ID
+
+  // Satış bağlantısı
+  satisSiparisId    String?  // POS satış siparişi ID
+  subeId            String?
+  subeAdi           String?
+  sirketId          Int?
+
+  // Ürün bilgileri
+  tip               String   // RECETELI | STANDART
+  urunAdi           String
+  urunKodu          String?
+  miktar            Int      @default(1)
+
+  // Reçete bilgileri (tip=RECETELI ise)
+  sagSph            Float?
+  sagCyl            Float?
+  sagAks            Float?
+  sagAdd            Float?
+  sagPd             Float?
+  solSph            Float?
+  solCyl            Float?
+  solAks            Float?
+  solAdd            Float?
+  solPd             Float?
+  camTipi           String?  // TEK_ODAKLI | PROGRESIF | BIFOCAL
+  camIndeksi        String?  // 1.50 | 1.60 | 1.67 | 1.74
+  kaplama           String?  // AR | BLUE_CUT | FOTOKROMIK | SEFFAF
+  cerceveBilgisi    String?
+
+  // Tedarikçi bilgileri
+  tedarikciId       Int?     // Odoo partner ID
+  tedarikciAdi      String?
+  tedarikciSiparisNo String?
+
+  // Fiyat bilgileri
+  tahminiMaliyet    Float?
+  satisFiyati       Float?
+
+  // Durum takibi
+  durum             String   @default("BEKLIYOR")
+  // BEKLIYOR | TEDARIKCIE_GONDERILDI | URETIMDE | KARGODA | TESLIM_ALINDI | MUSTERIYE_TESLIM | IPTAL
+
+  notlar            String?
+  olcumBilgisi      Json?    // LensOrderMeasurement[]
+  tahminiGelisTarihi DateTime?
+  gercekGelisTarihi  DateTime?
+  teslimTarihi      DateTime?
+
+  olusturanKullanici String?
+
+  firmaUrunu        String?
+  satisTemsilcisi   String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// ── BEKLEYEN FATURA ───────────────────────────────────────────────
+model BekleyenFatura {
+  id              String    @id @default(cuid())
+  girisTipi       String    // FATURA_SONRA | IRSALIYELI | FATURASIZ
+  tedarikciAdi    String?
+  tedarikciId     Int?
+  irsaliyeNo      String?
+  uyumsoftNo      String?   // Uyumsoft fatura numarası (ör: GVN/2026/000123)
+  tedarikciIrsaliyeNo String? // Tedarikçinin irsaliye numarası
+  aciklama        String?
+  sirketId        Int?
+  sirketAdi       String?
+  subeId          String?
+  subeAdi         String?
+  kalemler        String?   // JSON: [{urunAdi, miktar, birimFiyat, lotNo}]
+  odooPickingId   Int?      // Odoo stock.picking id
+  odooPickingName String?   // ör: ADESE/IN/00001
+  odooFaturaId    Int?      // Eşleşen Odoo vendor bill id
+  odooFaturaNo    String?   // ör: BILL/2026/00001
+  tahminiTarih    DateTime?
+  eslesmeTarihi   DateTime?
+  durum           String    @default("BEKLIYOR") // BEKLIYOR | KISMI | ESLESTI | IPTAL
+  notlar          String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}

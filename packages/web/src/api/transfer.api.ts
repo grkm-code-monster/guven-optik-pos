@@ -17,8 +17,16 @@ export async function searchTransferProducts(params: {
   yontem: string
   lokasyon: string
   kategoriId?: number
+  kategoriIds?: number[]
 }): Promise<TransferUrun[]> {
-  const res = await apiClient.get('/transfer/urun-ara', { params })
+  const queryParams: Record<string, string | number> = {
+    q: params.q,
+    yontem: params.yontem,
+    lokasyon: params.lokasyon,
+  }
+  if (params.kategoriId != null) queryParams.kategoriId = params.kategoriId
+  if (params.kategoriIds?.length) queryParams.kategoriIds = params.kategoriIds.join(',')
+  const res = await apiClient.get('/transfer/urun-ara', { params: queryParams })
   return res.data
 }
 

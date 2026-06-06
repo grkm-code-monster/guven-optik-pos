@@ -1,5 +1,8 @@
 import type { Sale } from '../../api/types'
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { fetchBranchCampaigns, logCampaignApplications, type Campaign } from '../../api/campaigns.api'
+import { dbCampaignToCard } from '../../utils/campaignPricing'
+import { useAuthStore } from '../../store/auth.store'
 import {
   type AppliedCampaignCard,
   CAMPAIGN_TYPE_OPTIONS,
@@ -83,6 +86,9 @@ export default function PricingStep({
   const [sgkModalDraft, setSgkModalDraft] = useState<SgkModalSnapshot | null>(null)
 
   const [campaigns, setCampaigns] = useState<AppliedCampaignCard[]>([])
+  const [dbCampaigns, setDbCampaigns] = useState<Campaign[]>([])
+  const [dbLoading, setDbLoading] = useState(false)
+  const branchId = useAuthStore((s) => s.user?.branchId ?? '')
   const [campaignModalOpen, setCampaignModalOpen] = useState(false)
   const [campaignKind, setCampaignKind] = useState<CampaignTypeId>('KASA')
   const [kasaAmountStr, setKasaAmountStr] = useState('')
@@ -105,7 +111,14 @@ export default function PricingStep({
     setHediye(null)
     setHediyeCode('')
     setHediyeAmountStr('')
-  }, [sale?.id])
+    if (branchId) {
+      setDbLoading(true)
+      fetchBranchCampaigns(branchId)
+        .then(setDbCampaigns)
+        .catch(() => {})
+        .finally(() => setDbLoading(false))
+    }
+  }, [sale?.id, branchId])
 
   useEffect(() => {
     if (mode !== 'SGK') {
@@ -688,7 +701,30 @@ export default function PricingStep({
         </button>
         <button
           type="button"
-          onClick={onNext}
+          onClick={async () => {
+            if (campaigns.length > 0) {
+              const eval_ = evaluateCampaignStack({
+                catalogNetTRY: overview.catalogSaleNetTRY,
+                items: sale.items ?? [],
+                campaigns,
+                nakitKampanyaAktif: nakitOdemeOnay,
+              })
+              const entries = eval_.lines
+                .filter((l) => l.discountTRY > 0)
+                .map((l) => ({
+                  campaignId: l.id,
+                  saleId: sale.id,
+                  branchId,
+                  branchCode: branchId,
+                  userId: useAuthStore.getState().user?.id ?? '',
+                  discountTRY: l.discountTRY,
+                }))
+              if (entries.length > 0) {
+                await logCampaignApplications(entries).catch(() => {})
+              }
+            }
+            onNext()
+          }}
           style={{
             flex: 1,
             padding: '12px 14px',
@@ -735,6 +771,51 @@ export default function PricingStep({
           >
             <div style={{ fontWeight: 900, marginBottom: '12px' }}>Kampanya ekle</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+              {dbLoading && (
+                <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>Kampanyalar yükleniyor...</p>
+              )}
+              {dbCampaigns.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Tanımlı Kampanyalar
+                  </div>
+                  {dbCampaigns.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        const card = dbCampaignToCard(c)
+                        setCampaigns((prev) => {
+                          if (prev.find((x) => x.id === c.id)) return prev
+                          return [...prev, card]
+                        })
+                        setCampaignModalOpen(false)
+                      }}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '10px 12px',
+                        marginBottom: 6,
+                        borderRadius: 8,
+                        border: '1px solid #e5e7eb',
+                        backgroundColor: '#f9fafb',
+                        cursor: 'pointer',
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {c.name}
+                      {c.discountPct ? ` — %${c.discountPct}` : ''}
+                      {c.discountTL ? ` — ₺${c.discountTL}` : ''}
+                    </button>
+                  ))}
+                  <div style={{ borderTop: '1px solid #e5e7eb', margin: '10px 0' }} />
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Manuel Kampanya
+                  </div>
+                </div>
+              )}
               {CAMPAIGN_TYPE_OPTIONS.map((opt) => (
                 <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
                   <input
