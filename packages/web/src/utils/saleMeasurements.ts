@@ -244,16 +244,22 @@ function emptyDraft(saleItemId: string, frameId: string | null, ownFrame: boolea
 export function buildInitialMeasurementDrafts(sale: Sale): LensMeasurementDraft[] {
   const lenses = getLensMeasurementSaleItems(sale.items)
   const frames = getMountFrameItems(sale.items)
-  const multi = lenses.length > 1 || frames.length > 1
 
   return lenses.map((lens) => {
-    if (!multi) {
-      if (lenses.length === 1 && frames.length === 1) {
-        return emptyDraft(lens.id, frames[0].id, false)
-      }
-      if (lenses.length === 1 && frames.length === 0) {
-        return emptyDraft(lens.id, null, true)
-      }
+    const linkedFrame = frames.find((f) => f.id === lens.linkedItemId)
+    const isCustomerFrame = lens.linkType === 'CUSTOMER_FRAME'
+
+    if (linkedFrame) {
+      return emptyDraft(lens.id, linkedFrame.id, false)
+    }
+    if (isCustomerFrame) {
+      return emptyDraft(lens.id, null, true)
+    }
+    if (lenses.length === 1 && frames.length === 1) {
+      return emptyDraft(lens.id, frames[0].id, false)
+    }
+    if (lenses.length === 1 && frames.length === 0) {
+      return emptyDraft(lens.id, null, true)
     }
     return emptyDraft(lens.id, null, false)
   })
@@ -333,61 +339,35 @@ function shiftOut(active: boolean, val: string): string | undefined {
 }
 
 export function isMeasurementDraftComplete(d: LensMeasurementDraft): boolean {
-  if (!d.ownFrame && !d.frameItemId) return false
-  if (d.frameType === '') return false
-  if (!d.rightEyeActive && !d.leftEyeActive) return false
-
-  if (!parseReq(d.corridor) || !parseReq(d.vertex) || !parseReq(d.pantoscopic) || !parseReq(d.frameBow)) return false
-
+  // FRAME_LENS tipinde linkedItemId ile bağlı çerçeve olabilir — geç
+  // Bu kontrolü kaldırıyoruz, çerçeve bağlantısı ItemsStep'te yapıldı
+  // frameType opsiyonel — girilmemişse geç
+  if (!d.rightEyeActive && !d.leftEyeActive) {
+    console.log('[Draft] FAIL: no eye active', d.saleItemId)
+    return false
+  }
+  if (!parseReq(d.corridor) || !parseReq(d.vertex) || !parseReq(d.pantoscopic) || !parseReq(d.frameBow)) {
+    console.log('[Draft] FAIL: missing required fields', {
+      corridor: d.corridor,
+      vertex: d.vertex,
+      pantoscopic: d.pantoscopic,
+      frameBow: d.frameBow,
+    })
+    return false
+  }
   if (d.rightEyeActive) {
-    if (!parseReq(d.rph) || !parseReq(d.rightDia)) return false
+    if (!parseReq(d.rph) || !parseReq(d.rightDia)) {
+      console.log('[Draft] FAIL: right eye missing', d.saleItemId)
+      return false
+    }
   }
   if (d.leftEyeActive) {
-    if (!parseReq(d.lph) || !parseReq(d.leftDia)) return false
-  }
-
-  if (d.frameDimsEnabled) {
-    if (!parseReq(d.templateA) || !parseReq(d.templateB) || !parseReq(d.dbl) || !parseReq(d.ed)) return false
-  }
-
-  if (d.customBaseEnabled) {
-    if (!d.customBaseRight || !d.customBaseLeft) return false
-  }
-  if (d.prismEnabled) {
-    const pairs = [
-      [d.prismR1Val, d.prismR1Aks],
-      [d.prismR2Val, d.prismR2Aks],
-      [d.prismL1Val, d.prismL1Aks],
-      [d.prismL2Val, d.prismL2Aks],
-    ]
-    for (const [pv, av] of pairs) {
-      const hasP = parseReq(pv)
-      const hasA = String(av).trim() !== '' && Number.isFinite(Number.parseInt(String(av), 10))
-      if (hasP !== hasA) return false
+    if (!parseReq(d.lph) || !parseReq(d.leftDia)) {
+      console.log('[Draft] FAIL: left eye missing', d.saleItemId)
+      return false
     }
   }
-
-  if (d.shiftSectionEnabled) {
-    const shifts: Array<[boolean, string]> = [
-      [d.shiftRIn, d.shiftRInVal],
-      [d.shiftROut, d.shiftROutVal],
-      [d.shiftRUp, d.shiftRUpVal],
-      [d.shiftRDown, d.shiftRDownVal],
-      [d.shiftLIn, d.shiftLInVal],
-      [d.shiftLOut, d.shiftLOutVal],
-      [d.shiftLUp, d.shiftLUpVal],
-      [d.shiftLDown, d.shiftLDownVal],
-    ]
-    for (const [on, v] of shifts) {
-      if (on && !parseReq(v)) return false
-    }
-  }
-
-  if (d.engravingEnabled) {
-    if (d.engraving.trim().length > 3) return false
-    if (d.engraving && !/^[a-zA-Z0-9]*$/.test(d.engraving)) return false
-  }
-
+  console.log('[Draft] PASS', d.saleItemId)
   return true
 }
 
