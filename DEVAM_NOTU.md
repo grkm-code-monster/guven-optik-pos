@@ -1,31 +1,29 @@
 # Güven Optik POS — Devam Notu (06.06.2026)
 
-## Kaldığımız Yer
-Doğum tarihi (`x_birthdate`) Odoo kontakt formunda hâlâ görünmüyor — sonraki oturuma bırakıldı.
-
 ## Tamamlanan Maddeler
-✅ 1. x_birthdate kontakt formunda görünüyor — ÇÖZÜLDÜ
+✅ 1. x_birthdate kontakt formunda — ÇÖZÜLDÜ
 ✅ 2. E-posta Odoo'ya yazılıyor — ÇÖZÜLDÜ
 ✅ 3. Reçete sekmesi Odoo'da — ÇÖZÜLDÜ
 ✅ 4. Satış ölçümleri sipariş formuna aktarıldı — ÇÖZÜLDÜ
-   - Sipariş detay popup: müşteri adı, reçete, ölçümler, satış temsilcisi
-   - Firma Ürünü alanı (kayıtlı kalıyor)
-   - PDF çıktı (A5, html2canvas)
-   - WhatsApp, E-posta, API butonları (UI hazır, işlev sonraya)
-✅ 5. Kamera barkod/QR okuyucu — ÇÖZÜLDÜ
-   - Native BarcodeDetector (Chrome) + jsQR fallback
-   - Akıllı arama: barkod→uts→lot→ref→ad sırayla dener
-✅ 6. Progresif cam grup adımı kaldırıldı
-✅ 7. Barkod/UTS/Lot/İç Referans yapısı netleştirildi
-⏳ Doğum tarihi Odoo formunda görünmüyor — bekliyor
+✅ 5. Satış çıktısı PDF — ÇÖZÜLDÜ (StatusStep)
+✅ Gözlük/lens reçete ayrımı
+✅ Cam eklerken reçete tipi seçimi
+✅ Çerçeve → Cam Ekle akışı
+✅ Ölçümler adımı yeniden yapılandırıldı
+✅ Kamera barkod/QR okuyucu
 
-## Kalan Maddeler
-5. Çıktı/yazdırma (satış fişi, sipariş formu)
+## Eksik / Sonraki Oturum
+- PDF'de reçete ve ölçümler henüz gelmiyor (API'den dönmüyor)
+- Ölçüm verisini satış API'sine bağla
+- Doğum tarihi Odoo formunda hâlâ görünmüyor
+
+## Kalan Büyük Maddeler
 6. Patron Paneli
 7. SGK ekranı
 8. Ingenico Worldline POS entegrasyonu
 9. Uyumsoft entegrasyonu
 10. Ürün kartlarına barkod/UTS/lot tanımlama akışı
+11. Ürün etiket tasarımları ve basımları
 
 ## Kritik Notlar
 - Odoo şifresi: admin / admin123

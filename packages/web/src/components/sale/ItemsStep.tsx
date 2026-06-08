@@ -67,10 +67,12 @@ export default function ItemsStep({
   saleId,
   items,
   onSaleUpdated,
+  customerPrescription,
 }: {
   saleId: string
   items: any[]
   onSaleUpdated: (sale: any) => void
+  customerPrescription?: Record<string, unknown> | null
 }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
@@ -441,9 +443,28 @@ export default function ItemsStep({
         }
         if (prescriptionType) {
           const backendType = prescriptionType.startsWith('SINGLE_') ? 'SINGLE' : prescriptionType
+          const rx = customerPrescription as any
+          console.log('[ItemsStep] customerPrescription:', JSON.stringify(rx))
+
+          const toStr = (v: any) => {
+            if (v == null || v === '') return undefined
+            // Artı işaretini kaldır, backend decimalString bekliyor
+            return String(v).replace(/^\+/, '')
+          }
+
           payload.prescription = {
             prescriptionType: backendType,
             prescriptionSource: 'MANUAL',
+            r_sph: toStr(rx?.far_r_sph ?? rx?.r_sph),
+            r_cyl: toStr(rx?.far_r_cyl ?? rx?.r_cyl),
+            r_aks: rx?.far_r_aks ?? rx?.r_aks ? parseInt(String(rx?.far_r_aks ?? rx?.r_aks)) : undefined,
+            r_add: toStr(rx?.far_r_add ?? rx?.r_add),
+            r_pd: toStr(rx?.far_r_pd ?? rx?.r_pd),
+            l_sph: toStr(rx?.far_l_sph ?? rx?.l_sph),
+            l_cyl: toStr(rx?.far_l_cyl ?? rx?.l_cyl),
+            l_aks: rx?.far_l_aks ?? rx?.l_aks ? parseInt(String(rx?.far_l_aks ?? rx?.l_aks)) : undefined,
+            l_add: toStr(rx?.far_l_add ?? rx?.l_add),
+            l_pd: toStr(rx?.far_l_pd ?? rx?.l_pd),
           }
         }
       }

@@ -42,7 +42,11 @@ function handleSaleError(err: unknown, res: Response): boolean {
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = CreateSaleInput.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz istek gövdesi.' });
+    if (!parsed.success) return res.status(400).json({
+      error: 'VALIDATION_ERROR',
+      message: 'Geçersiz istek gövdesi.',
+      details: parsed.error.errors,
+    });
     const sale = await saleService.createSale(req.user!.userId, req.user!.branchId, parsed.data);
     return res.status(200).json(sale);
   } catch (err) {
@@ -54,7 +58,11 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
 router.post('/:id/items', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = AddSaleItemInput.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz istek gövdesi.' });
+    if (!parsed.success) return res.status(400).json({
+      error: 'VALIDATION_ERROR',
+      message: 'Geçersiz istek gövdesi.',
+      details: parsed.error.errors,
+    });
     const result = await saleService.addSaleItem(req.params.id, parsed.data);
     return res.status(200).json(result);
   } catch (err) {
@@ -66,7 +74,11 @@ router.post('/:id/items', async (req: Request, res: Response, next: NextFunction
 router.put('/:id/items/:itemId', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = AddSaleItemInput.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz istek gövdesi.' });
+    if (!parsed.success) return res.status(400).json({
+      error: 'VALIDATION_ERROR',
+      message: 'Geçersiz istek gövdesi.',
+      details: parsed.error.errors,
+    });
     const updated = await saleService.updateSaleItem(req.params.itemId, parsed.data);
     return res.status(200).json(updated);
   } catch (err) {
@@ -102,7 +114,11 @@ router.patch('/:id/items/:itemId/status', async (req: Request, res: Response, ne
 router.post('/:id/confirm', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = ConfirmSaleInput.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz istek gövdesi.' });
+    if (!parsed.success) return res.status(400).json({
+      error: 'VALIDATION_ERROR',
+      message: 'Geçersiz istek gövdesi.',
+      details: parsed.error.errors,
+    });
     const result = await saleService.confirmSale(req.params.id, req.user!.userId, req.user!.role, parsed.data);
     return res.status(200).json(result);
   } catch (err) {
@@ -114,7 +130,11 @@ router.post('/:id/confirm', async (req: Request, res: Response, next: NextFuncti
 router.post('/:id/void', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = VoidSaleInput.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz istek gövdesi.' });
+    if (!parsed.success) return res.status(400).json({
+      error: 'VALIDATION_ERROR',
+      message: 'Geçersiz istek gövdesi.',
+      details: parsed.error.errors,
+    });
     const sale = await saleService.voidSale(req.params.id, req.user!.userId, req.user!.role, parsed.data);
     return res.status(200).json(sale);
   } catch (err) {

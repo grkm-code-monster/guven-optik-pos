@@ -130,6 +130,7 @@ export default function CustomerStep({
 
   async function refreshPrescriptionCard(customerId: string) {
     const list = await getReceteGecmisi(customerId)
+    console.log('[Recete] gecmis ilk:', JSON.stringify(list[0]))
     setReceteHistory(list)
     try {
       const full = await getCustomerById(customerId)
@@ -224,6 +225,7 @@ export default function CustomerStep({
     setReceteLoading(true)
     getReceteGecmisi(selectedCustomer.id)
       .then((list) => {
+        console.log('[Recete] useEffect ilk:', JSON.stringify(list[0]))
         setReceteHistory(list)
       })
       .catch(() => {

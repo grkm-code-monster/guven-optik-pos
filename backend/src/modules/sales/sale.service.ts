@@ -192,7 +192,7 @@ export async function addSaleItem(saleId: string, input: AddSaleItemInputType) {
     let prescription = null as any;
     let prescriptionMissing = false;
 
-    if (product.productType === ProductType.PRESCRIBED) {
+    if (product.productType === ProductType.PRESCRIBED || input.prescription) {
       if (input.prescription) {
         const r_sph = input.prescription.r_sph ? new Prisma.Decimal(input.prescription.r_sph) : null;
         const r_add = input.prescription.r_add ? new Prisma.Decimal(input.prescription.r_add) : null;

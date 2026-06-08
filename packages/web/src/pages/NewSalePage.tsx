@@ -205,7 +205,7 @@ export default function NewSalePage() {
         ) : null}
 
         {currentStep === 2 && sale ? (
-          <ItemsStep saleId={sale.id} items={sale.items ?? []} onSaleUpdated={(s) => setSale(s)} />
+          <ItemsStep saleId={sale.id} items={sale.items ?? []} onSaleUpdated={(s) => setSale(s)} customerPrescription={latestPrescription} />
         ) : null}
 
         {currentStep === 2 && !sale ? (
