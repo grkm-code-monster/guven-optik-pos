@@ -1,5 +1,6 @@
 import {
   CashMovementType,
+  ItemStatus,
   PaymentType,
   Prisma,
   ProductCategory,
@@ -454,5 +455,121 @@ export async function generateDailyExcel(branchId: string, date: Date) {
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
+}
+
+export async function getPatronOzet({ baslangic, bitis, subeId }: { baslangic: Date; bitis: Date; subeId?: string }) {
+  const where: any = {
+    status: SaleStatus.PAID,
+    createdAt: { gte: baslangic, lte: bitis },
+  };
+  if (subeId) where.branchId = subeId;
+
+  const sales = await prisma.sale.findMany({
+    where,
+    include: {
+      payments: true,
+      items: { include: { product: true } },
+      customer: true,
+    },
+  });
+
+  const netTotal = sales.reduce((s, sale) => s + Number(sale.netTotal), 0);
+  const satisAdedi = sales.length;
+  const ortalamaSepet = satisAdedi > 0 ? netTotal / satisAdedi : 0;
+
+  const nakit = sales.flatMap((s) => s.payments).filter((p) => p.paymentType === PaymentType.CASH).reduce((s, p) => s + Number(p.netAmount), 0);
+  const kart = sales.flatMap((s) => s.payments).filter((p) => p.paymentType === PaymentType.CARD).reduce((s, p) => s + Number(p.netAmount), 0);
+  const acikHesap = sales.flatMap((s) => s.payments).filter((p) => p.paymentType === PaymentType.OPEN_ACCOUNT).reduce((s, p) => s + Number(p.netAmount), 0);
+  const sgk = sales.reduce((s, sale) => s + Number(sale.sgkAmount ?? 0), 0);
+
+  const yeniMusteriIds = new Set<string>();
+  for (const sale of sales) {
+    if (sale.customerId) {
+      const prev = await prisma.sale.count({ where: { customerId: sale.customerId, status: SaleStatus.PAID, createdAt: { lt: baslangic } } });
+      if (prev === 0) yeniMusteriIds.add(sale.customerId);
+    }
+  }
+
+  const kdvToplam = sales.reduce((s, sale) => s + (Number(sale.netTotal) - Number(sale.grossTotal)), 0);
+
+  const subeBreakdown: Record<string, { ciro: number; satisAdedi: number; subeAdi: string }> = {};
+  for (const sale of sales) {
+    if (!sale.branchId) continue;
+    if (!subeBreakdown[sale.branchId]) subeBreakdown[sale.branchId] = { ciro: 0, satisAdedi: 0, subeAdi: sale.branchId };
+    subeBreakdown[sale.branchId].ciro += Number(sale.netTotal);
+    subeBreakdown[sale.branchId].satisAdedi++;
+  }
+
+  return {
+    netTotal,
+    satisAdedi,
+    ortalamaSepet,
+    nakit,
+    kart,
+    acikHesap,
+    sgk,
+    kdvToplam,
+    yeniMusteriSayisi: yeniMusteriIds.size,
+    subeBreakdown: Object.values(subeBreakdown),
+  };
+}
+
+export async function getPersonelPerformans({ baslangic, bitis }: { baslangic: Date; bitis: Date }) {
+  const sales = await prisma.sale.findMany({
+    where: { status: SaleStatus.PAID, createdAt: { gte: baslangic, lte: bitis } },
+    include: { user: true, payments: true },
+  });
+
+  const byUser: Record<string, { ad: string; satisAdedi: number; ciro: number }> = {};
+  for (const sale of sales) {
+    const uid = sale.userId ?? 'bilinmiyor';
+    const ad = sale.user?.name ?? sale.user?.username ?? 'Bilinmiyor';
+    if (!byUser[uid]) byUser[uid] = { ad, satisAdedi: 0, ciro: 0 };
+    byUser[uid].satisAdedi++;
+    byUser[uid].ciro += Number(sale.netTotal);
+  }
+
+  return Object.values(byUser).sort((a, b) => b.ciro - a.ciro);
+}
+
+export async function getKategoriBreakdown({ baslangic, bitis, subeId }: { baslangic: Date; bitis: Date; subeId?: string }) {
+  const where: any = {
+    sale: { status: SaleStatus.PAID, createdAt: { gte: baslangic, lte: bitis } },
+    status: { not: ItemStatus.VOID },
+  };
+  if (subeId) where.sale.branchId = subeId;
+
+  const items = await prisma.saleItem.findMany({
+    where,
+    include: { product: true },
+  });
+
+  const breakdown: Record<string, { ciro: number; adet: number }> = {};
+  for (const item of items) {
+    const kat = resolveItemKategori(item as any);
+    if (!breakdown[kat]) breakdown[kat] = { ciro: 0, adet: 0 };
+    breakdown[kat].ciro += Number(item.lineTotal);
+    breakdown[kat].adet += Number(item.qty);
+  }
+
+  return breakdown;
+}
+
+export async function getGunlukSeri({ baslangic, bitis, subeId }: { baslangic: Date; bitis: Date; subeId?: string }) {
+  const where: any = {
+    status: SaleStatus.PAID,
+    createdAt: { gte: baslangic, lte: bitis },
+  };
+  if (subeId) where.branchId = subeId;
+
+  const sales = await prisma.sale.findMany({ where, select: { createdAt: true, netTotal: true } });
+
+  const byDay: Record<string, number> = {};
+  for (const sale of sales) {
+    const gun = sale.createdAt.toISOString().split('T')[0];
+    byDay[gun] = (byDay[gun] ?? 0) + Number(sale.netTotal);
+  }
+
+  return Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)).map(([tarih, ciro]) => ({ tarih, ciro }));
 }
 
