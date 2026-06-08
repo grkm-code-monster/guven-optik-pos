@@ -179,8 +179,10 @@ export default function StatusStep({ sale, onNewSale }: { sale: Sale | null; onN
                       {it.linkType && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{it.linkType === 'CUSTOMER_FRAME' ? 'Kendi çerçevesi' : it.linkType === 'FRAME_LENS' ? 'Çerçeveye bağlı cam' : ''}</div>}
                       {rx && (
                         <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr', gap: '2px 12px', fontSize: 11 }}>
-                          <span style={{ color: '#6b7280' }}>Sağ:</span><span>SPH {rx.r_sph ?? '—'} / CYL {rx.r_cyl ?? '—'} / AKS {rx.r_aks ?? '—'}</span>
-                          <span style={{ color: '#6b7280' }}>Sol:</span><span>SPH {rx.l_sph ?? '—'} / CYL {rx.l_cyl ?? '—'} / AKS {rx.l_aks ?? '—'}</span>
+                          <span style={{ color: '#6b7280' }}>Sağ:</span>
+                          <span>SPH {rx.r_sph ?? '—'} / CYL {rx.r_cyl ?? '—'} / AKS {rx.r_aks ?? '—'} / PD {rx.r_pd ?? '—'}</span>
+                          <span style={{ color: '#6b7280' }}>Sol:</span>
+                          <span>SPH {rx.l_sph ?? '—'} / CYL {rx.l_cyl ?? '—'} / AKS {rx.l_aks ?? '—'} / PD {rx.l_pd ?? '—'}</span>
                         </div>
                       )}
                     </div>

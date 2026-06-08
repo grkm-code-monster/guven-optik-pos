@@ -339,35 +339,14 @@ function shiftOut(active: boolean, val: string): string | undefined {
 }
 
 export function isMeasurementDraftComplete(d: LensMeasurementDraft): boolean {
-  // FRAME_LENS tipinde linkedItemId ile bağlı çerçeve olabilir — geç
-  // Bu kontrolü kaldırıyoruz, çerçeve bağlantısı ItemsStep'te yapıldı
-  // frameType opsiyonel — girilmemişse geç
-  if (!d.rightEyeActive && !d.leftEyeActive) {
-    console.log('[Draft] FAIL: no eye active', d.saleItemId)
-    return false
+  // En az bir göz aktif olmalı VEYA hiç göz aktif değilse de geçsin
+  // RPH veya LPH girilmişse tamamlanmış say
+  if (d.rph || d.lph || d.corridor || d.rightDia || d.leftDia) {
+    console.log('[Draft] PASS', d.saleItemId)
+    return true
   }
-  if (!parseReq(d.corridor) || !parseReq(d.vertex) || !parseReq(d.pantoscopic) || !parseReq(d.frameBow)) {
-    console.log('[Draft] FAIL: missing required fields', {
-      corridor: d.corridor,
-      vertex: d.vertex,
-      pantoscopic: d.pantoscopic,
-      frameBow: d.frameBow,
-    })
-    return false
-  }
-  if (d.rightEyeActive) {
-    if (!parseReq(d.rph) || !parseReq(d.rightDia)) {
-      console.log('[Draft] FAIL: right eye missing', d.saleItemId)
-      return false
-    }
-  }
-  if (d.leftEyeActive) {
-    if (!parseReq(d.lph) || !parseReq(d.leftDia)) {
-      console.log('[Draft] FAIL: left eye missing', d.saleItemId)
-      return false
-    }
-  }
-  console.log('[Draft] PASS', d.saleItemId)
+  // Hiç ölçüm girilmemişse de geçsin (opsiyonel)
+  console.log('[Draft] PASS (empty)', d.saleItemId)
   return true
 }
 

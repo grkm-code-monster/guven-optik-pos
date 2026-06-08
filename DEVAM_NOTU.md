@@ -13,9 +13,10 @@
 ✅ Kamera barkod/QR okuyucu
 
 ## Eksik / Sonraki Oturum
-- PDF'de reçete ve ölçümler henüz gelmiyor (API'den dönmüyor)
-- Ölçüm verisini satış API'sine bağla
-- Doğum tarihi Odoo formunda hâlâ görünmüyor
+✅ PDF'de reçete geliyor — ÇÖZÜLDÜ
+⏳ PDF'de ölçümler (RPH, LPH vb.) henüz gelmiyor
+⏳ Cam seçeneği tip kartlarından kaldırılacak (sadece çerçeveden erişilecek)
+⏳ Debug console.log'ları temizlenecek
 
 ## Kalan Büyük Maddeler
 6. Patron Paneli

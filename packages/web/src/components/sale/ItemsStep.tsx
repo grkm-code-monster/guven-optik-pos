@@ -23,11 +23,12 @@ const ARAMA_YONTEMLERI = [
 const typeCards: Array<{ type: ItemType; title: string; icon: string }> = [
   { type: 'FRAME', title: 'Optik Çerçeve', icon: '🕶' },
   { type: 'SUN', title: 'Güneş Gözlüğü', icon: '☀️' },
-  { type: 'LENS', title: 'Cam', icon: '👁' },
   { type: 'CONTACT', title: 'Lens', icon: '🔍' },
   { type: 'SOLUTION', title: 'Solüsyon', icon: '💧' },
   { type: 'ACCESSORY', title: 'Aksesuar', icon: '✨' },
 ]
+
+const lensTypeCard = { type: 'LENS' as const, title: 'Cam', icon: '👁' }
 
 type PickedProduct = {
   odooVariantId: string
@@ -568,10 +569,8 @@ export default function ItemsStep({
                   <button
                     type="button"
                     onClick={() => {
-                      const lensType = typeCards.find((t) => t.type === 'LENS')
-                      if (!lensType) return
                       setModalOpen(true)
-                      setPickedType(lensType)
+                      setPickedType(lensTypeCard)
                       setCatStack([getKategoriTreeRoot('LENS')])
                       setCatPath([])
                       setStep(2)
@@ -673,8 +672,7 @@ export default function ItemsStep({
                   type="button"
                   onClick={() => {
                     setFrameAkis('kendiCercevesi')
-                    const lensType = typeCards.find((t) => t.type === 'LENS')
-                    if (lensType) setPickedType(lensType)
+                    setPickedType(lensTypeCard)
                     setCatStack([getKategoriTreeRoot('LENS')])
                     setCatPath([])
                     setStep(2)
