@@ -554,6 +554,28 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
       include: { product: true },
     });
 
+    if (input.kasaIndirimTutar > 0) {
+      const indirimliToplam = saleItems.reduce(
+        (s, it) => s + (Number(it.unitPrice) * it.qty - Number(it.discount)),
+        0,
+      );
+
+      if (indirimliToplam > 0) {
+        for (const item of saleItems) {
+          const itemNet = Number(item.unitPrice) * item.qty - Number(item.discount);
+          const pay = itemNet / indirimliToplam;
+          const ekstraIndirim = input.kasaIndirimTutar * pay;
+          const yeniDiscount = new Prisma.Decimal(Number(item.discount) + ekstraIndirim);
+          await prisma.saleItem.update({
+            where: { id: item.id },
+            data: { discount: yeniDiscount },
+          });
+          item.discount = yeniDiscount;
+        }
+        await recalcSaleTotals(prisma, saleId);
+      }
+    }
+
     // 4. Ödeme journal map
     const JOURNAL_MAP: Record<string, number> = {
       CASH: 17,

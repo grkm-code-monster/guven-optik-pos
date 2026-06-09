@@ -105,6 +105,7 @@ export type PaymentInputType = z.infer<typeof PaymentInput>;
 export const ConfirmSaleInput = z.object({
   payments: z.array(PaymentInput).min(1),
   thirdPartyAmount: z.number().min(0).default(0), // SGK + Vakıf + Hediye çeki toplamı
+  kasaIndirimTutar: z.number().min(0).default(0),
   lensOrderMeasurements: z.array(z.any()).optional(),
 });
 export type ConfirmSaleInputType = z.infer<typeof ConfirmSaleInput>;

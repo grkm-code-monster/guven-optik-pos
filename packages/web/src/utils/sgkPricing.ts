@@ -61,6 +61,7 @@ export type PricingOverview = {
   pricingInvoiceNote: string | null
   giftVoucherCode?: string | null
   giftVoucherAmountTRY?: number
+  kasaIndirimTutar?: number
 }
 
 export function isMultiFocalPrescription(prescriptionType: string | undefined | null): boolean {
@@ -315,6 +316,17 @@ export function buildPricingOverview(
   const campaignSummaryLines = campaignEval.lines.map((l) => l.summaryText)
   const campaignDiscountTotalTRY = roundMoney(campaignEval.totalDiscountTRY)
 
+  const kasaIndirimTutar = roundMoney(
+    (opts.campaigns ?? [])
+      .filter((c) => c.kind === 'KASA')
+      .reduce((sum, c) => {
+        const raw = c.kasaAmountStr ?? (c.dbRecord?.discountTL != null ? String(c.dbRecord.discountTL) : '')
+        const n = Number(String(raw).trim().replace(',', '.'))
+        if (!Number.isFinite(n) || n <= 0) return sum
+        return sum + n
+      }, 0),
+  )
+
   let customerPaysTRY = Math.max(0, roundMoney(afterThirdParty - campaignDiscountTotalTRY))
 
   const rawGift = opts.giftVoucher ? roundMoney(opts.giftVoucher.amountTRY) : 0
@@ -335,5 +347,6 @@ export function buildPricingOverview(
     pricingInvoiceNote,
     giftVoucherCode: opts.giftVoucher && giftAmt > 0 ? opts.giftVoucher.code : null,
     giftVoucherAmountTRY: giftAmt > 0 ? giftAmt : undefined,
+    kasaIndirimTutar: kasaIndirimTutar > 0 ? kasaIndirimTutar : undefined,
   }
 }

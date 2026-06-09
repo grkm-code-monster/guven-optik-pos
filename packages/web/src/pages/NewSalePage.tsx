@@ -141,6 +141,7 @@ export default function NewSalePage() {
       await confirmSale(sale.id, {
         ...pendingPayments,
         thirdPartyAmount: pricingOverview?.thirdPartyCoverageTRY ?? 0,
+        kasaIndirimTutar: pricingOverview?.kasaIndirimTutar ?? 0,
         lensOrderMeasurements: lensMeasurementDrafts.length > 0
           ? draftsToLensOrderMeasurements(lensMeasurementDrafts)
           : undefined,
@@ -151,7 +152,7 @@ export default function NewSalePage() {
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Satış onaylanamadı')
     }
-  }, [sale?.id, pendingPayments, pricingOverview?.thirdPartyCoverageTRY, lensMeasurementDrafts])
+  }, [sale?.id, pendingPayments, pricingOverview?.thirdPartyCoverageTRY, pricingOverview?.kasaIndirimTutar, lensMeasurementDrafts])
 
   const canGoToStep = (target: Step): boolean => {
     if (target === 1) return true
