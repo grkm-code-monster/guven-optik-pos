@@ -493,11 +493,17 @@ export default function ItemsStep({
     setError(null)
     const matchedType = typeCards.find((t) => t.type === item?.product?.category) ?? typeCards[0]
     setPickedType(matchedType)
+    const urunAdi =
+      (item.odooProductName && !String(item.odooProductName).includes('PLACEHOLDER'))
+        ? item.odooProductName
+        : item.product?.name && !String(item.product.name).includes('PLACEHOLDER')
+        ? item.product.name
+        : 'Cam'
     setPickedProduct({
-      odooVariantId: String(item?.product?.odooId ?? item?.productId ?? ''),
-      ad: item?.product?.name ?? '',
+      odooVariantId: String(item?.odooProductId ?? item?.product?.odooId ?? item?.productId ?? '').replace(/^odoo_/, ''),
+      ad: urunAdi,
       varyant: '',
-      name: item?.product?.name ?? '',
+      name: urunAdi,
       price: String(item?.unitPrice ?? item?.product?.price ?? '0'),
     })
     setQty(String(item?.qty ?? 1))
@@ -541,7 +547,9 @@ export default function ItemsStep({
 
       <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {items.length === 0 ? <div style={{ fontSize: '13px', color: '#6b7280' }}>Henüz kalem yok.</div> : null}
-        {items.map((it) => (
+        {items
+          .filter((it) => String(it.status).toUpperCase() !== 'VOID')
+          .map((it) => (
           <div
             key={it.id}
             style={{
@@ -603,9 +611,12 @@ export default function ItemsStep({
                   onClick={async () => {
                     const ok = window.confirm('Bu kalemi silmek istediğinize emin misiniz?')
                     if (!ok) return
+                    console.log('[deleteItem] sileceğim:', it.id, 'saleId:', saleId)
                     try {
                       await deleteItem(saleId, it.id)
+                      console.log('[deleteItem] silindi')
                       const updated = await getSaleById(saleId)
+                      console.log('[deleteItem] updated items:', updated?.items?.length, updated?.items?.map((i: any) => i.id))
                       onSaleUpdated(updated)
                     } catch (e: any) {
                       setError(e?.response?.data?.message ?? 'Kalem silinemedi')

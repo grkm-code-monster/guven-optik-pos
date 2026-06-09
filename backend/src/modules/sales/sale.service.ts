@@ -859,7 +859,10 @@ export async function getSaleById(saleId: string) {
     where: { id: saleId },
     include: {
       customer: true,
-      items: { include: { prescription: true, frames: true, product: true } },
+      items: {
+        where: { status: { not: ItemStatus.VOID } },
+        include: { prescription: true, frames: true, product: true },
+      },
       payments: true,
     },
   });

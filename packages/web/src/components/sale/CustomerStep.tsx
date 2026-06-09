@@ -54,16 +54,18 @@ const FAR_ADD_OPTIONS: Array<{ value: string; label: string }> = [
 export default function CustomerStep({
   onSelectCustomer,
   onApplyPrescription,
+  initialCustomer,
 }: {
   onSelectCustomer: (customer: any) => void
   onApplyPrescription?: (rx: any) => void
+  initialCustomer?: any | null
 }) {
   const [q, setQ] = useState('')
   const [results, setResults] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(initialCustomer ?? null)
   const [receteHistory, setReceteHistory] = useState<any[]>([])
   const [receteLoading, setReceteLoading] = useState(false)
   const [appliedPrescription, setAppliedPrescription] = useState<any | null>(null)

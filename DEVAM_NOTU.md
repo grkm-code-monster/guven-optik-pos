@@ -1,33 +1,41 @@
-# Güven Optik POS — Devam Notu (06.06.2026)
+# Güven Optik POS — Devam Notu
+Son güncelleme: 08.06.2026
 
-## Tamamlanan Maddeler
-✅ 1. x_birthdate kontakt formunda — ÇÖZÜLDÜ
-✅ 2. E-posta Odoo'ya yazılıyor — ÇÖZÜLDÜ
-✅ 3. Reçete sekmesi Odoo'da — ÇÖZÜLDÜ
-✅ 4. Satış ölçümleri sipariş formuna aktarıldı — ÇÖZÜLDÜ
-✅ 5. Satış çıktısı PDF — ÇÖZÜLDÜ (StatusStep)
-✅ Gözlük/lens reçete ayrımı
-✅ Cam eklerken reçete tipi seçimi
-✅ Çerçeve → Cam Ekle akışı
-✅ Ölçümler adımı yeniden yapılandırıldı
-✅ Kamera barkod/QR okuyucu
+## Son commitler
+- 9ef7d6c — Patron Paneli: Rapor Dashboard + Şirket Dashboard
+- 63fc8a8 — Reçete PDF'e yazılıyor
+- 5b46c48 — Ölçümler adımı yeniden yapılandırıldı
+- fa7208d — Ölçüm validasyonu, Cam tipi karttan kaldırıldı, PDF PD eklendi
+- c160e09 — Ölçümler draft validasyon düzeltildi
+- 0d6ac82 — Reçete ve çerçeve akışı
 
-## Eksik / Sonraki Oturum
-✅ PDF'de reçete geliyor — ÇÖZÜLDÜ
-⏳ PDF'de ölçümler (RPH, LPH vb.) henüz gelmiyor
-⏳ Cam seçeneği tip kartlarından kaldırılacak (sadece çerçeveden erişilecek)
-⏳ Debug console.log'ları temizlenecek
+## Kural: Önce tasarım, sonra kod
+Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra kodlanır.
 
-## Kalan Büyük Maddeler
-6. Patron Paneli
-7. SGK ekranı
-8. Ingenico Worldline POS entegrasyonu
-9. Uyumsoft entegrasyonu
-10. Ürün kartlarına barkod/UTS/lot tanımlama akışı
-11. Ürün etiket tasarımları ve basımları
+## Kısa vadeli
+- [ ] Satış akışında geri dön sorunu — adımlar arası geri gidince sistem bozuluyor, düzeltme/düzenleme yapılamıyor (kritik bug)
+- [ ] Alım iade ekranı → Garanti & İade ekranı olarak yeniden tasarlanacak
+- [ ] Patron Paneli grafikleri (Chart.js npm paketi — React'te script tag çalışmıyor)
+- [ ] "Patron Görünümü · Yakında" etiketi kaldır, isim güncelle
+- [ ] Debug console.log'ları temizle (saleMeasurements.ts, CustomerStep.tsx, ItemsStep.tsx)
+- [ ] Karlılık analizi + drill-down kategori grafiği (tasarım hazır)
+- [ ] Ürün maliyet girişi ekranı
 
-## Kritik Notlar
-- Odoo şifresi: admin / admin123
-- guven_optik modülü: odoo/addons/guven_optik/
-- Backend çalıştırma: localhost:3000
-- Odoo DB: guvenoptik
+## Orta vadeli
+- [ ] SGK ekranı
+- [ ] Ürün etiket tasarımları ve basımları
+- [ ] Ürün kartlarına barkod/UTS/lot tanımlama akışı
+- [ ] Doğum tarihi Odoo formunda görünmüyor (view inheritance sorunu)
+
+## Büyük maddeler
+- [ ] Ingenico Worldline POS entegrasyonu
+- [ ] Uyumsoft entegrasyonu
+- [ ] Finans yönetimi & muhasebe modülleri (gider girişi)
+- [ ] Bilanço/KDV/komisyon → finans modülü tamamlanınca gerçek veriye bağlanacak
+
+## Teknik notlar
+- Backend: localhost:3000 (NestJS/Express, Prisma, PostgreSQL optikpos port 5432)
+- Frontend: localhost:5173 (React/Vite)
+- Odoo: localhost:8069 (Docker odoo-odoo-1, DB: guvenoptik, port 5433, admin/admin123)
+- Patron Paneli: /admin/patron (ADMIN rolü gerekli)
+- Chart.js npm paketi kurulu değil — grafikleri düzeltmek için: npm install chart.js react-chartjs-2

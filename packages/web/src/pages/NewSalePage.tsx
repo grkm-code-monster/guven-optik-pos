@@ -93,12 +93,16 @@ export default function NewSalePage() {
   }
 
   const handleCustomerSelect = (customer: any) => {
+    const ayniMusteri = selectedCustomer?.id === customer.id
     setSelectedCustomer(customer)
     ;(window as any).__aktifMusteriAdi = `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim()
     setLatestPrescription(customer.appliedPrescription ?? null)
-    setSale(null)
-    setPendingPayments(null)
-    setSaleConfirmed(false)
+    if (!ayniMusteri) {
+      setSale(null)
+      setPendingPayments(null)
+      setSaleConfirmed(false)
+      setLensMeasurementDrafts([])
+    }
     setError(null)
     setStep(2)
     getCustomerById(customer.id)
@@ -201,6 +205,7 @@ export default function NewSalePage() {
           <CustomerStep
             onSelectCustomer={handleCustomerSelect}
             onApplyPrescription={setLatestPrescription}
+            initialCustomer={selectedCustomer}
           />
         ) : null}
 
@@ -217,52 +222,58 @@ export default function NewSalePage() {
           </div>
         ) : null}
 
-        {currentStep === 3 ? (
-          <PricingStep
-            sale={sale}
-            customerPrescription={latestPrescription}
-            onOverviewChange={setPricingOverview}
-            onNext={() => setCurrentStep(4)}
-            onBack={() => setCurrentStep(2)}
-          />
+        {(currentStep === 3 || currentStep === 4) ? (
+          <>
+            <div style={{ display: currentStep === 3 ? 'block' : 'none' }}>
+              <PricingStep
+                sale={sale}
+                customerPrescription={latestPrescription}
+                onOverviewChange={setPricingOverview}
+                onNext={() => setCurrentStep(4)}
+                onBack={() => setCurrentStep(2)}
+              />
+            </div>
+            <div style={{ display: currentStep === 4 ? 'block' : 'none' }}>
+              <PaymentStep
+                sale={sale}
+                deferConfirm
+                pricingOverview={pricingOverview}
+                onBack={() => setCurrentStep(3)}
+                onNext={handlePaymentContinue}
+              />
+            </div>
+          </>
         ) : null}
 
-        {currentStep === 4 ? (
-          <PaymentStep
-            sale={sale}
-            deferConfirm
-            pricingOverview={pricingOverview}
-            onBack={() => setCurrentStep(3)}
-            onNext={handlePaymentContinue}
-          />
+        {(currentStep === 5 || currentStep === 5.5 || currentStep === 6) && sale ? (
+          <>
+            <div style={{ display: currentStep === 5 ? 'block' : 'none' }}>
+              <LensMeasurementStep
+                sale={sale}
+                customerPrescription={latestPrescription}
+                onComplete={(drafts) => {
+                  setLensMeasurementDrafts(drafts)
+                  setStep(5.5)
+                }}
+                onBack={() => setStep(4)}
+              />
+            </div>
+            <div style={{ display: currentStep === 5.5 ? 'block' : 'none' }}>
+              <StokTeminStep
+                sale={sale}
+                selectedCustomer={selectedCustomer}
+                latestPrescription={latestPrescription}
+                lensOrderMeasurements={
+                  lensMeasurementDrafts.length > 0
+                    ? draftsToLensOrderMeasurements(lensMeasurementDrafts)
+                    : undefined
+                }
+                onDevam={() => setCurrentStep(6)}
+                onGeri={() => setCurrentStep(saleNeedsLensMeasurementStep(sale) ? 5 : 4)}
+              />
+            </div>
+          </>
         ) : null}
-
-        {currentStep === 5 && sale ? (
-          <LensMeasurementStep
-            sale={sale}
-            customerPrescription={latestPrescription}
-            onComplete={(drafts) => {
-              setLensMeasurementDrafts(drafts)
-              setStep(5.5)
-            }}
-            onBack={() => setStep(4)}
-          />
-        ) : null}
-
-        {currentStep === 5.5 && (
-          <StokTeminStep
-            sale={sale}
-            selectedCustomer={selectedCustomer}
-            latestPrescription={latestPrescription}
-            lensOrderMeasurements={
-              lensMeasurementDrafts.length > 0
-                ? draftsToLensOrderMeasurements(lensMeasurementDrafts)
-                : undefined
-            }
-            onDevam={() => setCurrentStep(6)}
-            onGeri={() => setCurrentStep(saleNeedsLensMeasurementStep(sale) ? 5 : 4)}
-          />
-        )}
 
         {currentStep === 6 && !saleConfirmed ? (
           <div
