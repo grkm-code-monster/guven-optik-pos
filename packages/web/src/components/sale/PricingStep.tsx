@@ -77,6 +77,7 @@ export default function PricingStep({
   const [mode, setMode] = useState<PaymentPricingMode>('NORMAL')
   const [foundationName, setFoundationName] = useState<string>(VAKIF_OPTIONS[0])
   const [foundationAmount, setFoundationAmount] = useState('')
+  const [foundationConfirmed, setFoundationConfirmed] = useState(false)
   const [insuranceCompanyNote, setInsuranceCompanyNote] = useState('')
 
   const [sgkConfirmedSnapshot, setSgkConfirmedSnapshot] = useState<SgkModalSnapshot | null>(null)
@@ -90,6 +91,8 @@ export default function PricingStep({
   const [dbLoading, setDbLoading] = useState(false)
   const branchId = useAuthStore((s) => s.user?.branchId ?? '')
   const [campaignModalOpen, setCampaignModalOpen] = useState(false)
+  const [kasaIndirimTutar, setKasaIndirimTutar] = useState('')
+  const [selectedDbCampaign, setSelectedDbCampaign] = useState<Campaign | null>(null)
   const [campaignKind, setCampaignKind] = useState<CampaignTypeId>('KASA')
   const [kasaAmountStr, setKasaAmountStr] = useState('')
   const [nakitPercentStr, setNakitPercentStr] = useState('')
@@ -121,18 +124,17 @@ export default function PricingStep({
   }, [sale?.id, branchId])
 
   useEffect(() => {
-    if (mode !== 'SGK') {
-      setSgkConfirmedSnapshot(null)
-    }
+    setFoundationConfirmed(false)
+    setFoundationAmount('')
   }, [mode])
 
   const overview = useMemo((): PricingOverview => {
     const catalogNet = roundMoney(Number(sale?.netTotal ?? 0))
     const base = buildPricingOverview(catalogNet, sale?.items ?? [], mode, {
       foundationName,
-      foundationAmountStr: foundationAmount,
+      foundationAmountStr: foundationConfirmed ? foundationAmount : '',
       insuranceCompanyNote,
-      sgkModalSnapshot: mode === 'SGK' ? sgkConfirmedSnapshot : null,
+      sgkModalSnapshot: sgkConfirmedSnapshot,
       campaigns,
       nakitKampanyaAktif: nakitOdemeOnay,
     })
@@ -152,6 +154,7 @@ export default function PricingStep({
     mode,
     foundationName,
     foundationAmount,
+    foundationConfirmed,
     insuranceCompanyNote,
     sgkConfirmedSnapshot,
     campaigns,
@@ -198,6 +201,8 @@ export default function PricingStep({
     setCampaignKind('KASA')
     setKasaAmountStr('')
     setNakitPercentStr('')
+    setKasaIndirimTutar('')
+    setSelectedDbCampaign(null)
     setCampaignModalOpen(true)
   }
 
@@ -422,10 +427,29 @@ export default function PricingStep({
               step={0.01}
               placeholder="Örn: 2500"
               value={foundationAmount}
-              onChange={(e) => setFoundationAmount(e.target.value)}
+              onChange={(e) => { setFoundationAmount(e.target.value); setFoundationConfirmed(false) }}
               style={{ display: 'block', width: '100%', marginTop: '6px', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
             />
           </label>
+          <button
+            type="button"
+            onClick={() => setFoundationConfirmed(true)}
+            disabled={!foundationAmount || Number(foundationAmount) <= 0}
+            style={{
+              marginTop: 10,
+              padding: '8px 16px',
+              borderRadius: 8,
+              border: 'none',
+              backgroundColor: foundationConfirmed ? '#10b981' : '#C8102E',
+              color: 'white',
+              fontWeight: 800,
+              fontSize: 13,
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            {foundationConfirmed ? '✓ Vakıf katkısı eklendi' : 'Vakıf Katkısını Ekle'}
+          </button>
           <div style={{ marginTop: '12px', fontSize: '13px', fontWeight: 800, display: 'flex', justifyContent: 'space-between' }}>
             <span>Vakıf katkısı (uygulanan)</span>
             <span>{moneyNum(overview.thirdPartyCoverageTRY)}</span>
@@ -770,166 +794,88 @@ export default function PricingStep({
             role="dialog"
           >
             <div style={{ fontWeight: 900, marginBottom: '12px' }}>Kampanya ekle</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-              {dbLoading && (
-                <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>Kampanyalar yükleniyor...</p>
-              )}
-              {dbCampaigns.length > 0 && (
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Tanımlı Kampanyalar
-                  </div>
-                  {dbCampaigns.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => {
-                        const card = dbCampaignToCard(c)
-                        setCampaigns((prev) => {
-                          if (prev.find((x) => x.id === c.id)) return prev
-                          return [...prev, card]
-                        })
-                        setCampaignModalOpen(false)
-                      }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        textAlign: 'left',
-                        padding: '10px 12px',
-                        marginBottom: 6,
-                        borderRadius: 8,
-                        border: '1px solid #e5e7eb',
-                        backgroundColor: '#f9fafb',
-                        cursor: 'pointer',
-                        fontSize: 13,
-                        fontWeight: 700,
-                      }}
-                    >
-                      {c.name}
-                      {c.discountPct ? ` — %${c.discountPct}` : ''}
-                      {c.discountTL ? ` — ₺${c.discountTL}` : ''}
-                    </button>
-                  ))}
-                  <div style={{ borderTop: '1px solid #e5e7eb', margin: '10px 0' }} />
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Manuel Kampanya
-                  </div>
+            {dbLoading && (
+              <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>Kampanyalar yükleniyor...</p>
+            )}
+            {dbCampaigns.length > 0 ? (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Tanımlı Kampanyalar
                 </div>
-              )}
-              {CAMPAIGN_TYPE_OPTIONS.map((opt) => (
-                <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                  <input
-                    type="radio"
-                    name="campType"
-                    checked={campaignKind === opt.id}
-                    onChange={() => setCampaignKind(opt.id)}
-                  />
-                  <span>
-                    <strong>{opt.label}</strong> — {opt.desc}
-                  </span>
-                </label>
-              ))}
-            </div>
-            {campaignKind === 'KASA' ? (
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '12px' }}>
-                Sabit tutar (₺)
-                <input
-                  type="number"
-                  min={0}
-                  value={kasaAmountStr}
-                  onChange={(e) => setKasaAmountStr(e.target.value)}
-                  style={{ display: 'block', width: '100%', marginTop: '6px', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
-                />
-              </label>
-            ) : null}
-            {campaignKind === 'NAKIT_ORAN' ? (
-              <>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', marginBottom: '8px' }}>
-                  <input type="checkbox" checked={nakitOdemeOnay} onChange={(e) => setNakitOdemeOnay(e.target.checked)} />
-                  Ödeme nakitte — kampanya aktif
-                </label>
-                <label style={{ display: 'block', fontSize: '12px', marginBottom: '12px' }}>
-                  İndirim oranı (%)
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={nakitPercentStr}
-                    onChange={(e) => setNakitPercentStr(e.target.value)}
-                    style={{ display: 'block', width: '100%', marginTop: '6px', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
-                  />
-                </label>
-              </>
-            ) : null}
-            {campaignKind === 'IKI_AL_BIR_ODE' ? (
-              <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px' }}>En ucuz satır kalemi indirime dahil edilir.</p>
-            ) : null}
-            {campaignKind === 'URUN_BAZLI' ? (
-              <div style={{ marginBottom: '12px', maxHeight: '240px', overflow: 'auto' }}>
-                {(sale.items ?? []).map((it) => (
-                  <div key={it.id} style={{ borderBottom: '1px solid #f3f4f6', padding: '8px 0' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                      <input
-                        type="checkbox"
-                        checked={!!urunLines[it.id]?.sel}
-                        onChange={(e) =>
-                          setUrunLines((prev) => ({
-                            ...prev,
-                            [it.id]: {
-                              sel: e.target.checked,
-                              mode: prev[it.id]?.mode ?? 'PCT',
-                              valueStr: prev[it.id]?.valueStr ?? '',
-                            },
-                          }))
-                        }
-                      />
-                      {saleItemDisplayName(it)}
-                    </label>
-                    {urunLines[it.id]?.sel ? (
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '6px', marginLeft: '24px' }}>
-                        <select
-                          value={urunLines[it.id]?.mode ?? 'PCT'}
-                          onChange={(e) =>
-                            setUrunLines((prev) => ({
-                              ...prev,
-                              [it.id]: {
-                                sel: true,
-                                mode: e.target.value as 'PCT' | 'FIXED',
-                                valueStr: prev[it.id]?.valueStr ?? '',
-                              },
-                            }))
-                          }
-                          style={{ padding: '6px', borderRadius: '6px', border: '1px solid #e5e7eb' }}
-                        >
-                          <option value="PCT">Oran %</option>
-                          <option value="FIXED">Tutar ₺</option>
-                        </select>
-                        <input
-                          type="number"
-                          min={0}
-                          value={urunLines[it.id]?.valueStr ?? ''}
-                          onChange={(e) =>
-                            setUrunLines((prev) => ({
-                              ...prev,
-                              [it.id]: {
-                                sel: true,
-                                mode: prev[it.id]?.mode ?? 'PCT',
-                                valueStr: e.target.value,
-                              },
-                            }))
-                          }
-                          style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #e5e7eb' }}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
+                {dbCampaigns.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setSelectedDbCampaign(c)}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      marginBottom: 6,
+                      borderRadius: 8,
+                      border: selectedDbCampaign?.id === c.id ? '2px solid #C8102E' : '1px solid #e5e7eb',
+                      backgroundColor: selectedDbCampaign?.id === c.id ? '#fdf2f4' : '#f9fafb',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {c.name}
+                    {c.discountPct ? ` — %${c.discountPct}` : ''}
+                    {c.discountTL ? ` — ₺${c.discountTL}` : ''}
+                  </button>
                 ))}
               </div>
-            ) : null}
-            <div style={{ display: 'flex', gap: '8px' }}>
+            ) : (
+              <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>Tanımlı kampanya yok.</p>
+            )}
+            <div style={{ marginTop: 16, borderTop: '1px solid #e5e7eb', paddingTop: 14 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Kasa İndirimi</div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                Satışçı tutar girer, sistem otomatik yüzdeye çevirir ve satır iskontolarına dağıtır.
+              </div>
+              <label style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>İndirim tutarı (₺)</label>
+              <input
+                type="number"
+                min={0}
+                value={kasaIndirimTutar}
+                onChange={(e) => setKasaIndirimTutar(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13 }}
+                placeholder="Örn: 200"
+              />
+              {kasaIndirimTutar && Number(kasaIndirimTutar) > 0 ? (
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
+                  Toplam {Number(sale?.netTotal ?? 0).toLocaleString('tr-TR')} ₺ üzerinden{' '}
+                  <strong>%{((Number(kasaIndirimTutar) / Number(sale?.netTotal ?? 1)) * 100).toFixed(2)}</strong> indirim
+                </div>
+              ) : null}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginTop: 14 }}>
               <button
                 type="button"
-                onClick={addCampaignToList}
+                onClick={() => {
+                  if (selectedDbCampaign) {
+                    const card = dbCampaignToCard(selectedDbCampaign)
+                    setCampaigns((prev) => {
+                      if (prev.find((x) => x.id === selectedDbCampaign.id)) return prev
+                      return [...prev, card]
+                    })
+                  }
+                  if (kasaIndirimTutar && Number(kasaIndirimTutar) > 0) {
+                    const id = `kasa_${Date.now()}`
+                    const card: AppliedCampaignCard = {
+                      id,
+                      kind: 'KASA',
+                      kasaAmountStr: String(kasaIndirimTutar),
+                    }
+                    setCampaigns((prev) => [...prev, card])
+                  }
+                  setKasaIndirimTutar('')
+                  setSelectedDbCampaign(null)
+                  setCampaignModalOpen(false)
+                }}
+                disabled={!selectedDbCampaign && !(kasaIndirimTutar && Number(kasaIndirimTutar) > 0)}
                 style={{
                   padding: '11px 16px',
                   borderRadius: '10px',
@@ -938,6 +884,7 @@ export default function PricingStep({
                   color: '#fff',
                   fontWeight: 900,
                   cursor: 'pointer',
+                  opacity: !selectedDbCampaign && !(kasaIndirimTutar && Number(kasaIndirimTutar) > 0) ? 0.5 : 1,
                 }}
               >
                 Listeye Ekle

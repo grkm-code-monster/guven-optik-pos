@@ -21,6 +21,13 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Karlılık analizi + drill-down kategori grafiği (tasarım hazır)
 - [ ] Ürün maliyet girişi ekranı
 
+### Fiyatlandırma adımı düzeltmeleri (kritik)
+- [ ] Vakıf ödemesinde "Ekle" butonu yok — tutarı girip onaylamak için buton eklenmeli
+- [ ] SGK'dan Vakıf'a geçince SGK checkbox'ı sıfırlanıyor — state korunmalı (display:none)
+- [ ] SGK hesap tablosu aktif mi kontrol edilecek
+- [ ] Kampanya listesi: yönetim panelinde tanımlanan kampanyalar burada seçilebilmeli
+- [ ] Kasa indirimi: satışçı tutar girer → sistem yüzdeye çevirir → Odoo'ya satır iskontosu olarak dağıtır
+
 ## Orta vadeli
 - [ ] SGK ekranı
 - [ ] Ürün etiket tasarımları ve basımları
