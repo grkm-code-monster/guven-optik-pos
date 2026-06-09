@@ -880,6 +880,8 @@ model WarrantyClaim {
   user            User?     @relation(fields: [userId], references: [id])
 
   productName     String?
+  productCategory String?
+  odooCategoryId  Int?
   lotNo           String?
   barcode         String?
   internalRef     String?

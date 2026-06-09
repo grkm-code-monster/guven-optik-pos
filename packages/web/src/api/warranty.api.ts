@@ -8,6 +8,8 @@ export interface WarrantyClaim {
   type: string
   expectedOutcome: string
   productName?: string
+  productCategory?: string
+  odooCategoryId?: number
   lotNo?: string
   barcode?: string
   internalRef?: string

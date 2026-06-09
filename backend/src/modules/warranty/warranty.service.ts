@@ -17,6 +17,8 @@ export async function createClaim(input: {
   expectedOutcome?: WarrantyExpectedOutcome
   problemDesc?: string
   productName?: string
+  productCategory?: string
+  odooCategoryId?: number
   lotNo?: string
   barcode?: string
   internalRef?: string

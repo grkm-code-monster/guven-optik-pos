@@ -24,6 +24,17 @@ const TUR_LABEL: Record<string, string> = {
   SATISFACTION_RETURN: 'Memnuniyet iadesi',
   EXCESS_ORDER_RETURN: 'Fazla sipariş iadesi',
 }
+const KATEGORI_LABEL: Record<string, string> = {
+  LENS_RX: 'Cam',
+  OPTICAL_FRAME_READY: 'Optik Çerçeve',
+  OPTICAL_FRAME_RX: 'Optik Çerçeve',
+  SUNGLASSES_READY: 'Güneş Gözlüğü',
+  SUNGLASSES_RX: 'Güneş Gözlüğü',
+  CONTACT_LENS_READY: 'Kontak Lens',
+  CONTACT_LENS_RX: 'Kontak Lens',
+  SOLUTION: 'Solüsyon',
+  ACCESSORY: 'Aksesuar',
+}
 
 export default function GarantiPage() {
   const [sekme, setSekme] = useState<'pos' | 'depo'>('pos')
@@ -31,6 +42,7 @@ export default function GarantiPage() {
   const [claims, setClaims] = useState<WarrantyClaim[]>([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
   const [selectedClaim, setSelectedClaim] = useState<WarrantyClaim | null>(null)
   const [loading, setLoading] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
@@ -108,6 +120,8 @@ export default function GarantiPage() {
       expectedOutcome: form.expectedOutcome,
       problemDesc: form.problemDesc,
       productName: seciliKalem?.odooProductName || seciliKalem?.product?.name,
+      productCategory: seciliKalem?.product?.category ?? null,
+      odooCategoryId: seciliKalem?.odooCategoryId ?? null,
       lotNo: seciliKalem?.lotNo,
       barcode: seciliKalem?.barcode,
       internalRef: seciliKalem?.internalRef,
@@ -384,9 +398,13 @@ export default function GarantiPage() {
                   <option value="">Tüm durumlar</option>
                   {Object.entries(DURUM_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
+                <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}>
+                  <option value="">Tüm kategoriler</option>
+                  {Object.entries(KATEGORI_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
               </div>
               {loading && <div style={{ fontSize: 13, color: '#6b7280' }}>Yükleniyor...</div>}
-              {claims.map(c => {
+              {claims.filter(c => !categoryFilter || c.productCategory === categoryFilter).map(c => {
                 const renk = DURUM_RENK[c.status] ?? { bg: '#f3f4f6', color: '#374151' }
                 const chain = c.chainJson ? JSON.parse(c.chainJson) : []
                 return (
@@ -395,6 +413,11 @@ export default function GarantiPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                         <span style={{ fontWeight: 700, color: '#C8102E' }}>{c.claimNo}</span>
                         <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: renk.bg, color: renk.color, fontWeight: 600 }}>{DURUM_LABEL[c.status] ?? c.status}</span>
+                        {c.productCategory && KATEGORI_LABEL[c.productCategory] && (
+                          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: '#f3f4f6', color: '#374151', fontWeight: 600, marginLeft: 6 }}>
+                            {KATEGORI_LABEL[c.productCategory]}
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: 12, color: '#6b7280' }}>{c.customer?.name} · {c.productName} · {c.branchId}</div>
                       {chain.length > 0 && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Silsile: {chain.join(' → ')}</div>}

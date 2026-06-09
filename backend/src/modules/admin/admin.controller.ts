@@ -377,6 +377,18 @@ router.post('/sync-override/:saleId', async (req: Request, res: Response, next: 
   }
 });
 
+router.get('/branch-list', async (_req: Request, res: Response) => {
+  try {
+    const branches = await prisma.branch.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, code: true },
+    });
+    return res.json({ success: true, data: branches });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Odoo'dan şubeleri çek
 router.get('/branches', async (_req: Request, res: Response) => {
   try {
