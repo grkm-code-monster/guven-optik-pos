@@ -12,6 +12,7 @@ import MasraflarPage from './pages/MasraflarPage'
 import AcikHesapPage from './pages/AcikHesapPage'
 import StokSorgulaPage from './pages/StokSorgulaPage'
 import TeslimatPage from './pages/TeslimatPage'
+import GarantiPage from './pages/GarantiPage'
 import SaleDetailPage from './pages/SaleDetailPage'
 import AdminLoginPage from './pages/admin/AdminLoginPage'
 import AdminLayout from './pages/admin/AdminLayout'
@@ -76,6 +77,7 @@ export default function App() {
           <Route path="masraflar" element={<MasraflarPage />} />
           <Route path="acik-hesap" element={<AcikHesapPage />} />
           <Route path="teslimat" element={<TeslimatPage />} />
+          <Route path="garanti" element={<GarantiPage />} />
           <Route path="stok-sorgula" element={<StokSorgulaPage />} />
           <Route
             path="settings"

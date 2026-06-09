@@ -19,6 +19,8 @@ model User {
   branch     Branch   @relation(fields: [branchId], references: [id])
   sales      Sale[]
   shifts     Shift[]
+  warrantyClaims   WarrantyClaim[]
+  warrantyMessages WarrantyMessage[]
 }
 
 enum Role {
@@ -93,6 +95,7 @@ model Customer {
   createdAt        DateTime  @default(now())
   sales            Sale[]
   prescriptions    CustomerPrescription[]
+  warrantyClaims   WarrantyClaim[]
 }
 
 model CustomerPrescription {
@@ -236,6 +239,7 @@ model Sale {
   shift    Shift    @relation(fields: [shiftId], references: [id])
   items    SaleItem[]
   payments Payment[]
+  warrantyClaims WarrantyClaim[]
 }
 
 enum SaleStatus {
@@ -279,6 +283,7 @@ model SaleItem {
 
   sale    Sale    @relation(fields: [saleId], references: [id])
   product Product @relation(fields: [productId], references: [id])
+  warrantyClaims WarrantyClaim[]
 }
 
 enum LinkType {
@@ -818,4 +823,85 @@ model BekleyenFatura {
   notlar          String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+}
+
+enum WarrantyStatus {
+  OPEN
+  SENT_TO_SUPPLIER
+  WAITING_RESPONSE
+  IN_RETURN_PROCESS
+  RESOLVED
+  OUT_OF_WARRANTY
+}
+
+enum WarrantyResult {
+  PENDING
+  NEW_PRODUCT
+  PART_FREE
+  PART_PAID
+  POINTS_LOADED
+  OUT_OF_WARRANTY_FEE
+  OUT_OF_WARRANTY_REJECTED
+}
+
+enum WarrantyType {
+  CUSTOMER_WARRANTY
+  STOCK_WARRANTY
+  SATISFACTION_RETURN
+  EXCESS_ORDER_RETURN
+}
+
+enum WarrantyExpectedOutcome {
+  UNKNOWN
+  NEW_PRODUCT
+  REPAIR
+  POINTS
+  REFUND
+}
+
+model WarrantyClaim {
+  id              String    @id @default(uuid())
+  claimNo         String    @unique
+  status          WarrantyStatus @default(OPEN)
+  result          WarrantyResult @default(PENDING)
+  type            WarrantyType
+  expectedOutcome WarrantyExpectedOutcome @default(UNKNOWN)
+
+  saleId          String?
+  sale            Sale?     @relation(fields: [saleId], references: [id])
+  saleItemId      String?
+  saleItem        SaleItem? @relation(fields: [saleItemId], references: [id])
+
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+
+  branchId        String?
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id])
+
+  productName     String?
+  lotNo           String?
+  barcode         String?
+  internalRef     String?
+  supplierName    String?
+
+  chainJson       String?
+
+  problemDesc     String?
+  supplierNote    String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  messages        WarrantyMessage[]
+}
+
+model WarrantyMessage {
+  id        String   @id @default(uuid())
+  claimId   String
+  claim     WarrantyClaim @relation(fields: [claimId], references: [id])
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  message   String
+  createdAt DateTime @default(now())
 }

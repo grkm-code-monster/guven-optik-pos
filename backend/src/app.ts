@@ -13,6 +13,7 @@ import odooRouter from './modules/odoo/odoo.controller';
 import transferRouter from './modules/transfer/transfer.controller';
 import expenseRouter from './modules/expenses/expense.controller';
 import openAccountRouter from './modules/openaccount/openaccount.controller';
+import warrantyRouter from './modules/warranty/warranty.controller';
 
 export function createApp() {
   const app = express();
@@ -33,6 +34,7 @@ export function createApp() {
   app.use('/api/transfer', transferRouter);
   app.use('/api/expenses', expenseRouter);
   app.use('/api/open-account', openAccountRouter);
+  app.use('/api/warranty', warrantyRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({
