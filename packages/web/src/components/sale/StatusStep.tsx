@@ -22,7 +22,17 @@ const DURUM_RENK: Record<string, { bg: string; color: string }> = {
 }
 
 export default function StatusStep({ sale, onNewSale }: { sale: Sale | null; onNewSale: () => void }) {
-  const [picked, setPicked] = useState<ItemStatus>('DELIVERED')
+  const hasLensOrder = useMemo(() => {
+    return (sale?.items ?? []).some((i: any) =>
+      i.linkType === 'FRAME_LENS' || i.linkType === 'CUSTOMER_FRAME'
+    )
+  }, [sale?.items])
+
+  const [picked, setPicked] = useState<ItemStatus>(() =>
+    (sale?.items ?? []).some((i: any) =>
+      i.linkType === 'FRAME_LENS' || i.linkType === 'CUSTOMER_FRAME'
+    ) ? 'ORDERED' : 'DELIVERED'
+  )
   const [deliveryDate, setDeliveryDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -93,9 +103,9 @@ export default function StatusStep({ sale, onNewSale }: { sale: Sale | null; onN
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <div style={{ fontWeight: 900, marginBottom: 10 }}>Durum Seçimi</div>
+        <div style={{ fontWeight: 900, marginBottom: 10 }}>Durum</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-          {([['DELIVERED','✅ Teslim Edildi'],['IN_LAB','🔬 Laboratuvara Verildi'],['ORDERED','⏳ Cam Bekleniyor'],['PENDING','📌 Rezerve']] as [ItemStatus, string][]).map(([val, label]) => (
+          {([['DELIVERED','✅ Teslim Edildi'],['IN_LAB','🔬 Laboratuvara Verildi'],['ORDERED','📦 Sipariş Bekliyor'],['PENDING','📌 Rezerve']] as [ItemStatus, string][]).map(([val, label]) => (
             <button key={val} type="button" onClick={() => setPicked(val)} style={{ padding: '14px 16px', borderRadius: 10, border: picked === val ? '2px solid #C8102E' : '1px solid #e5e7eb', backgroundColor: picked === val ? '#fdf2f4' : 'white', cursor: 'pointer', fontWeight: 700, fontSize: 14, textAlign: 'left' }}>{label}</button>
           ))}
         </div>

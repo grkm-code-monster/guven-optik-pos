@@ -222,7 +222,7 @@ export default function NewSalePage() {
           </div>
         ) : null}
 
-        {(currentStep === 3 || currentStep === 4) ? (
+        {(currentStep === 3 || currentStep === 4 || currentStep === 5 || currentStep === (5.5 as any) || currentStep === 6) ? (
           <>
             <div style={{ display: currentStep === 3 ? 'block' : 'none' }}>
               <PricingStep

@@ -27,6 +27,7 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] SGK hesap tablosu aktif mi kontrol edilecek
 - [ ] Kampanya listesi: yönetim panelinde tanımlanan kampanyalar burada seçilebilmeli
 - [ ] Kasa indirimi: satışçı tutar girer → sistem yüzdeye çevirir → Odoo'ya satır iskontosu olarak dağıtır
+- [ ] Kasa indirimi → satır iskontolarına dağıtım: confirmSale payload'ına eklenmeli, backend item.discount güncellenmeli, Odoo'ya yüzde olarak gitmeli (kompleks — ayrı oturum)
 
 ## Orta vadeli
 - [ ] SGK ekranı
