@@ -828,10 +828,16 @@ export async function getPatronOzet({ baslangic, bitis, subeId }: { baslangic: D
 
   const kdvToplam = sales.reduce((s, sale) => s + (Number(sale.netTotal) - Number(sale.grossTotal)), 0);
 
-  const subeBreakdown: Record<string, { ciro: number; satisAdedi: number; subeAdi: string }> = {};
+  const branchIds = Array.from(new Set(sales.map((s) => s.branchId).filter((x): x is string => Boolean(x))));
+  const branches = branchIds.length
+    ? await prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } })
+    : [];
+  const branchNameById = new Map(branches.map((b) => [b.id, b.name]));
+
+  const subeBreakdown: Record<string, { ciro: number; satisAdedi: number }> = {};
   for (const sale of sales) {
     if (!sale.branchId) continue;
-    if (!subeBreakdown[sale.branchId]) subeBreakdown[sale.branchId] = { ciro: 0, satisAdedi: 0, subeAdi: sale.branchId };
+    if (!subeBreakdown[sale.branchId]) subeBreakdown[sale.branchId] = { ciro: 0, satisAdedi: 0 };
     subeBreakdown[sale.branchId].ciro += Number(sale.netTotal);
     subeBreakdown[sale.branchId].satisAdedi++;
   }
@@ -846,13 +852,29 @@ export async function getPatronOzet({ baslangic, bitis, subeId }: { baslangic: D
     sgk,
     kdvToplam,
     yeniMusteriSayisi: yeniMusteriIds.size,
-    subeBreakdown: Object.values(subeBreakdown),
+    subeBreakdown: Object.entries(subeBreakdown).map(([branchId, v]) => ({
+      branchId,
+      subeAdi: branchNameById.get(branchId) ?? branchId,
+      ciro: v.ciro,
+      satisAdedi: v.satisAdedi,
+    })),
   };
 }
 
-export async function getPersonelPerformans({ baslangic, bitis }: { baslangic: Date; bitis: Date }) {
+export async function getPersonelPerformans({
+  baslangic,
+  bitis,
+  subeId,
+}: {
+  baslangic: Date;
+  bitis: Date;
+  subeId?: string;
+}) {
+  const where: any = { status: SaleStatus.PAID, createdAt: { gte: baslangic, lte: bitis } };
+  if (subeId) where.branchId = subeId;
+
   const sales = await prisma.sale.findMany({
-    where: { status: SaleStatus.PAID, createdAt: { gte: baslangic, lte: bitis } },
+    where,
     include: { user: true, payments: true },
   });
 

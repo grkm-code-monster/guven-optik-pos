@@ -48,7 +48,7 @@ router.get('/daily', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: Requ
   }
 });
 
-router.get('/daily/excel', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/daily/excel', authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = parseDateParam(req.query.date);
     if (!parsed) {
@@ -69,7 +69,7 @@ router.get('/daily/excel', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req
   }
 });
 
-router.get('/patron/ozet', authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/ozet', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getPatronOzet({
@@ -83,12 +83,13 @@ router.get('/patron/ozet', authorize(Role.ADMIN), async (req: Request, res: Resp
   }
 });
 
-router.get('/patron/personel', authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/personel', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { baslangic, bitis } = req.query;
+    const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getPersonelPerformans({
       baslangic: baslangic ? new Date(String(baslangic)) : new Date(new Date().setDate(1)),
       bitis: bitis ? new Date(String(bitis)) : new Date(),
+      subeId: subeId ? String(subeId) : undefined,
     });
     return res.json(result);
   } catch (e) {
@@ -96,7 +97,7 @@ router.get('/patron/personel', authorize(Role.ADMIN), async (req: Request, res: 
   }
 });
 
-router.get('/patron/kategori', authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/kategori', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getKategoriBreakdown({
@@ -110,7 +111,7 @@ router.get('/patron/kategori', authorize(Role.ADMIN), async (req: Request, res: 
   }
 });
 
-router.get('/patron/gunluk-seri', authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/gunluk-seri', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getGunlukSeri({

@@ -1,6 +1,31 @@
 import { useEffect, useMemo, useState } from 'react'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js'
+import { Line, Bar, Doughnut } from 'react-chartjs-2'
 import { useAuthStore } from '../store/auth.store'
 import { apiClient } from '../api/client'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+)
 import { getDailyReport, getPersonalDailyReport, downloadExcel } from '../api/reports.api'
 import { getCurrentShift } from '../api/shifts.api'
 import type { DailyReport, User } from '../api/types'
@@ -44,6 +69,34 @@ function formatMoney(v?: string | number | null) {
 
 function todayYMD() {
   return new Date().toISOString().split('T')[0]
+}
+
+function ayBaslangic() {
+  const d = new Date()
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0]
+}
+
+function bugun() {
+  return new Date().toISOString().split('T')[0]
+}
+
+function periodToDateStrings(period: PeriodKey, customFrom?: string, customTo?: string) {
+  const bitis = bugun()
+  const now = new Date()
+  if (period === 'today') return { baslangic: bitis, bitis }
+  if (period === 'week') {
+    const d = new Date()
+    d.setDate(d.getDate() - 6)
+    return { baslangic: d.toISOString().split('T')[0], bitis }
+  }
+  if (period === 'month') return { baslangic: ayBaslangic(), bitis }
+  if (period === 'year') return { baslangic: `${now.getFullYear()}-01-01`, bitis }
+  return { baslangic: customFrom ?? ayBaslangic(), bitis: customTo ?? bitis }
+}
+
+const chartCurrencyTicks = {
+  callback: (v: string | number) =>
+    new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 }).format(Number(v)),
 }
 
 function dateRangeForDay(date: string) {
@@ -980,11 +1033,443 @@ function MudurDashboard({ user }: { user: User }) {
   )
 }
 
-function BolgeMudurDashboard() {
+type BolgeSekme = 'bolge' | 'magazalar' | 'personel' | 'kasa' | 'benim' | 'raporlar'
+
+type SubeBreakdownRow = {
+  branchId: string
+  subeAdi: string
+  ciro: number
+  satisAdedi: number
+}
+
+function BolgeMetricCards({ items }: { items: { label: string; value: string }[] }) {
   return (
-    <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
-      <h2>Bölge Müdürü Paneli</h2>
-      <p>Bu ekran yakında aktif olacak.</p>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+      {items.map((k) => (
+        <div key={k.label} style={{ ...CARD_STYLE, flex: '1 1 140px', minWidth: 120 }}>
+          <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, textTransform: 'uppercase' }}>{k.label}</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: BLUE, marginTop: 6 }}>{k.value}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function BolgeTabBar({ tabs, active, onChange }: { tabs: { key: BolgeSekme; label: string }[]; active: BolgeSekme; onChange: (k: BolgeSekme) => void }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          onClick={() => onChange(t.key)}
+          style={{
+            ...BTN_STYLE,
+            borderColor: active === t.key ? BLUE : '#e5e7eb',
+            color: active === t.key ? BLUE : '#374151',
+            backgroundColor: active === t.key ? '#eff6ff' : 'white',
+          }}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function BolgeSectionHeader({ title, showPdf }: { title: string; showPdf?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#111' }}>{title}</h2>
+      {showPdf ? (
+        <button type="button" onClick={handlePrint} style={{ ...PDF_BTN_STYLE, color: BLUE, borderColor: BLUE }}>
+          PDF
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function IlerlemeCubugu({ value, max }: { value: number; max: number }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0
+  return (
+    <div style={{ height: 8, background: '#eee', borderRadius: 4, minWidth: 80 }}>
+      <div style={{ width: `${pct}%`, height: '100%', background: BLUE, borderRadius: 4 }} />
+    </div>
+  )
+}
+
+function BolgeKategoriDoughnut({ kategori }: { kategori: Record<string, { ciro?: number }> | null }) {
+  return (
+    <div style={{ position: 'relative', height: 200 }}>
+      <Doughnut
+        data={{
+          labels: ['Güneş', 'Cam', 'Lens', 'Çerçeve', 'Aksesuar', 'Solüsyon'],
+          datasets: [{
+            data: [
+              Number(kategori?.GUNES_GOZLUGU?.ciro ?? kategori?.GUNES_GOZLUGU ?? 0),
+              Number(kategori?.CAM?.ciro ?? kategori?.CAM ?? 0),
+              Number(kategori?.LENS?.ciro ?? kategori?.LENS ?? 0),
+              Number(kategori?.OPTIK_CERCEVE?.ciro ?? kategori?.OPTIK_CERCEVE ?? 0),
+              Number(kategori?.AKSESUAR?.ciro ?? kategori?.AKSESUAR ?? 0),
+              Number(kategori?.SOLUSYON?.ciro ?? kategori?.SOLUSYON ?? 0),
+            ],
+            backgroundColor: ['#A32D2D', '#185FA5', '#3B6D11', '#BA7517', '#6B3FA0', '#888780'],
+            borderWidth: 0,
+          }],
+        }}
+        options={{
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+        }}
+      />
+    </div>
+  )
+}
+
+function BolgeLineChart({ gunluk }: { gunluk: { tarih: string; ciro: number }[] }) {
+  return (
+    <div style={{ position: 'relative', height: 160 }}>
+      <Line
+        data={{
+          labels: gunluk.map((g) => g.tarih),
+          datasets: [{
+            label: 'Günlük Ciro',
+            data: gunluk.map((g) => Number(g.ciro)),
+            borderColor: BLUE,
+            backgroundColor: 'rgba(24,95,165,0.1)',
+            tension: 0.3,
+            fill: true,
+          }],
+        }}
+        options={{
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { ticks: chartCurrencyTicks } },
+        }}
+      />
+    </div>
+  )
+}
+
+function BolgeMudurDashboard({ user }: { user: User }) {
+  const [ozet, setOzet] = useState<{
+    netTotal: number
+    nakit: number
+    kart: number
+    sgk: number
+    acikHesap: number
+    satisAdedi: number
+    ortalamaSepet: number
+    yeniMusteriSayisi: number
+    subeBreakdown: SubeBreakdownRow[]
+  } | null>(null)
+  const [personel, setPersonel] = useState<{ ad: string; satisAdedi: number; ciro: number }[]>([])
+  const [kategori, setKategori] = useState<Record<string, { ciro?: number }> | null>(null)
+  const [gunluk, setGunluk] = useState<{ tarih: string; ciro: number }[]>([])
+  const [loading, setLoading] = useState(true)
+  const [aktifSekme, setAktifSekme] = useState<BolgeSekme>('bolge')
+  const [period, setPeriod] = useState<PeriodKey>('month')
+  const [customFrom, setCustomFrom] = useState(ayBaslangic())
+  const [customTo, setCustomTo] = useState(bugun())
+  const [filtre, setFiltre] = useState({ baslangic: ayBaslangic(), bitis: bugun() })
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null)
+  const [branchPersonel, setBranchPersonel] = useState<{ ad: string; satisAdedi: number; ciro: number }[]>([])
+  const [personalReport, setPersonalReport] = useState<DailyReport | null>(null)
+  const [personalDate, setPersonalDate] = useState(todayYMD())
+
+  const sekmeler: { key: BolgeSekme; label: string }[] = [
+    { key: 'bolge', label: 'Bölge Geneli' },
+    { key: 'magazalar', label: 'Mağazalar' },
+    { key: 'personel', label: 'Tüm Personel' },
+    { key: 'kasa', label: 'Kasa Tablosu' },
+    { key: 'benim', label: 'Benim Satışlarım' },
+    { key: 'raporlar', label: 'Raporlar' },
+  ]
+
+  useEffect(() => {
+    setFiltre(periodToDateStrings(period, customFrom, customTo))
+  }, [period, customFrom, customTo])
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      try {
+        const params = { baslangic: filtre.baslangic, bitis: filtre.bitis }
+        const [o, p, k, g] = await Promise.all([
+          apiClient.get('/reports/patron/ozet', { params }),
+          apiClient.get('/reports/patron/personel', { params }),
+          apiClient.get('/reports/patron/kategori', { params }),
+          apiClient.get('/reports/patron/gunluk-seri', { params }),
+        ])
+        setOzet(o.data)
+        setPersonel(p.data)
+        setKategori(k.data)
+        setGunluk(g.data)
+        const branches: SubeBreakdownRow[] = o.data?.subeBreakdown ?? []
+        if (branches.length && !selectedBranchId) {
+          setSelectedBranchId(branches[0].branchId)
+        }
+      } catch (e) {
+        console.error('Bölge müdürü veri yükleme hatası', e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    void load()
+  }, [filtre.baslangic, filtre.bitis])
+
+  useEffect(() => {
+    if (!selectedBranchId) return
+    apiClient
+      .get('/reports/patron/personel', {
+        params: { baslangic: filtre.baslangic, bitis: filtre.bitis, subeId: selectedBranchId },
+      })
+      .then((r) => setBranchPersonel(r.data))
+      .catch(() => setBranchPersonel([]))
+  }, [selectedBranchId, filtre.baslangic, filtre.bitis])
+
+  useEffect(() => {
+    if (aktifSekme !== 'benim') return
+    getPersonalDailyReport(personalDate).then(setPersonalReport).catch(() => setPersonalReport(null))
+  }, [aktifSekme, personalDate])
+
+  const maxSubeCiro = useMemo(
+    () => Math.max(1, ...(ozet?.subeBreakdown ?? []).map((s) => s.ciro)),
+    [ozet?.subeBreakdown],
+  )
+  const maxPersonelCiro = useMemo(
+    () => Math.max(1, ...personel.map((p) => p.ciro)),
+    [personel],
+  )
+  const selectedBranch = useMemo(
+    () => (ozet?.subeBreakdown ?? []).find((s) => s.branchId === selectedBranchId) ?? null,
+    [ozet?.subeBreakdown, selectedBranchId],
+  )
+
+  async function exportExcel() {
+    try {
+      const blob = await downloadExcel(filtre.bitis)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `gunluk-kasa-${filtre.bitis}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('Excel dışa aktarılamadı.')
+    }
+  }
+
+  return (
+    <div>
+      <BolgeTabBar tabs={sekmeler} active={aktifSekme} onChange={setAktifSekme} />
+      {loading ? <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>Yükleniyor...</div> : null}
+
+      {aktifSekme === 'bolge' && ozet ? (
+        <div>
+          <BolgeSectionHeader title="Bölge Geneli" showPdf />
+          <PeriodFilter
+            period={period}
+            onPeriod={setPeriod}
+            customFrom={customFrom}
+            customTo={customTo}
+            onCustomFrom={setCustomFrom}
+            onCustomTo={setCustomTo}
+          />
+          <BolgeMetricCards
+            items={[
+              { label: 'Bölge Ciro', value: formatMoney(ozet.netTotal) },
+              { label: 'Nakit', value: formatMoney(ozet.nakit) },
+              { label: 'Kart', value: formatMoney(ozet.kart) },
+              { label: 'SGK', value: formatMoney(ozet.sgk) },
+              { label: 'Açık Hesap', value: formatMoney(ozet.acikHesap) },
+              { label: 'Satış Adedi', value: String(ozet.satisAdedi) },
+              { label: 'Ort. Sepet', value: formatMoney(ozet.ortalamaSepet) },
+              { label: 'Yeni Müşteri', value: String(ozet.yeniMusteriSayisi) },
+            ]}
+          />
+          <div style={{ ...CARD_STYLE, marginTop: 16 }}>
+            <div style={{ fontWeight: 800, marginBottom: 12, color: BLUE }}>Mağaza karşılaştırması</div>
+            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '0.5px solid #e5e7eb' }}>
+                  <th style={{ textAlign: 'left', padding: 8 }}>Mağaza</th>
+                  <th style={{ textAlign: 'right', padding: 8 }}>Satış</th>
+                  <th style={{ textAlign: 'right', padding: 8 }}>Ciro</th>
+                  <th style={{ padding: 8, minWidth: 120 }}>İlerleme</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(ozet.subeBreakdown ?? []).map((s) => (
+                  <tr key={s.branchId} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
+                    <td style={{ padding: 8 }}>{s.subeAdi}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>{s.satisAdedi}</td>
+                    <td style={{ padding: 8, textAlign: 'right', fontWeight: 700, color: BLUE }}>{formatMoney(s.ciro)}</td>
+                    <td style={{ padding: 8 }}><IlerlemeCubugu value={s.ciro} max={maxSubeCiro} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ ...CARD_STYLE, marginTop: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 12 }}>Günlük ciro trendi</div>
+            <BolgeLineChart gunluk={gunluk} />
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <HedefBar current={ozet.netTotal} target={500000} label="Aylık hedef (placeholder)" />
+          </div>
+        </div>
+      ) : null}
+
+      {aktifSekme === 'magazalar' && ozet ? (
+        <div>
+          <BolgeSectionHeader title="Mağazalar" showPdf />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+            {(ozet.subeBreakdown ?? []).map((s) => (
+              <button
+                key={s.branchId}
+                type="button"
+                onClick={() => setSelectedBranchId(s.branchId)}
+                style={{
+                  ...BTN_STYLE,
+                  borderColor: selectedBranchId === s.branchId ? BLUE : '#e5e7eb',
+                  color: selectedBranchId === s.branchId ? BLUE : '#374151',
+                  backgroundColor: selectedBranchId === s.branchId ? '#eff6ff' : 'white',
+                }}
+              >
+                {s.subeAdi}
+              </button>
+            ))}
+          </div>
+          {selectedBranch ? (
+            <>
+              <BolgeMetricCards
+                items={[
+                  { label: 'Ciro', value: formatMoney(selectedBranch.ciro) },
+                  { label: 'Satış Adedi', value: String(selectedBranch.satisAdedi) },
+                  { label: 'Ort. Sepet', value: formatMoney(selectedBranch.satisAdedi ? selectedBranch.ciro / selectedBranch.satisAdedi : 0) },
+                ]}
+              />
+              <div style={{ ...CARD_STYLE, marginTop: 16 }}>
+                <div style={{ fontWeight: 800, marginBottom: 12 }}>Personel — {selectedBranch.subeAdi}</div>
+                <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '0.5px solid #e5e7eb' }}>
+                      <th style={{ textAlign: 'left', padding: 8 }}>Ad</th>
+                      <th style={{ textAlign: 'right', padding: 8 }}>Satış</th>
+                      <th style={{ textAlign: 'right', padding: 8 }}>Ciro</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {branchPersonel.length === 0 ? (
+                      <tr><td colSpan={3} style={{ padding: 16, color: '#9ca3af' }}>Kayıt yok.</td></tr>
+                    ) : null}
+                    {branchPersonel.map((p) => (
+                      <tr key={p.ad} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
+                        <td style={{ padding: 8 }}>{p.ad}</td>
+                        <td style={{ padding: 8, textAlign: 'right' }}>{p.satisAdedi}</td>
+                        <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{formatMoney(p.ciro)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div style={{ color: '#6b7280', fontSize: 13 }}>Mağaza seçin veya veri yükleniyor.</div>
+          )}
+        </div>
+      ) : null}
+
+      {aktifSekme === 'personel' ? (
+        <div>
+          <BolgeSectionHeader title="Tüm Personel" showPdf />
+          <PeriodFilter
+            period={period}
+            onPeriod={setPeriod}
+            customFrom={customFrom}
+            customTo={customTo}
+            onCustomFrom={setCustomFrom}
+            onCustomTo={setCustomTo}
+          />
+          <div style={CARD_STYLE}>
+            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '0.5px solid #e5e7eb' }}>
+                  <th style={{ textAlign: 'left', padding: 8 }}>Ad</th>
+                  <th style={{ textAlign: 'right', padding: 8 }}>Satış</th>
+                  <th style={{ textAlign: 'right', padding: 8 }}>Ciro</th>
+                  <th style={{ padding: 8, minWidth: 120 }}>İlerleme</th>
+                </tr>
+              </thead>
+              <tbody>
+                {personel.map((p) => (
+                  <tr key={p.ad} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
+                    <td style={{ padding: 8 }}>{p.ad}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>{p.satisAdedi}</td>
+                    <td style={{ padding: 8, textAlign: 'right', fontWeight: 700, color: BLUE }}>{formatMoney(p.ciro)}</td>
+                    <td style={{ padding: 8 }}><IlerlemeCubugu value={p.ciro} max={maxPersonelCiro} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      {aktifSekme === 'kasa' ? (
+        <div>
+          <BolgeSectionHeader title="Kasa Tablosu" showPdf />
+          <div style={{ ...CARD_STYLE, color: '#6b7280', fontSize: 13 }}>
+            Kasa tablosu yakında — şube bazlı günlük kasa
+          </div>
+        </div>
+      ) : null}
+
+      {aktifSekme === 'benim' ? (
+        <GunlukKasaView report={personalReport} date={personalDate} onDateChange={setPersonalDate} />
+      ) : null}
+
+      {aktifSekme === 'raporlar' && ozet ? (
+        <div>
+          <BolgeSectionHeader title="Raporlar" showPdf />
+          <PeriodFilter
+            period={period}
+            onPeriod={setPeriod}
+            customFrom={customFrom}
+            customTo={customTo}
+            onCustomFrom={setCustomFrom}
+            onCustomTo={setCustomTo}
+          />
+          <BolgeMetricCards
+            items={[
+              { label: 'Bölge Ciro', value: formatMoney(ozet.netTotal) },
+              { label: 'Satış Adedi', value: String(ozet.satisAdedi) },
+              { label: 'Ort. Sepet', value: formatMoney(ozet.ortalamaSepet) },
+              { label: 'Yeni Müşteri', value: String(ozet.yeniMusteriSayisi) },
+            ]}
+          />
+          <div style={{ ...CARD_STYLE, marginTop: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 12 }}>Kategori dağılımı</div>
+            <BolgeKategoriDoughnut kategori={kategori} />
+          </div>
+          <div style={{ ...CARD_STYLE, marginTop: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 12 }}>Günlük trend</div>
+            <BolgeLineChart gunluk={gunluk} />
+          </div>
+          <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+            <button type="button" onClick={() => void exportExcel()} style={{ ...BTN_STYLE, color: GREEN, borderColor: GREEN }}>
+              Excel dışa aktar
+            </button>
+            <button type="button" onClick={handlePrint} style={{ ...PDF_BTN_STYLE, color: BLUE, borderColor: BLUE }}>
+              PDF al
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -996,6 +1481,6 @@ export default function DashboardPage() {
   if (!user) return <div style={{ padding: 24, color: '#6b7280' }}>Oturum bilgisi yükleniyor...</div>
   if (role === 'SALES_STAFF') return <PersonelDashboard user={user} />
   if (role === 'STORE_MANAGER') return <MudurDashboard user={user} />
-  if (role === 'REGIONAL_MANAGER') return <BolgeMudurDashboard />
+  if (role === 'REGIONAL_MANAGER') return <BolgeMudurDashboard user={user} />
   return <MudurDashboard user={user} />
 }

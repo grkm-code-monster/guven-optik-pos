@@ -1,7 +1,8 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 10.06.2026
+Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Bölge müdürü ekranı: 6 sekme, patron API REGIONAL_MANAGER yetkisi, subeBreakdown UUID düzeltmesi
 - e4c8ac0 — Patron Paneli grafikleri react-chartjs-2 ile düzeltildi
 - 4df65b7 — Dashboard refactor: rol bazlı ekranlar, salesDetail, deliveryDate migration, kasa yetkilendirme
 - d0464a8 — SaleItem.deliveryDate: PATCH status endpoint'ine persist eklendi
@@ -28,9 +29,12 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] CashMovement POST yetkisi düzeltildi
 - [x] Günlük kasa tablosu tüm kolonlarla çalışıyor
 - [x] Patron Paneli grafikleri (Chart.js npm kuruldu, 4 grafik çalışıyor)
+- [x] Bölge müdürü ekranı (REGIONAL_MANAGER — placeholder'dan çıktı)
+- [x] subeBreakdown UUID bug düzeltildi
+- [x] Excel dışa aktar REGIONAL_MANAGER yetkisi
 
 ## Kısa vadeli — açık
-- [ ] Bölge müdürü ekranı (REGIONAL_MANAGER placeholder)
+- [ ] Bölge müdürü kasa tablosu (şu an placeholder)
 - [ ] Personel aylık hedef (Personel tablosundan)
 - [ ] Prim hesaplama (PrimKazanim tablosu)
 - [ ] SGK belgeleri upload (IK modülü)
