@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Personel" ADD COLUMN "aylikHedef" DOUBLE PRECISION NOT NULL DEFAULT 0;

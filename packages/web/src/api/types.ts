@@ -135,6 +135,7 @@ export interface DailyReport {
     repName: string
     saleCount: number
     ciro: string
+    aylikHedef?: number
   }>
   kampanyaBreakdown?: Array<{ type: string; count: number }>
   transferTotal?: string

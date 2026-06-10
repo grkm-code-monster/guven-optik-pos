@@ -699,6 +699,14 @@ function PersonelDashboard({ user }: { user: User }) {
   }, [user.id])
 
   const toplamPrim = primData.reduce((a, p) => a + (p.primTutari ?? 0), 0)
+  const myRep = useMemo(
+    () =>
+      (report?.temsilciBreakdown ?? []).find(
+        (r) => r.repName?.toLowerCase().trim() === user.name?.toLowerCase().trim(),
+      ),
+    [report?.temsilciBreakdown, user.name],
+  )
+  const aylikHedef = myRep?.aylikHedef ?? 0
 
   const tabs = ['Günlük Kasa', 'Performans & Görevler', 'Profilim']
 
@@ -723,7 +731,17 @@ function PersonelDashboard({ user }: { user: User }) {
             />
             <div style={{ fontSize: 13, color: '#6b7280', paddingTop: 8 }}>Açık garanti — yakında</div>
           </div>
-          <HedefBar current={Number(report?.totalNet ?? 0)} target={50000} label="Günlük hedef" />
+          {aylikHedef > 0 ? (
+            <HedefBar
+              current={Number(report?.netCiro ?? 0)}
+              target={aylikHedef}
+              label="Aylık hedef"
+            />
+          ) : (
+            <div style={{ ...CARD_STYLE, color: '#6b7280', fontSize: 13 }}>
+              Aylık hedef tanımlanmadı
+            </div>
+          )}
           <div style={{ marginTop: 16 }}>
             <MetricCards items={[{ label: 'Ortalama Sepet', value: formatMoney(report?.ortalamaSepet) }]} />
           </div>
@@ -1028,6 +1046,8 @@ function MudurDashboard({ user }: { user: User }) {
                   <th style={{ textAlign: 'left', padding: 8 }}>Temsilci</th>
                   <th style={{ textAlign: 'right', padding: 8 }}>Adet</th>
                   <th style={{ textAlign: 'right', padding: 8 }}>Ciro</th>
+                  <th style={{ textAlign: 'right', padding: 8 }}>Aylık Hedef</th>
+                  <th style={{ padding: 8, minWidth: 120 }}>İlerleme</th>
                 </tr>
               </thead>
               <tbody>
@@ -1036,6 +1056,16 @@ function MudurDashboard({ user }: { user: User }) {
                     <td style={{ padding: 8 }}>{r.repName}</td>
                     <td style={{ padding: 8, textAlign: 'right' }}>{r.saleCount}</td>
                     <td style={{ padding: 8, textAlign: 'right' }}>{formatMoney(r.ciro)}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>
+                      {(r.aylikHedef ?? 0) > 0 ? formatMoney(r.aylikHedef) : '—'}
+                    </td>
+                    <td style={{ padding: 8 }}>
+                      {(r.aylikHedef ?? 0) > 0 ? (
+                        <IlerlemeCubugu value={Number(r.ciro)} max={r.aylikHedef ?? 1} />
+                      ) : (
+                        <span style={{ color: '#9ca3af', fontSize: 11 }}>—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

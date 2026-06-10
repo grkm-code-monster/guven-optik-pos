@@ -672,6 +672,7 @@ model Personel {
   sirketAdi       String?
   bolgeId         String?
   maas            Float    @default(0)
+  aylikHedef      Float    @default(0)
   aktif           Boolean  @default(true)
   pdksId          String?  // Patron PDKS personel ID
   createdAt       DateTime @default(now())

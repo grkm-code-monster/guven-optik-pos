@@ -55,7 +55,7 @@ function zeroExtras() {
     ortalamaSepet: '0',
     kategoriBreakdown: { ...EMPTY_KATEGORI },
     kampanyaBreakdown: [] as Array<{ type: string; count: number }>,
-    temsilciBreakdown: [] as Array<{ repName: string; saleCount: number; ciro: string }>,
+    temsilciBreakdown: [] as Array<{ repName: string; saleCount: number; ciro: string; aylikHedef: number }>,
   };
 }
 
@@ -105,7 +105,7 @@ function buildDerivedMetrics(params: {
   toplamVakifOdemesi: Prisma.Decimal;
   kategoriBreakdown: Record<DashboardKategori, number>;
   kampanyaBreakdown: Array<{ type: string; count: number }>;
-  temsilciBreakdown: Array<{ repName: string; saleCount: number; ciro: string }>;
+  temsilciBreakdown: Array<{ repName: string; saleCount: number; ciro: string; aylikHedef: number }>;
 }) {
   const netCiro = params.totalSales.minus(params.taxTotal).minus(params.totalCommission);
   const kasaNakit = params.cashTotal.minus(params.cashOut);
@@ -125,6 +125,36 @@ function buildDerivedMetrics(params: {
     kampanyaBreakdown: params.kampanyaBreakdown,
     temsilciBreakdown: params.temsilciBreakdown,
   };
+}
+
+async function buildPersonelHedefMap() {
+  const personeller = await prisma.personel.findMany({
+    where: { aktif: true },
+    select: { ad: true, soyad: true, aylikHedef: true, subeId: true },
+  });
+  return new Map(
+    personeller.map((p) => [
+      `${p.ad} ${p.soyad}`.toLowerCase().trim(),
+      { aylikHedef: p.aylikHedef, subeId: p.subeId },
+    ]),
+  );
+}
+
+function mapTemsilciBreakdown(
+  repMap: Map<string, { repName: string; saleCount: number; ciro: Prisma.Decimal }>,
+  personelMap: Map<string, { aylikHedef: number; subeId: string | null }>,
+) {
+  return Array.from(repMap.values())
+    .map((r) => {
+      const personelInfo = personelMap.get(r.repName?.toLowerCase().trim() ?? '');
+      return {
+        repName: r.repName,
+        saleCount: r.saleCount,
+        ciro: r.ciro.toString(),
+        aylikHedef: personelInfo?.aylikHedef ?? 0,
+      };
+    })
+    .sort((a, b) => Number(b.ciro) - Number(a.ciro));
 }
 
 function codeError(code: string, message: string) {
@@ -412,13 +442,8 @@ export async function getDailyReport(branchId: string, date: Date) {
   }
 
   const kampanyaBreakdown: Array<{ type: string; count: number }> = [];
-  const temsilciBreakdown = Array.from(repMap.values())
-    .map((r) => ({
-      repName: r.repName,
-      saleCount: r.saleCount,
-      ciro: r.ciro.toString(),
-    }))
-    .sort((a, b) => Number(b.ciro) - Number(a.ciro));
+  const personelMap = await buildPersonelHedefMap();
+  const temsilciBreakdown = mapTemsilciBreakdown(repMap, personelMap);
 
   const derived = buildDerivedMetrics({
     totalSales,
@@ -676,13 +701,8 @@ export async function getPersonalDailyReport(
   }
 
   const kampanyaBreakdown: Array<{ type: string; count: number }> = [];
-  const temsilciBreakdown = Array.from(repMap.values())
-    .map((r) => ({
-      repName: r.repName,
-      saleCount: r.saleCount,
-      ciro: r.ciro.toString(),
-    }))
-    .sort((a, b) => Number(b.ciro) - Number(a.ciro));
+  const personelMap = await buildPersonelHedefMap();
+  const temsilciBreakdown = mapTemsilciBreakdown(repMap, personelMap);
 
   const derived = buildDerivedMetrics({
     totalSales,
@@ -878,6 +898,8 @@ export async function getPersonelPerformans({
     include: { user: true, payments: true },
   });
 
+  const personelMap = await buildPersonelHedefMap();
+
   const byUser: Record<string, { ad: string; satisAdedi: number; ciro: number }> = {};
   for (const sale of sales) {
     const uid = sale.userId ?? 'bilinmiyor';
@@ -887,7 +909,17 @@ export async function getPersonelPerformans({
     byUser[uid].ciro += Number(sale.netTotal);
   }
 
-  return Object.values(byUser).sort((a, b) => b.ciro - a.ciro);
+  return Object.values(byUser)
+    .map((r) => {
+      const personelInfo = personelMap.get(r.ad?.toLowerCase().trim() ?? '');
+      return {
+        ad: r.ad,
+        satisAdedi: r.satisAdedi,
+        ciro: r.ciro,
+        aylikHedef: personelInfo?.aylikHedef ?? 0,
+      };
+    })
+    .sort((a, b) => b.ciro - a.ciro);
 }
 
 export async function getKategoriBreakdown({ baslangic, bitis, subeId }: { baslangic: Date; bitis: Date; subeId?: string }) {

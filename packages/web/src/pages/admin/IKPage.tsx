@@ -35,7 +35,7 @@ export default function IKPage() {
 
   const [personeller, setPersoneller] = useState<Personel[]>([])
   const [personelFormu, setPersonelFormu] = useState(false)
-  const [yeniPersonel, setYeniPersonel] = useState({ ad: '', soyad: '', telefon: '', email: '', pozisyon: 'SATIS', subeId: 'GVN1', subeAdi: 'GVN1', sirketId: 3, sirketAdi: 'ADESE', maas: '' })
+  const [yeniPersonel, setYeniPersonel] = useState({ ad: '', soyad: '', telefon: '', email: '', pozisyon: 'SATIS', subeId: 'GVN1', subeAdi: 'GVN1', sirketId: 3, sirketAdi: 'ADESE', maas: '', aylikHedef: 0 })
 
   const [primKurallar, setPrimKurallar] = useState<PrimKural[]>([])
   const [kuralFormu, setKuralFormu] = useState(false)
@@ -187,6 +187,16 @@ export default function IKPage() {
                   </select>
                 </div>
                 <div><label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Maaş (₺)</label><input type="number" value={yeniPersonel.maas} onChange={e => setYeniPersonel(p => ({ ...p, maas: e.target.value }))} style={inp} /></div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Aylık Hedef (₺)</label>
+                  <input
+                    type="number"
+                    value={yeniPersonel.aylikHedef}
+                    onChange={e => setYeniPersonel(p => ({ ...p, aylikHedef: Number(e.target.value) }))}
+                    placeholder="0"
+                    style={inp}
+                  />
+                </div>
                 <div><label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>E-posta</label><input value={yeniPersonel.email} onChange={e => setYeniPersonel(p => ({ ...p, email: e.target.value }))} style={inp} /></div>
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>

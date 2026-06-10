@@ -3202,10 +3202,10 @@ router.post('/personel-ekle', async (req, res) => {
   try {
     const { PrismaClient } = await import('@prisma/client')
     const prisma = new PrismaClient()
-    const { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas, pdksId } = req.body
+    const { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas, pdksId, aylikHedef } = req.body
     if (!ad?.trim() || !soyad?.trim() || !pozisyon) return res.status(400).json({ error: 'Ad, soyad, pozisyon zorunlu' })
     const personel = await prisma.personel.create({
-      data: { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas: Number(maas) || 0, pdksId }
+      data: { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas: Number(maas) || 0, aylikHedef: aylikHedef ? Number(aylikHedef) : 0, pdksId }
     })
     await prisma.$disconnect()
     return res.json({ success: true, data: personel })
@@ -3221,6 +3221,7 @@ router.put('/personel-guncelle/:id', async (req, res) => {
     const { id } = req.params
     const data = req.body
     if (data.maas) data.maas = Number(data.maas)
+    if (data.aylikHedef) data.aylikHedef = Number(data.aylikHedef)
     const personel = await prisma.personel.update({ where: { id }, data })
     await prisma.$disconnect()
     return res.json({ success: true, data: personel })

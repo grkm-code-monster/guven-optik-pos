@@ -2,6 +2,7 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Personel aylık hedef altyapısı: aylikHedef alanı, IK formu, dashboard hedef çubuğu
 - [bugün] — Dashboard prim placeholder → gerçek veri, yetki düzeltmesi
 - [bugün] — Prim hesaplama Odoo→Prisma geçişi, Branch eşleştirme düzeltildi
 - [bugün] — Bölge müdürü ekranı: 6 sekme, patron API REGIONAL_MANAGER yetkisi, subeBreakdown UUID düzeltmesi
@@ -38,11 +39,11 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] Branch kod↔UUID eşleştirme düzeltildi
 - [x] Dashboard prim verisi gerçek API'ye bağlandı
 - [x] Debug console.log temizlendi
+- [x] Personel aylık hedef (Personel tablosundan — aylikHedef)
 
 ## Kısa vadeli — açık
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
-- [ ] Personel aylık hedef (Personel tablosundan)
-- [ ] Personel↔User eşleştirmesi (prim kişiye özel filtre için)
+- [ ] Personel↔User tam eşleştirmesi (ad/soyad string match geçici)
 - [ ] Personel.subeId → Branch.code standartlaştırma
 - [ ] SGK belgeleri upload (IK modülü)
 - [ ] Görevli/vekalet atama (yönetim paneli)
