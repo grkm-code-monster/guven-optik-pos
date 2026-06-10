@@ -2,6 +2,7 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Prim hesaplama Odoo→Prisma geçişi, Branch eşleştirme düzeltildi
 - [bugün] — Bölge müdürü ekranı: 6 sekme, patron API REGIONAL_MANAGER yetkisi, subeBreakdown UUID düzeltmesi
 - e4c8ac0 — Patron Paneli grafikleri react-chartjs-2 ile düzeltildi
 - 4df65b7 — Dashboard refactor: rol bazlı ekranlar, salesDetail, deliveryDate migration, kasa yetkilendirme
@@ -32,11 +33,14 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] Bölge müdürü ekranı (REGIONAL_MANAGER — placeholder'dan çıktı)
 - [x] subeBreakdown UUID bug düzeltildi
 - [x] Excel dışa aktar REGIONAL_MANAGER yetkisi
+- [x] Prim hesaplama Prisma'ya geçirildi (Odoo bağımlılığı kaldırıldı)
+- [x] Branch kod↔UUID eşleştirme düzeltildi
 
 ## Kısa vadeli — açık
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
 - [ ] Personel aylık hedef (Personel tablosundan)
-- [ ] Prim hesaplama (PrimKazanim tablosu)
+- [ ] Personel↔User eşleştirmesi (bireysel prim için — sonraki sprint)
+- [ ] Personel.subeId → Branch.code standartlaştırma
 - [ ] SGK belgeleri upload (IK modülü)
 - [ ] Görevli/vekalet atama (yönetim paneli)
 - [ ] PDF çıktısı jsPDF ile

@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { Prisma, Role, ShiftStatus, SyncStatus } from '@prisma/client';
+import { Prisma, Role, SaleStatus, ShiftStatus, SyncStatus } from '@prisma/client';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { prisma } from '../../database/prisma';
 import { authenticate } from '../../middleware/authenticate';
@@ -3249,8 +3249,6 @@ router.post('/prim-kural-ekle', async (req, res) => {
 // ── PRİM HESAPLA ──────────────────────────────────────────────────
 router.post('/prim-hesapla', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { donemBaslangic, donemBitis, subeId, sirketId } = req.body
 
     if (!donemBaslangic || !donemBitis) {
@@ -3259,14 +3257,41 @@ router.post('/prim-hesapla', async (req, res) => {
 
     const bas = new Date(donemBaslangic)
     const bit = new Date(donemBitis)
+    const donemKey = bas.toISOString().split('T')[0]
 
-    // Aktif prim kurallarını çek
     const kurallar = await prisma.primKural.findMany({ where: { aktif: true } })
-    // Personelleri çek
-    const where: any = { aktif: true }
-    if (subeId) where.subeId = subeId
-    if (sirketId) where.sirketId = Number(sirketId)
-    const personeller = await prisma.personel.findMany({ where })
+
+    const personelWhere: { aktif: boolean; subeId?: string; sirketId?: number } = { aktif: true }
+    if (subeId) personelWhere.subeId = subeId
+    if (sirketId) personelWhere.sirketId = Number(sirketId)
+    const personeller = await prisma.personel.findMany({ where: personelWhere })
+
+    const branches = await prisma.branch.findMany({
+      select: { id: true, code: true },
+    })
+    const branchIdByCode = new Map(branches.map((b) => [b.code, b.id]))
+
+    const tumSatislar = await prisma.sale.findMany({
+      where: {
+        status: SaleStatus.PAID,
+        createdAt: { gte: bas, lte: bit },
+        ...(subeId ? { branchId: subeId } : {}),
+      },
+      select: {
+        id: true,
+        userId: true,
+        branchId: true,
+        netTotal: true,
+        items: {
+          select: {
+            product: { select: { category: true } },
+            odooCategoryId: true,
+            lineTotal: true,
+            qty: true,
+          },
+        },
+      },
+    })
 
     const sonuclar = []
 
@@ -3275,22 +3300,39 @@ router.post('/prim-hesapla', async (req, res) => {
       const detaylar = []
 
       for (const kural of kurallar) {
-        // Kural bu personele uygulanabilir mi?
         if (kural.tip === 'MAGAZA' && kural.subeId && kural.subeId !== personel.subeId) continue
         if (kural.tip === 'BIREYSEL' && kural.subeId && kural.subeId !== personel.subeId) continue
         if (kural.sirketId && kural.sirketId !== personel.sirketId) continue
 
-        // Odoo'dan satış verisi çek
+        const personelBranchId = branchIdByCode.get(personel.subeId ?? '')
+        const subeSatislari = personelBranchId
+          ? tumSatislar.filter((s) => s.branchId === personelBranchId)
+          : []
+
         let gerceklesen = 0
-        try {
-          const satislar = await execute('pos.order', 'search_read', [[
-            ['date_order', '>=', bas.toISOString()],
-            ['date_order', '<=', bit.toISOString()],
-            ['state', 'in', ['done', 'invoiced']],
-            ...(personel.subeId ? [['config_id.name', 'ilike', personel.subeId]] : []),
-          ]], { fields: ['amount_total'], limit: 1000 })
-          gerceklesen = satislar.reduce((a: number, s: any) => a + (s.amount_total || 0), 0)
-        } catch { }
+        if (kural.kapsam === 'URUN_KATEGORI' && kural.kategoriAdi) {
+          const kategoriSatislari = subeSatislari.filter((s) =>
+            s.items.some(
+              (i) =>
+                i.product?.category === kural.kategoriAdi ||
+                String(i.odooCategoryId ?? '') === kural.kategoriAdi,
+            ),
+          )
+          gerceklesen = kategoriSatislari.reduce(
+            (a, s) =>
+              a +
+              s.items
+                .filter(
+                  (i) =>
+                    i.product?.category === kural.kategoriAdi ||
+                    String(i.odooCategoryId ?? '') === kural.kategoriAdi,
+                )
+                .reduce((b, i) => b + Number(i.lineTotal), 0),
+            0,
+          )
+        } else {
+          gerceklesen = subeSatislari.reduce((a, s) => a + Number(s.netTotal), 0)
+        }
 
         const hedef = kural.hedefTutar ?? 0
         if (gerceklesen <= 0) continue
@@ -3302,11 +3344,10 @@ router.post('/prim-hesapla', async (req, res) => {
           primTutari = kural.primSabit
         }
 
-        // Pozisyon oranı uygula
         if (primTutari > 0 && kural.pozisyonlar) {
           try {
             const pozlar = JSON.parse(kural.pozisyonlar) as Array<{ pozisyon: string; oran: number }>
-            const poz = pozlar.find(p => p.pozisyon === personel.pozisyon)
+            const poz = pozlar.find((p) => p.pozisyon === personel.pozisyon)
             if (poz) primTutari = primTutari * poz.oran
             else primTutari = 0
           } catch { }
@@ -3322,14 +3363,12 @@ router.post('/prim-hesapla', async (req, res) => {
             primTutari: Math.round(primTutari * 100) / 100,
           })
 
-          // Kaydet
+          const kazanimId = `${personel.id}-${kural.id}-${donemKey}`
           await prisma.primKazanim.upsert({
-            where: {
-              id: `${personel.id}-${kural.id}-${donemBaslangic}`,
-            },
+            where: { id: kazanimId },
             update: { gerceklesen, primTutari, hedef },
             create: {
-              id: `${personel.id}-${kural.id}-${donemBaslangic}`,
+              id: kazanimId,
               personelId: personel.id,
               primKuralId: kural.id,
               donemBaslangic: bas,
@@ -3337,7 +3376,7 @@ router.post('/prim-hesapla', async (req, res) => {
               hedef,
               gerceklesen,
               primTutari: Math.round(primTutari * 100) / 100,
-            }
+            },
           })
         }
       }
@@ -3354,7 +3393,6 @@ router.post('/prim-hesapla', async (req, res) => {
       }
     }
 
-    await prisma.$disconnect()
     return res.json({ success: true, donem: { baslangic: donemBaslangic, bitis: donemBitis }, sonuclar })
   } catch (err: any) {
     const msg = err?.message ?? String(err)
