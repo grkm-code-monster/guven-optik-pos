@@ -142,6 +142,99 @@ function dayRange(date: Date) {
   return { start, end };
 }
 
+const paidSalesSelect = {
+  id: true,
+  netTotal: true,
+  grossTotal: true,
+  taxTotal: true,
+  discountTotal: true,
+  sgkAmount: true,
+  createdAt: true,
+  userId: true,
+  user: { select: { name: true } },
+  customer: { select: { name: true, phone: true } },
+  items: {
+    select: {
+      qty: true,
+      odooCategoryId: true,
+      odooProductName: true,
+      unitPrice: true,
+      product: { select: { category: true, name: true } },
+    },
+  },
+  payments: {
+    select: {
+      paymentType: true,
+      grossAmount: true,
+      netAmount: true,
+      commissionAmount: true,
+      installment: true,
+      bankId: true,
+    },
+  },
+} as const;
+
+type PaidSaleForDetail = Prisma.SaleGetPayload<{ select: typeof paidSalesSelect }>;
+
+function resolveDeliveryDate(items: PaidSaleForDetail['items']): string | null {
+  for (const item of items) {
+    const raw = (item as { deliveryDate?: Date | string | null }).deliveryDate;
+    if (!raw) continue;
+    if (raw instanceof Date) return raw.toISOString();
+    return String(raw);
+  }
+  return null;
+}
+
+async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
+  const bankIds = Array.from(
+    new Set(
+      paidSales
+        .flatMap((s) => s.payments.map((p) => p.bankId))
+        .filter((x): x is string => Boolean(x)),
+    ),
+  );
+  const banks = bankIds.length
+    ? await prisma.bank.findMany({ where: { id: { in: bankIds } }, select: { id: true, name: true } })
+    : [];
+  const bankNameById = new Map(banks.map((b) => [b.id, b.name]));
+
+  const sorted = [...paidSales].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return sorted.map((sale) => ({
+    saleId: sale.id,
+    createdAt: sale.createdAt.toISOString(),
+    deliveryDate: resolveDeliveryDate(sale.items),
+    customerName: sale.customer?.name ?? '—',
+    grossTotal: sale.grossTotal.toString(),
+    netTotal: sale.netTotal.toString(),
+    taxExcluded: sale.taxTotal
+      ? (Number(sale.netTotal) - Number(sale.taxTotal)).toFixed(2)
+      : sale.netTotal.toString(),
+    discountPct: sale.grossTotal.greaterThan(0)
+      ? ((Number(sale.discountTotal) / Number(sale.grossTotal)) * 100).toFixed(1)
+      : '0',
+    sgkAmount: sale.sgkAmount?.toString() ?? '0',
+    repName: sale.user?.name ?? '—',
+    cashAmount: sale.payments
+      .filter((p) => p.paymentType === PaymentType.CASH)
+      .reduce((s, p) => s + Number(p.grossAmount), 0)
+      .toFixed(2),
+    cardPayments: sale.payments
+      .filter((p) => p.paymentType === PaymentType.CARD)
+      .map((p) => ({
+        bankName: p.bankId ? (bankNameById.get(p.bankId) ?? '—') : '—',
+        installment: p.installment ?? 1,
+        grossAmount: p.grossAmount.toString(),
+        commissionAmount: p.commissionAmount?.toString() ?? '0',
+      })),
+    transferAmount: sale.payments
+      .filter((p) => p.paymentType === PaymentType.TRANSFER)
+      .reduce((s, p) => s + Number(p.grossAmount), 0)
+      .toFixed(2),
+    itemSummary: sale.items.map((i) => i.odooProductName ?? i.product?.name ?? '—').join(', '),
+  }));
+}
+
 export async function getDailyReport(branchId: string, date: Date) {
   const { start, end } = dayRange(date);
 
@@ -191,6 +284,7 @@ export async function getDailyReport(branchId: string, date: Date) {
       diff: null,
       saleCount: 0,
       bankBreakdown: [],
+      salesDetail: [],
       ...zeroExtras(),
     };
   }
@@ -203,22 +297,8 @@ export async function getDailyReport(branchId: string, date: Date) {
 
   const paidSales = await prisma.sale.findMany({
     where: paidSaleWhere,
-    select: {
-      id: true,
-      netTotal: true,
-      sgkAmount: true,
-      discountTotal: true,
-      userId: true,
-      user: { select: { name: true } },
-      items: {
-        select: {
-          qty: true,
-          odooCategoryId: true,
-          odooProductName: true,
-          product: { select: { category: true, name: true } },
-        },
-      },
-    },
+    select: paidSalesSelect,
+    orderBy: { createdAt: 'asc' },
   });
 
   const salesAgg = await prisma.sale.aggregate({
@@ -391,6 +471,271 @@ export async function getDailyReport(branchId: string, date: Date) {
     diff: shift.diff ? shift.diff.toString() : null,
     saleCount,
     bankBreakdown,
+    salesDetail: await buildSalesDetail(paidSales),
+    ...derived,
+  };
+}
+
+export async function getPersonalDailyReport(
+  userId: string,
+  branchId: string,
+  date: Date,
+) {
+  const { start, end } = dayRange(date);
+
+  const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+  if (!branch) {
+    throw codeError('BRANCH_NOT_FOUND', 'Şube bulunamadı.');
+  }
+
+  let shift = await prisma.shift.findFirst({
+    where: { branchId, status: ShiftStatus.OPEN },
+    orderBy: { openedAt: 'desc' },
+  });
+
+  if (!shift) {
+    shift = await prisma.shift.findFirst({
+      where: {
+        branchId,
+        openedAt: { gte: start },
+      },
+      orderBy: { openedAt: 'desc' },
+    });
+  }
+
+  if (!shift) {
+    return {
+      date: date.toISOString(),
+      branchId,
+      branchName: branch?.name ?? '',
+      shiftId: null,
+      shiftOpenedAt: null,
+      openCash: '0',
+      totalSales: '0',
+      totalDiscount: '0',
+      totalNet: '0',
+      cashTotal: '0',
+      cardGross: '0',
+      cardNet: '0',
+      totalCommission: '0',
+      transferTotal: '0',
+      openAccountTotal: '0',
+      taxTotal: '0',
+      cashIn: '0',
+      cashOut: '0',
+      advanceTotal: '0',
+      expectedCash: '0',
+      physicalCash: null,
+      diff: null,
+      saleCount: 0,
+      bankBreakdown: [],
+      salesDetail: [],
+      ...zeroExtras(),
+    };
+  }
+
+  const paidSaleWhere = {
+    branchId,
+    shiftId: shift.id,
+    status: SaleStatus.PAID,
+    userId,
+  };
+
+  const paidSales = await prisma.sale.findMany({
+    where: paidSaleWhere,
+    select: paidSalesSelect,
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const salesAgg = await prisma.sale.aggregate({
+    where: paidSaleWhere,
+    _sum: {
+      grossTotal: true,
+      discountTotal: true,
+      netTotal: true,
+      taxTotal: true,
+    },
+    _count: { _all: true },
+  });
+
+  const personalPaymentSaleWhere = {
+    shiftId: shift.id,
+    status: SaleStatus.PAID,
+    userId,
+  };
+
+  const cashAgg = await prisma.payment.aggregate({
+    where: {
+      sale: personalPaymentSaleWhere,
+      paymentType: PaymentType.CASH,
+    },
+    _sum: { grossAmount: true },
+  });
+  const cardAgg = await prisma.payment.aggregate({
+    where: {
+      sale: personalPaymentSaleWhere,
+      paymentType: PaymentType.CARD,
+    },
+    _sum: { grossAmount: true, netAmount: true, commissionAmount: true },
+  });
+  const transferAgg = await prisma.payment.aggregate({
+    where: {
+      sale: personalPaymentSaleWhere,
+      paymentType: PaymentType.TRANSFER,
+    },
+    _sum: { grossAmount: true },
+  });
+  const openAccountAgg = await prisma.payment.aggregate({
+    where: {
+      sale: personalPaymentSaleWhere,
+      paymentType: PaymentType.OPEN_ACCOUNT,
+    },
+    _sum: { grossAmount: true },
+  });
+
+  const cashInAgg = await prisma.cashMovement.aggregate({
+    where: {
+      shiftId: shift.id,
+      type: CashMovementType.CASH_IN,
+      NOT: { description: { startsWith: 'SALE_CASH_PAYMENT:' } },
+    },
+    _sum: { amount: true },
+  });
+  const cashOutAgg = await prisma.cashMovement.aggregate({
+    where: { shiftId: shift.id, type: CashMovementType.CASH_OUT },
+    _sum: { amount: true },
+  });
+  const advanceAgg = await prisma.cashMovement.aggregate({
+    where: { shiftId: shift.id, type: CashMovementType.ADVANCE },
+    _sum: { amount: true },
+  });
+
+  const openCash = shift.openCash ?? new Prisma.Decimal(0);
+  const totalSales = salesAgg._sum.grossTotal ?? new Prisma.Decimal(0);
+  const totalDiscount = salesAgg._sum.discountTotal ?? new Prisma.Decimal(0);
+  const totalNet = salesAgg._sum.netTotal ?? new Prisma.Decimal(0);
+  const taxTotal = salesAgg._sum.taxTotal ?? new Prisma.Decimal(0);
+
+  const cashTotal = cashAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const cardGross = cardAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const cardNet = cardAgg._sum.netAmount ?? new Prisma.Decimal(0);
+  const totalCommission = cardAgg._sum.commissionAmount ?? new Prisma.Decimal(0);
+  const transferTotal = transferAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const openAccountTotal = openAccountAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+
+  const cashIn = cashInAgg._sum.amount ?? new Prisma.Decimal(0);
+  const cashOut = cashOutAgg._sum.amount ?? new Prisma.Decimal(0);
+  const advanceTotal = advanceAgg._sum.amount ?? new Prisma.Decimal(0);
+
+  const expectedCash = openCash.plus(cashTotal).plus(cashIn).minus(cashOut).minus(advanceTotal);
+
+  const bankGrouped = await prisma.payment.groupBy({
+    by: ['bankId', 'installment'],
+    where: {
+      paymentType: PaymentType.CARD,
+      bankId: { not: null },
+      sale: personalPaymentSaleWhere,
+    },
+    _sum: {
+      grossAmount: true,
+      commissionAmount: true,
+      netAmount: true,
+    },
+  });
+
+  const bankIds = Array.from(new Set(bankGrouped.map((b) => b.bankId).filter((x): x is string => Boolean(x))));
+  const banks = await prisma.bank.findMany({ where: { id: { in: bankIds } }, select: { id: true, name: true } });
+  const bankNameById = new Map(banks.map((b) => [b.id, b.name]));
+
+  const bankBreakdown = bankGrouped.map((b) => ({
+    bankName: bankNameById.get(b.bankId as string) ?? '',
+    installment: b.installment ?? 1,
+    gross: (b._sum.grossAmount ?? new Prisma.Decimal(0)).toString(),
+    commission: (b._sum.commissionAmount ?? new Prisma.Decimal(0)).toString(),
+    net: (b._sum.netAmount ?? new Prisma.Decimal(0)).toString(),
+  }));
+
+  const saleCount = salesAgg._count._all;
+
+  const kategoriBreakdown: Record<DashboardKategori, number> = { ...EMPTY_KATEGORI };
+  for (const sale of paidSales) {
+    for (const item of sale.items) {
+      const key = resolveItemKategori(item);
+      kategoriBreakdown[key] += item.qty ?? 1;
+    }
+  }
+
+  let toplamSgkHakki = new Prisma.Decimal(0);
+  const toplamVakifOdemesi = new Prisma.Decimal(0);
+  const repMap = new Map<string, { repName: string; saleCount: number; ciro: Prisma.Decimal }>();
+
+  for (const sale of paidSales) {
+    if (sale.sgkAmount) {
+      toplamSgkHakki = toplamSgkHakki.plus(sale.sgkAmount);
+    }
+    const repKey = sale.userId;
+    const prev = repMap.get(repKey) ?? {
+      repName: sale.user?.name ?? '—',
+      saleCount: 0,
+      ciro: new Prisma.Decimal(0),
+    };
+    prev.saleCount += 1;
+    prev.ciro = prev.ciro.plus(sale.netTotal);
+    repMap.set(repKey, prev);
+  }
+
+  const kampanyaBreakdown: Array<{ type: string; count: number }> = [];
+  const temsilciBreakdown = Array.from(repMap.values())
+    .map((r) => ({
+      repName: r.repName,
+      saleCount: r.saleCount,
+      ciro: r.ciro.toString(),
+    }))
+    .sort((a, b) => Number(b.ciro) - Number(a.ciro));
+
+  const derived = buildDerivedMetrics({
+    totalSales,
+    taxTotal,
+    totalCommission,
+    cashTotal,
+    cashOut,
+    cardNet,
+    transferTotal,
+    totalNet,
+    saleCount,
+    toplamSgkHakki,
+    toplamVakifOdemesi,
+    kategoriBreakdown,
+    kampanyaBreakdown,
+    temsilciBreakdown,
+  });
+
+  return {
+    date,
+    branchId,
+    branchName: branch.name,
+    shiftId: shift.id,
+    shiftOpenedAt: shift.openedAt,
+    openCash: openCash.toString(),
+    totalSales: totalSales.toString(),
+    totalDiscount: totalDiscount.toString(),
+    totalNet: totalNet.toString(),
+    cashTotal: cashTotal.toString(),
+    cardGross: cardGross.toString(),
+    cardNet: cardNet.toString(),
+    totalCommission: totalCommission.toString(),
+    transferTotal: transferTotal.toString(),
+    openAccountTotal: openAccountTotal.toString(),
+    taxTotal: taxTotal.toString(),
+    cashIn: cashIn.toString(),
+    cashOut: cashOut.toString(),
+    advanceTotal: advanceTotal.toString(),
+    expectedCash: expectedCash.toString(),
+    physicalCash: shift.physicalCash ? shift.physicalCash.toString() : null,
+    diff: shift.diff ? shift.diff.toString() : null,
+    saleCount,
+    bankBreakdown,
+    salesDetail: await buildSalesDetail(paidSales),
     ...derived,
   };
 }

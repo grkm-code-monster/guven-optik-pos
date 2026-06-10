@@ -1,5 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Role } from '@prisma/client';
 import { authenticate } from '../../middleware/authenticate';
+import { authorize } from '../../middleware/authorize';
 import { CreateCashMovementInput } from './cashMovement.types';
 import * as cashMovementService from './cashMovement.service';
 
@@ -16,7 +18,10 @@ function handleCashError(err: unknown, res: Response): boolean {
   return false;
 }
 
-router.post('/', async (req: Request, res: Response, next: NextFunction) => {
+router.post(
+  '/',
+  authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = CreateCashMovementInput.safeParse(req.body);
     if (!parsed.success) {
@@ -36,7 +41,8 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
     if (handleCashError(err, res)) return;
     next(err);
   }
-});
+  },
+);
 
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {

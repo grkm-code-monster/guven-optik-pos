@@ -6,6 +6,11 @@ export async function getDailyReport(date: string): Promise<DailyReport> {
   return res.data
 }
 
+export async function getPersonalDailyReport(date: string): Promise<DailyReport> {
+  const res = await apiClient.get('/reports/personal', { params: { date } })
+  return res.data
+}
+
 export async function downloadExcel(date: string): Promise<Blob> {
   const res = await apiClient.get('/reports/daily/excel', {
     params: { date },

@@ -15,6 +15,26 @@ function parseDateParam(value: unknown) {
   return { s, d };
 }
 
+router.get(
+  '/personal',
+  authorize(Role.SALES_STAFF, Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const dateParam = req.query.date ? String(req.query.date) : null;
+      const parsed = dateParam ? parseDateParam(dateParam) : null;
+      const date = parsed ? parsed.d : new Date();
+      const result = await reportService.getPersonalDailyReport(
+        req.user!.userId,
+        req.user!.branchId,
+        date,
+      );
+      return res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.get('/daily', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = parseDateParam(req.query.date);

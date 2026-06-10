@@ -29,13 +29,16 @@ export interface Product {
 export interface Sale {
   id: string
   customerId: string
+  userId?: string
   status: 'DRAFT' | 'PAID' | 'ORDERED' | 'IN_LAB' | 'READY' | 'DELIVERED' | 'VOID'
   createdAt?: string
   grossTotal: string
   discountTotal: string
   netTotal: string
   taxTotal: string
+  itemsCount?: number
   customer?: Customer
+  user?: { name: string }
   items?: SaleItem[]
   payments?: Payment[]
 }
@@ -113,6 +116,57 @@ export interface DailyReport {
   diff?: string
   saleCount: number
   bankBreakdown: BankBreakdown[]
+  netCiro?: string
+  kasaNakit?: string
+  toplamBanka?: string
+  toplamSgkHakki?: string
+  toplamVakifOdemesi?: string
+  ortalamaSepet?: string
+  satisAdedi?: number
+  kategoriBreakdown?: {
+    GUNES_GOZLUGU: number
+    CAM: number
+    LENS: number
+    OPTIK_CERCEVE: number
+    AKSESUAR: number
+    SOLUSYON: number
+  }
+  temsilciBreakdown?: Array<{
+    repName: string
+    saleCount: number
+    ciro: string
+  }>
+  kampanyaBreakdown?: Array<{ type: string; count: number }>
+  transferTotal?: string
+  openAccountTotal?: string
+  cashIn?: string
+  cashOut?: string
+  advanceTotal?: string
+  totalCommission?: string
+  cardGross?: string
+  cardNet?: string
+  totalDiscount?: string
+  salesDetail?: Array<{
+    saleId: string
+    createdAt: string
+    deliveryDate?: string | null
+    customerName: string
+    grossTotal: string
+    netTotal: string
+    taxExcluded: string
+    discountPct: string
+    sgkAmount: string
+    repName: string
+    cashAmount: string
+    cardPayments: Array<{
+      bankName: string
+      installment: number
+      grossAmount: string
+      commissionAmount: string
+    }>
+    transferAmount: string
+    itemSummary: string
+  }>
 }
 
 export interface BankBreakdown {
