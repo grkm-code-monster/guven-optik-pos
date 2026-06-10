@@ -143,7 +143,6 @@ export default function StokTeminStep({
   async function siparisAc(urun: UrunStokBilgi) {
     setTransferDurumlari(p => ({ ...p, [urun.saleItemId]: 'bekliyor' }))
     try {
-      console.log('[DEBUG] selectedCustomer:', JSON.stringify(selectedCustomer))
       const musteriAdi = selectedCustomer?.name
         ?? `${selectedCustomer?.firstName ?? ''} ${selectedCustomer?.lastName ?? ''}`.trim()
         ?? 'Müşteri'

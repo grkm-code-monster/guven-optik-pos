@@ -37,6 +37,7 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] Prim hesaplama Prisma'ya geçirildi (Odoo bağımlılığı kaldırıldı)
 - [x] Branch kod↔UUID eşleştirme düzeltildi
 - [x] Dashboard prim verisi gerçek API'ye bağlandı
+- [x] Debug console.log temizlendi
 
 ## Kısa vadeli — açık
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
@@ -47,7 +48,6 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Görevli/vekalet atama (yönetim paneli)
 - [ ] PDF çıktısı jsPDF ile
 - [ ] Açık hesap vade tarihi
-- [ ] Debug console.log temizliği
 - [ ] PersonelDashboard: laboratuvara gönderilmedi gerçek veri (warranty userId filtresi eklenince)
 - [ ] Karlılık analizi + drill-down
 - [ ] "Patron Görünümü · Yakında" etiketi kaldır, isim güncelle

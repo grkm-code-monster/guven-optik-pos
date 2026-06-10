@@ -146,15 +146,6 @@ export type LensMeasurementDraft = {
 
 export function saleNeedsLensMeasurementStep(sale: Sale | null | undefined): boolean {
   const result = getLensMeasurementSaleItems(sale?.items).length > 0
-  console.log(
-    '[lens check] items:',
-    sale?.items?.map((i) => ({
-      name: i.odooProductName,
-      catId: i.odooCategoryId,
-      prodId: i.odooProductId,
-    })),
-  )
-  console.log('[lens check] needs step:', result)
   return result
 }
 
@@ -342,11 +333,9 @@ export function isMeasurementDraftComplete(d: LensMeasurementDraft): boolean {
   // En az bir göz aktif olmalı VEYA hiç göz aktif değilse de geçsin
   // RPH veya LPH girilmişse tamamlanmış say
   if (d.rph || d.lph || d.corridor || d.rightDia || d.leftDia) {
-    console.log('[Draft] PASS', d.saleItemId)
     return true
   }
   // Hiç ölçüm girilmemişse de geçsin (opsiyonel)
-  console.log('[Draft] PASS (empty)', d.saleItemId)
   return true
 }
 

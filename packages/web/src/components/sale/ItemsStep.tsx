@@ -130,7 +130,6 @@ export default function ItemsStep({
 
     const lokasyon = getAktifLokasyon()
     const url = buildSearchUrl(term, aramaYontemi, lokasyon, pickedKategoriId, pickedKategoriIds)
-    console.log('[search] fetching:', url)
 
     const t = setTimeout(() => {
       setProductsLoading(true)
@@ -143,16 +142,12 @@ export default function ItemsStep({
         kategoriIds: aramaYontemi === 'barkod' ? undefined : (pickedKategoriIds ?? undefined),
       })
         .then((data) => {
-          console.log('[search] results:', data)
           const rows = Array.isArray(data) ? data : []
           setSearchResults(rows)
-          console.log('[search] state updated:', rows.length)
         })
         .catch((e: any) => {
-          console.error('[search] error:', e)
           setError(e?.response?.data?.message ?? e?.response?.data?.detail ?? 'Ürünler alınamadı')
           setSearchResults([])
-          console.log('[search] state updated:', 0)
         })
         .finally(() => setProductsLoading(false))
     }, 300)
@@ -185,7 +180,6 @@ export default function ItemsStep({
 
         // BarcodeDetector varsa kullan (Chrome native)
         if ('BarcodeDetector' in window) {
-          console.log('[Kamera] Native BarcodeDetector kullanılıyor')
           const detector = new (window as any).BarcodeDetector({
             formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'data_matrix']
           })
@@ -196,7 +190,6 @@ export default function ItemsStep({
               const codes = await detector.detect(video)
               if (codes.length > 0) {
                 const kod = codes[0].rawValue
-                console.log('[Kamera] Barkod:', kod)
                 stopped = true
                 setQ(kod)
                 setAramaYontemi('barkod')
@@ -205,7 +198,6 @@ export default function ItemsStep({
                   const { data } = await import('axios').then(m => m.default.get(`/api/transfer/urun-ara-akilli?q=${encodeURIComponent(kod)}&lokasyon=${encodeURIComponent(lokasyon)}`))
                   if (data?.yontem) {
                     setAramaYontemi(data.yontem === 'ad' ? 'barkod' : data.yontem)
-                    console.log('[Kamera] Akıllı arama yöntemi:', data.yontem)
                   }
                 } catch {}
                 kapat()
@@ -217,7 +209,6 @@ export default function ItemsStep({
           requestAnimationFrame(tara)
         } else {
           // Fallback: jsQR
-          console.log('[Kamera] jsQR fallback kullanılıyor')
           const { default: jsQR } = await import('jsqr')
           const canvas = document.createElement('canvas')
           const ctx = canvas.getContext('2d')!
@@ -232,7 +223,6 @@ export default function ItemsStep({
               const code = jsQR(imageData.data, imageData.width, imageData.height)
               if (code) {
                 const kod = code.data
-                console.log('[Kamera] QR:', kod)
                 stopped = true
                 setQ(kod)
                 setAramaYontemi('barkod')
@@ -241,7 +231,6 @@ export default function ItemsStep({
                   const { data } = await import('axios').then(m => m.default.get(`/api/transfer/urun-ara-akilli?q=${encodeURIComponent(kod)}&lokasyon=${encodeURIComponent(lokasyon)}`))
                   if (data?.yontem) {
                     setAramaYontemi(data.yontem === 'ad' ? 'barkod' : data.yontem)
-                    console.log('[Kamera] Akıllı arama yöntemi:', data.yontem)
                   }
                 } catch {}
                 kapat()
@@ -253,7 +242,6 @@ export default function ItemsStep({
           requestAnimationFrame(tara)
         }
       } catch (e) {
-        console.error('[Kamera] Hata:', e)
         setKameraAcik(false)
       }
     }
@@ -445,7 +433,6 @@ export default function ItemsStep({
         if (prescriptionType) {
           const backendType = prescriptionType.startsWith('SINGLE_') ? 'SINGLE' : prescriptionType
           const rx = customerPrescription as any
-          console.log('[ItemsStep] customerPrescription:', JSON.stringify(rx))
 
           const toStr = (v: any) => {
             if (v == null || v === '') return undefined
@@ -469,8 +456,6 @@ export default function ItemsStep({
           }
         }
       }
-
-      console.log('[addItem] payload:', payload)
 
       if (editingItem?.id) {
         await updateItem(saleId, editingItem.id, payload as any)
@@ -611,12 +596,9 @@ export default function ItemsStep({
                   onClick={async () => {
                     const ok = window.confirm('Bu kalemi silmek istediğinize emin misiniz?')
                     if (!ok) return
-                    console.log('[deleteItem] sileceğim:', it.id, 'saleId:', saleId)
                     try {
                       await deleteItem(saleId, it.id)
-                      console.log('[deleteItem] silindi')
                       const updated = await getSaleById(saleId)
-                      console.log('[deleteItem] updated items:', updated?.items?.length, updated?.items?.map((i: any) => i.id))
                       onSaleUpdated(updated)
                     } catch (e: any) {
                       setError(e?.response?.data?.message ?? 'Kalem silinemedi')
