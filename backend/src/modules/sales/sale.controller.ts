@@ -103,7 +103,17 @@ router.patch('/:id/items/:itemId/status', async (req: Request, res: Response, ne
     if (!status || !(Object.values(ItemStatus) as string[]).includes(status)) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz status.' });
     }
-    const updated = await saleService.updateSaleItemStatus(req.params.itemId, status);
+
+    const deliveryDateRaw = req.body?.deliveryDate;
+    let deliveryDate: Date | null | undefined = undefined;
+    if (deliveryDateRaw === null) {
+      deliveryDate = null;
+    } else if (typeof deliveryDateRaw === 'string' && deliveryDateRaw) {
+      const parsed = new Date(deliveryDateRaw);
+      deliveryDate = Number.isNaN(parsed.getTime()) ? undefined : parsed;
+    }
+
+    const updated = await saleService.updateSaleItemStatus(req.params.itemId, status, deliveryDate);
     return res.status(200).json(updated);
   } catch (err) {
     if (handleSaleError(err, res)) return;

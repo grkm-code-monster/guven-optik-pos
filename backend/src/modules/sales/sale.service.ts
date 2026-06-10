@@ -428,10 +428,17 @@ export async function removeSaleItem(saleItemId: string) {
   return { ok: true };
 }
 
-export async function updateSaleItemStatus(saleItemId: string, status: ItemStatus) {
+export async function updateSaleItemStatus(
+  saleItemId: string,
+  status: ItemStatus,
+  deliveryDate?: Date | null,
+) {
   const saleItem = await prisma.saleItem.update({
     where: { id: saleItemId },
-    data: { status },
+    data: {
+      status,
+      ...(deliveryDate !== undefined ? { deliveryDate } : {}),
+    },
   });
   return saleItem;
 }
