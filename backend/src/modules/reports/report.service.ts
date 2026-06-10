@@ -159,6 +159,7 @@ const paidSalesSelect = {
       odooCategoryId: true,
       odooProductName: true,
       unitPrice: true,
+      deliveryDate: true,
       product: { select: { category: true, name: true } },
     },
   },
@@ -175,16 +176,6 @@ const paidSalesSelect = {
 } as const;
 
 type PaidSaleForDetail = Prisma.SaleGetPayload<{ select: typeof paidSalesSelect }>;
-
-function resolveDeliveryDate(items: PaidSaleForDetail['items']): string | null {
-  for (const item of items) {
-    const raw = (item as { deliveryDate?: Date | string | null }).deliveryDate;
-    if (!raw) continue;
-    if (raw instanceof Date) return raw.toISOString();
-    return String(raw);
-  }
-  return null;
-}
 
 async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
   const bankIds = Array.from(
@@ -203,7 +194,7 @@ async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
   return sorted.map((sale) => ({
     saleId: sale.id,
     createdAt: sale.createdAt.toISOString(),
-    deliveryDate: resolveDeliveryDate(sale.items),
+    deliveryDate: sale.items[0]?.deliveryDate?.toISOString() ?? null,
     customerName: sale.customer?.name ?? '—',
     grossTotal: sale.grossTotal.toString(),
     netTotal: sale.netTotal.toString(),

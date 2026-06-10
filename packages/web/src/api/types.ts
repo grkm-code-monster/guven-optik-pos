@@ -149,7 +149,7 @@ export interface DailyReport {
   salesDetail?: Array<{
     saleId: string
     createdAt: string
-    deliveryDate?: string | null
+    deliveryDate: string | null
     customerName: string
     grossTotal: string
     netTotal: string

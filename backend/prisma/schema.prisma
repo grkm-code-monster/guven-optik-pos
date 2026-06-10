@@ -280,6 +280,7 @@ model SaleItem {
   frames       Frame[]
 
   status ItemStatus @default(PENDING)
+  deliveryDate  DateTime?
 
   sale    Sale    @relation(fields: [saleId], references: [id])
   product Product @relation(fields: [productId], references: [id])

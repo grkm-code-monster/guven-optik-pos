@@ -339,7 +339,9 @@ function GunlukKasaTable({
           {rows.map((s, idx) => (
             <tr key={s.saleId} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
               <td style={{ padding: '8px 6px' }}>{fmtDate(s.createdAt)}</td>
-              <td style={{ padding: '8px 6px' }}>{s.deliveryDate ? fmtDate(s.deliveryDate) : '—'}</td>
+              <td style={{ padding: '8px 6px' }}>
+                {s.deliveryDate ? new Date(s.deliveryDate).toLocaleDateString('tr-TR') : '—'}
+              </td>
               <td style={{ padding: '8px 6px' }}>{s.customerName}</td>
               <td style={{ padding: '8px 6px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.itemSummary || '—'}</td>
               <td style={{ padding: '8px 6px' }}>{formatMoney(s.grossTotal)}</td>
