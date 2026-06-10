@@ -661,6 +661,7 @@ function PersonelDashboard({ user }: { user: User }) {
   const [customFrom, setCustomFrom] = useState(todayYMD())
   const [customTo, setCustomTo] = useState(todayYMD())
   const [personelGorevler, setPersonelGorevler] = useState({ teslimHazir: 0, loading: true })
+  const [primData, setPrimData] = useState<{ id: string; primTutari?: number; primKural?: { ad?: string } }[]>([])
 
   useEffect(() => {
     getPersonalDailyReport(date).then(setReport).catch(() => setReport(null))
@@ -668,21 +669,36 @@ function PersonelDashboard({ user }: { user: User }) {
 
   useEffect(() => {
     async function fetchPersonelGorevler() {
+      const buAyBas = new Date()
+      buAyBas.setDate(1)
+      buAyBas.setHours(0, 0, 0, 0)
+
       try {
-        const deliveryRes = await apiClient.get('/sales/delivery')
+        const [deliveryRes, primRes] = await Promise.all([
+          apiClient.get('/sales/delivery'),
+          apiClient
+            .get('/admin/prim-kazanimlar', {
+              params: { baslangic: buAyBas.toISOString().split('T')[0] },
+            })
+            .catch(() => ({ data: { data: [] } })),
+        ])
         const deliverySales = deliveryRes.data?.data ?? []
         const mySales = deliverySales.filter((s: { userId?: string }) => s.userId === user.id)
         const teslimHazir = mySales.filter((s: { items?: { status: string }[] }) =>
           s.items?.some((i) => i.status === 'READY'),
         ).length
         setPersonelGorevler({ teslimHazir, loading: false })
+        setPrimData(primRes.data?.data ?? [])
       } catch (e) {
         console.error('Personel görevler fetch error', e)
         setPersonelGorevler((prev) => ({ ...prev, loading: false }))
+        setPrimData([])
       }
     }
     void fetchPersonelGorevler()
   }, [user.id])
+
+  const toplamPrim = primData.reduce((a, p) => a + (p.primTutari ?? 0), 0)
 
   const tabs = ['Günlük Kasa', 'Performans & Görevler', 'Profilim']
 
@@ -715,9 +731,34 @@ function PersonelDashboard({ user }: { user: User }) {
             <div style={{ fontWeight: 700, marginBottom: 12 }}>Kategori dağılımı</div>
             <KategoriBars report={report} />
           </div>
-          <div style={{ marginTop: 16, ...CARD_STYLE, color: '#6b7280' }}>
+          <div style={{ marginTop: 16, ...CARD_STYLE }}>
             <div style={{ fontWeight: 700, color: '#111', marginBottom: 6 }}>Prim durumu</div>
-            Prim hesaplaması yakında aktif olacak.
+            {primData.length === 0 ? (
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Henüz prim hesaplanmadı</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Bu ay kazanılan prim</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: BLUE }}>{formatMoney(toplamPrim)}</div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4, marginBottom: 10 }}>
+                  {primData.length} kazanım
+                </div>
+                {primData.slice(0, 3).map((p) => (
+                  <div
+                    key={p.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 13,
+                      padding: '6px 0',
+                      borderTop: '1px solid #f3f4f6',
+                    }}
+                  >
+                    <span>{p.primKural?.ad ?? '—'}</span>
+                    <span style={{ fontWeight: 700, color: GREEN }}>{formatMoney(p.primTutari)}</span>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
           <div style={{ marginTop: 16, ...CARD_STYLE }}>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Kampanya katılımı</div>

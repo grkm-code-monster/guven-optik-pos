@@ -48,6 +48,29 @@ router.get('/campaigns/branch/:branchId', async (req: Request, res: Response, ne
   }
 });
 
+router.get(
+  '/prim-kazanimlar',
+  authorize(Role.SALES_STAFF, Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req, res) => {
+    try {
+      const { personelId, odendi, baslangic } = req.query
+      const where: Prisma.PrimKazanimWhereInput = {}
+      if (personelId) where.personelId = String(personelId)
+      if (odendi !== undefined) where.odendi = odendi === 'true'
+      if (baslangic) where.donemBaslangic = { gte: new Date(String(baslangic)) }
+      const kazanimlar = await prisma.primKazanim.findMany({
+        where,
+        orderBy: { donemBaslangic: 'desc' },
+        include: { personel: true, primKural: true },
+        take: 200,
+      })
+      return res.json({ data: kazanimlar })
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message })
+    }
+  },
+)
+
 router.use(authorize(Role.ADMIN));
 
 function codeError(code: string, message: string) {
@@ -3398,28 +3421,6 @@ router.post('/prim-hesapla', async (req, res) => {
     const msg = err?.message ?? String(err)
     console.error('[prim-hesapla hata]', msg)
     return res.status(500).json({ error: msg })
-  }
-})
-
-// ── PRİM KAZANIMLAR ───────────────────────────────────────────────
-router.get('/prim-kazanimlar', async (req, res) => {
-  try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
-    const { personelId, odendi, baslangic } = req.query
-    const where: any = {}
-    if (personelId) where.personelId = String(personelId)
-    if (odendi !== undefined) where.odendi = odendi === 'true'
-    if (baslangic) where.donemBaslangic = { gte: new Date(String(baslangic)) }
-    const kazanimlar = await prisma.primKazanim.findMany({
-      where, orderBy: { donemBaslangic: 'desc' },
-      include: { personel: true, primKural: true },
-      take: 200,
-    })
-    await prisma.$disconnect()
-    return res.json({ data: kazanimlar })
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message })
   }
 })
 
