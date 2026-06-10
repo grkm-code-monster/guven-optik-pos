@@ -1,5 +1,30 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js'
+import { Line, Bar, Doughnut } from 'react-chartjs-2'
 import { apiClient } from '../../api/client'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+)
 
 const KURLAR: Record<string, { sym: string; gun: number; alis: number }> = {
   TRY: { sym: '₺', gun: 1, alis: 1 },
@@ -42,10 +67,6 @@ export default function PatronPage() {
   const [kategori, setKategori] = useState<any>(null)
   const [gunluk, setGunluk] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  const ciroChartRef = useRef<any>(null)
-  const subeChartRef = useRef<any>(null)
-  const katChartRef = useRef<any>(null)
-  const odemeChartRef = useRef<any>(null)
 
   async function loadData() {
     setLoading(true)
@@ -70,68 +91,11 @@ export default function PatronPage() {
 
   useEffect(() => { void loadData() }, [baslangic, bitis, subeId])
 
-  useEffect(() => {
-    if (!gunluk.length || !ozet) return
-    const w = window as any
-    if (!w.Chart) return
-
-    if (ciroChartRef.current) { ciroChartRef.current.destroy(); ciroChartRef.current = null }
-    if (subeChartRef.current) { subeChartRef.current.destroy(); subeChartRef.current = null }
-    if (katChartRef.current) { katChartRef.current.destroy(); katChartRef.current = null }
-    if (odemeChartRef.current) { odemeChartRef.current.destroy(); odemeChartRef.current = null }
-
-    const k = KURLAR[doviz]
-
-    const c1 = document.getElementById('ciroChart') as HTMLCanvasElement
-    if (c1) ciroChartRef.current = new w.Chart(c1, {
-      type: 'line',
-      data: {
-        labels: gunluk.map((g: any) => g.tarih.slice(5)),
-        datasets: [{ label: 'Ciro', data: gunluk.map((g: any) => Math.round(Number(g.ciro) / k.gun)), borderColor: '#185FA5', backgroundColor: 'rgba(24,95,165,0.08)', tension: 0.4, pointRadius: 2, borderWidth: 2 }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { font: { size: 10 } } }, y: { ticks: { callback: (v: number) => k.sym + (v / 1000).toFixed(0) + 'K', font: { size: 10 } } } } }
-    })
-
-    const subeler = ozet?.subeBreakdown ?? []
-    const c2 = document.getElementById('subeChart') as HTMLCanvasElement
-    if (c2 && subeler.length) subeChartRef.current = new w.Chart(c2, {
-      type: 'bar',
-      data: {
-        labels: subeler.map((s: any) => s.subeAdi),
-        datasets: [{ label: 'Ciro', data: subeler.map((s: any) => Math.round(s.ciro / k.gun)), backgroundColor: '#185FA5', borderRadius: 4 }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { font: { size: 10 } } }, y: { ticks: { callback: (v: number) => k.sym + (v / 1000).toFixed(0) + 'K', font: { size: 10 } } } } }
-    })
-
-    if (kategori) {
-      const katLabels = Object.keys(kategori)
-      const katVals = katLabels.map((k2: string) => Math.round(kategori[k2].ciro / k.gun))
-      const c3 = document.getElementById('katChart') as HTMLCanvasElement
-      if (c3) katChartRef.current = new w.Chart(c3, {
-        type: 'doughnut',
-        data: { labels: katLabels, datasets: [{ data: katVals, backgroundColor: ['#185FA5', '#1D9E75', '#BA7517', '#D4537E', '#888780', '#534AB7'], borderWidth: 0 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { font: { size: 10 }, boxWidth: 8 } } } }
-      })
-    }
-
-    const c4 = document.getElementById('odemeChart') as HTMLCanvasElement
-    if (c4 && ozet) odemeChartRef.current = new w.Chart(c4, {
-      type: 'doughnut',
-      data: {
-        labels: ['Nakit', 'Kart', 'SGK', 'Açık hesap'],
-        datasets: [{ data: [ozet.nakit, ozet.kart, ozet.sgk, ozet.acikHesap].map((v: number) => Math.round(v / k.gun)), backgroundColor: ['#1D9E75', '#185FA5', '#D4537E', '#BA7517'], borderWidth: 0 }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { font: { size: 10 }, boxWidth: 8 } } } }
-    })
-  }, [gunluk, ozet, kategori, doviz])
-
   const card = { background: 'white', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, padding: '1rem' }
   const k = KURLAR[doviz]
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)' }}>
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" />
-
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 900 }}>Patron Paneli</div>
@@ -180,22 +144,129 @@ export default function PatronPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1.5rem' }}>
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Günlük ciro trendi</div>
-              <div style={{ position: 'relative', height: 160 }}><canvas id="ciroChart" role="img" aria-label="Günlük ciro trendi">Ciro grafiği</canvas></div>
+              <div style={{ position: 'relative', height: 160 }}>
+                <Line
+                  data={{
+                    labels: gunluk.map((g: { tarih: string }) => g.tarih),
+                    datasets: [{
+                      label: 'Günlük Ciro',
+                      data: gunluk.map((g: { ciro: number }) => Number(g.ciro)),
+                      borderColor: '#A32D2D',
+                      backgroundColor: 'rgba(163,45,45,0.1)',
+                      tension: 0.3,
+                      fill: true,
+                    }],
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                      y: {
+                        ticks: {
+                          callback: (v: string | number) =>
+                            new Intl.NumberFormat('tr-TR', {
+                              style: 'currency',
+                              currency: 'TRY',
+                              maximumFractionDigits: 0,
+                            }).format(Number(v)),
+                        },
+                      },
+                    },
+                  }}
+                />
+              </div>
             </div>
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Şube karşılaştırması</div>
-              <div style={{ position: 'relative', height: 160 }}><canvas id="subeChart" role="img" aria-label="Şube ciro karşılaştırması">Şube grafiği</canvas></div>
+              <div style={{ position: 'relative', height: 160 }}>
+                <Bar
+                  data={{
+                    labels: ozet?.subeBreakdown?.map((s: { subeAdi: string }) => s.subeAdi) ?? [],
+                    datasets: [{
+                      label: 'Ciro',
+                      data: ozet?.subeBreakdown?.map((s: { ciro: number }) => Number(s.ciro)) ?? [],
+                      backgroundColor: '#A32D2D',
+                      borderRadius: 4,
+                    }],
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                      y: {
+                        ticks: {
+                          callback: (v: string | number) =>
+                            new Intl.NumberFormat('tr-TR', {
+                              style: 'currency',
+                              currency: 'TRY',
+                              maximumFractionDigits: 0,
+                            }).format(Number(v)),
+                        },
+                      },
+                    },
+                  }}
+                />
+              </div>
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1.5rem' }}>
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Kategori dağılımı</div>
-              <div style={{ position: 'relative', height: 160 }}><canvas id="katChart" role="img" aria-label="Kategori dağılımı">Kategori grafiği</canvas></div>
+              <div style={{ position: 'relative', height: 160 }}>
+                <Doughnut
+                  data={{
+                    labels: ['Güneş', 'Cam', 'Lens', 'Çerçeve', 'Aksesuar', 'Solüsyon'],
+                    datasets: [{
+                      data: [
+                        Number(kategori?.GUNES_GOZLUGU?.ciro ?? kategori?.GUNES_GOZLUGU ?? 0),
+                        Number(kategori?.CAM?.ciro ?? kategori?.CAM ?? 0),
+                        Number(kategori?.LENS?.ciro ?? kategori?.LENS ?? 0),
+                        Number(kategori?.OPTIK_CERCEVE?.ciro ?? kategori?.OPTIK_CERCEVE ?? 0),
+                        Number(kategori?.AKSESUAR?.ciro ?? kategori?.AKSESUAR ?? 0),
+                        Number(kategori?.SOLUSYON?.ciro ?? kategori?.SOLUSYON ?? 0),
+                      ],
+                      backgroundColor: [
+                        '#A32D2D', '#185FA5', '#3B6D11',
+                        '#BA7517', '#6B3FA0', '#888780',
+                      ],
+                      borderWidth: 0,
+                    }],
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+                  }}
+                />
+              </div>
             </div>
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Ödeme yöntemleri</div>
-              <div style={{ position: 'relative', height: 160 }}><canvas id="odemeChart" role="img" aria-label="Ödeme yöntemleri">Ödeme grafiği</canvas></div>
+              <div style={{ position: 'relative', height: 160 }}>
+                <Doughnut
+                  data={{
+                    labels: ['Nakit', 'Kart', 'SGK', 'Açık Hesap'],
+                    datasets: [{
+                      data: [
+                        Number(ozet?.nakit ?? 0),
+                        Number(ozet?.kart ?? 0),
+                        Number(ozet?.sgk ?? 0),
+                        Number(ozet?.acikHesap ?? 0),
+                      ],
+                      backgroundColor: ['#3B6D11', '#185FA5', '#BA7517', '#A32D2D'],
+                      borderWidth: 0,
+                    }],
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+                  }}
+                />
+              </div>
             </div>
           </div>
 
