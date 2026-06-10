@@ -2,7 +2,9 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
-- 06.06.2026 — Görevler sekmesi gerçek API'ye bağlandı: labBekleyen, teslimHazir, acikGaranti, vadesiGecenAcikHesap
+- 4df65b7 — Dashboard refactor: rol bazlı ekranlar, salesDetail, deliveryDate migration, kasa yetkilendirme
+- d0464a8 — SaleItem.deliveryDate: PATCH status endpoint'ine persist eklendi
+- aa351bd — Görevler sekmesi gerçek API: delivery, warranty, open-account
 - d174a8c — Garanti yönetim: şube adı, iade akışı, PDF formları
 - c2c1404 — Garanti & İade sistemi: DB modeli, API, POS akışı, depo ekranı
 - acea288 — Satış akışı: ödeme state korunuyor, durum ekranı
@@ -10,21 +12,32 @@ Son güncelleme: 06.06.2026
 - 91f65c4 — Fiyatlandırma: SGK state, Vakıf ekle, kampanya sadeleşti
 - 68d0031 — Kasa indirimi satır dağıtımı
 - 9ef7d6c — Patron Paneli: Rapor Dashboard + Şirket Dashboard
-- 63fc8a8 — Reçete PDF'e yazılıyor
-- 5b46c48 — Ölçümler adımı yeniden yapılandırıldı
 
 ## Kural: Önce tasarım, sonra kod
 Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra kodlanır.
 
-## Kısa vadeli (güncellendi)
+## Kısa vadeli — tamamlananlar
 - [x] Satış akışında geri dön sorunu — TAMAMLANDI
 - [x] Fiyatlandırma düzeltmeleri — TAMAMLANDI
 - [x] Garanti & İade sistemi — TAMAMLANDI (temel)
 - [x] Görevler sekmesi gerçek veriye bağlandı — TAMAMLANDI
-- [ ] PersonelDashboard: laboratuvara gönderilmedi gerçek veri (warranty userId filtresi eklenince açılacak)
-- [ ] Açık hesap vade tarihi (şu an remainingDebt > 0 = vadesi geçmiş sayılıyor)
-- [ ] Patron Paneli grafikleri (Chart.js npm)
-- [ ] Debug console.log temizle
+- [x] Teslim tarihi şemaya eklendi ve akışa bağlandı (deliveryDate)
+- [x] Dashboard rol bazlı tamamlandı (SALES_STAFF / STORE_MANAGER)
+- [x] GET /reports/personal endpoint eklendi
+- [x] CashMovement POST yetkisi düzeltildi
+- [x] Günlük kasa tablosu tüm kolonlarla çalışıyor
+
+## Kısa vadeli — açık
+- [ ] Patron Paneli grafikleri (Chart.js)
+- [ ] Bölge müdürü ekranı (REGIONAL_MANAGER placeholder)
+- [ ] Personel aylık hedef (Personel tablosundan)
+- [ ] Prim hesaplama (PrimKazanim tablosu)
+- [ ] SGK belgeleri upload (IK modülü)
+- [ ] Görevli/vekalet atama (yönetim paneli)
+- [ ] PDF çıktısı jsPDF ile
+- [ ] Açık hesap vade tarihi
+- [ ] Debug console.log temizliği
+- [ ] PersonelDashboard: laboratuvara gönderilmedi gerçek veri (warranty userId filtresi eklenince)
 - [ ] Karlılık analizi + drill-down
 - [ ] "Patron Görünümü · Yakında" etiketi kaldır, isim güncelle
 - [ ] Ürün maliyet girişi ekranı
