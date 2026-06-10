@@ -1,7 +1,8 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 06.06.2026
+Son güncelleme: 10.06.2026
 
 ## Son commitler (güncellendi)
+- e4c8ac0 — Patron Paneli grafikleri react-chartjs-2 ile düzeltildi
 - 4df65b7 — Dashboard refactor: rol bazlı ekranlar, salesDetail, deliveryDate migration, kasa yetkilendirme
 - d0464a8 — SaleItem.deliveryDate: PATCH status endpoint'ine persist eklendi
 - aa351bd — Görevler sekmesi gerçek API: delivery, warranty, open-account
@@ -26,9 +27,9 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] GET /reports/personal endpoint eklendi
 - [x] CashMovement POST yetkisi düzeltildi
 - [x] Günlük kasa tablosu tüm kolonlarla çalışıyor
+- [x] Patron Paneli grafikleri (Chart.js npm kuruldu, 4 grafik çalışıyor)
 
 ## Kısa vadeli — açık
-- [ ] Patron Paneli grafikleri (Chart.js)
 - [ ] Bölge müdürü ekranı (REGIONAL_MANAGER placeholder)
 - [ ] Personel aylık hedef (Personel tablosundan)
 - [ ] Prim hesaplama (PrimKazanim tablosu)
@@ -65,4 +66,4 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - Frontend: localhost:5173 (React/Vite)
 - Odoo: localhost:8069 (Docker odoo-odoo-1, DB: guvenoptik, port 5433, admin/admin123)
 - Patron Paneli: /admin/patron (ADMIN rolü gerekli)
-- Chart.js npm paketi kurulu değil — grafikleri düzeltmek için: npm install chart.js react-chartjs-2
+- Chart.js: chart.js + react-chartjs-2 kurulu (PatronPage.tsx)
