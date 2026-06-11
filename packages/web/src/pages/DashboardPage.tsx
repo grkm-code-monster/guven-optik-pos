@@ -652,6 +652,25 @@ function GunlukKasaView({
   )
 }
 
+const BELGE_TIP_LABELS: Record<string, string> = {
+  IS_SOZLESMESI: 'İş Sözleşmesi',
+  SGK_GIRIS: 'SGK Giriş',
+  MAAS_BORDROSU: 'Maaş Bordrosu',
+  KIMLIK: 'Kimlik',
+  IKAMETGAH: 'İkametgah',
+  SAGLIK: 'Sağlık',
+  DIGER: 'Diğer',
+}
+
+type PersonelBelgeRow = {
+  id: string
+  tip: string
+  ad: string
+  dosyaAdi: string
+  onaylandi: boolean
+  createdAt: string
+}
+
 function PersonelDashboard({ user }: { user: User }) {
   const shiftId = useAuthStore((s) => s.shiftId)
   const [tab, setTab] = useState(0)
@@ -662,6 +681,9 @@ function PersonelDashboard({ user }: { user: User }) {
   const [customTo, setCustomTo] = useState(todayYMD())
   const [personelGorevler, setPersonelGorevler] = useState({ teslimHazir: 0, loading: true })
   const [primData, setPrimData] = useState<{ id: string; primTutari?: number; primKural?: { ad?: string } }[]>([])
+  const [belgeler, setBelgeler] = useState<PersonelBelgeRow[]>([])
+  const [benimPersonelId, setBenimPersonelId] = useState<string | null>(null)
+  const [belgeYukleniyor, setBelgeYukleniyor] = useState(false)
 
   useEffect(() => {
     getPersonalDailyReport(date).then(setReport).catch(() => setReport(null))
@@ -697,6 +719,56 @@ function PersonelDashboard({ user }: { user: User }) {
     }
     void fetchPersonelGorevler()
   }, [user.id])
+
+  useEffect(() => {
+    apiClient
+      .get('/admin/personeller')
+      .then((res) => {
+        const personeller = res.data?.data ?? []
+        const benimPersonel = personeller.find((p: { userId?: string }) => p.userId === user.id)
+        if (!benimPersonel) {
+          setBenimPersonelId(null)
+          setBelgeler([])
+          return null
+        }
+        setBenimPersonelId(benimPersonel.id)
+        return apiClient.get(`/admin/personel/${benimPersonel.id}/belgeler`)
+      })
+      .then((res) => {
+        if (res) setBelgeler(res.data?.data ?? [])
+      })
+      .catch(() => {
+        setBenimPersonelId(null)
+        setBelgeler([])
+      })
+  }, [user.id])
+
+  async function belgeGuncelle(tip: string, file: File) {
+    if (!benimPersonelId) return
+    setBelgeYukleniyor(true)
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        const base64 = (e.target?.result as string).split(',')[1]
+        const tipLabel = BELGE_TIP_LABELS[tip] ?? tip
+        await apiClient.post(`/admin/personel/${benimPersonelId}/belge-yukle`, {
+          tip,
+          ad: `${tipLabel} — ${new Date().toLocaleDateString('tr-TR')}`,
+          dosyaAdi: file.name,
+          icerik: base64,
+          mimeType: file.type || 'application/octet-stream',
+          boyut: file.size,
+        })
+        const res = await apiClient.get(`/admin/personel/${benimPersonelId}/belgeler`)
+        setBelgeler(res.data?.data ?? [])
+      } catch {
+        /* sessiz */
+      } finally {
+        setBelgeYukleniyor(false)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
 
   const toplamPrim = primData.reduce((a, p) => a + (p.primTutari ?? 0), 0)
   const myRep = useMemo(
@@ -801,12 +873,88 @@ function PersonelDashboard({ user }: { user: User }) {
             </div>
           </div>
           <div style={{ ...CARD_STYLE, marginTop: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>SGK & İK belgeleri</div>
-            <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Yönetim tarafından yüklenir.</p>
+            <div style={{ fontWeight: 700, marginBottom: 12 }}>SGK & İK belgeleri</div>
+            {!benimPersonelId ? (
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+                Personel kaydınız henüz bağlanmamış. Yönetim ile iletişime geçin.
+              </p>
+            ) : belgeler.length === 0 ? (
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Henüz belge yüklenmemiş.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {belgeler.map((b) => (
+                  <div
+                    key={b.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 0',
+                      borderTop: '1px solid #f3f4f6',
+                    }}
+                  >
+                    <div>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          backgroundColor: '#e0e7ff',
+                          color: '#3730a3',
+                        }}
+                      >
+                        {BELGE_TIP_LABELS[b.tip] ?? b.tip}
+                      </span>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{b.ad}</div>
+                      <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                        {new Date(b.createdAt).toLocaleDateString('tr-TR')}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: '3px 10px',
+                          borderRadius: 20,
+                          backgroundColor: b.onaylandi ? '#dcfce7' : '#fef3c7',
+                          color: b.onaylandi ? GREEN : AMBER,
+                        }}
+                      >
+                        {b.onaylandi ? 'Yüklendi' : 'Onay bekliyor'}
+                      </span>
+                      <label
+                        style={{
+                          ...BTN_STYLE,
+                          fontSize: 11,
+                          padding: '4px 10px',
+                          cursor: belgeYukleniyor ? 'wait' : 'pointer',
+                          color: BLUE,
+                          borderColor: BLUE,
+                          opacity: belgeYukleniyor ? 0.6 : 1,
+                        }}
+                      >
+                        Güncelle
+                        <input
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          style={{ display: 'none' }}
+                          disabled={belgeYukleniyor}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) void belgeGuncelle(b.tip, file)
+                            e.target.value = ''
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <button type="button" style={{ ...BTN_STYLE, marginTop: 16, color: BLUE, borderColor: BLUE }}>
-            Güncelleme talep et
-          </button>
         </div>
       ) : null}
     </div>

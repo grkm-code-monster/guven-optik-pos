@@ -2,6 +2,7 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — SGK & İK belge upload sistemi kuruldu
 - [bugün] — User↔Personel↔Odoo hr.employee üçlü bağlantı kuruldu
 - [bugün] — Personel aylık hedef altyapısı: aylikHedef alanı, IK formu, dashboard hedef çubuğu
 - [bugün] — Dashboard prim placeholder → gerçek veri, yetki düzeltmesi
@@ -44,13 +45,15 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] Personel↔User eşleştirmesi (FK ile — ad/soyad string match kaldırıldı)
 - [x] odooEmployeeId User ve Personel tablolarına eklendi
 - [x] TanimlamalarPage Odoo çalışan bağlama UI
+- [x] SGK belgeleri upload (IK modülü — PersonelBelge, base64, onay akışı)
 
 ## Kısa vadeli — açık
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
 - [ ] Mevcut personelleri Odoo ile eşleştir (link-employee endpoint ile)
 - [ ] report.service.ts buildPersonelHedefMap — string match yerine userId FK kullanacak şekilde güncelle (sonraki sprint)
 - [ ] Personel.subeId → Branch.code standartlaştırma
-- [ ] SGK belgeleri upload (IK modülü)
+- [ ] Personel kaydı oluşturulunca WhatsApp belge talep akışı
+- [ ] Eğitim modülü (personel profilim sekmesi)
 - [ ] Görevli/vekalet atama (yönetim paneli)
 - [ ] PDF çıktısı jsPDF ile
 - [ ] Açık hesap vade tarihi

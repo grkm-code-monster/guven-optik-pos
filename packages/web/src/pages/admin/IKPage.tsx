@@ -11,6 +11,46 @@ const td: React.CSSProperties = { padding: '10px 14px', fontSize: 12, borderTop:
 const POZISYONLAR = ['MUDUR', 'SATIS', 'KASIYER', 'TEKNIK', 'DIGER']
 const SIRKETLER = [{ id: 1, ad: 'GÜVEN OPTİK 1959' }, { id: 2, ad: 'NG' }, { id: 3, ad: 'ADESE' }, { id: 4, ad: 'POTENTIAL' }]
 const SUBELER = ['GVN1','GVN2','GVN3','GVN4','GVN5','GVN6','GVN8','GVN9','GVN10','ANADEPO']
+const BELGE_TIPLERI = [
+  { value: 'IS_SOZLESMESI', label: 'İş Sözleşmesi' },
+  { value: 'SGK_GIRIS', label: 'SGK Giriş' },
+  { value: 'MAAS_BORDROSU', label: 'Maaş Bordrosu' },
+  { value: 'KIMLIK', label: 'Kimlik' },
+  { value: 'IKAMETGAH', label: 'İkametgah' },
+  { value: 'SAGLIK', label: 'Sağlık' },
+  { value: 'DIGER', label: 'Diğer' },
+] as const
+
+type PersonelBelge = {
+  id: string
+  tip: string
+  ad: string
+  dosyaAdi: string
+  mimeType: string
+  boyut: number
+  onaylandi: boolean
+  onayTarihi: string | null
+  notlar: string | null
+  createdAt: string
+  yukleyenId: string
+}
+
+function belgeTipLabel(tip: string) {
+  return BELGE_TIPLERI.find((t) => t.value === tip)?.label ?? tip
+}
+
+function indirBelge(belge: { dosyaAdi: string; mimeType: string; icerik: string }) {
+  const byteChars = atob(belge.icerik)
+  const byteNums = new Uint8Array(byteChars.length)
+  for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i)
+  const blob = new Blob([byteNums], { type: belge.mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = belge.dosyaAdi
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 type Personel = {
   id: string; ad: string; soyad: string; telefon: string | null
@@ -57,6 +97,11 @@ export default function IKPage() {
   const [loading, setLoading] = useState(false)
   const [mesaj, setMesaj] = useState<{ tip: 'ok' | 'err'; text: string } | null>(null)
 
+  const [secilenPersonel, setSecilenPersonel] = useState<string | null>(null)
+  const [belgeler, setBelgeler] = useState<PersonelBelge[]>([])
+  const [belgeYukleniyor, setBelgeYukleniyor] = useState(false)
+  const [yeniBelge, setYeniBelge] = useState({ tip: 'SGK_GIRIS', ad: '', notlar: '' })
+
   useEffect(() => { void personelYukle() }, [])
   useEffect(() => {
     if (sekme === 'prim-kurallar') void kuralYukle()
@@ -74,6 +119,83 @@ export default function IKPage() {
       const res = await adminApi.get('/admin/prim-kurallar')
       setPrimKurallar(res.data?.data ?? [])
     } catch { }
+  }
+
+  async function belgeleriYukle(personelId: string) {
+    try {
+      const res = await adminApi.get(`/admin/personel/${personelId}/belgeler`)
+      setBelgeler(res.data?.data ?? [])
+    } catch {
+      setBelgeler([])
+    }
+  }
+
+  function personelBelgelerAc(personelId: string) {
+    setSecilenPersonel(personelId)
+    setYeniBelge({ tip: 'SGK_GIRIS', ad: '', notlar: '' })
+    void belgeleriYukle(personelId)
+  }
+
+  async function belgeYukle(file: File) {
+    if (!secilenPersonel || !yeniBelge.ad.trim()) {
+      setMesaj({ tip: 'err', text: 'Belge adı zorunlu' })
+      return
+    }
+    setBelgeYukleniyor(true)
+    setMesaj(null)
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        const dataUrl = e.target?.result as string
+        const base64 = dataUrl.split(',')[1]
+        await adminApi.post(`/admin/personel/${secilenPersonel}/belge-yukle`, {
+          tip: yeniBelge.tip,
+          ad: yeniBelge.ad.trim(),
+          dosyaAdi: file.name,
+          icerik: base64,
+          mimeType: file.type || 'application/octet-stream',
+          boyut: file.size,
+          notlar: yeniBelge.notlar || undefined,
+        })
+        setMesaj({ tip: 'ok', text: 'Belge yüklendi' })
+        setYeniBelge({ tip: 'SGK_GIRIS', ad: '', notlar: '' })
+        void belgeleriYukle(secilenPersonel)
+      } catch (err: any) {
+        setMesaj({ tip: 'err', text: err?.response?.data?.message ?? err?.response?.data?.error ?? 'Yükleme hatası' })
+      } finally {
+        setBelgeYukleniyor(false)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  async function belgeIndir(belgeId: string) {
+    try {
+      const res = await adminApi.get(`/admin/personel-belge/${belgeId}/indir`)
+      const belge = res.data?.data
+      if (belge?.icerik) indirBelge(belge)
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'İndirme hatası' })
+    }
+  }
+
+  async function belgeOnayla(belgeId: string) {
+    try {
+      await adminApi.patch(`/admin/personel-belge/${belgeId}/onayla`)
+      if (secilenPersonel) void belgeleriYukle(secilenPersonel)
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Onay hatası' })
+    }
+  }
+
+  async function belgeSil(belgeId: string) {
+    if (!confirm('Bu belge silinsin mi?')) return
+    try {
+      await adminApi.delete(`/admin/personel-belge/${belgeId}`)
+      if (secilenPersonel) void belgeleriYukle(secilenPersonel)
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Silme hatası' })
+    }
   }
 
   async function personelKaydet() {
@@ -152,7 +274,8 @@ export default function IKPage() {
 
       {/* PERSONELLER */}
       {sekme === 'personeller' && (
-        <div>
+        <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>Personel Listesi ({personeller.length})</div>
             <button type="button" onClick={() => setPersonelFormu(!personelFormu)} style={btnPrimary}>+ Yeni Personel</button>
@@ -216,11 +339,12 @@ export default function IKPage() {
                   <th style={th}>Şirket</th>
                   <th style={{ ...th, textAlign: 'right' as const }}>Maaş</th>
                   <th style={th}>Telefon</th>
+                  <th style={th}></th>
                 </tr>
               </thead>
               <tbody>
                 {personeller.map(p => (
-                  <tr key={p.id}>
+                  <tr key={p.id} style={{ backgroundColor: secilenPersonel === p.id ? '#f0f9ff' : undefined }}>
                     <td style={{ ...td, fontWeight: 700 }}>{p.ad} {p.soyad}</td>
                     <td style={td}>
                       <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 700, backgroundColor: `${POZ_RENK[p.pozisyon] ?? '#6b7280'}20`, color: POZ_RENK[p.pozisyon] ?? '#6b7280' }}>{p.pozisyon}</span>
@@ -229,12 +353,100 @@ export default function IKPage() {
                     <td style={{ ...td, fontSize: 11, color: '#9ca3af' }}>{p.sirketAdi ?? '—'}</td>
                     <td style={{ ...td, textAlign: 'right' as const, fontWeight: 700 }}>₺{p.maas.toLocaleString('tr-TR')}</td>
                     <td style={{ ...td, color: '#6b7280' }}>{p.telefon ?? '—'}</td>
+                    <td style={td}>
+                      <button type="button" onClick={() => personelBelgelerAc(p.id)} style={{ ...btnSmall, backgroundColor: secilenPersonel === p.id ? '#1a1a2e' : '#f3f4f6', color: secilenPersonel === p.id ? 'white' : '#374151' }}>
+                        📁 Belgeler
+                      </button>
+                    </td>
                   </tr>
                 ))}
-                {personeller.length === 0 && <tr><td colSpan={6} style={{ ...td, textAlign: 'center' as const, color: '#9ca3af', padding: 30 }}>Henüz personel eklenmemiş</td></tr>}
+                {personeller.length === 0 && <tr><td colSpan={7} style={{ ...td, textAlign: 'center' as const, color: '#9ca3af', padding: 30 }}>Henüz personel eklenmemiş</td></tr>}
               </tbody>
             </table>
           </div>
+        </div>
+
+        {secilenPersonel ? (
+          <div style={{ width: 380, flexShrink: 0, border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, backgroundColor: '#fafafa', position: 'sticky', top: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>
+                {(() => {
+                  const p = personeller.find((x) => x.id === secilenPersonel)
+                  return p ? `${p.ad} ${p.soyad} — Belgeler` : 'Belgeler'
+                })()}
+              </div>
+              <button type="button" onClick={() => setSecilenPersonel(null)} style={{ ...btnSmall, padding: '4px 8px' }}>✕</button>
+            </div>
+
+            <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Belge Yükle</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Tip</label>
+                  <select value={yeniBelge.tip} onChange={(e) => setYeniBelge((p) => ({ ...p, tip: e.target.value }))} style={inp}>
+                    {BELGE_TIPLERI.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Belge Adı *</label>
+                  <input value={yeniBelge.ad} onChange={(e) => setYeniBelge((p) => ({ ...p, ad: e.target.value }))} placeholder="ör: Mayıs 2026 Bordrosu" style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Notlar</label>
+                  <input value={yeniBelge.notlar} onChange={(e) => setYeniBelge((p) => ({ ...p, notlar: e.target.value }))} style={inp} />
+                </div>
+                <label style={{ ...btnPrimary, display: 'inline-block', textAlign: 'center', cursor: belgeYukleniyor ? 'wait' : 'pointer', opacity: belgeYukleniyor ? 0.6 : 1 }}>
+                  {belgeYukleniyor ? 'Yükleniyor...' : '+ Dosya Seç'}
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                    style={{ display: 'none' }}
+                    disabled={belgeYukleniyor || !yeniBelge.ad.trim()}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) void belgeYukle(file)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <div style={{ fontSize: 10, color: '#9ca3af' }}>Max 5MB · PDF, JPG, PNG, DOC</div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Yüklenen Belgeler ({belgeler.length})</div>
+            {belgeler.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#9ca3af', padding: 16, textAlign: 'center' }}>Henüz belge yok</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
+                {belgeler.map((b) => (
+                  <div key={b.id} style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
+                      <div>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, backgroundColor: '#e0e7ff', color: '#3730a3' }}>{belgeTipLabel(b.tip)}</span>
+                        <div style={{ fontSize: 12, fontWeight: 700, marginTop: 4 }}>{b.ad}</div>
+                        <div style={{ fontSize: 10, color: '#9ca3af' }}>{b.dosyaAdi} · {new Date(b.createdAt).toLocaleDateString('tr-TR')}</div>
+                      </div>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
+                        backgroundColor: b.onaylandi ? '#dcfce7' : '#fef3c7',
+                        color: b.onaylandi ? '#166534' : '#92400e',
+                      }}>
+                        {b.onaylandi ? '✓ Onaylı' : '⏳ Bekliyor'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                      <button type="button" onClick={() => void belgeIndir(b.id)} style={btnSmall}>İndir</button>
+                      {!b.onaylandi ? (
+                        <button type="button" onClick={() => void belgeOnayla(b.id)} style={{ ...btnSmall, backgroundColor: '#dcfce7', color: '#166534' }}>Onayla</button>
+                      ) : null}
+                      <button type="button" onClick={() => void belgeSil(b.id)} style={{ ...btnSmall, color: '#ef4444' }}>Sil</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
         </div>
       )}
 

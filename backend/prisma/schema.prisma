@@ -686,6 +686,26 @@ model Personel {
   user            User?    @relation("PersonelUserLink", fields: [userId], references: [id])
   linkedUser      User?    @relation("UserPersonelLink")
   primKazanimlari PrimKazanim[]
+  belgeler        PersonelBelge[]
+}
+
+model PersonelBelge {
+  id          String    @id @default(cuid())
+  personelId  String
+  tip         String    // IS_SOZLESMESI | SGK_GIRIS | MAAS_BORDROSU | KIMLIK | IKAMETGAH | SAGLIK | DIGER
+  ad          String
+  dosyaAdi    String
+  icerik      String    @db.Text
+  mimeType    String
+  boyut       Int
+  yukleyenId  String
+  onaylandi   Boolean   @default(false)
+  onaylayanId String?
+  onayTarihi  DateTime?
+  notlar      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  personel    Personel  @relation(fields: [personelId], references: [id])
 }
 
 // ── PRİM KURALI ───────────────────────────────────────────────────

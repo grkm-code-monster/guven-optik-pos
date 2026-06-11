@@ -71,6 +71,112 @@ router.get(
   },
 )
 
+// Personel listesi — personel kendi kaydını da görebilir (Dashboard Profilim)
+router.get(
+  '/personeller',
+  authorize(Role.SALES_STAFF, Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { subeId, sirketId, aktif } = req.query;
+      const where: Prisma.PersonelWhereInput = {};
+      if (req.user!.role !== Role.ADMIN) {
+        where.userId = req.user!.userId;
+      } else {
+        if (subeId) where.subeId = String(subeId);
+        if (sirketId) where.sirketId = Number(sirketId);
+        if (aktif !== undefined) where.aktif = aktif === 'true';
+        else where.aktif = true;
+      }
+      const personeller = await prisma.personel.findMany({
+        where,
+        orderBy: [{ subeAdi: 'asc' }, { ad: 'asc' }],
+      });
+      return res.json({ data: personeller });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+async function assertPersonelBelgeAccess(req: Request, personelId: string): Promise<boolean> {
+  if (req.user!.role === Role.ADMIN) return true;
+  const personel = await prisma.personel.findUnique({ where: { id: personelId } });
+  return personel?.userId === req.user!.userId;
+}
+
+// Belge listesi + yükleme — personel kendi belgelerini görebilir/yükleyebilir
+router.get(
+  '/personel/:id/belgeler',
+  authorize(Role.SALES_STAFF, Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!(await assertPersonelBelgeAccess(req, req.params.id))) {
+        return res.status(403).json({ error: 'FORBIDDEN', message: 'Bu personel kaydına erişim yok.' });
+      }
+      const belgeler = await prisma.personelBelge.findMany({
+        where: { personelId: req.params.id },
+        select: {
+          id: true,
+          tip: true,
+          ad: true,
+          dosyaAdi: true,
+          mimeType: true,
+          boyut: true,
+          onaylandi: true,
+          onayTarihi: true,
+          notlar: true,
+          createdAt: true,
+          yukleyenId: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      return res.json({ data: belgeler });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  '/personel/:id/belge-yukle',
+  authorize(Role.SALES_STAFF, Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!(await assertPersonelBelgeAccess(req, req.params.id))) {
+        return res.status(403).json({ error: 'FORBIDDEN', message: 'Bu personel kaydına erişim yok.' });
+      }
+      const { tip, ad, dosyaAdi, icerik, mimeType, boyut, notlar } = req.body;
+      if (!tip || !ad || !dosyaAdi || !icerik || !mimeType) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'tip, ad, dosyaAdi, icerik, mimeType zorunlu',
+        });
+      }
+      const boyutNum = Number(boyut) || 0;
+      if (boyutNum > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: 'FILE_TOO_LARGE', message: "Dosya 5MB'dan büyük olamaz" });
+      }
+      const belge = await prisma.personelBelge.create({
+        data: {
+          personelId: req.params.id,
+          tip,
+          ad,
+          dosyaAdi,
+          icerik,
+          mimeType,
+          boyut: boyutNum,
+          yukleyenId: req.user!.userId,
+          notlar: notlar || null,
+        },
+      });
+      const { icerik: _icerik, ...belgeSafe } = belge;
+      return res.json({ success: true, data: belgeSafe });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.use(authorize(Role.ADMIN));
 
 function codeError(code: string, message: string) {
@@ -3285,26 +3391,6 @@ router.get('/muhasebe-dashboard', async (req, res) => {
 })
 
 // ── PERSONEL CRUD ─────────────────────────────────────────────────
-router.get('/personeller', async (req, res) => {
-  try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
-    const { subeId, sirketId, aktif } = req.query
-    const where: any = {}
-    if (subeId) where.subeId = String(subeId)
-    if (sirketId) where.sirketId = Number(sirketId)
-    if (aktif !== undefined) where.aktif = aktif === 'true'
-    else where.aktif = true
-    const personeller = await prisma.personel.findMany({
-      where, orderBy: [{ subeAdi: 'asc' }, { ad: 'asc' }]
-    })
-    await prisma.$disconnect()
-    return res.json({ data: personeller })
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message })
-  }
-})
-
 router.post('/personel-ekle', async (req, res) => {
   try {
     const { PrismaClient } = await import('@prisma/client')
@@ -3336,6 +3422,45 @@ router.put('/personel-guncelle/:id', async (req, res) => {
     return res.status(500).json({ error: err?.message })
   }
 })
+
+// ── PERSONEL BELGE (yönetici: indir / onayla / sil) ───────────────
+router.get('/personel-belge/:belgeId/indir', async (req, res, next) => {
+  try {
+    const belge = await prisma.personelBelge.findUnique({
+      where: { id: req.params.belgeId },
+    });
+    if (!belge) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json({ data: belge });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/personel-belge/:belgeId/onayla', async (req, res, next) => {
+  try {
+    const belge = await prisma.personelBelge.update({
+      where: { id: req.params.belgeId },
+      data: {
+        onaylandi: true,
+        onaylayanId: req.user!.userId,
+        onayTarihi: new Date(),
+      },
+    });
+    const { icerik: _icerik, ...belgeSafe } = belge;
+    return res.json({ success: true, data: belgeSafe });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/personel-belge/:belgeId', async (req, res, next) => {
+  try {
+    await prisma.personelBelge.delete({ where: { id: req.params.belgeId } });
+    return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ── PRİM KURAL CRUD ───────────────────────────────────────────────
 router.get('/prim-kurallar', async (req, res) => {
