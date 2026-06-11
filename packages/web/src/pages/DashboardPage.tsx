@@ -981,8 +981,35 @@ function MudurDashboard({ user }: { user: User }) {
     vadesiGecenAcikHesap: 0,
     loading: true,
   })
+  const [gorevli, setGorevli] = useState<{
+    tip: 'GUNLUK' | 'YEDEK' | 'YOK'
+    user: { id: string; name: string; role: string } | null
+    baslangic?: string | null
+    bitis?: string | null
+    notlar?: string | null
+    yedekSorumlu?: { id: string; name: string; role: string } | null
+  } | null>(null)
+  const [gorevliModalAcik, setGorevliModalAcik] = useState(false)
+  const [gorevliForm, setGorevliForm] = useState({
+    userId: '',
+    tarih: todayYMD(),
+    baslangic: '09:00',
+    bitis: '18:00',
+    notlar: '',
+  })
+  const [branchPersoneller, setBranchPersoneller] = useState<Array<{ id: string; name: string; role: string }>>([])
+  const [gorevliKaydediliyor, setGorevliKaydediliyor] = useState(false)
 
   const tabs = ['Mağaza Özeti', 'Günlük Kasa', 'Benim Satışlarım', 'Görevler', 'Personel', 'Raporlar']
+
+  async function gorevliYenile() {
+    try {
+      const res = await apiClient.get('/admin/gorevli/bugun')
+      setGorevli(res.data)
+    } catch {
+      setGorevli(null)
+    }
+  }
 
   useEffect(() => {
     if (shiftId) getCurrentShift().then(setShift).catch(() => setShift(null))
@@ -1029,6 +1056,7 @@ function MudurDashboard({ user }: { user: User }) {
           vadesiGecenAcikHesap,
           loading: false,
         })
+        void gorevliYenile()
       } catch (e) {
         console.error('Görevler fetch error', e)
         setGorevler((prev) => ({ ...prev, loading: false }))
@@ -1036,6 +1064,34 @@ function MudurDashboard({ user }: { user: User }) {
     }
     void fetchGorevler()
   }, [])
+
+  useEffect(() => {
+    if (!gorevliModalAcik || !user.branchId) return
+    apiClient
+      .get(`/admin/branch/${user.branchId}/personeller`)
+      .then((res) => setBranchPersoneller(res.data?.data ?? []))
+      .catch(() => setBranchPersoneller([]))
+  }, [gorevliModalAcik, user.branchId])
+
+  async function gorevliKaydet() {
+    if (!gorevliForm.userId) return
+    setGorevliKaydediliyor(true)
+    try {
+      await apiClient.post('/admin/gorevli/ata', {
+        userId: gorevliForm.userId,
+        tarih: gorevliForm.tarih,
+        baslangic: gorevliForm.baslangic || undefined,
+        bitis: gorevliForm.bitis || undefined,
+        notlar: gorevliForm.notlar || undefined,
+      })
+      setGorevliModalAcik(false)
+      await gorevliYenile()
+    } catch {
+      alert('Görevli atanamadı.')
+    } finally {
+      setGorevliKaydediliyor(false)
+    }
+  }
 
   async function exportExcel() {
     try {
@@ -1063,6 +1119,37 @@ function MudurDashboard({ user }: { user: User }) {
       ) : (
         <VardiyaKapaliBanner />
       )}
+
+      {gorevli?.user ? (
+        <div
+          style={{
+            background: '#FAEEDA',
+            border: '0.5px solid #FAC775',
+            borderRadius: 8,
+            padding: '8px 14px',
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
+          <span style={{ fontSize: 13, color: '#633806' }}>
+            {gorevli.tip === 'GUNLUK'
+              ? `Bugünkü görevli: ${gorevli.user.name}` +
+                (gorevli.baslangic ? ` · ${gorevli.baslangic}–${gorevli.bitis}` : '')
+              : `Yedek sorumlu aktif: ${gorevli.user.name}`}
+          </span>
+          <button
+            type="button"
+            style={{ ...BTN_STYLE, fontSize: 11, padding: '3px 10px' }}
+            onClick={() => setGorevliModalAcik(true)}
+          >
+            Değiştir
+          </button>
+        </div>
+      ) : null}
 
       <TabBar tabs={tabs} active={tab} onChange={setTab} />
 
@@ -1182,10 +1269,48 @@ function MudurDashboard({ user }: { user: User }) {
       {tab === 4 ? (
         <div>
           <SectionHeader title="Personel" showPdf />
-          <div style={{ ...CARD_STYLE, marginBottom: 16, color: '#6b7280' }}>
-            <div style={{ fontWeight: 700, color: '#111', marginBottom: 6 }}>Görevli & vekalet</div>
-            Yönetim panelinden atanacak (sonraki sprint).
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div style={{ ...CARD_STYLE, borderLeft: `4px solid ${AMBER}` }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Kalıcı yedek sorumlu</div>
+              {gorevli?.yedekSorumlu ? (
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{gorevli.yedekSorumlu.name}</div>
+              ) : (
+                <div style={{ fontSize: 13, color: '#9ca3af' }}>Tanımlanmadı (Tanımlamalar → Şubeler)</div>
+              )}
+            </div>
+            <div style={{ ...CARD_STYLE, borderLeft: `4px solid ${BLUE}` }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Bugünkü görevli</div>
+              {gorevli?.tip === 'GUNLUK' && gorevli.user ? (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{gorevli.user.name}</div>
+                  {gorevli.baslangic ? (
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                      {gorevli.baslangic}–{gorevli.bitis}
+                    </div>
+                  ) : null}
+                  {gorevli.notlar ? (
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{gorevli.notlar}</div>
+                  ) : null}
+                </>
+              ) : gorevli?.tip === 'YEDEK' && gorevli.user ? (
+                <div style={{ fontSize: 13, color: '#6b7280' }}>
+                  Günlük atama yok — yedek aktif: <strong>{gorevli.user.name}</strong>
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: '#9ca3af' }}>Bugün için görevli atanmadı</div>
+              )}
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setGorevliForm((f) => ({ ...f, tarih: todayYMD(), userId: '' }))
+              setGorevliModalAcik(true)
+            }}
+            style={{ ...BTN_STYLE, marginBottom: 16, color: BLUE, borderColor: BLUE, fontWeight: 700 }}
+          >
+            Görevli Ata
+          </button>
           <div style={CARD_STYLE}>
             <div style={{ fontWeight: 800, marginBottom: 12 }}>Aylık personel performans</div>
             <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
@@ -1218,6 +1343,85 @@ function MudurDashboard({ user }: { user: User }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      ) : null}
+
+      {gorevliModalAcik ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            zIndex: 50,
+          }}
+        >
+          <div style={{ backgroundColor: 'white', borderRadius: 12, padding: 24, width: '100%', maxWidth: 420 }}>
+            <h3 style={{ margin: '0 0 16px', fontWeight: 800 }}>Görevli Ata</h3>
+            <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Tarih</label>
+            <input
+              type="date"
+              value={gorevliForm.tarih}
+              onChange={(e) => setGorevliForm((f) => ({ ...f, tarih: e.target.value }))}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', marginBottom: 12, boxSizing: 'border-box' }}
+            />
+            <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Personel</label>
+            <select
+              value={gorevliForm.userId}
+              onChange={(e) => setGorevliForm((f) => ({ ...f, userId: e.target.value }))}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', marginBottom: 12 }}
+            >
+              <option value="">Seçin...</option>
+              {branchPersoneller.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.role})
+                </option>
+              ))}
+            </select>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Başlangıç</label>
+                <input
+                  type="time"
+                  value={gorevliForm.baslangic}
+                  onChange={(e) => setGorevliForm((f) => ({ ...f, baslangic: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Bitiş</label>
+                <input
+                  type="time"
+                  value={gorevliForm.bitis}
+                  onChange={(e) => setGorevliForm((f) => ({ ...f, bitis: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', boxSizing: 'border-box' }}
+                />
+              </div>
+            </div>
+            <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Notlar</label>
+            <input
+              value={gorevliForm.notlar}
+              onChange={(e) => setGorevliForm((f) => ({ ...f, notlar: e.target.value }))}
+              placeholder="Opsiyonel"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', marginBottom: 16, boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setGorevliModalAcik(false)} style={{ ...BTN_STYLE, flex: 1 }}>
+                İptal
+              </button>
+              <button
+                type="button"
+                disabled={gorevliKaydediliyor || !gorevliForm.userId}
+                onClick={() => void gorevliKaydet()}
+                style={{ ...BTN_STYLE, flex: 1, backgroundColor: BLUE, color: 'white', borderColor: BLUE, fontWeight: 700 }}
+              >
+                {gorevliKaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

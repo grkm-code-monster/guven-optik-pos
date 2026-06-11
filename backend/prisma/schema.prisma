@@ -25,6 +25,9 @@ model User {
   shifts     Shift[]
   warrantyClaims   WarrantyClaim[]
   warrantyMessages WarrantyMessage[]
+  gorevliler           Gorevli[] @relation("GorevliUser")
+  atadigiGorevliler    Gorevli[] @relation("GorevliAtayan")
+  yedekSorumluSubeler  Branch[]  @relation("BranchYedekSorumlu")
 }
 
 enum Role {
@@ -36,11 +39,30 @@ enum Role {
 }
 
 model Branch {
-  id       String  @id @default(uuid())
-  name     String
-  code     String  @unique
-  isActive Boolean @default(true)
-  users    User[]
+  id              String    @id @default(uuid())
+  name            String
+  code            String    @unique
+  isActive        Boolean   @default(true)
+  yedekSorumluId  String?
+  users           User[]
+  yedekSorumlu    User?     @relation("BranchYedekSorumlu", fields: [yedekSorumluId], references: [id])
+  gorevliler      Gorevli[]
+}
+
+model Gorevli {
+  id          String   @id @default(cuid())
+  branchId    String
+  userId      String
+  atayaUserId String
+  tarih       DateTime @db.Date
+  baslangic   String?
+  bitis       String?
+  notlar      String?
+  aktif       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  user        User     @relation("GorevliUser", fields: [userId], references: [id])
+  atayan      User     @relation("GorevliAtayan", fields: [atayaUserId], references: [id])
 }
 
 model Customer {

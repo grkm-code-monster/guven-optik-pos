@@ -2,6 +2,7 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Görevli & vekalet atama sistemi kuruldu
 - [bugün] — SGK & İK belge upload sistemi kuruldu
 - [bugün] — User↔Personel↔Odoo hr.employee üçlü bağlantı kuruldu
 - [bugün] — Personel aylık hedef altyapısı: aylikHedef alanı, IK formu, dashboard hedef çubuğu
@@ -46,6 +47,7 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] odooEmployeeId User ve Personel tablolarına eklendi
 - [x] TanimlamalarPage Odoo çalışan bağlama UI
 - [x] SGK belgeleri upload (IK modülü — PersonelBelge, base64, onay akışı)
+- [x] Görevli/vekalet atama (günlük görevli + kalıcı yedek sorumlu)
 
 ## Kısa vadeli — açık
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
@@ -54,7 +56,7 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Personel.subeId → Branch.code standartlaştırma
 - [ ] Personel kaydı oluşturulunca WhatsApp belge talep akışı
 - [ ] Eğitim modülü (personel profilim sekmesi)
-- [ ] Görevli/vekalet atama (yönetim paneli)
+- [ ] PDKS gelince görevli atama otomatik tetiklenecek (izin/devamsızlık → yedek sorumlu otomatik aktif)
 - [ ] PDF çıktısı jsPDF ile
 - [ ] Açık hesap vade tarihi
 - [ ] PersonelDashboard: laboratuvara gönderilmedi gerçek veri (warranty userId filtresi eklenince)

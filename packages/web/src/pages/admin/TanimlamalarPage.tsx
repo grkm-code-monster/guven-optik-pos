@@ -323,32 +323,51 @@ function KomisyonTab() {
   )
 }
 
-type OdooLocation = {
-  id: number
+type PosBranch = {
+  id: string
   name: string
-  complete_name?: string
-  company_id?: [number, string] | false
+  code: string
+  yedekSorumluId?: string | null
+  yedekSorumlu?: { id: string; name: string; role: string } | null
 }
 
+type BranchUser = { id: string; name: string; role: string }
+
 function SubelerTab() {
-  const [locations, setLocations] = useState<OdooLocation[]>([])
+  const [branches, setBranches] = useState<PosBranch[]>([])
+  const [branchUsers, setBranchUsers] = useState<Record<string, BranchUser[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [savingId, setSavingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await adminApi.get('/admin/branches')
+      const res = await adminApi.get('/admin/branch-list')
       if (!res.data?.success) {
-        setError(res.data?.error ?? 'Lokasyonlar yüklenemedi')
-        setLocations([])
+        setError(res.data?.error ?? 'Şubeler yüklenemedi')
+        setBranches([])
         return
       }
-      setLocations(res.data.data ?? [])
+      const list: PosBranch[] = res.data.data ?? []
+      setBranches(list)
+
+      const usersMap: Record<string, BranchUser[]> = {}
+      await Promise.all(
+        list.map(async (b) => {
+          try {
+            const uRes = await adminApi.get(`/admin/branch/${b.id}/personeller`)
+            usersMap[b.id] = uRes.data?.data ?? []
+          } catch {
+            usersMap[b.id] = []
+          }
+        }),
+      )
+      setBranchUsers(usersMap)
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? 'Lokasyonlar yüklenemedi')
-      setLocations([])
+      setError(e?.response?.data?.error ?? 'Şubeler yüklenemedi')
+      setBranches([])
     } finally {
       setLoading(false)
     }
@@ -358,60 +377,84 @@ function SubelerTab() {
     void load()
   }, [load])
 
+  async function yedekSorumluKaydet(branchId: string, yedekSorumluId: string) {
+    setSavingId(branchId)
+    setError(null)
+    try {
+      await adminApi.patch(`/admin/branch/${branchId}/yedek-sorumlu`, {
+        yedekSorumluId: yedekSorumluId || null,
+      })
+      await load()
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? e?.response?.data?.error ?? 'Kayıt başarısız')
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   return (
     <div>
       <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 900 }}>Şubeler</h2>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <a
-          href="http://localhost:8069/web#action=stock.action_location_form"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            padding: '10px 16px',
-            borderRadius: 10,
-            border: '1px solid #e5e7eb',
-            backgroundColor: '#fff',
-            color: '#1a1a2e',
-            fontWeight: 800,
-            textDecoration: 'none',
-            fontSize: 14,
-          }}
-        >
-          Odoo&apos;da Yönet
-        </a>
-      </div>
       <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
-        Mağaza lokasyonları Odoo stok modülünden yönetilir. Aşağıdaki liste aktif iç lokasyonlardan çekilir.
+        POS şubeleri ve kalıcı yedek sorumlu ataması. Günlük görevli ataması mağaza müdürü dashboard&apos;undan yapılır.
       </p>
 
       {error ? <p style={{ color: '#ef4444', fontSize: 13 }}>{error}</p> : null}
       {loading ? <p style={{ color: '#6b7280' }}>Yükleniyor...</p> : null}
 
-      {!loading && locations.length > 0 ? (
+      {!loading && branches.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {locations.map((loc) => (
+          {branches.map((b) => (
             <div
-              key={loc.id}
+              key={b.id}
               style={{
                 border: '1px solid #e5e7eb',
                 borderRadius: 10,
                 padding: 14,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 12,
+                alignItems: 'center',
               }}
             >
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{loc.name}</div>
-              {loc.complete_name ? (
-                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{loc.complete_name}</div>
-              ) : null}
-              {Array.isArray(loc.company_id) ? (
-                <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>{loc.company_id[1]}</div>
-              ) : null}
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>{b.name}</div>
+                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>Kod: {b.code}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>
+                  Yedek Sorumlu
+                </label>
+                <select
+                  value={b.yedekSorumluId ?? ''}
+                  disabled={savingId === b.id}
+                  onChange={(e) => void yedekSorumluKaydet(b.id, e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    fontSize: 13,
+                  }}
+                >
+                  <option value="">— Seçilmedi —</option>
+                  {(branchUsers[b.id] ?? []).map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.role})
+                    </option>
+                  ))}
+                </select>
+                {savingId === b.id ? (
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>Kaydediliyor...</div>
+                ) : null}
+              </div>
             </div>
           ))}
         </div>
       ) : null}
 
-      {!loading && locations.length === 0 && !error ? (
-        <p style={{ color: '#6b7280' }}>Aktif lokasyon bulunamadı.</p>
+      {!loading && branches.length === 0 && !error ? (
+        <p style={{ color: '#6b7280' }}>Aktif şube bulunamadı.</p>
       ) : null}
     </div>
   )

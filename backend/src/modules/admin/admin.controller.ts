@@ -177,6 +177,130 @@ router.post(
   },
 );
 
+// Görevli & vekalet — dashboard erişimi (ADMIN middleware öncesi)
+router.get('/gorevli/bugun', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const branchId = req.user!.branchId;
+    const bugun = new Date();
+    bugun.setHours(0, 0, 0, 0);
+
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: {
+        yedekSorumluId: true,
+        yedekSorumlu: { select: { id: true, name: true, role: true } },
+      },
+    });
+
+    const gorevli = await prisma.gorevli.findFirst({
+      where: {
+        branchId,
+        tarih: bugun,
+        aktif: true,
+      },
+      include: {
+        user: { select: { id: true, name: true, role: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (gorevli) {
+      return res.json({
+        tip: 'GUNLUK',
+        user: gorevli.user,
+        baslangic: gorevli.baslangic,
+        bitis: gorevli.bitis,
+        notlar: gorevli.notlar,
+        yedekSorumlu: branch?.yedekSorumlu ?? null,
+      });
+    }
+
+    if (branch?.yedekSorumlu) {
+      return res.json({
+        tip: 'YEDEK',
+        user: branch.yedekSorumlu,
+        yedekSorumlu: branch.yedekSorumlu,
+      });
+    }
+
+    return res.json({ tip: 'YOK', user: null, yedekSorumlu: null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  '/gorevli/ata',
+  authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId, tarih, baslangic, bitis, notlar } = req.body;
+      const branchId = req.user!.branchId;
+
+      if (!userId || !tarih) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'userId ve tarih zorunlu',
+        });
+      }
+
+      const tarihDate = new Date(tarih);
+      tarihDate.setHours(0, 0, 0, 0);
+
+      await prisma.gorevli.updateMany({
+        where: { branchId, tarih: tarihDate, aktif: true },
+        data: { aktif: false },
+      });
+
+      const gorevli = await prisma.gorevli.create({
+        data: {
+          branchId,
+          userId,
+          atayaUserId: req.user!.userId,
+          tarih: tarihDate,
+          baslangic: baslangic || null,
+          bitis: bitis || null,
+          notlar: notlar || null,
+        },
+        include: {
+          user: { select: { id: true, name: true, role: true } },
+        },
+      });
+
+      return res.json({ success: true, data: gorevli });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  '/branch/:branchId/personeller',
+  authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { branchId } = req.params;
+      if (
+        req.user!.role === Role.STORE_MANAGER &&
+        req.user!.branchId !== branchId
+      ) {
+        return res.status(403).json({ error: 'FORBIDDEN', message: 'Bu şubeye erişim yok.' });
+      }
+      const users = await prisma.user.findMany({
+        where: {
+          branchId,
+          isActive: true,
+        },
+        select: { id: true, name: true, role: true },
+        orderBy: { name: 'asc' },
+      });
+      return res.json({ data: users });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.use(authorize(Role.ADMIN));
 
 function codeError(code: string, message: string) {
@@ -617,11 +741,38 @@ router.get('/branch-list', async (_req: Request, res: Response) => {
   try {
     const branches = await prisma.branch.findMany({
       where: { isActive: true },
-      select: { id: true, name: true, code: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        yedekSorumluId: true,
+        yedekSorumlu: { select: { id: true, name: true, role: true } },
+      },
+      orderBy: { code: 'asc' },
     });
     return res.json({ success: true, data: branches });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.patch('/branch/:branchId/yedek-sorumlu', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { yedekSorumluId } = req.body;
+    const branch = await prisma.branch.update({
+      where: { id: req.params.branchId },
+      data: { yedekSorumluId: yedekSorumluId || null },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        yedekSorumluId: true,
+        yedekSorumlu: { select: { id: true, name: true, role: true } },
+      },
+    });
+    return res.json({ success: true, data: branch });
+  } catch (err) {
+    next(err);
   }
 });
 
