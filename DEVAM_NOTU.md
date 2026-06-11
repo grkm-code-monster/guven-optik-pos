@@ -2,6 +2,7 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — User↔Personel↔Odoo hr.employee üçlü bağlantı kuruldu
 - [bugün] — Personel aylık hedef altyapısı: aylikHedef alanı, IK formu, dashboard hedef çubuğu
 - [bugün] — Dashboard prim placeholder → gerçek veri, yetki düzeltmesi
 - [bugün] — Prim hesaplama Odoo→Prisma geçişi, Branch eşleştirme düzeltildi
@@ -40,10 +41,14 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] Dashboard prim verisi gerçek API'ye bağlandı
 - [x] Debug console.log temizlendi
 - [x] Personel aylık hedef (Personel tablosundan — aylikHedef)
+- [x] Personel↔User eşleştirmesi (FK ile — ad/soyad string match kaldırıldı)
+- [x] odooEmployeeId User ve Personel tablolarına eklendi
+- [x] TanimlamalarPage Odoo çalışan bağlama UI
 
 ## Kısa vadeli — açık
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
-- [ ] Personel↔User tam eşleştirmesi (ad/soyad string match geçici)
+- [ ] Mevcut personelleri Odoo ile eşleştir (link-employee endpoint ile)
+- [ ] report.service.ts buildPersonelHedefMap — string match yerine userId FK kullanacak şekilde güncelle (sonraki sprint)
 - [ ] Personel.subeId → Branch.code standartlaştırma
 - [ ] SGK belgeleri upload (IK modülü)
 - [ ] Görevli/vekalet atama (yönetim paneli)

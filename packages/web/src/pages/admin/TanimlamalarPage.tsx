@@ -35,6 +35,23 @@ type AdminUser = {
   branchId: string
   isActive: boolean
   createdAt: string
+  personelId?: string | null
+  odooEmployeeId?: number | null
+  personel?: {
+    id: string
+    ad: string
+    soyad: string
+    pozisyon: string
+    subeId: string | null
+    aylikHedef: number
+  } | null
+}
+
+type OdooEmployeeOption = {
+  id: number
+  name: string
+  job_title?: string | false
+  department_id?: [number, string] | false
 }
 
 type OdooBranch = {
@@ -444,6 +461,111 @@ function defaultGuvenCompanyId(companies: OdooBranch[]): string {
   return guven ? String(guven.id) : companies[0] ? String(companies[0].id) : ''
 }
 
+function UserOdooLinkRow({
+  user,
+  onLinked,
+}: {
+  user: AdminUser
+  onLinked: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [employees, setEmployees] = useState<OdooEmployeeOption[]>([])
+  const [selectedId, setSelectedId] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [linking, setLinking] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function openPicker() {
+    setOpen(true)
+    setErr(null)
+    setLoading(true)
+    try {
+      const res = await adminApi.get('/admin/odoo-employees')
+      setEmployees(res.data?.data ?? [])
+    } catch (e: any) {
+      setErr(e?.response?.data?.message ?? 'Odoo çalışanları yüklenemedi')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function linkEmployee() {
+    if (!selectedId) return
+    setLinking(true)
+    setErr(null)
+    try {
+      await adminApi.post(`/admin/users/${user.id}/link-employee`, {
+        odooEmployeeId: Number(selectedId),
+      })
+      setOpen(false)
+      onLinked()
+    } catch (e: any) {
+      setErr(e?.response?.data?.message ?? 'Bağlantı kurulamadı')
+    } finally {
+      setLinking(false)
+    }
+  }
+
+  if (user.odooEmployeeId) {
+    return <span style={{ fontSize: 12, fontWeight: 700, color: '#059669' }}>✓ Bağlı</span>
+  }
+
+  return (
+    <div>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => void openPicker()}
+          style={{
+            padding: '6px 10px',
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            background: 'white',
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Odoo Çalışan Bağla
+        </button>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <select
+            value={selectedId}
+            onChange={(e) => setSelectedId(e.target.value)}
+            style={{ ...inputStyle, width: 'auto', minWidth: 200, padding: '6px 10px', fontSize: 12 }}
+            disabled={loading || linking}
+          >
+            <option value="">{loading ? 'Yükleniyor...' : 'Çalışan seç'}</option>
+            {employees.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name}
+                {e.job_title ? ` — ${String(e.job_title)}` : ''}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!selectedId || linking}
+            onClick={() => void linkEmployee()}
+            style={{ ...btnStyle, padding: '6px 12px', fontSize: 12, backgroundColor: '#059669', color: 'white' }}
+          >
+            {linking ? '...' : 'Bağla'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            style={{ ...btnStyle, padding: '6px 12px', fontSize: 12, backgroundColor: '#f3f4f6', color: '#374151' }}
+          >
+            İptal
+          </button>
+        </div>
+      )}
+      {err ? <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>{err}</div> : null}
+    </div>
+  )
+}
+
 function PersonellerTab() {
   const [employees, setEmployees] = useState<OdooEmployee[]>([])
   const [companies, setCompanies] = useState<OdooBranch[]>([])
@@ -603,6 +725,37 @@ function PersonellerTab() {
 
       {!loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 8 }}>
+            <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 12 }}>POS Kullanıcıları</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>
+                  <th style={{ padding: 8 }}>Ad</th>
+                  <th style={{ padding: 8 }}>Kullanıcı</th>
+                  <th style={{ padding: 8 }}>Rol</th>
+                  <th style={{ padding: 8 }}>Odoo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {posUsers.map((u) => (
+                  <tr key={u.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: 8, fontWeight: 700 }}>{u.name}</td>
+                    <td style={{ padding: 8 }}>@{u.username}</td>
+                    <td style={{ padding: 8 }}>
+                      <span style={roleBadgeStyle(u.role)}>{u.role}</span>
+                    </td>
+                    <td style={{ padding: 8 }}>
+                      <UserOdooLinkRow user={u} onLinked={() => void load()} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {posUsers.length === 0 ? (
+              <p style={{ color: '#9ca3af', fontSize: 13, margin: '8px 0 0' }}>POS kullanıcısı yok.</p>
+            ) : null}
+          </div>
+
           {employees.map((e) => {
             const posUser = posUserByName.get(normalizePersonName(e.name)) ?? null
             return (

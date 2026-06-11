@@ -15,8 +15,12 @@ model User {
   role       Role
   branchId   String
   isActive   Boolean  @default(true)
+  odooEmployeeId  Int?      // hr.employee.id
+  personelId      String?   @unique // Personel.id FK
   createdAt  DateTime @default(now())
   branch     Branch   @relation(fields: [branchId], references: [id])
+  personel        Personel? @relation("UserPersonelLink", fields: [personelId], references: [id])
+  personelByUser  Personel? @relation("PersonelUserLink")
   sales      Sale[]
   shifts     Shift[]
   warrantyClaims   WarrantyClaim[]
@@ -675,8 +679,12 @@ model Personel {
   aylikHedef      Float    @default(0)
   aktif           Boolean  @default(true)
   pdksId          String?  // Patron PDKS personel ID
+  userId          String?  @unique // User.id FK
+  odooEmployeeId  Int?      // hr.employee.id
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  user            User?    @relation("PersonelUserLink", fields: [userId], references: [id])
+  linkedUser      User?    @relation("UserPersonelLink")
   primKazanimlari PrimKazanim[]
 }
 

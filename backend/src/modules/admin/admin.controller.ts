@@ -228,6 +228,18 @@ router.get('/users', async (_req: Request, res: Response, next: NextFunction) =>
         branchId: true,
         isActive: true,
         createdAt: true,
+        personelId: true,
+        odooEmployeeId: true,
+        personel: {
+          select: {
+            id: true,
+            ad: true,
+            soyad: true,
+            pozisyon: true,
+            subeId: true,
+            aylikHedef: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -245,6 +257,8 @@ router.post('/users', async (req: Request, res: Response, next: NextFunction) =>
     const pin = String(req.body?.pin ?? '');
     const role = req.body?.role as Role | undefined;
     const branchId = String(req.body?.branchId ?? '').trim();
+    const personelId = req.body?.personelId ?? null;
+    const odooEmployeeId = req.body?.odooEmployeeId ? Number(req.body.odooEmployeeId) : null;
     if (!name || !username || !pin || !role || !branchId) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz istek gövdesi.' });
     }
@@ -255,7 +269,7 @@ router.post('/users', async (req: Request, res: Response, next: NextFunction) =>
     const pinHash = await bcrypt.hash(pin, 10);
 
     const user = await prisma.user.create({
-      data: { name, username, pin: pinHash, role, branchId, isActive: true },
+      data: { name, username, pin: pinHash, role, branchId, isActive: true, personelId, odooEmployeeId },
     });
 
     return res.status(200).json({
@@ -289,6 +303,10 @@ router.put('/users/:id', async (req: Request, res: Response, next: NextFunction)
       const pinHash = await bcrypt.hash(String(req.body.pin), 10);
       data.pin = pinHash;
     }
+    if (req.body?.personelId !== undefined) data.personelId = req.body.personelId || null;
+    if (req.body?.odooEmployeeId !== undefined) {
+      data.odooEmployeeId = req.body.odooEmployeeId ? Number(req.body.odooEmployeeId) : null;
+    }
 
     if (data.username && data.username !== existing.username) {
       const u = await prisma.user.findUnique({ where: { username: data.username } });
@@ -306,6 +324,95 @@ router.put('/users/:id', async (req: Request, res: Response, next: NextFunction)
       isActive: user.isActive,
       createdAt: user.createdAt,
     });
+  } catch (err) {
+    if (handleAdminError(err, res)) return;
+    next(err);
+  }
+});
+
+router.post('/users/:id/link-employee', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.params.id;
+    const odooEmployeeId = Number(req.body?.odooEmployeeId);
+
+    if (!odooEmployeeId) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'odooEmployeeId zorunlu',
+      });
+    }
+
+    const employees = await execute(
+      'hr.employee',
+      'search_read',
+      [[['id', '=', odooEmployeeId]]],
+      { fields: ['id', 'name', 'job_id', 'department_id', 'job_title', 'company_id'] },
+    );
+
+    if (!employees?.length) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'Odoo çalışanı bulunamadı',
+      });
+    }
+
+    const emp = employees[0];
+
+    const empNameParts = emp.name.trim().split(' ');
+    const soyad = empNameParts[empNameParts.length - 1];
+    const ad = empNameParts.slice(0, -1).join(' ');
+
+    const personel = await prisma.personel.findFirst({
+      where: {
+        ad: { contains: ad, mode: 'insensitive' },
+        soyad: { contains: soyad, mode: 'insensitive' },
+      },
+    });
+
+    let personelLinked = false;
+    if (personel && !personel.userId) {
+      await prisma.personel.update({
+        where: { id: personel.id },
+        data: {
+          userId,
+          odooEmployeeId,
+        },
+      });
+      personelLinked = true;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        odooEmployeeId,
+        personelId: personelLinked ? personel!.id : undefined,
+      },
+    });
+
+    return res.json({
+      success: true,
+      user: updated,
+      odooEmployee: emp,
+      personelLinked,
+    });
+  } catch (err) {
+    if (handleAdminError(err, res)) return;
+    next(err);
+  }
+});
+
+router.get('/odoo-employees', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employees = await execute(
+      'hr.employee',
+      'search_read',
+      [[['active', '=', true]]],
+      {
+        fields: ['id', 'name', 'job_id', 'department_id', 'job_title', 'company_id'],
+        limit: 100,
+      },
+    );
+    return res.json({ data: employees });
   } catch (err) {
     if (handleAdminError(err, res)) return;
     next(err);
