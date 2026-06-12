@@ -4263,6 +4263,102 @@ router.post('/odoo-nitelik-deger-toplu-ekle', async (req, res, next) => {
   }
 });
 
+router.post('/odoo-nitelik-deger-eslesme', async (req, res, next) => {
+  try {
+    const { attributeId, degerler } = req.body;
+    if (!attributeId || !degerler?.length) {
+      return res.status(400).json({ error: 'attributeId ve degerler zorunlu' });
+    }
+
+    const mevcutlar = await execute(
+      'product.attribute.value', 'search_read',
+      [[['attribute_id', '=', Number(attributeId)]]],
+      { fields: ['id', 'name'], limit: 5000 },
+    );
+    const mevcutMap = new Map<string, number>(
+      mevcutlar.map((m: { id: number; name: string }) => [m.name.trim().toUpperCase(), m.id]),
+    );
+
+    const sonuc = {
+      secilen: [] as { id: number; name: string; durum: 'var' | 'yeni' }[],
+    };
+
+    for (const d of (degerler as string[])) {
+      const temiz = d.trim();
+      if (!temiz) continue;
+      const key = temiz.toUpperCase();
+
+      if (mevcutMap.has(key)) {
+        sonuc.secilen.push({
+          id: mevcutMap.get(key)!,
+          name: temiz,
+          durum: 'var',
+        });
+      } else {
+        const yeniId = Number(await execute(
+          'product.attribute.value', 'create',
+          [{ name: temiz, attribute_id: Number(attributeId) }],
+        ));
+        sonuc.secilen.push({ id: yeniId, name: temiz, durum: 'yeni' });
+        mevcutMap.set(key, yeniId);
+      }
+    }
+
+    return res.json({
+      success: true,
+      secilen: sonuc.secilen,
+      varSayisi: sonuc.secilen.filter((s) => s.durum === 'var').length,
+      yeniSayisi: sonuc.secilen.filter((s) => s.durum === 'yeni').length,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/odoo-sablon-listesi', async (req, res, next) => {
+  try {
+    const { q, kategoriId } = req.query;
+    const domain: unknown[] = [['type', 'in', ['product', 'consu', 'service']]];
+    if (q) domain.push(['name', 'ilike', String(q)]);
+    if (kategoriId) domain.push(['categ_id', '=', Number(kategoriId)]);
+
+    const data = await execute('product.template', 'search_read',
+      [domain],
+      {
+        fields: ['id', 'name', 'categ_id', 'default_code',
+          'list_price', 'standard_price', 'type',
+          'product_variant_count', 'attribute_line_ids',
+          'sale_ok', 'purchase_ok', 'active'],
+        limit: 100,
+        order: 'name asc',
+      },
+    );
+    return res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/odoo-sablon/:tmplId', async (req, res, next) => {
+  try {
+    const tmplId = Number(req.params.tmplId);
+    const data = await execute('product.template', 'read',
+      [[tmplId]],
+      {
+        fields: ['id', 'name', 'categ_id', 'default_code', 'barcode',
+          'list_price', 'standard_price', 'type', 'taxes_id',
+          'sale_ok', 'purchase_ok', 'can_be_expensed',
+          'invoice_policy', 'tracking', 'sale_delay',
+          'weight', 'volume', 'company_id',
+          'attribute_line_ids', 'product_variant_count'],
+      },
+    );
+    return res.json({ data: data[0] ?? null });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/odoo-sablon-olustur', async (req, res, next) => {
   try {
     const {

@@ -4,6 +4,7 @@ import { adminApi } from './AdminLayout'
 
 const RED = '#A32D2D'
 const GREEN = '#3B6D11'
+const BLUE = '#2563eb'
 
 const inp: React.CSSProperties = {
   padding: '7px 12px',
@@ -38,6 +39,21 @@ const ADIMLAR = ['Kategori', 'Ürün şablonu', 'Nitelik & değer', 'Varyantlar'
 type OdooKategori = { id: number; name: string; parent_id: false | [number, string]; complete_name: string }
 type OdooNitelik = { id: number; name: string; value_ids: number[]; display_type: string }
 type OdooNitelikDeger = { id: number; name: string; attribute_id: [number, string] }
+
+type OdooSablonListItem = {
+  id: number
+  name: string
+  categ_id: false | [number, string]
+  default_code: false | string
+  list_price: number
+  standard_price: number
+  type: string
+  product_variant_count: number
+  attribute_line_ids: number[]
+  sale_ok: boolean
+  purchase_ok: boolean
+  active: boolean
+}
 
 type VaryantRow = {
   odooId: number
@@ -74,7 +90,8 @@ export default function UrunYapilandirmaPage() {
   const [yeniKategori, setYeniKategori] = useState({ ad: '', parentId: '', sirket: '' })
   const [yeniNitelik, setYeniNitelik] = useState({ ad: '', displayType: 'select', degerler: '' })
   const [yeniDeger, setYeniDeger] = useState<Record<number, string>>({})
-  const [degerEkleniyor, setDegerEkleniyor] = useState<Record<number, boolean>>({})
+  const [uygulamaYukleniyor, setUygulamaYukleniyor] = useState<Record<number, boolean>>({})
+  const [uygulamaSonuc, setUygulamaSonuc] = useState<Record<number, { varSayisi: number; yeniSayisi: number }>>({})
 
   const [sablon, setSablon] = useState({
     ad: '',
@@ -102,6 +119,13 @@ export default function UrunYapilandirmaPage() {
   const [varyantlar, setVaryantlar] = useState<VaryantRow[]>([])
   const [tmplId, setTmplId] = useState<number | null>(null)
 
+  const [sablonModu, setSablonModu] = useState<'sec' | 'yeni'>('sec')
+  const [sablonListesi, setSablonListesi] = useState<OdooSablonListItem[]>([])
+  const [sablonArama, setSablonArama] = useState('')
+  const [sablonKategoriFiltre, setSablonKategoriFiltre] = useState('')
+  const [seciliSablon, setSeciliSablon] = useState<OdooSablonListItem | null>(null)
+  const [sablonYukleniyor, setSablonYukleniyor] = useState(false)
+
   const yukle = useCallback(async () => {
     const [katRes, nitRes, nitValRes] = await Promise.all([
       adminApi.get('/admin/odoo-kategoriler'),
@@ -117,16 +141,48 @@ export default function UrunYapilandirmaPage() {
     void yukle().catch(() => setMesaj({ tip: 'err', text: 'Odoo verileri yüklenemedi' }))
   }, [yukle])
 
+  useEffect(() => {
+    if (adim === 2) {
+      setSablonYukleniyor(true)
+      adminApi.get('/admin/odoo-sablon-listesi')
+        .then((res) => setSablonListesi(res.data?.data ?? []))
+        .catch(() => {})
+        .finally(() => setSablonYukleniyor(false))
+    }
+  }, [adim])
+
   const siraliKategoriler = useMemo(
     () => [...kategoriler].sort((a, b) => a.complete_name.localeCompare(b.complete_name, 'tr')),
     [kategoriler],
   )
+
+  const filtreliSablonlar = useMemo(() => {
+    return sablonListesi.filter((s) => {
+      const adMatch = !sablonArama
+        || s.name?.toLowerCase().includes(sablonArama.toLowerCase())
+        || (typeof s.default_code === 'string' && s.default_code.toLowerCase().includes(sablonArama.toLowerCase()))
+      const katMatch = !sablonKategoriFiltre
+        || s.categ_id?.[0] === Number(sablonKategoriFiltre)
+      return adMatch && katMatch
+    })
+  }, [sablonListesi, sablonArama, sablonKategoriFiltre])
 
   const sablonVaryantSayisi = useMemo(() => {
     const attrs = aktifNitelikler.filter((id) => (seciliDegerler[id]?.length ?? 0) > 0)
     if (attrs.length === 0) return 0
     return attrs.reduce((acc, attrId) => acc * (seciliDegerler[attrId]?.length ?? 0), 1)
   }, [aktifNitelikler, seciliDegerler])
+
+  const varyantFormulu = useMemo(() => {
+    const attrs = aktifNitelikler.filter((id) => (seciliDegerler[id]?.length ?? 0) > 0)
+    if (attrs.length === 0) return ''
+    const parts = attrs.map((id) => {
+      const nitelik = nitelikler.find((n) => n.id === id)
+      const count = seciliDegerler[id]?.length ?? 0
+      return `${nitelik?.name ?? id}(${count})`
+    })
+    return `${parts.join(' × ')} = ${sablonVaryantSayisi} varyant`
+  }, [aktifNitelikler, seciliDegerler, nitelikler, sablonVaryantSayisi])
 
   function mapVariantsToRows(raw: any[]) {
     return raw.map((v: any) => {
@@ -160,14 +216,54 @@ export default function UrunYapilandirmaPage() {
     }
   }
 
-  function toggleSablonDeger(attrId: number, valueId: number, checked: boolean) {
-    setSeciliDegerler((prev) => {
-      const cur = prev[attrId] ?? []
-      const nextVals = checked ? [...cur, valueId] : cur.filter((id) => id !== valueId)
-      return { ...prev, [attrId]: nextVals }
-    })
-    if (checked) {
-      setAktifNitelikler((prev) => (prev.includes(attrId) ? prev : [...prev, attrId]))
+  async function uygula(attributeId: number) {
+    const ham = yeniDeger[attributeId] || ''
+    const liste = ham
+      .split(/[\n,\t]+/)
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .filter((d, i, arr) => arr.indexOf(d) === i)
+
+    if (liste.length === 0) return
+
+    setUygulamaYukleniyor((prev) => ({ ...prev, [attributeId]: true }))
+    try {
+      const res = await adminApi.post(
+        '/admin/odoo-nitelik-deger-eslesme',
+        { attributeId, degerler: liste },
+      )
+      const { secilen, varSayisi, yeniSayisi } = res.data
+
+      const yeniIdler = secilen.map((s: { id: number }) => s.id)
+      setSeciliDegerler((prev) => ({
+        ...prev,
+        [attributeId]: [...new Set([...(prev[attributeId] ?? []), ...yeniIdler])],
+      }))
+
+      const nitRes = await adminApi.get('/admin/odoo-nitelik-degerleri')
+      setNitelikDegerleri(nitRes.data?.data ?? [])
+
+      setUygulamaSonuc((prev) => ({
+        ...prev,
+        [attributeId]: { varSayisi, yeniSayisi },
+      }))
+      setTimeout(() => {
+        setUygulamaSonuc((prev) => {
+          const next = { ...prev }
+          delete next[attributeId]
+          return next
+        })
+      }, 5000)
+
+      setYeniDeger((prev) => ({ ...prev, [attributeId]: '' }))
+
+      if (!aktifNitelikler.includes(attributeId)) {
+        setAktifNitelikler((prev) => [...prev, attributeId])
+      }
+    } catch {
+      alert('İşlem başarısız')
+    } finally {
+      setUygulamaYukleniyor((prev) => ({ ...prev, [attributeId]: false }))
     }
   }
 
@@ -190,41 +286,6 @@ export default function UrunYapilandirmaPage() {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Kayıt hatası' })
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function degerEkle(attributeId: number) {
-    const ham = yeniDeger[attributeId] || ''
-    const degerListesi = ham
-      .split(/[\n,\t]+/)
-      .map((d) => d.trim())
-      .filter(Boolean)
-      .filter((d, i, arr) => arr.indexOf(d) === i)
-
-    if (degerListesi.length === 0) return
-
-    if (degerListesi.length > 10) {
-      const onay = window.confirm(
-        `${degerListesi.length} değer eklenecek. Devam edilsin mi?`,
-      )
-      if (!onay) return
-    }
-
-    setDegerEkleniyor((prev) => ({ ...prev, [attributeId]: true }))
-    try {
-      const res = await adminApi.post('/admin/odoo-nitelik-deger-toplu-ekle', {
-        attributeId,
-        degerler: degerListesi,
-      })
-      const { eklenen, atlanan } = res.data
-      alert(`${eklenen} değer eklendi${atlanan > 0 ? `, ${atlanan} zaten vardı (atlandı)` : ''}`)
-      const nitRes = await adminApi.get('/admin/odoo-nitelik-degerleri')
-      setNitelikDegerleri(nitRes.data?.data ?? [])
-      setYeniDeger((prev) => ({ ...prev, [attributeId]: '' }))
-    } catch {
-      alert('Değer eklenemedi')
-    } finally {
-      setDegerEkleniyor((prev) => ({ ...prev, [attributeId]: false }))
     }
   }
 
@@ -287,6 +348,49 @@ export default function UrunYapilandirmaPage() {
       setAdim(3)
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.response?.data?.message ?? 'Şablon kaydedilemedi' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function sablonSecVeDevam() {
+    if (!seciliSablon) return
+    setLoading(true)
+    setMesaj(null)
+    try {
+      const res = await adminApi.get(`/admin/odoo-sablon/${seciliSablon.id}`)
+      const t = res.data?.data
+      if (!t) {
+        setMesaj({ tip: 'err', text: 'Şablon bulunamadı' })
+        return
+      }
+      setTmplId(t.id)
+      setSablon({
+        ad: t.name ?? '',
+        tur: t.type ?? 'product',
+        kategoriId: t.categ_id?.[0] ? String(t.categ_id[0]) : '',
+        satisFiyati: String(t.list_price ?? ''),
+        maliyet: String(t.standard_price ?? ''),
+        vergi: '10',
+        icReferans: t.default_code || '',
+        barkod: t.barcode || '',
+        sirket: t.company_id?.[0] ? String(t.company_id[0]) : '',
+        faturaKurali: t.invoice_policy ?? 'order',
+        izleme: t.tracking ?? 'lot',
+        teslimSuresi: t.sale_delay ?? 0,
+        agirlik: t.weight ?? 0,
+        hacim: t.volume ?? 0,
+        satilabilir: !!t.sale_ok,
+        satinAlinabilir: !!t.purchase_ok,
+        masrafOlabilir: !!t.can_be_expensed,
+      })
+      setAktifNitelikler([])
+      setSeciliDegerler({})
+      setVaryantlar([])
+      setMesaj({ tip: 'ok', text: 'Şablon seçildi — nitelik atayabilirsiniz' })
+      setAdim(3)
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.response?.data?.message ?? 'Şablon yüklenemedi' })
     } finally {
       setLoading(false)
     }
@@ -461,107 +565,254 @@ export default function UrunYapilandirmaPage() {
       {/* ADIM 2 — ÜRÜN ŞABLONU */}
       {adim === 2 ? (
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, backgroundColor: 'white' }}>
-          <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-            {[
-              ['satilabilir', 'Satılabilir'],
-              ['satinAlinabilir', 'Satın alınabilir'],
-              ['masrafOlabilir', 'Masraf olabilir'],
-            ].map(([key, label]) => (
-              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={sablon[key as keyof typeof sablon] as boolean}
-                  onChange={(e) => setSablon((s) => ({ ...s, [key]: e.target.checked }))}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Ürün Adı *</label>
-              <input value={sablon.ad} onChange={(e) => setSablon((s) => ({ ...s, ad: e.target.value }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Ürün Türü</label>
-              <select value={sablon.tur} onChange={(e) => setSablon((s) => ({ ...s, tur: e.target.value }))} style={inp}>
-                <option value="product">Stoklanabilir</option>
-                <option value="consu">Sarf</option>
-                <option value="service">Hizmet</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Kategori</label>
-              <select value={sablon.kategoriId} onChange={(e) => setSablon((s) => ({ ...s, kategoriId: e.target.value }))} style={inp}>
-                <option value="">— Seçin —</option>
-                {siraliKategoriler.map((k) => (
-                  <option key={k.id} value={k.id}>{k.complete_name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Şirket</label>
-              <select value={sablon.sirket} onChange={(e) => setSablon((s) => ({ ...s, sirket: e.target.value }))} style={inp}>
-                <option value="">—</option>
-                {SIRKETLER.map((s) => <option key={s.id} value={s.id}>{s.ad}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Satış Fiyatı (₺)</label>
-              <input type="number" value={sablon.satisFiyati} onChange={(e) => setSablon((s) => ({ ...s, satisFiyati: e.target.value }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Maliyet (₺)</label>
-              <input type="number" value={sablon.maliyet} onChange={(e) => setSablon((s) => ({ ...s, maliyet: e.target.value }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Vergi (%)</label>
-              <input type="number" value={sablon.vergi} onChange={(e) => setSablon((s) => ({ ...s, vergi: e.target.value }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>İç Referans</label>
-              <input value={sablon.icReferans} onChange={(e) => setSablon((s) => ({ ...s, icReferans: e.target.value }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Barkod</label>
-              <input value={sablon.barkod} onChange={(e) => setSablon((s) => ({ ...s, barkod: e.target.value }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>İzleme</label>
-              <select value={sablon.izleme} onChange={(e) => setSablon((s) => ({ ...s, izleme: e.target.value }))} style={inp}>
-                <option value="lot">Lot</option>
-                <option value="serial">Seri</option>
-                <option value="none">Yok</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Teslim Süresi (gün)</label>
-              <input type="number" value={sablon.teslimSuresi} onChange={(e) => setSablon((s) => ({ ...s, teslimSuresi: Number(e.target.value) }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Ağırlık (kg)</label>
-              <input type="number" value={sablon.agirlik} onChange={(e) => setSablon((s) => ({ ...s, agirlik: Number(e.target.value) }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Hacim (m³)</label>
-              <input type="number" value={sablon.hacim} onChange={(e) => setSablon((s) => ({ ...s, hacim: Number(e.target.value) }))} style={inp} />
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6b7280' }}>Faturalama Kuralı</label>
-              <select value={sablon.faturaKurali} onChange={(e) => setSablon((s) => ({ ...s, faturaKurali: e.target.value }))} style={inp}>
-                <option value="order">Sipariş miktarı</option>
-                <option value="delivery">Teslim edilen miktar</option>
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-            <button type="button" onClick={() => setAdim(1)} style={btnSmall}>← Kategori</button>
-            <button type="button" onClick={() => void sablonKaydet()} disabled={loading} style={{ ...btnPrimary, backgroundColor: RED }}>
-              {loading ? 'Kaydediliyor...' : 'Kaydet ve devam et'}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            <button
+              type="button"
+              onClick={() => setSablonModu('sec')}
+              style={{
+                flex: 1,
+                padding: '10px 16px',
+                border: sablonModu === 'sec' ? `2px solid ${RED}` : '1px solid #e5e7eb',
+                borderRadius: 8,
+                backgroundColor: sablonModu === 'sec' ? '#fef2f2' : '#f9fafb',
+                color: sablonModu === 'sec' ? RED : '#6b7280',
+                fontWeight: sablonModu === 'sec' ? 800 : 500,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Mevcut şablon seç
+            </button>
+            <button
+              type="button"
+              onClick={() => setSablonModu('yeni')}
+              style={{
+                flex: 1,
+                padding: '10px 16px',
+                border: sablonModu === 'yeni' ? `2px solid ${RED}` : '1px solid #e5e7eb',
+                borderRadius: 8,
+                backgroundColor: sablonModu === 'yeni' ? '#fef2f2' : '#f9fafb',
+                color: sablonModu === 'yeni' ? RED : '#6b7280',
+                fontWeight: sablonModu === 'yeni' ? 800 : 500,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Yeni şablon oluştur
             </button>
           </div>
+
+          {sablonModu === 'sec' ? (
+            <div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                <input
+                  type="text"
+                  placeholder="Ad veya iç referans ara..."
+                  value={sablonArama}
+                  onChange={(e) => setSablonArama(e.target.value)}
+                  style={{ ...inp, flex: 1 }}
+                />
+                <select
+                  value={sablonKategoriFiltre}
+                  onChange={(e) => setSablonKategoriFiltre(e.target.value)}
+                  style={{ ...inp, minWidth: 200 }}
+                >
+                  <option value="">Tüm kategoriler</option>
+                  {siraliKategoriler.map((k) => (
+                    <option key={k.id} value={k.id}>{k.complete_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {sablonYukleniyor ? (
+                <div style={{ padding: 32, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+                  Şablonlar yükleniyor...
+                </div>
+              ) : (
+                <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0 }}>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>Ad</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>Kategori</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>Varyant</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>Durum</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtreliSablonlar.map((s) => {
+                        const secili = seciliSablon?.id === s.id
+                        const aktif = (s.product_variant_count ?? 0) > 0
+                        return (
+                          <tr
+                            key={s.id}
+                            onClick={() => setSeciliSablon(s)}
+                            style={{
+                              borderBottom: '1px solid #f3f4f6',
+                              cursor: 'pointer',
+                              borderLeft: secili ? `3px solid ${RED}` : '3px solid transparent',
+                              backgroundColor: secili ? '#fef2f2' : undefined,
+                            }}
+                          >
+                            <td style={{ padding: '10px 12px' }}>
+                              {s.name}
+                              <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 6 }}>#{s.id}</span>
+                            </td>
+                            <td style={{ padding: '10px 12px', color: '#6b7280' }}>
+                              {Array.isArray(s.categ_id) ? s.categ_id[1] : '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>{s.product_variant_count ?? 0}</td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: 20,
+                                backgroundColor: aktif ? '#dcfce7' : '#fef3c7',
+                                color: aktif ? GREEN : '#92400e',
+                              }}>
+                                {aktif ? 'Aktif' : 'Taslak'}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {filtreliSablonlar.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>
+                            Şablon bulunamadı
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 20, alignItems: 'center' }}>
+                <button type="button" onClick={() => setAdim(1)} style={btnSmall}>← Kategori</button>
+                {seciliSablon ? (
+                  <span style={{ fontSize: 13, color: '#6b7280', flex: 1 }}>
+                    Seçili: <strong>{seciliSablon.name}</strong>
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 13, color: '#9ca3af', flex: 1 }}>Listeden bir şablon seçin</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void sablonSecVeDevam()}
+                  disabled={loading || !seciliSablon}
+                  style={{ ...btnPrimary, backgroundColor: RED }}
+                >
+                  {loading ? 'Yükleniyor...' : 'Bu şablonla devam et →'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+                {[
+                  ['satilabilir', 'Satılabilir'],
+                  ['satinAlinabilir', 'Satın alınabilir'],
+                  ['masrafOlabilir', 'Masraf olabilir'],
+                ].map(([key, label]) => (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={sablon[key as keyof typeof sablon] as boolean}
+                      onChange={(e) => setSablon((s) => ({ ...s, [key]: e.target.checked }))}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Ürün Adı *</label>
+                  <input value={sablon.ad} onChange={(e) => setSablon((s) => ({ ...s, ad: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Ürün Türü</label>
+                  <select value={sablon.tur} onChange={(e) => setSablon((s) => ({ ...s, tur: e.target.value }))} style={inp}>
+                    <option value="product">Stoklanabilir</option>
+                    <option value="consu">Sarf</option>
+                    <option value="service">Hizmet</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Kategori</label>
+                  <select value={sablon.kategoriId} onChange={(e) => setSablon((s) => ({ ...s, kategoriId: e.target.value }))} style={inp}>
+                    <option value="">— Seçin —</option>
+                    {siraliKategoriler.map((k) => (
+                      <option key={k.id} value={k.id}>{k.complete_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Şirket</label>
+                  <select value={sablon.sirket} onChange={(e) => setSablon((s) => ({ ...s, sirket: e.target.value }))} style={inp}>
+                    <option value="">—</option>
+                    {SIRKETLER.map((s) => <option key={s.id} value={s.id}>{s.ad}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Satış Fiyatı (₺)</label>
+                  <input type="number" value={sablon.satisFiyati} onChange={(e) => setSablon((s) => ({ ...s, satisFiyati: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Maliyet (₺)</label>
+                  <input type="number" value={sablon.maliyet} onChange={(e) => setSablon((s) => ({ ...s, maliyet: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Vergi (%)</label>
+                  <input type="number" value={sablon.vergi} onChange={(e) => setSablon((s) => ({ ...s, vergi: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>İç Referans</label>
+                  <input value={sablon.icReferans} onChange={(e) => setSablon((s) => ({ ...s, icReferans: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Barkod</label>
+                  <input value={sablon.barkod} onChange={(e) => setSablon((s) => ({ ...s, barkod: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>İzleme</label>
+                  <select value={sablon.izleme} onChange={(e) => setSablon((s) => ({ ...s, izleme: e.target.value }))} style={inp}>
+                    <option value="lot">Lot</option>
+                    <option value="serial">Seri</option>
+                    <option value="none">Yok</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Teslim Süresi (gün)</label>
+                  <input type="number" value={sablon.teslimSuresi} onChange={(e) => setSablon((s) => ({ ...s, teslimSuresi: Number(e.target.value) }))} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Ağırlık (kg)</label>
+                  <input type="number" value={sablon.agirlik} onChange={(e) => setSablon((s) => ({ ...s, agirlik: Number(e.target.value) }))} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Hacim (m³)</label>
+                  <input type="number" value={sablon.hacim} onChange={(e) => setSablon((s) => ({ ...s, hacim: Number(e.target.value) }))} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280' }}>Faturalama Kuralı</label>
+                  <select value={sablon.faturaKurali} onChange={(e) => setSablon((s) => ({ ...s, faturaKurali: e.target.value }))} style={inp}>
+                    <option value="order">Sipariş miktarı</option>
+                    <option value="delivery">Teslim edilen miktar</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                <button type="button" onClick={() => setAdim(1)} style={btnSmall}>← Kategori</button>
+                <button type="button" onClick={() => void sablonKaydet()} disabled={loading} style={{ ...btnPrimary, backgroundColor: RED }}>
+                  {loading ? 'Kaydediliyor...' : 'Kaydet ve devam et'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       ) : null}
 
@@ -573,75 +824,177 @@ export default function UrunYapilandirmaPage() {
             {tmplId ? <span style={{ fontSize: 12, fontWeight: 500, color: '#6b7280', marginLeft: 8 }}>(Odoo #{tmplId})</span> : null}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
+            {/* SOL — Ana kart */}
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, backgroundColor: 'white' }}>
-              <div style={{ fontWeight: 800, marginBottom: 12 }}>Şablona nitelik ata</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '0.5px solid #e5e7eb', background: '#f9f9f9' }}>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 12, color: '#6b7280', width: '140px' }}>Nitelik</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 12, color: '#6b7280', width: '120px' }}>Bu şablona ekle</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 12, color: '#6b7280' }}>Kullanılacak değerler</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nitelikler.map((nitelik) => {
-                    const degerler = nitelikDegerleri.filter((d) => d.attribute_id[0] === nitelik.id)
-                    const aktif = aktifNitelikler.includes(nitelik.id)
-                    const secili = seciliDegerler[nitelik.id] ?? []
-                    return (
-                      <tr key={nitelik.id} style={{ borderBottom: '0.5px solid #e5e7eb', verticalAlign: 'top' }}>
-                        <td style={{ padding: '10px 12px', fontSize: 13, fontWeight: 500 }}>
-                          {nitelik.name}
-                          <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{nitelik.display_type}</div>
-                        </td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={aktif}
-                              onChange={(e) => toggleSablonNitelik(nitelik.id, e.target.checked)}
-                            />
-                            Ekle
-                          </label>
-                        </td>
-                        <td style={{ padding: '10px 12px' }}>
-                          {aktif ? (
-                            degerler.length > 0 ? (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                {degerler.map((d) => (
-                                  <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={secili.includes(d.id)}
-                                      onChange={(e) => toggleSablonDeger(nitelik.id, d.id, e.target.checked)}
-                                    />
-                                    {d.name}
-                                  </label>
-                                ))}
-                              </div>
-                            ) : (
-                              <span style={{ fontSize: 11, color: '#9ca3af' }}>Değer yok — sağdan ekleyin</span>
-                            )
-                          ) : (
-                            <span style={{ fontSize: 11, color: '#d1d5db' }}>—</span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-              {sablonVaryantSayisi > 0 ? (
-                <div style={{ marginTop: 12, fontSize: 13, fontWeight: 700, color: RED }}>
-                  {sablonVaryantSayisi} varyant oluşacak
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ fontWeight: 800 }}>Şablona nitelik & değer ata</div>
+                {sablonVaryantSayisi > 0 ? (
+                  <span style={{ fontSize: 13, fontWeight: 700, color: RED }}>
+                    {sablonVaryantSayisi} varyant
+                  </span>
+                ) : null}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {nitelikler.map((nitelik) => {
+                  const aktif = aktifNitelikler.includes(nitelik.id)
+                  const seciliIds = seciliDegerler[nitelik.id] ?? []
+                  const seciliAdlar = seciliIds
+                    .map((id) => nitelikDegerleri.find((d) => d.id === id)?.name)
+                    .filter(Boolean) as string[]
+                  const sonuc = uygulamaSonuc[nitelik.id]
+
+                  return (
+                    <div
+                      key={nitelik.id}
+                      style={{
+                        border: '1px solid #e5e7eb',
+                        borderRadius: 10,
+                        padding: 14,
+                        backgroundColor: aktif ? '#fafafa' : 'white',
+                      }}
+                    >
+                      {/* 1. Üst satır: checkbox + ad */}
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 10 }}>
+                        <input
+                          type="checkbox"
+                          checked={aktif}
+                          onChange={(e) => toggleSablonNitelik(nitelik.id, e.target.checked)}
+                        />
+                        <span style={{ fontWeight: 700, fontSize: 14 }}>{nitelik.name}</span>
+                        <span style={{ fontSize: 11, color: '#9ca3af' }}>{nitelik.display_type}</span>
+                      </label>
+
+                      {/* 2. Seçili değer badge'leri */}
+                      {aktif ? (
+                        seciliAdlar.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                            {seciliAdlar.map((ad) => (
+                              <span
+                                key={ad}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 10px',
+                                  borderRadius: 20,
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  backgroundColor: '#dcfce7',
+                                  color: GREEN,
+                                  border: '1px solid #bbf7d0',
+                                }}
+                              >
+                                ✓ {ad}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 10 }}>
+                            Henüz değer seçilmedi
+                          </div>
+                        )
+                      ) : null}
+
+                      {/* 3. Textarea + Uygula */}
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <textarea
+                          placeholder={"Excel'den yapıştır (satır satır):\nMU1080\nMU1116\n\nveya virgülle: MU1080, MU1116"}
+                          value={yeniDeger[nitelik.id] || ''}
+                          onChange={(e) => setYeniDeger((prev) => ({
+                            ...prev,
+                            [nitelik.id]: e.target.value,
+                          }))}
+                          style={{
+                            flex: 1,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            height: 72,
+                            resize: 'vertical',
+                            border: '0.5px solid #e5e7eb',
+                            borderRadius: 6,
+                            padding: '6px 8px',
+                            color: '#111',
+                            background: 'white',
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void uygula(nitelik.id)}
+                          disabled={uygulamaYukleniyor[nitelik.id]}
+                          style={{
+                            fontSize: 12,
+                            padding: '8px 16px',
+                            background: RED,
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 6,
+                            cursor: uygulamaYukleniyor[nitelik.id] ? 'wait' : 'pointer',
+                            whiteSpace: 'nowrap',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {uygulamaYukleniyor[nitelik.id] ? 'Uygulanıyor...' : 'Uygula'}
+                        </button>
+                      </div>
+
+                      {/* 4. Sonuç bandı */}
+                      {sonuc ? (
+                        <div style={{
+                          marginTop: 10,
+                          padding: '8px 12px',
+                          borderRadius: 6,
+                          backgroundColor: '#dcfce7',
+                          fontSize: 12,
+                          color: '#166534',
+                          lineHeight: 1.5,
+                        }}>
+                          ✓ {sonuc.varSayisi} zaten vardı, seçildi
+                          {sonuc.yeniSayisi > 0 ? (
+                            <><br />+ {sonuc.yeniSayisi} yeni Odoo&apos;ya eklendi ve seçildi</>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Alt bar */}
+              <div style={{
+                marginTop: 20,
+                padding: '14px 16px',
+                borderRadius: 8,
+                backgroundColor: '#f9fafb',
+                border: '1px solid #e5e7eb',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                  {varyantFormulu || 'Nitelik seçip değer uygulayın'}
                 </div>
-              ) : null}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={() => setAdim(2)} style={btnSmall}>← Şablon</button>
+                  <button
+                    type="button"
+                    onClick={() => void sablonNitelikAta()}
+                    disabled={loading || sablonVaryantSayisi === 0}
+                    style={{ ...btnPrimary, backgroundColor: RED }}
+                  >
+                    {loading ? 'Oluşturuluyor...' : 'Varyantları oluştur →'}
+                  </button>
+                </div>
+              </div>
             </div>
 
+            {/* SAĞ — Sidebar */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, backgroundColor: '#f9fafb' }}>
-                <div style={{ fontWeight: 800, marginBottom: 12 }}>Yeni Nitelik (global)</div>
+                <div style={{ fontWeight: 800, marginBottom: 12 }}>Yeni global nitelik ekle</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div>
                     <label style={{ fontSize: 11, color: '#6b7280' }}>Nitelik Adı *</label>
@@ -666,82 +1019,28 @@ export default function UrunYapilandirmaPage() {
               </div>
 
               <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, backgroundColor: 'white' }}>
-                <div style={{ fontWeight: 800, marginBottom: 12 }}>Mevcut niteliğe değer ekle</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '0.5px solid #e5e7eb', background: '#f9f9f9' }}>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 12, color: '#6b7280', width: '100px' }}>Nitelik</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 12, color: '#6b7280' }}>Değer ekle</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {nitelikler.map((nitelik) => (
-                      <tr key={nitelik.id} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
-                        <td style={{ padding: '8px 12px', fontSize: 12, fontWeight: 500 }}>{nitelik.name}</td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
-                            <textarea
-                              placeholder={"Excel'den yapıştır (satır satır):\nMU1080\nMU1116\n\nveya virgülle: MU1080, MU1116"}
-                              value={yeniDeger[nitelik.id] || ''}
-                              onChange={(e) => setYeniDeger((prev) => ({
-                                ...prev,
-                                [nitelik.id]: e.target.value,
-                              }))}
-                              style={{
-                                width: '100%',
-                                fontSize: 11,
-                                fontFamily: 'monospace',
-                                height: 72,
-                                resize: 'vertical',
-                                border: '0.5px solid var(--color-border-secondary)',
-                                borderRadius: 6,
-                                padding: '6px 8px',
-                                color: 'var(--color-text-primary)',
-                                background: 'var(--color-background-primary)',
-                              }}
-                            />
-                            <div>
-                              <button
-                                type="button"
-                                onClick={() => void degerEkle(nitelik.id)}
-                                disabled={degerEkleniyor[nitelik.id]}
-                                style={{
-                                  fontSize: 11,
-                                  padding: '4px 12px',
-                                  background: '#A32D2D',
-                                  color: '#fff',
-                                  border: 'none',
-                                  borderRadius: 6,
-                                  cursor: degerEkleniyor[nitelik.id] ? 'wait' : 'pointer',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {degerEkleniyor[nitelik.id] ? 'Ekleniyor...' : '+ Ekle'}
-                              </button>
-                              <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 3 }}>
-                                Satır satır veya virgülle ayırarak toplu ekle
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div style={{ fontWeight: 800, marginBottom: 12 }}>Nasıl çalışır?</div>
+                <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <span style={{
+                      display: 'inline-block', padding: '1px 8px', borderRadius: 20,
+                      backgroundColor: '#dcfce7', color: GREEN, fontWeight: 600, fontSize: 11,
+                    }}>✓</span>
+                    Yeşil = Odoo&apos;da vardı, seçildi
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <span style={{
+                      display: 'inline-block', padding: '1px 8px', borderRadius: 20,
+                      backgroundColor: '#dbeafe', color: BLUE, fontWeight: 600, fontSize: 11,
+                    }}>+</span>
+                    Mavi = Yeni oluşturuldu ve seçildi
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 11, color: '#9ca3af' }}>
+                    Mükerrer değerler otomatik atlanır
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-            <button type="button" onClick={() => setAdim(2)} style={btnSmall}>← Şablon</button>
-            <button
-              type="button"
-              onClick={() => void sablonNitelikAta()}
-              disabled={loading || sablonVaryantSayisi === 0}
-              style={{ ...btnPrimary, backgroundColor: RED }}
-            >
-              {loading ? 'Oluşturuluyor...' : 'Varyantları oluştur'}
-            </button>
           </div>
         </div>
       ) : null}
