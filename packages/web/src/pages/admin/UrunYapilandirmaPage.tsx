@@ -319,23 +319,28 @@ export default function UrunYapilandirmaPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, backgroundColor: 'white' }}>
             <div style={{ fontWeight: 800, marginBottom: 12 }}>Odoo Kategori Ağacı</div>
-            <div style={{ maxHeight: 420, overflowY: 'auto', fontSize: 13 }}>
-              {siraliKategoriler.map((k) => (
-                <div
-                  key={k.id}
-                  style={{
-                    padding: '6px 8px',
-                    borderBottom: '1px solid #f3f4f6',
-                    paddingLeft: 8 + (k.complete_name.split('/').length - 1) * 12,
-                    cursor: 'pointer',
-                    backgroundColor: sablon.kategoriId === String(k.id) ? '#f0f9ff' : undefined,
-                  }}
-                  onClick={() => setSablon((s) => ({ ...s, kategoriId: String(k.id) }))}
-                >
-                  <span style={{ color: '#9ca3af', fontSize: 11, marginRight: 6 }}>#{k.id}</span>
-                  {k.complete_name}
-                </div>
-              ))}
+            <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+              <div style={{ fontSize: 13 }}>
+                {siraliKategoriler.filter((k) => k.id !== 1).map((k) => {
+                  const depth = (k.complete_name.match(/\//g) || []).length
+                  return (
+                    <div
+                      key={k.id}
+                      style={{
+                        padding: '6px 8px',
+                        borderBottom: '1px solid #f3f4f6',
+                        paddingLeft: depth * 16 + 8,
+                        cursor: 'pointer',
+                        backgroundColor: sablon.kategoriId === String(k.id) ? '#f0f9ff' : undefined,
+                      }}
+                      onClick={() => setSablon((s) => ({ ...s, kategoriId: String(k.id) }))}
+                    >
+                      <span style={{ color: '#9ca3af', fontSize: 11, marginRight: 6 }}>#{k.id}</span>
+                      {k.complete_name}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </div>
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, backgroundColor: '#f9fafb' }}>
@@ -349,7 +354,8 @@ export default function UrunYapilandirmaPage() {
                 <label style={{ fontSize: 11, color: '#6b7280' }}>Üst Kategori</label>
                 <select value={yeniKategori.parentId} onChange={(e) => setYeniKategori((p) => ({ ...p, parentId: e.target.value }))} style={inp}>
                   <option value="">— Kök (All altı) —</option>
-                  {siraliKategoriler.map((k) => (
+                  <option value="1">All (kök)</option>
+                  {siraliKategoriler.filter((k) => k.id !== 1).map((k) => (
                     <option key={k.id} value={k.id}>{k.complete_name}</option>
                   ))}
                 </select>
