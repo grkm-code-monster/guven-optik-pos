@@ -4207,6 +4207,22 @@ router.post('/odoo-nitelik-ekle', async (req, res, next) => {
   }
 });
 
+router.post('/odoo-nitelik-deger-ekle', async (req, res, next) => {
+  try {
+    const { attributeId, deger } = req.body;
+    if (!attributeId || !deger?.trim()) {
+      return res.status(400).json({ error: 'attributeId ve deger zorunlu' });
+    }
+    const id = await execute('product.attribute.value', 'create', [{
+      name: deger.trim(),
+      attribute_id: Number(attributeId),
+    }]);
+    return res.json({ success: true, id });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/odoo-sablon-olustur', async (req, res, next) => {
   try {
     const {

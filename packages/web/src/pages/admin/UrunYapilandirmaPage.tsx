@@ -77,6 +77,7 @@ export default function UrunYapilandirmaPage() {
 
   const [yeniKategori, setYeniKategori] = useState({ ad: '', parentId: '', sirket: '' })
   const [yeniNitelik, setYeniNitelik] = useState({ ad: '', displayType: 'select', degerler: '' })
+  const [yeniDeger, setYeniDeger] = useState<Record<number, string>>({})
 
   const [sablon, setSablon] = useState({
     ad: '',
@@ -149,6 +150,22 @@ export default function UrunYapilandirmaPage() {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Kayıt hatası' })
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function degerEkle(attributeId: number) {
+    const deger = yeniDeger[attributeId]?.trim()
+    if (!deger) return
+    try {
+      await adminApi.post('/admin/odoo-nitelik-deger-ekle', {
+        attributeId,
+        deger,
+      })
+      const res = await adminApi.get('/admin/odoo-nitelik-degerleri')
+      setNitelikDegerleri(res.data?.data ?? [])
+      setYeniDeger((prev) => ({ ...prev, [attributeId]: '' }))
+    } catch {
+      alert('Değer eklenemedi')
     }
   }
 
@@ -395,8 +412,27 @@ export default function UrunYapilandirmaPage() {
                     </span>
                   ))}
                 </div>
-                <div style={{ marginTop: 8, fontSize: 11, color: '#9ca3af' }}>
-                  Değer eklemek için Odoo veya yeni nitelik formunu kullanın
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="Yeni değer (ör: C103)"
+                    value={yeniDeger[n.id] || ''}
+                    onChange={(e) => setYeniDeger((prev) => ({
+                      ...prev,
+                      [n.id]: e.target.value,
+                    }))}
+                    style={{ ...inp, flex: 1, fontSize: 12, padding: '4px 8px' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void degerEkle(n.id)
+                    }}
+                  />
+                  <button
+                    type="button"
+                    style={{ ...btnSmall, fontSize: 11, padding: '4px 10px' }}
+                    onClick={() => void degerEkle(n.id)}
+                  >
+                    + Ekle
+                  </button>
                 </div>
               </div>
             ))}

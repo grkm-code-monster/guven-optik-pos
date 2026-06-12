@@ -2,6 +2,7 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Nitelik değer ekleme: inline input, odoo-nitelik-deger-ekle endpoint
 - [bugün] — Ürün Yapılandırma: kategori scroll, indentation düzeltmesi
 - [bugün] — Ürün Yapılandırma sayfası: kategori, nitelik, şablon, varyant (Odoo entegreli)
 - [bugün] — Görevli & vekalet atama sistemi kuruldu
