@@ -4230,16 +4230,10 @@ router.post('/odoo-sablon-olustur', async (req, res, next) => {
       icReferans, barkod, sirketId, faturaKurali,
       izleme, teslimSuresi, agirlik, hacim,
       satilabilir, satinAlinabilir, masrafOlabilir,
-      nitelikler,
       vergi,
     } = req.body;
 
     if (!ad?.trim()) return res.status(400).json({ error: 'ad zorunlu' });
-
-    const attributeLines = (nitelikler || []).map((n: { attributeId: number; valueIds: number[] }) => [0, 0, {
-      attribute_id: n.attributeId,
-      value_ids: [[6, 0, n.valueIds]],
-    }]);
 
     const tmplData: Record<string, unknown> = {
       name: ad.trim(),
@@ -4257,7 +4251,6 @@ router.post('/odoo-sablon-olustur', async (req, res, next) => {
       sale_delay: Number(teslimSuresi) || 0,
       weight: Number(agirlik) || 0,
       volume: Number(hacim) || 0,
-      attribute_line_ids: attributeLines,
     };
 
     if (sirketId) tmplData.company_id = Number(sirketId);
@@ -4270,12 +4263,40 @@ router.post('/odoo-sablon-olustur', async (req, res, next) => {
 
     const tmplId = await execute('product.template', 'create', [tmplData]);
 
-    const variants = await execute('product.product', 'search_read',
-      [[['product_tmpl_id', '=', tmplId]]],
-      { fields: ['id', 'name', 'product_template_attribute_value_ids',
-        'default_code', 'barcode', 'lst_price', 'standard_price'] });
+    return res.json({ success: true, tmplId });
+  } catch (err) {
+    next(err);
+  }
+});
 
-    return res.json({ success: true, tmplId, variants });
+router.post('/odoo-sablon-nitelik-ata', async (req, res, next) => {
+  try {
+    const { tmplId, nitelikler } = req.body;
+
+    if (!tmplId || !nitelikler?.length) {
+      return res.status(400).json({ error: 'tmplId ve nitelikler zorunlu' });
+    }
+
+    const attributeLines = nitelikler.map((n: { attributeId: number; valueIds: number[] }) => [0, 0, {
+      attribute_id: n.attributeId,
+      value_ids: [[6, 0, n.valueIds]],
+    }]);
+
+    await execute('product.template', 'write', [
+      [Number(tmplId)],
+      { attribute_line_ids: attributeLines },
+    ]);
+
+    const variants = await execute('product.product', 'search_read',
+      [[['product_tmpl_id', '=', Number(tmplId)]]],
+      {
+        fields: ['id', 'name',
+          'product_template_attribute_value_ids',
+          'default_code', 'barcode', 'lst_price', 'standard_price'],
+        limit: 200,
+      });
+
+    return res.json({ success: true, variants });
   } catch (err) {
     next(err);
   }
