@@ -74,6 +74,7 @@ export default function UrunYapilandirmaPage() {
   const [yeniKategori, setYeniKategori] = useState({ ad: '', parentId: '', sirket: '' })
   const [yeniNitelik, setYeniNitelik] = useState({ ad: '', displayType: 'select', degerler: '' })
   const [yeniDeger, setYeniDeger] = useState<Record<number, string>>({})
+  const [degerEkleniyor, setDegerEkleniyor] = useState<Record<number, boolean>>({})
 
   const [sablon, setSablon] = useState({
     ad: '',
@@ -193,22 +194,37 @@ export default function UrunYapilandirmaPage() {
   }
 
   async function degerEkle(attributeId: number) {
-    const raw = yeniDeger[attributeId]?.trim()
-    if (!raw) return
-    const degerListesi = raw.split(',').map((d) => d.trim()).filter(Boolean)
+    const ham = yeniDeger[attributeId] || ''
+    const degerListesi = ham
+      .split(/[\n,\t]+/)
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .filter((d, i, arr) => arr.indexOf(d) === i)
+
     if (degerListesi.length === 0) return
+
+    if (degerListesi.length > 10) {
+      const onay = window.confirm(
+        `${degerListesi.length} değer eklenecek. Devam edilsin mi?`,
+      )
+      if (!onay) return
+    }
+
+    setDegerEkleniyor((prev) => ({ ...prev, [attributeId]: true }))
     try {
-      for (const deger of degerListesi) {
-        await adminApi.post('/admin/odoo-nitelik-deger-ekle', {
-          attributeId,
-          deger,
-        })
-      }
-      const res = await adminApi.get('/admin/odoo-nitelik-degerleri')
-      setNitelikDegerleri(res.data?.data ?? [])
+      const res = await adminApi.post('/admin/odoo-nitelik-deger-toplu-ekle', {
+        attributeId,
+        degerler: degerListesi,
+      })
+      const { eklenen, atlanan } = res.data
+      alert(`${eklenen} değer eklendi${atlanan > 0 ? `, ${atlanan} zaten vardı (atlandı)` : ''}`)
+      const nitRes = await adminApi.get('/admin/odoo-nitelik-degerleri')
+      setNitelikDegerleri(nitRes.data?.data ?? [])
       setYeniDeger((prev) => ({ ...prev, [attributeId]: '' }))
     } catch {
       alert('Değer eklenemedi')
+    } finally {
+      setDegerEkleniyor((prev) => ({ ...prev, [attributeId]: false }))
     }
   }
 
@@ -663,31 +679,55 @@ export default function UrunYapilandirmaPage() {
                       <tr key={nitelik.id} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
                         <td style={{ padding: '8px 12px', fontSize: 12, fontWeight: 500 }}>{nitelik.name}</td>
                         <td style={{ padding: '8px 12px' }}>
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <input
-                              type="text"
-                              placeholder="ör: C103, 56, 4515..."
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+                            <textarea
+                              placeholder={"Excel'den yapıştır (satır satır):\nMU1080\nMU1116\n\nveya virgülle: MU1080, MU1116"}
                               value={yeniDeger[nitelik.id] || ''}
-                              onChange={(e) => setYeniDeger((prev) => ({ ...prev, [nitelik.id]: e.target.value }))}
-                              onKeyDown={(e) => { if (e.key === 'Enter') void degerEkle(nitelik.id) }}
-                              style={{ ...inp, flex: 1, fontSize: 11, padding: '4px 8px' }}
+                              onChange={(e) => setYeniDeger((prev) => ({
+                                ...prev,
+                                [nitelik.id]: e.target.value,
+                              }))}
+                              style={{
+                                width: '100%',
+                                fontSize: 11,
+                                fontFamily: 'monospace',
+                                height: 72,
+                                resize: 'vertical',
+                                border: '0.5px solid var(--color-border-secondary)',
+                                borderRadius: 6,
+                                padding: '6px 8px',
+                                color: 'var(--color-text-primary)',
+                                background: 'var(--color-background-primary)',
+                              }}
                             />
-                            <button
-                              type="button"
-                              onClick={() => void degerEkle(nitelik.id)}
-                              style={{ ...btnSmall, fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
-                            >
-                              + Ekle
-                            </button>
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => void degerEkle(nitelik.id)}
+                                disabled={degerEkleniyor[nitelik.id]}
+                                style={{
+                                  fontSize: 11,
+                                  padding: '4px 12px',
+                                  background: '#A32D2D',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: 6,
+                                  cursor: degerEkleniyor[nitelik.id] ? 'wait' : 'pointer',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {degerEkleniyor[nitelik.id] ? 'Ekleniyor...' : '+ Ekle'}
+                              </button>
+                              <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 3 }}>
+                                Satır satır veya virgülle ayırarak toplu ekle
+                              </div>
+                            </div>
                           </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 8 }}>
-                  Virgülle ayırarak birden fazla ekle: C103, C104
-                </div>
               </div>
             </div>
           </div>

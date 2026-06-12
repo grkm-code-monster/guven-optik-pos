@@ -4223,6 +4223,46 @@ router.post('/odoo-nitelik-deger-ekle', async (req, res, next) => {
   }
 });
 
+router.post('/odoo-nitelik-deger-toplu-ekle', async (req, res, next) => {
+  try {
+    const { attributeId, degerler } = req.body;
+    if (!attributeId || !degerler?.length) {
+      return res.status(400).json({ error: 'attributeId ve degerler zorunlu' });
+    }
+
+    const mevcutlar = await execute(
+      'product.attribute.value', 'search_read',
+      [[['attribute_id', '=', Number(attributeId)]]],
+      { fields: ['name'], limit: 2000 },
+    );
+    const mevcutAdlar = new Set(
+      mevcutlar.map((m: { name: string }) => m.name.trim().toUpperCase()),
+    );
+
+    const yeniDegerler = (degerler as string[]).filter(
+      (d) => !mevcutAdlar.has(d.trim().toUpperCase()),
+    );
+
+    const eklenenler: { id: number; name: string }[] = [];
+    for (const d of yeniDegerler) {
+      const id = await execute('product.attribute.value', 'create', [{
+        name: d.trim(),
+        attribute_id: Number(attributeId),
+      }]);
+      eklenenler.push({ id, name: d.trim() });
+    }
+
+    return res.json({
+      success: true,
+      eklenen: eklenenler.length,
+      atlanan: degerler.length - yeniDegerler.length,
+      toplam: degerler.length,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/odoo-sablon-olustur', async (req, res, next) => {
   try {
     const {
