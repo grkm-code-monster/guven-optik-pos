@@ -4438,6 +4438,338 @@ router.post('/odoo-sablon-nitelik-ata', async (req, res, next) => {
   }
 });
 
+router.post('/odoo-varyant-import', async (req, res, next) => {
+  try {
+    const { tmplId, satirlar, sutunSirasi } = req.body;
+
+    if (!tmplId || !satirlar?.length || !sutunSirasi) {
+      return res.status(400).json({ error: 'Eksik parametre' });
+    }
+
+    const nitelikler = await execute(
+      'product.attribute', 'search_read',
+      [[['name', 'in', ['MODEL', 'RENK', 'ÖLÇÜ']]]],
+      { fields: ['id', 'name'] },
+    );
+    const nitelikMap = new Map<string, number>(
+      (nitelikler as { id: number; name: string }[]).map((n) => [n.name, n.id]),
+    );
+    const modelAttrId = nitelikMap.get('MODEL');
+    const renkAttrId = nitelikMap.get('RENK');
+    const olcuAttrId = nitelikMap.get('ÖLÇÜ');
+
+    if (!modelAttrId || !renkAttrId || !olcuAttrId) {
+      return res.status(400).json({
+        error: 'MODEL, RENK veya ÖLÇÜ niteliği bulunamadı',
+      });
+    }
+
+    const mevcutDegerler = await execute(
+      'product.attribute.value', 'search_read',
+      [[['attribute_id', 'in', [modelAttrId, renkAttrId, olcuAttrId]]]],
+      { fields: ['id', 'name', 'attribute_id'], limit: 10000 },
+    );
+    const degerMap = new Map<string, number>();
+    for (const d of mevcutDegerler as { id: number; name: string; attribute_id: [number, string] }[]) {
+      degerMap.set(
+        `${d.attribute_id[0]}_${d.name.trim().toUpperCase()}`,
+        d.id,
+      );
+    }
+
+    const mevcutVaryantlar = await execute(
+      'product.product', 'search_read',
+      [[['product_tmpl_id', '=', Number(tmplId)]]],
+      { fields: ['id', 'product_template_attribute_value_ids'] },
+    );
+    const mevcutKombinasyonlar = new Set(
+      (mevcutVaryantlar as { product_template_attribute_value_ids: number[] }[]).map((v) =>
+        [...v.product_template_attribute_value_ids].sort().join('_'),
+      ),
+    );
+
+    const sonuclar: {
+      satir: number; varyantId: number; model: string; renk: string;
+      olcu: string; barkod: string; fiyat: number;
+    }[] = [];
+    const hatalar: { satir: number; sebep: string }[] = [];
+    let yeniNitelikDeger = 0;
+
+    const lineMap = new Map<number, { id: number; attribute_id: [number, string]; value_ids: number[] }>();
+    const mevcutLines = await execute(
+      'product.template.attribute.line', 'search_read',
+      [[['product_tmpl_id', '=', Number(tmplId)]]],
+      { fields: ['id', 'attribute_id', 'value_ids'] },
+    );
+    for (const l of mevcutLines as { id: number; attribute_id: [number, string]; value_ids: number[] }[]) {
+      lineMap.set(l.attribute_id[0], l);
+    }
+
+    for (let i = 0; i < satirlar.length; i++) {
+      const satir = satirlar[i] as string[];
+      const modelAd = satir[sutunSirasi.model]?.trim();
+      const renkAd = satir[sutunSirasi.renk]?.trim();
+      const olcuAd = satir[sutunSirasi.olcu]?.trim();
+      const barkod = sutunSirasi.barkod !== undefined && sutunSirasi.barkod >= 0
+        ? satir[sutunSirasi.barkod]?.trim() : '';
+      const fiyat = sutunSirasi.fiyat !== undefined && sutunSirasi.fiyat >= 0
+        ? Number(satir[sutunSirasi.fiyat]) : 0;
+
+      if (!modelAd || !renkAd || !olcuAd) {
+        hatalar.push({ satir: i + 1, sebep: 'Boş değer' });
+        continue;
+      }
+
+      try {
+        const getOrCreate = async (attrId: number, ad: string): Promise<number> => {
+          const key = `${attrId}_${ad.toUpperCase()}`;
+          if (degerMap.has(key)) return degerMap.get(key)!;
+          const yeniId = Number(await execute(
+            'product.attribute.value', 'create',
+            [{ name: ad, attribute_id: attrId }],
+          ));
+          degerMap.set(key, yeniId);
+          yeniNitelikDeger++;
+          return yeniId;
+        };
+
+        const modelId = await getOrCreate(modelAttrId as number, modelAd);
+        const renkId = await getOrCreate(renkAttrId as number, renkAd);
+        const olcuId = await getOrCreate(olcuAttrId as number, olcuAd);
+
+        for (const [attrId, valId] of [
+          [modelAttrId as number, modelId],
+          [renkAttrId as number, renkId],
+          [olcuAttrId as number, olcuId],
+        ] as [number, number][]) {
+          if (!lineMap.has(attrId)) {
+            await execute(
+              'product.template.attribute.line', 'create',
+              [{
+                product_tmpl_id: Number(tmplId),
+                attribute_id: attrId,
+                value_ids: [[4, valId]],
+              }],
+            );
+            const newLines = await execute(
+              'product.template.attribute.line', 'search_read',
+              [[
+                ['product_tmpl_id', '=', Number(tmplId)],
+                ['attribute_id', '=', attrId],
+              ]],
+              { fields: ['id', 'attribute_id', 'value_ids'] },
+            );
+            const first = (newLines as { id: number; attribute_id: [number, string]; value_ids: number[] }[])[0];
+            if (first) lineMap.set(attrId, first);
+          } else {
+            const line = lineMap.get(attrId)!;
+            if (!line.value_ids.includes(valId)) {
+              await execute(
+                'product.template.attribute.line', 'write',
+                [[line.id], { value_ids: [[4, valId]] }],
+              );
+              line.value_ids.push(valId);
+            }
+          }
+        }
+
+        const ptavlar = await execute(
+          'product.template.attribute.value', 'search_read',
+          [[
+            ['product_tmpl_id', '=', Number(tmplId)],
+            ['attribute_id', 'in', [modelAttrId, renkAttrId, olcuAttrId]],
+            ['product_attribute_value_id', 'in', [modelId, renkId, olcuId]],
+          ]],
+          { fields: ['id', 'attribute_id', 'product_attribute_value_id'] },
+        );
+
+        const ptavList = ptavlar as {
+          id: number;
+          attribute_id: [number, string];
+          product_attribute_value_id: [number, string];
+        }[];
+
+        const modelPtav = ptavList.find(
+          (p) => p.attribute_id[0] === modelAttrId && p.product_attribute_value_id[0] === modelId,
+        );
+        const renkPtav = ptavList.find(
+          (p) => p.attribute_id[0] === renkAttrId && p.product_attribute_value_id[0] === renkId,
+        );
+        const olcuPtav = ptavList.find(
+          (p) => p.attribute_id[0] === olcuAttrId && p.product_attribute_value_id[0] === olcuId,
+        );
+
+        if (!modelPtav || !renkPtav || !olcuPtav) {
+          hatalar.push({
+            satir: i + 1,
+            sebep: 'PTAV bulunamadı — şablon nitelik satırı oluşturulamadı',
+          });
+          continue;
+        }
+
+        const kombinasyon = [modelPtav.id, renkPtav.id, olcuPtav.id].sort().join('_');
+
+        if (mevcutKombinasyonlar.has(kombinasyon)) {
+          hatalar.push({ satir: i + 1, sebep: 'Varyant zaten mevcut' });
+          continue;
+        }
+
+        const varyantId = Number(await execute(
+          'product.product', 'create',
+          [{
+            product_tmpl_id: Number(tmplId),
+            product_template_attribute_value_ids: [
+              [6, 0, [modelPtav.id, renkPtav.id, olcuPtav.id]],
+            ],
+            barcode: barkod || false,
+            lst_price: fiyat || 0,
+          }],
+        ));
+
+        mevcutKombinasyonlar.add(kombinasyon);
+        sonuclar.push({
+          satir: i + 1,
+          varyantId,
+          model: modelAd,
+          renk: renkAd,
+          olcu: olcuAd,
+          barkod: barkod || '',
+          fiyat: fiyat || 0,
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message.slice(0, 100) : 'Bilinmeyen hata';
+        hatalar.push({ satir: i + 1, sebep: msg });
+      }
+    }
+
+    return res.json({
+      success: true,
+      olusturulan: sonuclar.length,
+      hatalar: hatalar.length,
+      yeniNitelikDeger,
+      detay: { sonuclar: sonuclar.slice(0, 20), hatalar },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/odoo-varyant-onizle', async (req, res, next) => {
+  try {
+    const { tmplId, satirlar, sutunSirasi } = req.body;
+
+    if (!tmplId || !satirlar?.length || !sutunSirasi) {
+      return res.status(400).json({ error: 'Eksik parametre' });
+    }
+
+    const nitelikler = await execute(
+      'product.attribute', 'search_read',
+      [[['name', 'in', ['MODEL', 'RENK', 'ÖLÇÜ']]]],
+      { fields: ['id', 'name'] },
+    );
+    const nitelikMap = new Map<string, number>(
+      (nitelikler as { id: number; name: string }[]).map((n) => [n.name, n.id]),
+    );
+    const modelAttrId = nitelikMap.get('MODEL');
+    const renkAttrId = nitelikMap.get('RENK');
+    const olcuAttrId = nitelikMap.get('ÖLÇÜ');
+
+    if (!modelAttrId || !renkAttrId || !olcuAttrId) {
+      return res.status(400).json({ error: 'MODEL, RENK veya ÖLÇÜ niteliği bulunamadı' });
+    }
+
+    const mevcutDegerler = await execute(
+      'product.attribute.value', 'search_read',
+      [[['attribute_id', 'in', [modelAttrId, renkAttrId, olcuAttrId]]]],
+      { fields: ['id', 'name', 'attribute_id'], limit: 10000 },
+    );
+    const degerAdlar = new Set(
+      (mevcutDegerler as { attribute_id: [number, string]; name: string }[]).map(
+        (d) => `${d.attribute_id[0]}_${d.name.trim().toUpperCase()}`,
+      ),
+    );
+
+    type OnizleSatir = {
+      satir: number;
+      durum: string;
+      sebep?: string;
+      model: string;
+      renk: string;
+      olcu: string;
+      barkod: string;
+      fiyat: string;
+      yeniModel?: boolean;
+      yeniRenk?: boolean;
+      yeniOlcu?: boolean;
+    };
+
+    const sonuclar: OnizleSatir[] = (satirlar as string[][]).map((satir, i) => {
+      const modelAd = satir[sutunSirasi.model]?.trim() ?? '';
+      const renkAd = satir[sutunSirasi.renk]?.trim() ?? '';
+      const olcuAd = satir[sutunSirasi.olcu]?.trim() ?? '';
+      const barkod = sutunSirasi.barkod !== undefined && sutunSirasi.barkod >= 0
+        ? satir[sutunSirasi.barkod]?.trim() ?? '' : '';
+      const fiyat = sutunSirasi.fiyat !== undefined && sutunSirasi.fiyat >= 0
+        ? satir[sutunSirasi.fiyat]?.trim() ?? '' : '';
+
+      if (!modelAd || !renkAd || !olcuAd) {
+        return {
+          satir: i + 1,
+          durum: 'hata',
+          sebep: 'Boş değer',
+          model: modelAd,
+          renk: renkAd,
+          olcu: olcuAd,
+          barkod,
+          fiyat,
+        };
+      }
+
+      const yeniModel = !degerAdlar.has(`${modelAttrId}_${modelAd.toUpperCase()}`);
+      const yeniRenk = !degerAdlar.has(`${renkAttrId}_${renkAd.toUpperCase()}`);
+      const yeniOlcu = !degerAdlar.has(`${olcuAttrId}_${olcuAd.toUpperCase()}`);
+      const yeniDeger = yeniModel || yeniRenk || yeniOlcu;
+
+      return {
+        satir: i + 1,
+        durum: yeniDeger ? 'yeni_deger' : 'hazir',
+        model: modelAd,
+        renk: renkAd,
+        olcu: olcuAd,
+        barkod,
+        fiyat,
+        yeniModel,
+        yeniRenk,
+        yeniOlcu,
+      };
+    });
+
+    const kombinasyonlar = new Set<string>();
+    for (const s of sonuclar) {
+      if (s.durum === 'hata') continue;
+      const key = `${s.model}_${s.renk}_${s.olcu}`;
+      if (kombinasyonlar.has(key)) {
+        s.durum = 'duplicate';
+        s.sebep = 'Aynı kombinasyon listede tekrar var';
+      } else {
+        kombinasyonlar.add(key);
+      }
+    }
+
+    return res.json({
+      success: true,
+      toplam: sonuclar.length,
+      hazir: sonuclar.filter((s) => s.durum === 'hazir').length,
+      yeniDeger: sonuclar.filter((s) => s.durum === 'yeni_deger').length,
+      hata: sonuclar.filter((s) => s.durum === 'hata').length,
+      duplicate: sonuclar.filter((s) => s.durum === 'duplicate').length,
+      satirlar: sonuclar,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.patch('/odoo-varyant-guncelle', async (req, res, next) => {
   try {
     const { varyantlar } = req.body;

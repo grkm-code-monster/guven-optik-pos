@@ -5,6 +5,7 @@ import { adminApi } from './AdminLayout'
 const RED = '#A32D2D'
 const GREEN = '#3B6D11'
 const BLUE = '#2563eb'
+const AMBER = '#d97706'
 
 const inp: React.CSSProperties = {
   padding: '7px 12px',
@@ -125,6 +126,15 @@ export default function UrunYapilandirmaPage() {
   const [sablonKategoriFiltre, setSablonKategoriFiltre] = useState('')
   const [seciliSablon, setSeciliSablon] = useState<OdooSablonListItem | null>(null)
   const [sablonYukleniyor, setSablonYukleniyor] = useState(false)
+
+  const [importMod, setImportMod] = useState<'import' | 'liste'>('import')
+  const [sutunSirasi, setSutunSirasi] = useState({
+    model: 0, renk: 1, olcu: 2, barkod: 3, fiyat: 4,
+  })
+  const [importMetin, setImportMetin] = useState('')
+  const [onizleme, setOnizleme] = useState<any>(null)
+  const [importYukleniyor, setImportYukleniyor] = useState(false)
+  const [importSonuc, setImportSonuc] = useState<any>(null)
 
   const yukle = useCallback(async () => {
     const [katRes, nitRes, nitValRes] = await Promise.all([
@@ -449,6 +459,100 @@ export default function UrunYapilandirmaPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  function parseImportMetin(metin: string): string[][] {
+    return metin
+      .split('\n')
+      .map((s) => s.split(/\t|,(?=(?:[^"]*"[^"]*")*[^"]*$)/))
+      .map((s) => s.map((h) => h.trim().replace(/^"|"$/g, '')))
+      .filter((s) => s.some((h) => h.length > 0))
+  }
+
+  function apiSutunSirasi() {
+    return {
+      model: sutunSirasi.model,
+      renk: sutunSirasi.renk,
+      olcu: sutunSirasi.olcu,
+      ...(sutunSirasi.barkod >= 0 ? { barkod: sutunSirasi.barkod } : {}),
+      ...(sutunSirasi.fiyat >= 0 ? { fiyat: sutunSirasi.fiyat } : {}),
+    }
+  }
+
+  async function onizle() {
+    const satirlar = parseImportMetin(importMetin)
+    if (!satirlar.length || !tmplId) return
+    setImportYukleniyor(true)
+    try {
+      const res = await adminApi.post('/admin/odoo-varyant-onizle', {
+        tmplId,
+        satirlar,
+        sutunSirasi: apiSutunSirasi(),
+      })
+      setOnizleme(res.data)
+      setImportSonuc(null)
+    } catch {
+      alert('Önizleme başarısız')
+    } finally {
+      setImportYukleniyor(false)
+    }
+  }
+
+  async function varyantImportOlustur() {
+    if (!onizleme || !tmplId) return
+    const onay = window.confirm(
+      `${onizleme.hazir + onizleme.yeniDeger} varyant oluşturulacak.\n`
+      + `${onizleme.yeniDeger} yeni nitelik değeri eklenecek.\n`
+      + `${onizleme.hata + onizleme.duplicate} satır atlanacak.\n\nDevam?`,
+    )
+    if (!onay) return
+    const satirlar = parseImportMetin(importMetin)
+    setImportYukleniyor(true)
+    try {
+      const res = await adminApi.post('/admin/odoo-varyant-import', {
+        tmplId,
+        satirlar,
+        sutunSirasi: apiSutunSirasi(),
+      })
+      setImportSonuc(res.data)
+      setOnizleme(null)
+      setImportMetin('')
+      const yeni = (res.data?.detay?.sonuclar ?? []).map((s: any) => ({
+        odooId: s.varyantId,
+        name: `${s.model} / ${s.renk} / ${s.olcu}`,
+        model: s.model,
+        renk: s.renk,
+        olcu: s.olcu,
+        icReferans: '',
+        barkod: s.barkod || '',
+        satisFiyati: String(s.fiyat ?? 0),
+        maliyet: '0',
+        durum: 'bekliyor' as const,
+      }))
+      if (yeni.length) setVaryantlar((prev) => [...prev, ...yeni])
+    } catch {
+      alert('Import başarısız')
+    } finally {
+      setImportYukleniyor(false)
+    }
+  }
+
+  function importDurumBadge(durum: string) {
+    const styles: Record<string, { bg: string; color: string; label: string }> = {
+      hazir: { bg: '#dcfce7', color: GREEN, label: '✓ Hazır' },
+      yeni_deger: { bg: '#dbeafe', color: BLUE, label: '+ Yeni değer' },
+      hata: { bg: '#fee2e2', color: RED, label: '✗ Hatalı' },
+      duplicate: { bg: '#fef3c7', color: AMBER, label: '⚠ Duplicate' },
+    }
+    const s = styles[durum] ?? { bg: '#f3f4f6', color: '#6b7280', label: durum }
+    return (
+      <span style={{
+        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+        backgroundColor: s.bg, color: s.color, whiteSpace: 'nowrap',
+      }}>
+        {s.label}
+      </span>
+    )
   }
 
   return (
@@ -1054,78 +1158,252 @@ export default function UrunYapilandirmaPage() {
             </div>
           ) : null}
 
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', backgroundColor: 'white', marginBottom: 16 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ backgroundColor: '#f9fafb' }}>
-                  {['Model', 'Renk', 'Ölçü', 'İç Ref', 'Barkod', 'Maliyet', 'Satış', 'Odoo ID', 'Durum'].map((h) => (
-                    <th key={h} style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 700 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {varyantlar.map((v, i) => (
-                  <tr key={v.odooId} style={{ borderTop: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: 6 }}>{v.model || '—'}</td>
-                    <td style={{ padding: 6 }}>{v.renk || '—'}</td>
-                    <td style={{ padding: 6 }}>{v.olcu || '—'}</td>
-                    <td style={{ padding: 6 }}>
-                      <input
-                        value={v.icReferans}
-                        onChange={(e) => setVaryantlar((prev) => prev.map((x, j) => j === i ? { ...x, icReferans: e.target.value, durum: 'bekliyor' } : x))}
-                        style={{ ...inp, padding: '4px 6px', width: 90 }}
-                      />
-                    </td>
-                    <td style={{ padding: 6 }}>
-                      <input
-                        value={v.barkod}
-                        onChange={(e) => setVaryantlar((prev) => prev.map((x, j) => j === i ? { ...x, barkod: e.target.value, durum: 'bekliyor' } : x))}
-                        style={{ ...inp, padding: '4px 6px', width: 100 }}
-                      />
-                    </td>
-                    <td style={{ padding: 6 }}>
-                      <input
-                        type="number"
-                        value={v.maliyet}
-                        onChange={(e) => setVaryantlar((prev) => prev.map((x, j) => j === i ? { ...x, maliyet: e.target.value, durum: 'bekliyor' } : x))}
-                        style={{ ...inp, padding: '4px 6px', width: 70 }}
-                      />
-                    </td>
-                    <td style={{ padding: 6 }}>
-                      <input
-                        type="number"
-                        value={v.satisFiyati}
-                        onChange={(e) => setVaryantlar((prev) => prev.map((x, j) => j === i ? { ...x, satisFiyati: e.target.value, durum: 'bekliyor' } : x))}
-                        style={{ ...inp, padding: '4px 6px', width: 70 }}
-                      />
-                    </td>
-                    <td style={{ padding: 6, fontWeight: 700 }}>{v.odooId}</td>
-                    <td style={{ padding: 6 }}>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                        backgroundColor: v.durum === 'synced' ? '#dcfce7' : '#fef3c7',
-                        color: v.durum === 'synced' ? GREEN : '#92400e',
-                      }}>
-                        {v.durum === 'synced' ? 'Sync' : 'Bekliyor'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {varyantlar.length === 0 ? (
-                  <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>Henüz varyant yok — önce nitelik atayıp varyant oluşturun</td></tr>
-                ) : null}
-              </tbody>
-            </table>
+          {/* Sekme butonları */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button
+              type="button"
+              onClick={() => setImportMod('import')}
+              style={{
+                padding: '10px 20px',
+                border: importMod === 'import' ? `2px solid ${RED}` : '1px solid #e5e7eb',
+                borderRadius: 8,
+                backgroundColor: importMod === 'import' ? '#fef2f2' : '#f9fafb',
+                color: importMod === 'import' ? RED : '#6b7280',
+                fontWeight: importMod === 'import' ? 800 : 500,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Import ile oluştur
+            </button>
+            <button
+              type="button"
+              onClick={() => setImportMod('liste')}
+              style={{
+                padding: '10px 20px',
+                border: importMod === 'liste' ? `2px solid ${RED}` : '1px solid #e5e7eb',
+                borderRadius: 8,
+                backgroundColor: importMod === 'liste' ? '#fef2f2' : '#f9fafb',
+                color: importMod === 'liste' ? RED : '#6b7280',
+                fontWeight: importMod === 'liste' ? 800 : 500,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Mevcut varyantlar
+            </button>
+            <button type="button" onClick={() => setAdim(3)} style={{ ...btnSmall, marginLeft: 'auto' }}>
+              ← Nitelik & değer
+            </button>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
-            <button type="button" onClick={() => void varyantlariSync()} disabled={loading || varyantlar.length === 0} style={btnPrimary}>
-              {loading ? 'Sync...' : 'Odoo\'ya sync et'}
-            </button>
-            <button type="button" disabled style={{ ...btnSmall, opacity: 0.5 }}>Excel ile toplu giriş (yakında)</button>
-            <button type="button" disabled style={{ ...btnSmall, opacity: 0.5 }}>Barkod yazdır (yakında)</button>
-            <button type="button" onClick={() => setAdim(3)} style={btnSmall}>← Nitelik & değer</button>
-          </div>
+          {importMod === 'import' ? (
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, backgroundColor: 'white', marginBottom: 16 }}>
+              {/* Sütun sırası */}
+              <div style={{ fontWeight: 800, marginBottom: 12 }}>Sütun eşleştirme</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                {([
+                  ['model', 'Model', false],
+                  ['renk', 'Renk', false],
+                  ['olcu', 'Ölçü', false],
+                  ['barkod', 'Barkod', true],
+                  ['fiyat', 'Fiyat', true],
+                ] as const).map(([key, label, optional]) => (
+                  <div key={key} style={{ minWidth: 120 }}>
+                    <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>{label}</label>
+                    <select
+                      value={sutunSirasi[key]}
+                      onChange={(e) => setSutunSirasi((p) => ({
+                        ...p,
+                        [key]: Number(e.target.value),
+                      }))}
+                      style={{ ...inp, padding: '5px 8px', fontSize: 12 }}
+                    >
+                      {optional ? <option value={-1}>Bu sütun yok</option> : null}
+                      {[0, 1, 2, 3, 4].map((n) => (
+                        <option key={n} value={n}>Sütun {n + 1}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              {/* Yapıştır alanı */}
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 16 }}>
+                <textarea
+                  placeholder={'Excel\'den yapıştır (tab ile ayrılmış):\n2140\tSiyah\t52\t8690000000001\t1500\n3025\tKahve\t54\t8690000000002\t1800'}
+                  value={importMetin}
+                  onChange={(e) => setImportMetin(e.target.value)}
+                  style={{
+                    flex: 1,
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    height: 120,
+                    resize: 'vertical',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 8,
+                    padding: '8px 10px',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => void onizle()}
+                  disabled={importYukleniyor || !importMetin.trim() || !tmplId}
+                  style={{ ...btnPrimary, backgroundColor: RED, whiteSpace: 'nowrap' }}
+                >
+                  {importYukleniyor ? 'Yükleniyor...' : 'Önizle →'}
+                </button>
+              </div>
+
+              {/* Önizleme tablosu */}
+              {onizleme ? (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 10, flexWrap: 'wrap', fontSize: 12 }}>
+                    <span style={{ color: GREEN, fontWeight: 700 }}>✓ {onizleme.hazir} hazır</span>
+                    <span style={{ color: BLUE, fontWeight: 700 }}>+ {onizleme.yeniDeger} yeni değer</span>
+                    <span style={{ color: RED, fontWeight: 700 }}>✗ {onizleme.hata} hatalı</span>
+                    <span style={{ color: AMBER, fontWeight: 700 }}>⚠ {onizleme.duplicate} duplicate</span>
+                  </div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f9fafb', position: 'sticky', top: 0 }}>
+                          {['#', 'Model', 'Renk', 'Ölçü', 'Barkod', 'Fiyat', 'Durum'].map((h) => (
+                            <th key={h} style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 700 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(onizleme.satirlar ?? []).map((s: any) => (
+                          <tr key={s.satir} style={{ borderTop: '1px solid #f3f4f6' }}>
+                            <td style={{ padding: '5px 8px' }}>{s.satir}</td>
+                            <td style={{ padding: '5px 8px' }}>{s.model || '—'}</td>
+                            <td style={{ padding: '5px 8px' }}>{s.renk || '—'}</td>
+                            <td style={{ padding: '5px 8px' }}>{s.olcu || '—'}</td>
+                            <td style={{ padding: '5px 8px' }}>{s.barkod || '—'}</td>
+                            <td style={{ padding: '5px 8px' }}>{s.fiyat || '—'}</td>
+                            <td style={{ padding: '5px 8px' }}>{importDurumBadge(s.durum)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void varyantImportOlustur()}
+                    disabled={importYukleniyor || (onizleme.hazir + onizleme.yeniDeger) === 0}
+                    style={{ ...btnPrimary, backgroundColor: GREEN, marginTop: 12 }}
+                  >
+                    {importYukleniyor
+                      ? 'Oluşturuluyor...'
+                      : `${onizleme.hazir + onizleme.yeniDeger} varyant oluştur →`}
+                  </button>
+                </div>
+              ) : null}
+
+              {/* Import sonucu */}
+              {importSonuc ? (
+                <div style={{
+                  padding: 16,
+                  borderRadius: 8,
+                  backgroundColor: '#dcfce7',
+                  border: '1px solid #bbf7d0',
+                }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: GREEN, marginBottom: 8 }}>
+                    {importSonuc.olusturulan} varyant oluşturuldu
+                  </div>
+                  <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6 }}>
+                    {importSonuc.yeniNitelikDeger > 0 ? (
+                      <div>+ {importSonuc.yeniNitelikDeger} yeni nitelik değeri eklendi</div>
+                    ) : null}
+                    {importSonuc.hatalar > 0 ? (
+                      <div>{importSonuc.hatalar} satır atlandı (hata/duplicate)</div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setImportMod('liste')}
+                    style={{ ...btnSmall, marginTop: 10 }}
+                  >
+                    Mevcut varyantları gör →
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', backgroundColor: 'white', marginBottom: 16 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f9fafb' }}>
+                      {['Model', 'Renk', 'Ölçü', 'İç Ref', 'Barkod', 'Maliyet', 'Satış', 'Odoo ID', 'Durum'].map((h) => (
+                        <th key={h} style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 700 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {varyantlar.map((v, i) => (
+                      <tr key={v.odooId} style={{ borderTop: '1px solid #f3f4f6' }}>
+                        <td style={{ padding: 6 }}>{v.model || '—'}</td>
+                        <td style={{ padding: 6 }}>{v.renk || '—'}</td>
+                        <td style={{ padding: 6 }}>{v.olcu || '—'}</td>
+                        <td style={{ padding: 6 }}>
+                          <input
+                            value={v.icReferans}
+                            onChange={(e) => setVaryantlar((prev) => prev.map((x, j) => j === i ? { ...x, icReferans: e.target.value, durum: 'bekliyor' } : x))}
+                            style={{ ...inp, padding: '4px 6px', width: 90 }}
+                          />
+                        </td>
+                        <td style={{ padding: 6 }}>
+                          <input
+                            value={v.barkod}
+                            onChange={(e) => setVaryantlar((prev) => prev.map((x, j) => j === i ? { ...x, barkod: e.target.value, durum: 'bekliyor' } : x))}
+                            style={{ ...inp, padding: '4px 6px', width: 100 }}
+                          />
+                        </td>
+                        <td style={{ padding: 6 }}>
+                          <input
+                            type="number"
+                            value={v.maliyet}
+                            onChange={(e) => setVaryantlar((prev) => prev.map((x, j) => j === i ? { ...x, maliyet: e.target.value, durum: 'bekliyor' } : x))}
+                            style={{ ...inp, padding: '4px 6px', width: 70 }}
+                          />
+                        </td>
+                        <td style={{ padding: 6 }}>
+                          <input
+                            type="number"
+                            value={v.satisFiyati}
+                            onChange={(e) => setVaryantlar((prev) => prev.map((x, j) => j === i ? { ...x, satisFiyati: e.target.value, durum: 'bekliyor' } : x))}
+                            style={{ ...inp, padding: '4px 6px', width: 70 }}
+                          />
+                        </td>
+                        <td style={{ padding: 6, fontWeight: 700 }}>{v.odooId}</td>
+                        <td style={{ padding: 6 }}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                            backgroundColor: v.durum === 'synced' ? '#dcfce7' : '#fef3c7',
+                            color: v.durum === 'synced' ? GREEN : '#92400e',
+                          }}>
+                            {v.durum === 'synced' ? 'Sync' : 'Bekliyor'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {varyantlar.length === 0 ? (
+                      <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>Henüz varyant yok — import ile oluşturun veya nitelik atayın</td></tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+                <button type="button" onClick={() => void varyantlariSync()} disabled={loading || varyantlar.length === 0} style={btnPrimary}>
+                  {loading ? 'Sync...' : 'Odoo\'ya sync et'}
+                </button>
+                <button type="button" disabled style={{ ...btnSmall, opacity: 0.5 }}>Barkod yazdır (yakında)</button>
+              </div>
+            </>
+          )}
 
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, backgroundColor: '#f0fdf4' }}>
             <div style={{ fontWeight: 800, marginBottom: 8 }}>Sonraki adım</div>
