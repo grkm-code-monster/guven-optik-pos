@@ -2,6 +2,7 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Ürün Yapılandırma sayfası: kategori, nitelik, şablon, varyant (Odoo entegreli)
 - [bugün] — Görevli & vekalet atama sistemi kuruldu
 - [bugün] — SGK & İK belge upload sistemi kuruldu
 - [bugün] — User↔Personel↔Odoo hr.employee üçlü bağlantı kuruldu
@@ -48,6 +49,7 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] TanimlamalarPage Odoo çalışan bağlama UI
 - [x] SGK belgeleri upload (IK modülü — PersonelBelge, base64, onay akışı)
 - [x] Görevli/vekalet atama (günlük görevli + kalıcı yedek sorumlu)
+- [x] Ürün yapılandırma ekranı (4 adımlı, Odoo sync)
 
 ## Kısa vadeli — açık
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
@@ -57,6 +59,9 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Personel kaydı oluşturulunca WhatsApp belge talep akışı
 - [ ] Eğitim modülü (personel profilim sekmesi)
 - [ ] PDKS gelince görevli atama otomatik tetiklenecek (izin/devamsızlık → yedek sorumlu otomatik aktif)
+- [ ] Ürün yapılandırma — Excel ile toplu varyant girişi
+- [ ] Ürün yapılandırma — Barkod yazdırma
+- [ ] Depo ürün girişi akışı (stok miktarı tanımlama)
 - [ ] PDF çıktısı jsPDF ile
 - [ ] Açık hesap vade tarihi
 - [ ] PersonelDashboard: laboratuvara gönderilmedi gerçek veri (warranty userId filtresi eklenince)

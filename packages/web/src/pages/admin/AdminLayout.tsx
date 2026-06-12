@@ -46,6 +46,7 @@ const MENU: MenuGroup[] = [
     title: '📦 DEPO',
     items: [
       { label: 'Depo Yönetimi', icon: '📦', to: '/admin/depo' },
+      { label: 'Ürün Yapılandırma', icon: '⚙️', to: '/admin/urun-yapilandirma' },
       { label: 'Garanti & İade', icon: '🔧', to: '/admin/garanti' },
     ],
   },

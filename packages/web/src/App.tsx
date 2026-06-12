@@ -24,6 +24,7 @@ import IKPage from './pages/admin/IKPage'
 import FinansPage from './pages/admin/FinansPage'
 import PatronPage from './pages/admin/PatronPage'
 import GarantiYonetimPage from './pages/admin/GarantiYonetimPage'
+import UrunYapilandirmaPage from './pages/admin/UrunYapilandirmaPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="subeler" element={<Navigate to="/admin/tanimlamalar" replace />} />
           <Route path="kampanyalar" element={<KampanyalarPage />} />
           <Route path="depo" element={<DepoPage />} />
+          <Route path="urun-yapilandirma" element={<UrunYapilandirmaPage />} />
           <Route path="garanti" element={<GarantiYonetimPage />} />
           <Route path="muhasebe" element={<MuhasebePage />} />
           <Route path="ik" element={<IKPage />} />

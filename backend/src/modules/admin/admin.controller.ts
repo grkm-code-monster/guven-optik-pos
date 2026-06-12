@@ -4135,5 +4135,156 @@ router.post('/bekleyen-fatura-eslestir/:id', async (req, res) => {
   }
 })
 
+// ── ODOO ÜRÜN YAPILANDIRMA ────────────────────────────────────────
+router.get('/odoo-kategoriler', async (_req, res, next) => {
+  try {
+    const data = await execute('product.category', 'search_read', [[]], {
+      fields: ['id', 'name', 'parent_id', 'complete_name'],
+      limit: 100,
+    });
+    return res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/odoo-nitelikler', async (_req, res, next) => {
+  try {
+    const data = await execute('product.attribute', 'search_read', [[]], {
+      fields: ['id', 'name', 'value_ids', 'display_type'],
+      limit: 50,
+    });
+    return res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/odoo-nitelik-degerleri', async (_req, res, next) => {
+  try {
+    const data = await execute('product.attribute.value', 'search_read', [[]], {
+      fields: ['id', 'name', 'attribute_id'],
+      limit: 200,
+    });
+    return res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/odoo-kategori-ekle', async (req, res, next) => {
+  try {
+    const { ad, parentId } = req.body;
+    if (!ad?.trim()) return res.status(400).json({ error: 'ad zorunlu' });
+    const data: Record<string, unknown> = { name: ad.trim() };
+    if (parentId) data.parent_id = Number(parentId);
+    const id = await execute('product.category', 'create', [data]);
+    return res.json({ success: true, id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/odoo-nitelik-ekle', async (req, res, next) => {
+  try {
+    const { ad, displayType, degerler } = req.body;
+    if (!ad?.trim()) return res.status(400).json({ error: 'ad zorunlu' });
+    const attrId = await execute('product.attribute', 'create', [{
+      name: ad.trim(),
+      display_type: displayType || 'select',
+    }]);
+    if (degerler?.length) {
+      for (const d of degerler) {
+        await execute('product.attribute.value', 'create', [{
+          name: String(d).trim(),
+          attribute_id: attrId,
+        }]);
+      }
+    }
+    return res.json({ success: true, id: attrId });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/odoo-sablon-olustur', async (req, res, next) => {
+  try {
+    const {
+      ad, tur, kategoriId, satisFiyati, maliyet,
+      icReferans, barkod, sirketId, faturaKurali,
+      izleme, teslimSuresi, agirlik, hacim,
+      satilabilir, satinAlinabilir, masrafOlabilir,
+      nitelikler,
+      vergi,
+    } = req.body;
+
+    if (!ad?.trim()) return res.status(400).json({ error: 'ad zorunlu' });
+
+    const attributeLines = (nitelikler || []).map((n: { attributeId: number; valueIds: number[] }) => [0, 0, {
+      attribute_id: n.attributeId,
+      value_ids: [[6, 0, n.valueIds]],
+    }]);
+
+    const tmplData: Record<string, unknown> = {
+      name: ad.trim(),
+      type: tur || 'product',
+      categ_id: kategoriId ? Number(kategoriId) : false,
+      list_price: Number(satisFiyati) || 0,
+      standard_price: Number(maliyet) || 0,
+      default_code: icReferans || false,
+      barcode: barkod || false,
+      sale_ok: !!satilabilir,
+      purchase_ok: !!satinAlinabilir,
+      can_be_expensed: !!masrafOlabilir,
+      invoice_policy: faturaKurali || 'order',
+      tracking: izleme || 'lot',
+      sale_delay: Number(teslimSuresi) || 0,
+      weight: Number(agirlik) || 0,
+      volume: Number(hacim) || 0,
+      attribute_line_ids: attributeLines,
+    };
+
+    if (sirketId) tmplData.company_id = Number(sirketId);
+    if (vergi) {
+      const taxes = await execute('account.tax', 'search_read',
+        [[['type_tax_use', '=', 'sale'], ['amount', '=', Number(vergi)]]],
+        { fields: ['id', 'name'], limit: 1 });
+      if (taxes?.length) tmplData.taxes_id = [[6, 0, [taxes[0].id]]];
+    }
+
+    const tmplId = await execute('product.template', 'create', [tmplData]);
+
+    const variants = await execute('product.product', 'search_read',
+      [[['product_tmpl_id', '=', tmplId]]],
+      { fields: ['id', 'name', 'product_template_attribute_value_ids',
+        'default_code', 'barcode', 'lst_price', 'standard_price'] });
+
+    return res.json({ success: true, tmplId, variants });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/odoo-varyant-guncelle', async (req, res, next) => {
+  try {
+    const { varyantlar } = req.body;
+    for (const v of (varyantlar || [])) {
+      if (!v.odooId) continue;
+      await execute('product.product', 'write', [
+        [v.odooId],
+        {
+          default_code: v.icReferans || false,
+          barcode: v.barkod || false,
+          lst_price: Number(v.satisFiyati) || 0,
+          standard_price: Number(v.maliyet) || 0,
+        },
+      ]);
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
 
