@@ -708,23 +708,27 @@ export default function UrunYapilandirmaPage() {
 
           {sablonModu === 'sec' ? (
             <div>
-              <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                 <input
                   type="text"
-                  placeholder="Ad veya iç referans ara..."
+                  placeholder="Şablon adı veya referans ara..."
                   value={sablonArama}
                   onChange={(e) => setSablonArama(e.target.value)}
-                  style={{ ...inp, flex: 1 }}
+                  style={{ flex: 3, ...inp }}
                 />
                 <select
                   value={sablonKategoriFiltre}
                   onChange={(e) => setSablonKategoriFiltre(e.target.value)}
-                  style={{ ...inp, minWidth: 200 }}
+                  style={{ flex: 1, ...inp }}
                 >
                   <option value="">Tüm kategoriler</option>
-                  {siraliKategoriler.map((k) => (
-                    <option key={k.id} value={k.id}>{k.complete_name}</option>
-                  ))}
+                  {kategoriler
+                    .filter((k) => k.id !== 1)
+                    .map((k) => (
+                      <option key={k.id} value={String(k.id)}>
+                        {k.complete_name.replace('All / ', '')}
+                      </option>
+                    ))}
                 </select>
               </div>
 
