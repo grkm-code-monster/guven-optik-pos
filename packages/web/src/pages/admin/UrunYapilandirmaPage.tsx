@@ -464,9 +464,20 @@ export default function UrunYapilandirmaPage() {
   function parseImportMetin(metin: string): string[][] {
     return metin
       .split('\n')
-      .map((s) => s.split(/\t|,(?=(?:[^"]*"[^"]*")*[^"]*$)/))
-      .map((s) => s.map((h) => h.trim().replace(/^"|"$/g, '')))
-      .filter((s) => s.some((h) => h.length > 0))
+      .map((satir) => {
+        const temiz = satir.trim()
+        if (!temiz) return []
+        if (temiz.includes('\t')) {
+          return temiz.split('\t').map((s) => s.trim())
+        }
+        if (temiz.includes(',')) {
+          return temiz
+            .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+            .map((s) => s.trim().replace(/^"|"$/g, ''))
+        }
+        return temiz.split(/\s{2,}|\s+/).map((s) => s.trim()).filter(Boolean)
+      })
+      .filter((s) => s.length > 0 && s.some((h) => h.length > 0))
   }
 
   function apiSutunSirasi() {
