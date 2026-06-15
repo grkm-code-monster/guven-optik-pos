@@ -4359,6 +4359,96 @@ router.get('/odoo-sablon/:tmplId', async (req, res, next) => {
   }
 });
 
+router.get('/odoo-attr-lines/:tmplId', async (req, res, next) => {
+  try {
+    const lines = await execute(
+      'product.template.attribute.line', 'search_read',
+      [[['product_tmpl_id', '=', Number(req.params.tmplId)]]],
+      { fields: ['id', 'attribute_id', 'value_ids'] },
+    );
+    return res.json({ data: lines });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/odoo-temizle-attr-lines/:tmplId', async (req, res, next) => {
+  try {
+    const tmplId = Number(req.params.tmplId);
+
+    const lines = await execute(
+      'product.template.attribute.line', 'search_read',
+      [[['product_tmpl_id', '=', tmplId]]],
+      { fields: ['id', 'attribute_id', 'value_ids'] },
+    ) as { id: number; attribute_id: [number, string]; value_ids: number[] }[];
+
+    const gruplar = new Map<number, typeof lines>();
+    for (const line of lines) {
+      const attrId = line.attribute_id[0];
+      if (!gruplar.has(attrId)) gruplar.set(attrId, []);
+      gruplar.get(attrId)!.push(line);
+    }
+
+    const silinen: number[] = [];
+    const guncellenen: number[] = [];
+
+    for (const [, attrLines] of gruplar) {
+      if (attrLines.length <= 1) continue;
+
+      const tumDegerler = [...new Set(attrLines.flatMap((l) => l.value_ids))];
+
+      const ilk = attrLines[0];
+      await execute(
+        'product.template.attribute.line', 'write',
+        [[ilk.id], { value_ids: [[6, 0, tumDegerler]] }],
+      );
+      guncellenen.push(ilk.id);
+
+      const silinecekler = attrLines.slice(1).map((l) => l.id);
+      await execute(
+        'product.template.attribute.line', 'unlink',
+        [silinecekler],
+      );
+      silinen.push(...silinecekler);
+    }
+
+    return res.json({
+      success: true,
+      silinen,
+      guncellenen,
+      mesaj: `${silinen.length} duplicate line silindi`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/odoo-sablon-sil', async (req, res, next) => {
+  try {
+    const { tmplId } = req.body;
+    if (!tmplId) return res.status(400).json({ error: 'tmplId zorunlu' });
+
+    const varyantlar = await execute(
+      'product.product', 'search',
+      [[['product_tmpl_id', '=', Number(tmplId)]]],
+    ) as number[];
+
+    if (varyantlar.length) {
+      await execute('product.product', 'unlink', [varyantlar]);
+    }
+
+    await execute('product.template', 'unlink', [[Number(tmplId)]]);
+
+    return res.json({
+      success: true,
+      silinenVaryant: varyantlar.length,
+      mesaj: `Şablon #${tmplId} ve ${varyantlar.length} varyant silindi`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/odoo-sablon-olustur', async (req, res, next) => {
   try {
     const {
@@ -4477,140 +4567,152 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
       );
     }
 
-    const mevcutVaryantlar = await execute(
-      'product.product', 'search_read',
+    const getOrCreateDeger = async (attrId: number, ad: string): Promise<number> => {
+      const key = `${attrId}_${ad.trim().toUpperCase()}`;
+      if (degerMap.has(key)) return degerMap.get(key)!;
+      const yeniId = Number(await execute(
+        'product.attribute.value', 'create',
+        [{ name: ad.trim(), attribute_id: attrId }],
+      ));
+      degerMap.set(key, yeniId);
+      return yeniId;
+    };
+
+    const mevcutLines = await execute(
+      'product.template.attribute.line', 'search_read',
       [[['product_tmpl_id', '=', Number(tmplId)]]],
-      { fields: ['id', 'product_template_attribute_value_ids'] },
-    );
-    const mevcutKombinasyonlar = new Set(
-      (mevcutVaryantlar as { product_template_attribute_value_ids: number[] }[]).map((v) =>
-        [...v.product_template_attribute_value_ids].sort().join('_'),
-      ),
-    );
+      { fields: ['id', 'attribute_id', 'value_ids'] },
+    ) as { id: number; attribute_id: [number, string]; value_ids: number[] }[];
+
+    const lineMap = new Map<number, { id: number; value_ids: number[] }>();
+    for (const line of mevcutLines) {
+      const attrId = line.attribute_id[0];
+      if (!lineMap.has(attrId)) {
+        lineMap.set(attrId, { id: line.id, value_ids: line.value_ids });
+      } else {
+        await execute(
+          'product.template.attribute.line', 'unlink', [[line.id]],
+        );
+      }
+    }
+
+    for (const attrId of [modelAttrId, renkAttrId, olcuAttrId]) {
+      if (!lineMap.has(attrId)) {
+        lineMap.set(attrId, { id: -1, value_ids: [] });
+      }
+    }
 
     const sonuclar: {
       satir: number; varyantId: number; model: string; renk: string;
       olcu: string; barkod: string; fiyat: number;
     }[] = [];
     const hatalar: { satir: number; sebep: string }[] = [];
-    let yeniNitelikDeger = 0;
-
-    const lineMap = new Map<number, { id: number; attribute_id: [number, string]; value_ids: number[] }>();
-    const mevcutLines = await execute(
-      'product.template.attribute.line', 'search_read',
-      [[['product_tmpl_id', '=', Number(tmplId)]]],
-      { fields: ['id', 'attribute_id', 'value_ids'] },
-    );
-    for (const l of mevcutLines as { id: number; attribute_id: [number, string]; value_ids: number[] }[]) {
-      lineMap.set(l.attribute_id[0], l);
-    }
+    const eklenenDegerIdler = new Set<string>();
 
     for (let i = 0; i < satirlar.length; i++) {
       const satir = satirlar[i] as string[];
       const modelAd = satir[sutunSirasi.model]?.trim();
       const renkAd = satir[sutunSirasi.renk]?.trim();
-      const olcuAd = satir[sutunSirasi.olcu]?.trim();
-      const barkod = sutunSirasi.barkod !== undefined && sutunSirasi.barkod >= 0
+      const olcuAd = sutunSirasi.olcu >= 0
+        ? satir[sutunSirasi.olcu]?.trim() : null;
+      const barkod = sutunSirasi.barkod >= 0
         ? satir[sutunSirasi.barkod]?.trim() : '';
-      const fiyat = sutunSirasi.fiyat !== undefined && sutunSirasi.fiyat >= 0
+      const fiyat = sutunSirasi.fiyat >= 0
         ? Number(satir[sutunSirasi.fiyat]) : 0;
 
-      if (!modelAd || !renkAd || !olcuAd) {
-        hatalar.push({ satir: i + 1, sebep: 'Boş değer' });
+      if (!modelAd || !renkAd) {
+        hatalar.push({ satir: i + 1, sebep: 'Model veya renk boş' });
         continue;
       }
 
       try {
-        const getOrCreate = async (attrId: number, ad: string): Promise<number> => {
-          const key = `${attrId}_${ad.toUpperCase()}`;
-          if (degerMap.has(key)) return degerMap.get(key)!;
-          const yeniId = Number(await execute(
-            'product.attribute.value', 'create',
-            [{ name: ad, attribute_id: attrId }],
-          ));
-          degerMap.set(key, yeniId);
-          yeniNitelikDeger++;
-          return yeniId;
-        };
+        const modelId = await getOrCreateDeger(modelAttrId, modelAd);
+        const renkId = await getOrCreateDeger(renkAttrId, renkAd);
+        const olcuId = olcuAd
+          ? await getOrCreateDeger(olcuAttrId, olcuAd)
+          : null;
 
-        const modelId = await getOrCreate(modelAttrId as number, modelAd);
-        const renkId = await getOrCreate(renkAttrId as number, renkAd);
-        const olcuId = await getOrCreate(olcuAttrId as number, olcuAd);
+        const addToLine = async (attrId: number, valueId: number) => {
+          const key = `${attrId}_${valueId}`;
+          if (eklenenDegerIdler.has(key)) return;
+          eklenenDegerIdler.add(key);
 
-        for (const [attrId, valId] of [
-          [modelAttrId as number, modelId],
-          [renkAttrId as number, renkId],
-          [olcuAttrId as number, olcuId],
-        ] as [number, number][]) {
-          if (!lineMap.has(attrId)) {
-            await execute(
+          const line = lineMap.get(attrId);
+          if (!line || line.id === -1) {
+            const lineId = Number(await execute(
               'product.template.attribute.line', 'create',
               [{
                 product_tmpl_id: Number(tmplId),
                 attribute_id: attrId,
-                value_ids: [[4, valId]],
+                value_ids: [[4, valueId]],
               }],
+            ));
+            lineMap.set(attrId, { id: lineId, value_ids: [valueId] });
+          } else if (!line.value_ids.includes(valueId)) {
+            await execute(
+              'product.template.attribute.line', 'write',
+              [[line.id], { value_ids: [[4, valueId]] }],
             );
-            const newLines = await execute(
-              'product.template.attribute.line', 'search_read',
-              [[
-                ['product_tmpl_id', '=', Number(tmplId)],
-                ['attribute_id', '=', attrId],
-              ]],
-              { fields: ['id', 'attribute_id', 'value_ids'] },
-            );
-            const first = (newLines as { id: number; attribute_id: [number, string]; value_ids: number[] }[])[0];
-            if (first) lineMap.set(attrId, first);
-          } else {
-            const line = lineMap.get(attrId)!;
-            if (!line.value_ids.includes(valId)) {
-              await execute(
-                'product.template.attribute.line', 'write',
-                [[line.id], { value_ids: [[4, valId]] }],
-              );
-              line.value_ids.push(valId);
-            }
+            line.value_ids.push(valueId);
           }
-        }
+        };
+
+        await addToLine(modelAttrId, modelId);
+        await addToLine(renkAttrId, renkId);
+        if (olcuId) await addToLine(olcuAttrId, olcuId);
 
         const ptavlar = await execute(
           'product.template.attribute.value', 'search_read',
           [[
             ['product_tmpl_id', '=', Number(tmplId)],
-            ['attribute_id', 'in', [modelAttrId, renkAttrId, olcuAttrId]],
-            ['product_attribute_value_id', 'in', [modelId, renkId, olcuId]],
+            ['product_attribute_value_id', 'in',
+              [modelId, renkId, ...(olcuId ? [olcuId] : [])],
+            ],
           ]],
           { fields: ['id', 'attribute_id', 'product_attribute_value_id'] },
-        );
-
-        const ptavList = ptavlar as {
+        ) as {
           id: number;
           attribute_id: [number, string];
           product_attribute_value_id: [number, string];
         }[];
 
-        const modelPtav = ptavList.find(
-          (p) => p.attribute_id[0] === modelAttrId && p.product_attribute_value_id[0] === modelId,
+        const modelPtav = ptavlar.find(
+          (p) => p.product_attribute_value_id[0] === modelId,
         );
-        const renkPtav = ptavList.find(
-          (p) => p.attribute_id[0] === renkAttrId && p.product_attribute_value_id[0] === renkId,
+        const renkPtav = ptavlar.find(
+          (p) => p.product_attribute_value_id[0] === renkId,
         );
-        const olcuPtav = ptavList.find(
-          (p) => p.attribute_id[0] === olcuAttrId && p.product_attribute_value_id[0] === olcuId,
-        );
+        const olcuPtav = olcuId ? ptavlar.find(
+          (p) => p.product_attribute_value_id[0] === olcuId,
+        ) : null;
 
-        if (!modelPtav || !renkPtav || !olcuPtav) {
+        if (!modelPtav || !renkPtav || (olcuId && !olcuPtav)) {
           hatalar.push({
             satir: i + 1,
-            sebep: 'PTAV bulunamadı — şablon nitelik satırı oluşturulamadı',
+            sebep: 'PTAV bulunamadı',
           });
           continue;
         }
 
-        const kombinasyon = [modelPtav.id, renkPtav.id, olcuPtav.id].sort().join('_');
+        const ptavIds = [
+          modelPtav.id,
+          renkPtav.id,
+          ...(olcuPtav ? [olcuPtav.id] : []),
+        ];
 
-        if (mevcutKombinasyonlar.has(kombinasyon)) {
-          hatalar.push({ satir: i + 1, sebep: 'Varyant zaten mevcut' });
+        const mevcutVaryant = await execute(
+          'product.product', 'search',
+          [[
+            ['product_tmpl_id', '=', Number(tmplId)],
+            ['product_template_attribute_value_ids', '=', ptavIds[0]],
+          ]],
+        ) as number[];
+
+        if (mevcutVaryant.length > 0) {
+          hatalar.push({
+            satir: i + 1,
+            sebep: 'Varyant zaten mevcut',
+          });
           continue;
         }
 
@@ -4618,26 +4720,25 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
           'product.product', 'create',
           [{
             product_tmpl_id: Number(tmplId),
-            product_template_attribute_value_ids: [
-              [6, 0, [modelPtav.id, renkPtav.id, olcuPtav.id]],
-            ],
+            product_template_attribute_value_ids: [[6, 0, ptavIds]],
             barcode: barkod || false,
             lst_price: fiyat || 0,
           }],
         ));
 
-        mevcutKombinasyonlar.add(kombinasyon);
         sonuclar.push({
           satir: i + 1,
           varyantId,
           model: modelAd,
           renk: renkAd,
-          olcu: olcuAd,
+          olcu: olcuAd || '',
           barkod: barkod || '',
           fiyat: fiyat || 0,
         });
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message.slice(0, 100) : 'Bilinmeyen hata';
+        const msg = e instanceof Error
+          ? e.message.slice(0, 150)
+          : 'Bilinmeyen hata';
         hatalar.push({ satir: i + 1, sebep: msg });
       }
     }
@@ -4646,8 +4747,10 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
       success: true,
       olusturulan: sonuclar.length,
       hatalar: hatalar.length,
-      yeniNitelikDeger,
-      detay: { sonuclar: sonuclar.slice(0, 20), hatalar },
+      detay: {
+        sonuclar: sonuclar.slice(0, 50),
+        hatalar: hatalar.slice(0, 50),
+      },
     });
   } catch (err) {
     next(err);
