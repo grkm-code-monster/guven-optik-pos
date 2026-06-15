@@ -1094,14 +1094,14 @@ export default function UrunYapilandirmaPage() {
                 flexWrap: 'wrap',
               }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
-                  {varyantFormulu || 'Nitelik seçip değer uygulayın'}
+                  Nitelikleri seçin. Varyantlar bir sonraki adımda Excel import ile oluşturulacak.
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button type="button" onClick={() => setAdim(2)} style={btnSmall}>← Şablon</button>
                   <button
                     type="button"
-                    onClick={() => void sablonNitelikAta()}
-                    disabled={loading || sablonVaryantSayisi === 0}
+                    onClick={() => setAdim(4)}
+                    disabled={aktifNitelikler.length === 0}
                     style={{ ...btnPrimary, backgroundColor: RED }}
                   >
                     {loading ? 'Oluşturuluyor...' : 'Varyantları oluştur →'}

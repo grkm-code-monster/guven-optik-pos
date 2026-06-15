@@ -2,6 +2,11 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Uyumsoft e-fatura SOAP entegrasyonu bağlantısı kuruldu
+- [bugün] — Varyant import sistemi: Excel yapıştır, önizle, sadece gerçek kombinasyonlar oluştur
+- [bugün] — Nitelik değer uygula: eşleştir+ekle+seç tek akış, mükerrer koruma
+- [bugün] — Nitelik toplu değer ekleme: textarea, Excel yapıştırma desteği
+- [bugün] — Ürün Yapılandırma akış düzeltmesi: adım sırası, tablo nitelik, şablona özel değer
 - [bugün] — Nitelik değer ekleme: inline input, odoo-nitelik-deger-ekle endpoint
 - [bugün] — Ürün Yapılandırma: kategori scroll, indentation düzeltmesi
 - [bugün] — Ürün Yapılandırma sayfası: kategori, nitelik, şablon, varyant (Odoo entegreli)
@@ -54,6 +59,10 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] Ürün yapılandırma ekranı (4 adımlı, Odoo sync)
 
 ## Kısa vadeli — açık
+- [ ] Uyumsoft SendInvoice — e-fatura gönderme
+- [ ] Uyumsoft e-arşiv gönderme
+- [ ] Satış onayında otomatik fatura tetikleme
+- [ ] Branch tablosuna şirket/VKN bilgileri
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
 - [ ] Mevcut personelleri Odoo ile eşleştir (link-employee endpoint ile)
 - [ ] report.service.ts buildPersonelHedefMap — string match yerine userId FK kullanacak şekilde güncelle (sonraki sprint)
