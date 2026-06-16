@@ -2,6 +2,8 @@
 Son güncelleme: 06.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — IK personel bağlantı yönetimi: PDKS/Odoo/POS üçlü panel
+- [bugün] — Patron PDKS API v4 entegrasyonu bağlantısı kuruldu
 - [bugün] — Uyumsoft e-fatura SOAP entegrasyonu bağlantısı kuruldu
 - [bugün] — Varyant import sistemi: Excel yapıştır, önizle, sadece gerçek kombinasyonlar oluştur
 - [bugün] — Nitelik değer uygula: eşleştir+ekle+seç tek akış, mükerrer koruma
@@ -57,6 +59,9 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] SGK belgeleri upload (IK modülü — PersonelBelge, base64, onay akışı)
 - [x] Görevli/vekalet atama (günlük görevli + kalıcı yedek sorumlu)
 - [x] Ürün yapılandırma ekranı (4 adımlı, Odoo sync)
+- [x] PDKS bağlantısı kuruldu (Patron API v4 — personel, konum endpoint'leri)
+- [x] Personel PDKS/Odoo/POS bağlantı yönetimi
+- [x] Personel bağlantı özet kartları
 
 ## Kısa vadeli — açık
 - [ ] Uyumsoft SendInvoice — e-fatura gönderme
@@ -69,7 +74,9 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Personel.subeId → Branch.code standartlaştırma
 - [ ] Personel kaydı oluşturulunca WhatsApp belge talep akışı
 - [ ] Eğitim modülü (personel profilim sekmesi)
-- [ ] PDKS gelince görevli atama otomatik tetiklenecek (izin/devamsızlık → yedek sorumlu otomatik aktif)
+- [ ] Personel↔PDKS id eşleştirmesi (pdksId alanı ile)
+- [ ] PDKS giriş/çıkış → dashboard görevli otomatik atama
+- [ ] Puantaj raporu IK modülüne entegrasyon
 - [ ] Ürün yapılandırma — Excel ile toplu varyant girişi
 - [ ] Ürün yapılandırma — Barkod yazdırma
 - [ ] Depo ürün girişi akışı (stok miktarı tanımlama)

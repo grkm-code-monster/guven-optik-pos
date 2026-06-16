@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import axios from 'axios';
 import { Prisma, Role, SaleStatus, ShiftStatus, SyncStatus } from '@prisma/client';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { prisma } from '../../database/prisma';
@@ -84,7 +85,9 @@ router.get(
       } else {
         if (subeId) where.subeId = String(subeId);
         if (sirketId) where.sirketId = Number(sirketId);
-        if (aktif !== undefined) where.aktif = aktif === 'true';
+        if (aktif === 'hepsi') {
+          // tüm personeller (aktif + pasif)
+        } else if (aktif !== undefined) where.aktif = aktif === 'true';
         else where.aktif = true;
       }
       const personeller = await prisma.personel.findMany({
@@ -3557,6 +3560,462 @@ router.post('/personel-ekle', async (req, res) => {
     return res.status(500).json({ error: err?.message })
   }
 })
+
+router.post('/pdks-personel-import', async (req, res, next) => {
+  try {
+    const pdksRes = await axios.get(
+      `https://app.patronpdks.com/api/v4/organizations/${process.env.PDKS_ORG_ID}/users`,
+      {
+        headers: {
+          Token: process.env.PDKS_TOKEN,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'Accept-Language': 'tr',
+        },
+      },
+    );
+    const pdksPersoneller = pdksRes.data?.data ?? [];
+
+    const eklenen: Array<{ id: string; ad: string; soyad: string; pdksId: number }> = [];
+    const guncellenen: Array<{ id: string; ad: string; soyad: string; pdksId: number }> = [];
+    const atlanan: Array<{ ad: string; soyad: string; pdksId: number; sebep: string }> = [];
+
+    for (const p of pdksPersoneller) {
+      if (!p.name) continue;
+
+      const parcalar = p.name.trim().split(' ');
+      const soyad = parcalar[parcalar.length - 1];
+      const ad = parcalar.slice(0, -1).join(' ') || soyad;
+
+      const mevcut = await prisma.personel.findFirst({
+        where: {
+          OR: [
+            { pdksId: String(p.id) },
+            {
+              ad: { equals: ad, mode: 'insensitive' },
+              soyad: { equals: soyad, mode: 'insensitive' },
+            },
+          ],
+        },
+      });
+
+      if (mevcut) {
+        if (!mevcut.pdksId) {
+          await prisma.personel.update({
+            where: { id: mevcut.id },
+            data: { pdksId: String(p.id) },
+          });
+          guncellenen.push({ id: mevcut.id, ad, soyad, pdksId: p.id });
+        } else {
+          atlanan.push({ ad, soyad, pdksId: p.id, sebep: 'Zaten mevcut' });
+        }
+      } else {
+        const yeni = await prisma.personel.create({
+          data: {
+            ad,
+            soyad,
+            telefon: p.tel || null,
+            email: p.email || null,
+            pozisyon: 'SATIS',
+            pdksId: String(p.id),
+            aktif: p.status === 1,
+          },
+        });
+        eklenen.push({ id: yeni.id, ad, soyad, pdksId: p.id });
+      }
+    }
+
+    return res.json({
+      success: true,
+      eklenen: eklenen.length,
+      guncellenen: guncellenen.length,
+      atlanan: atlanan.length,
+      detay: { eklenen, guncellenen, atlanan },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/personel-ise-al', async (req, res, next) => {
+  try {
+    const {
+      ad,
+      soyad,
+      telefon,
+      email,
+      pozisyon,
+      subeId,
+      subeAdi,
+      sirketId,
+      sirketAdi,
+      bolgeId,
+      maas,
+      aylikHedef,
+      username,
+      pin,
+      role,
+      odooDepId,
+    } = req.body;
+
+    if (!ad?.trim() || !soyad?.trim() || !pozisyon) {
+      return res.status(400).json({ error: 'Ad, soyad, pozisyon zorunlu' });
+    }
+
+    const sonuc: Record<string, unknown> = {};
+
+    const personel = await prisma.personel.create({
+      data: {
+        ad,
+        soyad,
+        telefon,
+        email,
+        pozisyon,
+        subeId,
+        subeAdi,
+        sirketId,
+        sirketAdi,
+        bolgeId,
+        maas: Number(maas) || 0,
+        aylikHedef: Number(aylikHedef) || 0,
+        aktif: true,
+      },
+    });
+    sonuc.personel = { id: personel.id, ad, soyad };
+
+    if (username?.trim() && pin?.trim()) {
+      try {
+        const pinHash = await bcrypt.hash(pin, 10);
+        const branch = await prisma.branch.findFirst({
+          where: { code: subeId },
+        });
+
+        if (branch) {
+          const user = await prisma.user.create({
+            data: {
+              name: `${ad} ${soyad}`,
+              username: username.trim().toLowerCase(),
+              pin: pinHash,
+              role: (role as Role) || Role.SALES_STAFF,
+              branchId: branch.id,
+              isActive: true,
+              personelId: personel.id,
+            },
+          });
+          await prisma.personel.update({
+            where: { id: personel.id },
+            data: { userId: user.id },
+          });
+          sonuc.posUser = { id: user.id, username: user.username };
+        } else {
+          sonuc.posUserUyari = 'Şube bulunamadı, POS kullanıcısı oluşturulamadı';
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        sonuc.posUserHata = msg.slice(0, 100);
+      }
+    }
+
+    try {
+      const odooEmpId = await execute('hr.employee', 'create', [{
+        name: `${ad} ${soyad}`,
+        work_email: email || false,
+        work_phone: telefon || false,
+        department_id: odooDepId ? Number(odooDepId) : false,
+        job_title: pozisyon,
+        active: true,
+      }]);
+      await prisma.personel.update({
+        where: { id: personel.id },
+        data: { odooEmployeeId: odooEmpId },
+      });
+      sonuc.odooEmployee = { id: odooEmpId };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sonuc.odooHata = msg.slice(0, 100);
+    }
+
+    sonuc.pdksUyari = 'PDKS sistemine manuel olarak ekleyin';
+    return res.json({ success: true, ...sonuc });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/personel-isten-cikar/:id', async (req, res, next) => {
+  try {
+    const personelId = req.params.id;
+    const { sebep } = req.body;
+
+    const personel = await prisma.personel.findUnique({
+      where: { id: personelId },
+      include: { user: true },
+    });
+    if (!personel) {
+      return res.status(404).json({ error: 'Personel bulunamadı' });
+    }
+
+    const sonuc: Record<string, unknown> = {};
+
+    await prisma.personel.update({
+      where: { id: personelId },
+      data: { aktif: false },
+    });
+    sonuc.prisma = 'Pasif edildi';
+
+    if (personel.userId) {
+      await prisma.user.update({
+        where: { id: personel.userId },
+        data: { isActive: false },
+      });
+      sonuc.posUser = 'Pasif edildi';
+    }
+
+    if (personel.odooEmployeeId) {
+      try {
+        await execute('hr.employee', 'write', [
+          [personel.odooEmployeeId],
+          { active: false },
+        ]);
+        sonuc.odoo = 'Archive edildi';
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        sonuc.odooHata = msg.slice(0, 100);
+      }
+    }
+
+    sonuc.pdksUyari = 'PDKS sisteminden manuel olarak çıkarın';
+    return res.json({ success: true, personelId, sebep, ...sonuc });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/personel-aktifles/:id', async (req, res, next) => {
+  try {
+    const personelId = req.params.id;
+
+    const personel = await prisma.personel.findUnique({
+      where: { id: personelId },
+    });
+    if (!personel) {
+      return res.status(404).json({ error: 'Personel bulunamadı' });
+    }
+
+    await prisma.personel.update({
+      where: { id: personelId },
+      data: { aktif: true },
+    });
+
+    if (personel.userId) {
+      await prisma.user.update({
+        where: { id: personel.userId },
+        data: { isActive: true },
+      });
+    }
+
+    if (personel.odooEmployeeId) {
+      try {
+        await execute('hr.employee', 'write', [
+          [personel.odooEmployeeId],
+          { active: true },
+        ]);
+      } catch {
+        // Odoo unarchive başarısız olsa da Prisma/POS aktif kalır
+      }
+    }
+
+    return res.json({ success: true, personelId });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/pdks-sync', async (req, res, next) => {
+  try {
+    const pdksRes = await axios.get(
+      `https://app.patronpdks.com/api/v4/organizations/${process.env.PDKS_ORG_ID}/users`,
+      {
+        headers: {
+          Token: process.env.PDKS_TOKEN,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'Accept-Language': 'tr',
+        },
+      },
+    );
+    const pdksPersoneller = pdksRes.data?.data ?? [];
+    const pdksMap = new Map<string, boolean>(
+      pdksPersoneller.map((p: { id: number; status: number }) => [String(p.id), p.status === 1]),
+    );
+
+    const personeller = await prisma.personel.findMany({
+      where: { pdksId: { not: null } },
+    });
+
+    let guncellenen = 0;
+    for (const p of personeller) {
+      if (!p.pdksId) continue;
+      const pdksAktif = pdksMap.get(p.pdksId);
+      if (pdksAktif !== undefined && pdksAktif !== p.aktif) {
+        await prisma.personel.update({
+          where: { id: p.id },
+          data: { aktif: pdksAktif },
+        });
+        guncellenen++;
+      }
+    }
+
+    return res.json({
+      success: true,
+      pdksSayisi: pdksPersoneller.length,
+      guncellenen,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/personel-baglanti-ozet', async (req, res, next) => {
+  try {
+    const personeller = await prisma.personel.findMany({
+      where: { aktif: true },
+      select: {
+        id: true,
+        ad: true,
+        soyad: true,
+        pozisyon: true,
+        subeId: true,
+        subeAdi: true,
+        pdksId: true,
+        odooEmployeeId: true,
+        userId: true,
+        aktif: true,
+        telefon: true,
+        user: { select: { id: true, username: true, role: true } },
+      },
+      orderBy: { ad: 'asc' },
+    });
+
+    const tam = personeller.filter((p) => p.pdksId && p.odooEmployeeId && p.userId).length;
+    const eksik = personeller.filter(
+      (p) => (p.pdksId || p.odooEmployeeId || p.userId) && !(p.pdksId && p.odooEmployeeId && p.userId),
+    ).length;
+    const hicYok = personeller.filter((p) => !p.pdksId && !p.odooEmployeeId && !p.userId).length;
+
+    return res.json({
+      success: true,
+      ozet: { toplam: personeller.length, tam, eksik, hicYok },
+      data: personeller,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/personel-odoo-bagla/:id', async (req, res, next) => {
+  try {
+    const { odooEmployeeId } = req.body;
+    await prisma.personel.update({
+      where: { id: req.params.id },
+      data: { odooEmployeeId: Number(odooEmployeeId) },
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/personel-pos-bagla/:id', async (req, res, next) => {
+  try {
+    const { userId } = req.body;
+    const mevcutBagli = await prisma.personel.findFirst({
+      where: { userId, id: { not: req.params.id } },
+    });
+    if (mevcutBagli) {
+      return res.status(400).json({
+        error: 'Bu POS kullanıcısı başka personele bağlı',
+      });
+    }
+    await prisma.personel.update({
+      where: { id: req.params.id },
+      data: { userId },
+    });
+    await prisma.user.update({
+      where: { id: userId },
+      data: { personelId: req.params.id },
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/personel-pos-olustur/:id', async (req, res, next) => {
+  try {
+    const { username, pin, role } = req.body;
+    const personel = await prisma.personel.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!personel) return res.status(404).json({ error: 'Personel bulunamadı' });
+
+    const branch = await prisma.branch.findFirst({
+      where: { code: personel.subeId ?? '' },
+    });
+    if (!branch) {
+      return res.status(400).json({
+        error: 'Şube bulunamadı — personelin subeId alanını kontrol edin',
+      });
+    }
+
+    const pinHash = await bcrypt.hash(pin, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        name: `${personel.ad} ${personel.soyad}`,
+        username: username.trim().toLowerCase(),
+        pin: pinHash,
+        role: (role as Role) || Role.SALES_STAFF,
+        branchId: branch.id,
+        isActive: true,
+        personelId: personel.id,
+      },
+    });
+
+    await prisma.personel.update({
+      where: { id: req.params.id },
+      data: { userId: user.id },
+    });
+
+    return res.json({
+      success: true,
+      user: { id: user.id, username: user.username, role: user.role },
+    });
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e?.code === 'P2002') {
+      return res.status(400).json({ error: 'Bu kullanıcı adı zaten var' });
+    }
+    next(err);
+  }
+});
+
+router.get('/pos-kullanicilar', async (req, res, next) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        role: true,
+        personel: { select: { id: true, ad: true, soyad: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+    return res.json({ data: users });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.put('/personel-guncelle/:id', async (req, res) => {
   try {

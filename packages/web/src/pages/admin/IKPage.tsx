@@ -54,8 +54,21 @@ function indirBelge(belge: { dosyaAdi: string; mimeType: string; icerik: string 
 
 type Personel = {
   id: string; ad: string; soyad: string; telefon: string | null
-  email: string | null; pozisyon: string; subeAdi: string | null
+  email: string | null; pozisyon: string; subeAdi: string | null; subeId?: string | null
   sirketAdi: string | null; maas: number; aktif: boolean
+  pdksId: string | null; odooEmployeeId?: number | null; userId?: string | null
+  user?: { id: string; username: string; role: string } | null
+}
+
+type BaglantiOzet = {
+  ozet: { toplam: number; tam: number; eksik: number; hicYok: number }
+  data: Personel[]
+}
+
+type OdooEmployee = { id: number; name: string }
+type PosKullanici = {
+  id: string; name: string; username: string; role: string
+  personel: { id: string; ad: string; soyad: string } | null
 }
 
 type PrimKural = {
@@ -102,16 +115,113 @@ export default function IKPage() {
   const [belgeYukleniyor, setBelgeYukleniyor] = useState(false)
   const [yeniBelge, setYeniBelge] = useState({ tip: 'SGK_GIRIS', ad: '', notlar: '' })
 
-  useEffect(() => { void personelYukle() }, [])
+  const [iseAlMod, setIseAlMod] = useState(false)
+  const [yeniPosUser, setYeniPosUser] = useState({
+    username: '', pin: '', role: 'SALES_STAFF',
+  })
+  const [pdksSyncing, setPdksSyncing] = useState(false)
+  const [islemYukleniyor, setIslemYukleniyor] = useState<string | null>(null)
+  const [aktifFiltre, setAktifFiltre] = useState<'hepsi' | 'aktif' | 'pasif'>('aktif')
+
+  const [baglantiOzet, setBaglantiOzet] = useState<BaglantiOzet | null>(null)
+  const [secilenBaglanti, setSecilenBaglanti] = useState<string | null>(null)
+  const [odooPersoneller, setOdooPersoneller] = useState<OdooEmployee[]>([])
+  const [posKullanicilar, setPosKullanicilar] = useState<PosKullanici[]>([])
+  const [baglamaYukleniyor, setBaglamaYukleniyor] = useState(false)
+  const [yeniPosForm, setYeniPosForm] = useState({ username: '', pin: '', role: 'SALES_STAFF' })
+  const [odooSecim, setOdooSecim] = useState<Record<string, string>>({})
+  const [posSecim, setPosSecim] = useState<Record<string, string>>({})
+  const [odooDegistir, setOdooDegistir] = useState<string | null>(null)
+
+  useEffect(() => { void yuklePersonelSekmesi() }, [])
   useEffect(() => {
     if (sekme === 'prim-kurallar') void kuralYukle()
   }, [sekme])
 
   async function personelYukle() {
     try {
-      const res = await adminApi.get('/admin/personeller')
+      const res = await adminApi.get('/admin/personeller', { params: { aktif: 'hepsi' } })
       setPersoneller(res.data?.data ?? [])
     } catch { }
+  }
+
+  async function baglantiYukle() {
+    try {
+      const [ozRes, odooRes, posRes] = await Promise.all([
+        adminApi.get('/admin/personel-baglanti-ozet'),
+        adminApi.get('/admin/odoo-employees'),
+        adminApi.get('/admin/pos-kullanicilar'),
+      ])
+      setBaglantiOzet(ozRes.data)
+      setOdooPersoneller(odooRes.data?.data ?? [])
+      setPosKullanicilar(posRes.data?.data ?? [])
+    } catch { }
+  }
+
+  async function yuklePersonelSekmesi() {
+    await Promise.all([personelYukle(), baglantiYukle()])
+  }
+
+  function personelSatir(p: Personel): Personel {
+    const b = baglantiOzet?.data?.find((x) => x.id === p.id)
+    if (!b) return p
+    return {
+      ...p,
+      odooEmployeeId: p.odooEmployeeId ?? b.odooEmployeeId,
+      userId: p.userId ?? b.userId,
+      user: b.user ?? p.user,
+    }
+  }
+
+  function tamBagli(p: Personel) {
+    return Boolean(p.pdksId && p.odooEmployeeId && p.userId)
+  }
+
+  function hicBagliDegil(p: Personel) {
+    return !p.pdksId && !p.odooEmployeeId && !p.userId
+  }
+
+  function baglantiDurumu(p: Personel) {
+    if (tamBagli(p)) return { text: 'Tam', bg: '#dcfce7', color: '#166534' }
+    if (hicBagliDegil(p)) return { text: 'Bağlı Değil', bg: '#fee2e2', color: '#991b1b' }
+    return { text: 'Eksik', bg: '#fef3c7', color: '#92400e' }
+  }
+
+  async function odooPersonelBagla(personelId: string, odooId: number) {
+    setBaglamaYukleniyor(true)
+    try {
+      await adminApi.post(`/admin/personel-odoo-bagla/${personelId}`, { odooEmployeeId: odooId })
+      setOdooDegistir(null)
+      await yuklePersonelSekmesi()
+    } catch {
+      alert('Bağlantı başarısız')
+    } finally { setBaglamaYukleniyor(false) }
+  }
+
+  async function posKullaniciBagla(personelId: string, userId: string) {
+    setBaglamaYukleniyor(true)
+    try {
+      await adminApi.post(`/admin/personel-pos-bagla/${personelId}`, { userId })
+      await yuklePersonelSekmesi()
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Bağlantı başarısız')
+    } finally { setBaglamaYukleniyor(false) }
+  }
+
+  async function posKullaniciOlustur(personelId: string) {
+    if (!yeniPosForm.username || !yeniPosForm.pin) {
+      alert('Kullanıcı adı ve PIN zorunlu')
+      return
+    }
+    setBaglamaYukleniyor(true)
+    try {
+      await adminApi.post(`/admin/personel-pos-olustur/${personelId}`, yeniPosForm)
+      setYeniPosForm({ username: '', pin: '', role: 'SALES_STAFF' })
+      await yuklePersonelSekmesi()
+      alert('POS kullanıcısı oluşturuldu ve bağlandı')
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Oluşturma başarısız')
+    } finally { setBaglamaYukleniyor(false) }
   }
 
   async function kuralYukle() {
@@ -204,10 +314,72 @@ export default function IKPage() {
       await adminApi.post('/admin/personel-ekle', { ...yeniPersonel, maas: Number(yeniPersonel.maas) })
       setMesaj({ tip: 'ok', text: 'Personel eklendi' })
       setPersonelFormu(false)
-      void personelYukle()
+      await yuklePersonelSekmesi()
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Hata' })
     } finally { setLoading(false) }
+  }
+
+  async function iseAl() {
+    if (!yeniPersonel.ad || !yeniPersonel.soyad || !yeniPersonel.pozisyon) {
+      alert('Ad, soyad, pozisyon zorunlu')
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await adminApi.post('/admin/personel-ise-al', {
+        ...yeniPersonel,
+        ...yeniPosUser,
+      })
+      const d = res.data
+      let mesaj = `✓ ${yeniPersonel.ad} ${yeniPersonel.soyad} işe alındı\n`
+      if (d.posUser) mesaj += `✓ POS kullanıcısı: ${d.posUser.username}\n`
+      if (d.posUserUyari) mesaj += `⚠ ${d.posUserUyari}\n`
+      if (d.odooEmployee) mesaj += `✓ Odoo çalışan oluşturuldu\n`
+      if (d.odooHata) mesaj += `⚠ Odoo: ${d.odooHata}\n`
+      mesaj += `⚠ ${d.pdksUyari}`
+      alert(mesaj)
+      setIseAlMod(false)
+      setPersonelFormu(false)
+      setYeniPosUser({ username: '', pin: '', role: 'SALES_STAFF' })
+      await yuklePersonelSekmesi()
+    } catch (e: any) {
+      alert('İşe alım başarısız: ' + (e?.response?.data?.error ?? 'Hata'))
+    } finally { setLoading(false) }
+  }
+
+  async function istenCikar(personelId: string, ad: string) {
+    if (!window.confirm(`${ad} işten çıkarılacak. Onaylıyor musunuz?\n\nPOS girişi, Odoo kaydı pasif edilecek.\nPDKS'ten manuel olarak çıkarın.`)) return
+    setIslemYukleniyor(personelId)
+    try {
+      await adminApi.post(`/admin/personel-isten-cikar/${personelId}`, {
+        sebep: 'İşten çıkarıldı',
+      })
+      await yuklePersonelSekmesi()
+    } catch {
+      alert('İşlem başarısız')
+    } finally { setIslemYukleniyor(null) }
+  }
+
+  async function aktifles(personelId: string) {
+    setIslemYukleniyor(personelId)
+    try {
+      await adminApi.post(`/admin/personel-aktifles/${personelId}`)
+      await yuklePersonelSekmesi()
+    } catch {
+      alert('İşlem başarısız')
+    } finally { setIslemYukleniyor(null) }
+  }
+
+  async function pdksSync() {
+    setPdksSyncing(true)
+    try {
+      const res = await adminApi.post('/admin/pdks-sync')
+      alert(`PDKS sync tamamlandı\n${res.data.pdksSayisi} personel kontrol edildi\n${res.data.guncellenen} kayıt güncellendi`)
+      await yuklePersonelSekmesi()
+    } catch {
+      alert('PDKS sync başarısız')
+    } finally { setPdksSyncing(false) }
   }
 
   async function kuralKaydet() {
@@ -250,6 +422,12 @@ export default function IKPage() {
     MUDUR: '#7c3aed', SATIS: '#059669', KASIYER: '#2563eb', TEKNIK: '#d97706', DIGER: '#6b7280'
   }
 
+  const filtreliPersoneller = personeller.filter(p =>
+    aktifFiltre === 'hepsi' ? true :
+    aktifFiltre === 'aktif' ? p.aktif !== false :
+    p.aktif === false
+  )
+
   return (
     <div style={{ padding: 24 }}>
       <div style={{ fontSize: 22, fontWeight: 900, color: '#1a1a2e', marginBottom: 20 }}>👥 İK & Prim Yönetimi</div>
@@ -276,9 +454,49 @@ export default function IKPage() {
       {sekme === 'personeller' && (
         <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>Personel Listesi ({personeller.length})</div>
-            <button type="button" onClick={() => setPersonelFormu(!personelFormu)} style={btnPrimary}>+ Yeni Personel</button>
+          {baglantiOzet?.ozet && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+              {[
+                { label: 'Toplam (Aktif)', value: baglantiOzet.ozet.toplam, bg: '#f9fafb', color: '#1a1a2e', border: '#e5e7eb' },
+                { label: "3'ü Bağlı", value: baglantiOzet.ozet.tam, bg: '#dcfce7', color: '#166534', border: '#86efac' },
+                { label: 'Eksik', value: baglantiOzet.ozet.eksik, bg: '#fef3c7', color: '#92400e', border: '#fcd34d' },
+                { label: 'Hiç Yok', value: baglantiOzet.ozet.hicYok, bg: '#fee2e2', color: '#991b1b', border: '#fca5a5' },
+              ].map((k) => (
+                <div key={k.label} style={{ padding: '14px 16px', borderRadius: 12, backgroundColor: k.bg, border: `1px solid ${k.border}` }}>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{k.label}</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: k.color }}>{k.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Personel Bağlantıları ({filtreliPersoneller.length})</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => void pdksSync()} disabled={pdksSyncing} style={btnSmall}>
+                {pdksSyncing ? 'Syncing...' : '🔄 PDKS Sync'}
+              </button>
+              <button type="button" onClick={() => { setIseAlMod(true); setPersonelFormu(true) }} style={btnPrimary}>
+                + İşe Al
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            {(['aktif', 'pasif', 'hepsi'] as const).map(f => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setAktifFiltre(f)}
+                style={{
+                  ...btnSmall,
+                  background: aktifFiltre === f ? '#1a1a2e' : '#f3f4f6',
+                  color: aktifFiltre === f ? '#fff' : '#374151',
+                }}
+              >
+                {f === 'aktif' ? 'Aktif' : f === 'pasif' ? 'Pasif' : 'Tümü'}
+              </button>
+            ))}
           </div>
 
           {personelFormu && (
@@ -322,9 +540,55 @@ export default function IKPage() {
                 </div>
                 <div><label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>E-posta</label><input value={yeniPersonel.email} onChange={e => setYeniPersonel(p => ({ ...p, email: e.target.value }))} style={inp} /></div>
               </div>
+              {iseAlMod && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: '#1a1a2e' }}>
+                    POS Kullanıcısı Oluştur (opsiyonel)
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Kullanıcı Adı</label>
+                      <input
+                        value={yeniPosUser.username}
+                        onChange={e => setYeniPosUser(p => ({ ...p, username: e.target.value }))}
+                        placeholder="ör: ahmet.yilmaz"
+                        style={inp}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>PIN (6 hane)</label>
+                      <input
+                        type="password"
+                        value={yeniPosUser.pin}
+                        onChange={e => setYeniPosUser(p => ({ ...p, pin: e.target.value }))}
+                        placeholder="123456"
+                        maxLength={6}
+                        style={inp}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Rol</label>
+                      <select
+                        value={yeniPosUser.role}
+                        onChange={e => setYeniPosUser(p => ({ ...p, role: e.target.value }))}
+                        style={inp}
+                      >
+                        <option value="SALES_STAFF">Satış Personeli</option>
+                        <option value="STORE_MANAGER">Mağaza Müdürü</option>
+                        <option value="REGIONAL_MANAGER">Bölge Müdürü</option>
+                        <option value="ACCOUNTANT">Muhasebe</option>
+                        <option value="ADMIN">Admin</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: '#fef3c7', borderRadius: 8, fontSize: 11, color: '#92400e' }}>
+                    ⚠ Kayıt sonrası PDKS sistemine manuel olarak ekleyin
+                  </div>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button type="button" onClick={() => setPersonelFormu(false)} style={btnSmall}>İptal</button>
-                <button type="button" onClick={personelKaydet} disabled={loading || !yeniPersonel.ad || !yeniPersonel.soyad} style={btnPrimary}>{loading ? 'Kaydediliyor...' : '✓ Kaydet'}</button>
+                <button type="button" onClick={() => { setPersonelFormu(false); setIseAlMod(false) }} style={btnSmall}>İptal</button>
+                <button type="button" onClick={iseAlMod ? iseAl : personelKaydet} disabled={loading || !yeniPersonel.ad || !yeniPersonel.soyad} style={btnPrimary}>{loading ? 'Kaydediliyor...' : iseAlMod ? '✓ İşe Al' : '✓ Kaydet'}</button>
               </div>
             </div>
           )}
@@ -336,31 +600,215 @@ export default function IKPage() {
                   <th style={th}>Ad Soyad</th>
                   <th style={th}>Pozisyon</th>
                   <th style={th}>Şube</th>
-                  <th style={th}>Şirket</th>
-                  <th style={{ ...th, textAlign: 'right' as const }}>Maaş</th>
-                  <th style={th}>Telefon</th>
+                  <th style={th}>PDKS</th>
+                  <th style={th}>Odoo</th>
+                  <th style={th}>POS</th>
+                  <th style={th}>Durum</th>
+                  <th style={th}>Bağla</th>
                   <th style={th}></th>
                 </tr>
               </thead>
               <tbody>
-                {personeller.map(p => (
-                  <tr key={p.id} style={{ backgroundColor: secilenPersonel === p.id ? '#f0f9ff' : undefined }}>
-                    <td style={{ ...td, fontWeight: 700 }}>{p.ad} {p.soyad}</td>
-                    <td style={td}>
-                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 700, backgroundColor: `${POZ_RENK[p.pozisyon] ?? '#6b7280'}20`, color: POZ_RENK[p.pozisyon] ?? '#6b7280' }}>{p.pozisyon}</span>
-                    </td>
-                    <td style={{ ...td, color: '#374151' }}>{p.subeAdi ?? '—'}</td>
-                    <td style={{ ...td, fontSize: 11, color: '#9ca3af' }}>{p.sirketAdi ?? '—'}</td>
-                    <td style={{ ...td, textAlign: 'right' as const, fontWeight: 700 }}>₺{p.maas.toLocaleString('tr-TR')}</td>
-                    <td style={{ ...td, color: '#6b7280' }}>{p.telefon ?? '—'}</td>
-                    <td style={td}>
-                      <button type="button" onClick={() => personelBelgelerAc(p.id)} style={{ ...btnSmall, backgroundColor: secilenPersonel === p.id ? '#1a1a2e' : '#f3f4f6', color: secilenPersonel === p.id ? 'white' : '#374151' }}>
-                        📁 Belgeler
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {personeller.length === 0 && <tr><td colSpan={7} style={{ ...td, textAlign: 'center' as const, color: '#9ca3af', padding: 30 }}>Henüz personel eklenmemiş</td></tr>}
+                {filtreliPersoneller.map((p0) => {
+                  const p = personelSatir(p0)
+                  const tam = tamBagli(p)
+                  const hicYok = hicBagliDegil(p)
+                  const dur = baglantiDurumu(p)
+                  const panelAcik = secilenBaglanti === p.id
+                  return (
+                    <>
+                      <tr key={p.id} style={{ backgroundColor: secilenPersonel === p.id ? '#f0f9ff' : undefined }}>
+                        <td style={{ ...td, fontWeight: 700 }}>{p.ad} {p.soyad}</td>
+                        <td style={td}>
+                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 700, backgroundColor: `${POZ_RENK[p.pozisyon] ?? '#6b7280'}20`, color: POZ_RENK[p.pozisyon] ?? '#6b7280' }}>{p.pozisyon}</span>
+                        </td>
+                        <td style={{ ...td, color: '#374151' }}>{p.subeAdi ?? p.subeId ?? '—'}</td>
+                        <td style={td}>
+                          {p.pdksId ? (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: '#dcfce7', color: '#166534', fontWeight: 700 }}>✓ {p.pdksId}</span>
+                          ) : (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: '#f3f4f6', color: '#9ca3af' }}>—</span>
+                          )}
+                        </td>
+                        <td style={td}>
+                          {p.odooEmployeeId ? (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: '#dcfce7', color: '#166534', fontWeight: 700 }}>✓ emp:{p.odooEmployeeId}</span>
+                          ) : (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: '#fee2e2', color: '#991b1b', fontWeight: 700 }}>✗</span>
+                          )}
+                        </td>
+                        <td style={td}>
+                          {p.userId ? (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: '#dcfce7', color: '#166534', fontWeight: 700 }}>✓ {p.user?.username ?? p.userId}</span>
+                          ) : (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: '#fee2e2', color: '#991b1b', fontWeight: 700 }}>✗</span>
+                          )}
+                        </td>
+                        <td style={td}>
+                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: dur.bg, color: dur.color, fontWeight: 700 }}>
+                            {dur.text}
+                          </span>
+                          {hicYok ? null : (
+                            <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{p.aktif ? 'Aktif' : 'Pasif'}</div>
+                          )}
+                        </td>
+                        <td style={td}>
+                          <button
+                            type="button"
+                            onClick={() => setSecilenBaglanti(panelAcik ? null : p.id)}
+                            style={{ ...btnSmall, backgroundColor: panelAcik ? '#1a1a2e' : '#f3f4f6', color: panelAcik ? 'white' : '#374151', fontSize: 11 }}
+                          >
+                            {panelAcik ? 'Kapat' : tam ? 'Düzenle' : 'Bağla'}
+                          </button>
+                        </td>
+                        <td style={td}>
+                          <button type="button" onClick={() => personelBelgelerAc(p.id)} style={{ ...btnSmall, backgroundColor: secilenPersonel === p.id ? '#1a1a2e' : '#f3f4f6', color: secilenPersonel === p.id ? 'white' : '#374151' }}>
+                            📁 Belgeler
+                          </button>
+                        </td>
+                      </tr>
+
+                      {panelAcik && (
+                        <tr key={`${p.id}-panel`}>
+                          <td colSpan={9} style={{ ...td, backgroundColor: '#fafafa' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                              {/* PDKS */}
+                              <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+                                <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>PDKS</div>
+                                {p.pdksId ? (
+                                  <div style={{ fontSize: 12, color: '#166534' }}>
+                                    <div style={{ fontWeight: 900 }}>✓ Bağlı</div>
+                                    <div style={{ marginTop: 6 }}>ID: <strong>{p.pdksId}</strong></div>
+                                    <div style={{ marginTop: 2 }}>{p.ad} {p.soyad}</div>
+                                    <div style={{ marginTop: 2, color: '#6b7280' }}>{p.telefon ?? '—'}</div>
+                                  </div>
+                                ) : (
+                                  <div style={{ fontSize: 12, color: '#92400e', backgroundColor: '#fffbeb', border: '1px solid #fde68a', padding: 10, borderRadius: 8 }}>
+                                    ⚠ PDKS sisteminden manuel ekleyin.
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Odoo */}
+                              <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 900 }}>Odoo</div>
+                                  {p.odooEmployeeId ? (
+                                    <button type="button" onClick={() => setOdooDegistir(odooDegistir === p.id ? null : p.id)} style={{ ...btnSmall, padding: '4px 8px', fontSize: 11 }}>
+                                      {odooDegistir === p.id ? 'Vazgeç' : 'Değiştir'}
+                                    </button>
+                                  ) : null}
+                                </div>
+                                {p.odooEmployeeId && odooDegistir !== p.id ? (
+                                  <div style={{ fontSize: 12, color: '#166534' }}>
+                                    <div style={{ fontWeight: 900 }}>✓ Bağlı</div>
+                                    <div style={{ marginTop: 6 }}>Employee ID: <strong>{p.odooEmployeeId}</strong></div>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
+                                    <div style={{ flex: 1 }}>
+                                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Odoo Çalışanı</label>
+                                      <select
+                                        value={odooSecim[p.id] ?? ''}
+                                        onChange={(e) => setOdooSecim((m) => ({ ...m, [p.id]: e.target.value }))}
+                                        style={inp}
+                                      >
+                                        <option value="">Seç...</option>
+                                        {odooPersoneller.map((e) => (
+                                          <option key={e.id} value={String(e.id)}>{e.name}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const v = Number(odooSecim[p.id])
+                                        if (!v) return
+                                        void odooPersonelBagla(p.id, v)
+                                      }}
+                                      disabled={baglamaYukleniyor || !odooSecim[p.id]}
+                                      style={btnPrimary}
+                                    >
+                                      {baglamaYukleniyor ? '...' : 'Bağla'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* POS */}
+                              <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+                                <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>POS</div>
+                                {p.userId ? (
+                                  <div style={{ fontSize: 12, color: '#166534' }}>
+                                    <div style={{ fontWeight: 900 }}>✓ Bağlı</div>
+                                    <div style={{ marginTop: 6 }}>Kullanıcı: <strong>{p.user?.username ?? p.userId}</strong></div>
+                                    <div style={{ marginTop: 2, color: '#6b7280' }}>Rol: {p.user?.role ?? '—'}</div>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
+                                      <div style={{ flex: 1 }}>
+                                        <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Mevcut Kullanıcı</label>
+                                        <select
+                                          value={posSecim[p.id] ?? ''}
+                                          onChange={(e) => setPosSecim((m) => ({ ...m, [p.id]: e.target.value }))}
+                                          style={inp}
+                                        >
+                                          <option value="">Seç...</option>
+                                          {posKullanicilar.filter((u) => !u.personel).map((u) => (
+                                            <option key={u.id} value={u.id}>{u.username} · {u.name} ({u.role})</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => { if (posSecim[p.id]) void posKullaniciBagla(p.id, posSecim[p.id]) }}
+                                        disabled={baglamaYukleniyor || !posSecim[p.id]}
+                                        style={btnPrimary}
+                                      >
+                                        {baglamaYukleniyor ? '...' : 'Bağla'}
+                                      </button>
+                                    </div>
+
+                                    <div style={{ paddingTop: 10, borderTop: '1px solid #e5e7eb' }}>
+                                      <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8, color: '#1a1a2e' }}>Yeni Oluştur</div>
+                                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                                        <div>
+                                          <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Kullanıcı Adı</label>
+                                          <input value={yeniPosForm.username} onChange={(e) => setYeniPosForm((s) => ({ ...s, username: e.target.value }))} placeholder="ör: ayse.demir" style={inp} />
+                                        </div>
+                                        <div>
+                                          <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>PIN</label>
+                                          <input type="password" value={yeniPosForm.pin} onChange={(e) => setYeniPosForm((s) => ({ ...s, pin: e.target.value }))} placeholder="123456" maxLength={6} style={inp} />
+                                        </div>
+                                        <div>
+                                          <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Rol</label>
+                                          <select value={yeniPosForm.role} onChange={(e) => setYeniPosForm((s) => ({ ...s, role: e.target.value }))} style={inp}>
+                                            <option value="SALES_STAFF">Satış Personeli</option>
+                                            <option value="STORE_MANAGER">Mağaza Müdürü</option>
+                                            <option value="REGIONAL_MANAGER">Bölge Müdürü</option>
+                                            <option value="ACCOUNTANT">Muhasebe</option>
+                                            <option value="ADMIN">Admin</option>
+                                          </select>
+                                        </div>
+                                      </div>
+                                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                                        <button type="button" onClick={() => void posKullaniciOlustur(p.id)} disabled={baglamaYukleniyor} style={btnPrimary}>
+                                          {baglamaYukleniyor ? '...' : 'Oluştur'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  )
+                })}
+                {filtreliPersoneller.length === 0 && <tr><td colSpan={9} style={{ ...td, textAlign: 'center' as const, color: '#9ca3af', padding: 30 }}>Henüz personel eklenmemiş</td></tr>}
               </tbody>
             </table>
           </div>
