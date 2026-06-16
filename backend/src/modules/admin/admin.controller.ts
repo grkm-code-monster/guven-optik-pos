@@ -9,6 +9,61 @@ import { execute } from '../odoo/odoo.service';
 
 const router = Router();
 
+router.get('/public/personel-belge-form/:personelId', async (req, res, next) => {
+  try {
+    const personel = await prisma.personel.findUnique({
+      where: { id: req.params.personelId },
+      select: {
+        id: true,
+        ad: true,
+        soyad: true,
+        belgeler: {
+          select: { tip: true, ad: true, onaylandi: true },
+        },
+      },
+    });
+    if (!personel) {
+      return res.status(404).json({ error: 'Personel bulunamadı' });
+    }
+    return res.json({ success: true, data: personel });
+  } catch (err) { next(err); }
+});
+
+router.post('/public/personel-belge-yukle/:personelId', async (req, res, next) => {
+  try {
+    const { tip, ad, base64, mimeType, notlar, dosyaAdi } = req.body;
+    if (!tip || !ad || !base64) {
+      return res.status(400).json({ error: 'tip, ad ve base64 zorunlu' });
+    }
+    const boyut = Math.floor((String(base64).length * 3) / 4);
+    if (boyut > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: "Dosya 5MB'dan büyük olamaz" });
+    }
+    const personel = await prisma.personel.findUnique({
+      where: { id: req.params.personelId },
+      select: { id: true },
+    });
+    if (!personel) {
+      return res.status(404).json({ error: 'Personel bulunamadı' });
+    }
+    const belge = await prisma.personelBelge.create({
+      data: {
+        personelId: req.params.personelId,
+        tip,
+        ad,
+        dosyaAdi: dosyaAdi || ad,
+        icerik: base64,
+        mimeType: mimeType || 'application/octet-stream',
+        boyut,
+        yukleyenId: 'PUBLIC',
+        notlar: notlar || null,
+        onaylandi: false,
+      },
+    });
+    return res.json({ success: true, id: belge.id });
+  } catch (err) { next(err); }
+});
+
 router.use(authenticate);
 
 router.get('/campaigns/branch/:branchId', async (req: Request, res: Response, next: NextFunction) => {
@@ -4152,6 +4207,22 @@ router.delete('/personel-belge/:belgeId', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+router.get('/personel-belgeler-ozet', async (req, res, next) => {
+  try {
+    const belgeler = await prisma.personelBelge.findMany({
+      select: { personelId: true, tip: true },
+    });
+    const ozet: Record<string, string[]> = {};
+    for (const b of belgeler) {
+      if (!ozet[b.personelId]) ozet[b.personelId] = [];
+      if (!ozet[b.personelId].includes(b.tip)) {
+        ozet[b.personelId].push(b.tip);
+      }
+    }
+    return res.json({ success: true, data: ozet });
+  } catch (err) { next(err); }
 });
 
 // ── PRİM KURAL CRUD ───────────────────────────────────────────────

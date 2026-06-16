@@ -2,6 +2,7 @@
 Son güncelleme: 16.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — IK belge yönetimi: eksik gösterimi, WhatsApp link, public belge yükleme formu
 - [bugün] — Branch tablosu: GVN1-10 eklendi, prisma generate düzeltildi
 - [bugün] — Branch tablosu genişletildi: GVN1-10 eklendi, şirket/Odoo/PDKS/Uyumsoft bağlantı alanları, şube CRUD ekranı
 - [bugün] — IK personel bağlantı yönetimi: PDKS/Odoo/POS üçlü panel
@@ -74,6 +75,9 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Satış onayında otomatik fatura tetikleme
 - [ ] Her şube için Odoo lokasyon ID bağlantısı (Tanımlamalar'dan)
 - [ ] Her şube için PDKS place ID bağlantısı (Tanımlamalar'dan)
+- [ ] GVN6, GVN7, GVN8, GVN10 için PDKS konum eklenmesi lazım
+  (Patron PDKS panel → Konumlar → + Yeni Ekle)
+  Bu şubeler için şu an PDKS giriş/çıkış takibi yapılamıyor
 - [ ] Uyumsoft multi-şirket token yönetimi
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
 - [ ] Mevcut personelleri Odoo ile eşleştir (link-employee endpoint ile)

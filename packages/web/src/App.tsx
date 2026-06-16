@@ -25,6 +25,7 @@ import FinansPage from './pages/admin/FinansPage'
 import PatronPage from './pages/admin/PatronPage'
 import GarantiYonetimPage from './pages/admin/GarantiYonetimPage'
 import UrunYapilandirmaPage from './pages/admin/UrunYapilandirmaPage'
+import BelgeYuklePage from './pages/BelgeYuklePage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -41,6 +42,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/belge-yukle/:personelId" element={<BelgeYuklePage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route path="dashboard" element={<Navigate to="/admin/tanimlamalar" replace />} />

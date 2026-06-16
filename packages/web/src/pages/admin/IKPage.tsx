@@ -11,7 +11,7 @@ const td: React.CSSProperties = { padding: '10px 14px', fontSize: 12, borderTop:
 const POZISYONLAR = ['MUDUR', 'SATIS', 'KASIYER', 'TEKNIK', 'DIGER']
 const SIRKETLER = [{ id: 1, ad: 'GÜVEN OPTİK 1959' }, { id: 2, ad: 'NG' }, { id: 3, ad: 'ADESE' }, { id: 4, ad: 'POTENTIAL' }]
 const SUBELER = ['GVN1','GVN2','GVN3','GVN4','GVN5','GVN6','GVN8','GVN9','GVN10','ANADEPO']
-const BELGE_TIPLERI = [
+const BELGE_FORM_TIPLERI = [
   { value: 'IS_SOZLESMESI', label: 'İş Sözleşmesi' },
   { value: 'SGK_GIRIS', label: 'SGK Giriş' },
   { value: 'MAAS_BORDROSU', label: 'Maaş Bordrosu' },
@@ -20,6 +20,31 @@ const BELGE_TIPLERI = [
   { value: 'SAGLIK', label: 'Sağlık' },
   { value: 'DIGER', label: 'Diğer' },
 ] as const
+
+const BELGE_TIPLERI = [
+  'IS_SOZLESMESI',
+  'SGK',
+  'KIMLIK',
+  'IKAMETGAH',
+  'SAGLIK_RAPORU',
+  'DIGER',
+]
+
+const BELGE_ETIKET: Record<string, string> = {
+  IS_SOZLESMESI: 'İş Sözl.',
+  SGK: 'SGK',
+  KIMLIK: 'Kimlik',
+  IKAMETGAH: 'İkamet',
+  SAGLIK_RAPORU: 'Sağlık',
+  DIGER: 'Diğer',
+}
+
+function belgeTipiVar(tips: string[] | undefined, tip: string): boolean {
+  if (!tips?.length) return false
+  if (tip === 'SGK') return tips.includes('SGK') || tips.includes('SGK_GIRIS')
+  if (tip === 'SAGLIK_RAPORU') return tips.includes('SAGLIK_RAPORU') || tips.includes('SAGLIK')
+  return tips.includes(tip)
+}
 
 type PersonelBelge = {
   id: string
@@ -36,7 +61,7 @@ type PersonelBelge = {
 }
 
 function belgeTipLabel(tip: string) {
-  return BELGE_TIPLERI.find((t) => t.value === tip)?.label ?? tip
+  return BELGE_FORM_TIPLERI.find((t) => t.value === tip)?.label ?? tip
 }
 
 function indirBelge(belge: { dosyaAdi: string; mimeType: string; icerik: string }) {
@@ -70,6 +95,8 @@ type PosKullanici = {
   id: string; name: string; username: string; role: string
   personel: { id: string; ad: string; soyad: string } | null
 }
+
+type Sube = { id: string; name: string; code: string }
 
 type PrimKural = {
   id: string; ad: string; tip: string; kapsam: string; donem: string
@@ -128,10 +155,12 @@ export default function IKPage() {
   const [odooPersoneller, setOdooPersoneller] = useState<OdooEmployee[]>([])
   const [posKullanicilar, setPosKullanicilar] = useState<PosKullanici[]>([])
   const [baglamaYukleniyor, setBaglamaYukleniyor] = useState(false)
-  const [yeniPosForm, setYeniPosForm] = useState({ username: '', pin: '', role: 'SALES_STAFF' })
+  const [yeniPosForm, setYeniPosForm] = useState({ username: '', pin: '', role: 'SALES_STAFF', branchId: '' })
+  const [subeler, setSubeler] = useState<Sube[]>([])
   const [odooSecim, setOdooSecim] = useState<Record<string, string>>({})
   const [posSecim, setPosSecim] = useState<Record<string, string>>({})
   const [odooDegistir, setOdooDegistir] = useState<string | null>(null)
+  const [personelBelgeler, setPersonelBelgeler] = useState<Record<string, string[]>>({})
 
   useEffect(() => { void yuklePersonelSekmesi() }, [])
   useEffect(() => {
@@ -147,14 +176,18 @@ export default function IKPage() {
 
   async function baglantiYukle() {
     try {
-      const [ozRes, odooRes, posRes] = await Promise.all([
+      const [ozRes, odooRes, posRes, subeRes, belgeRes] = await Promise.all([
         adminApi.get('/admin/personel-baglanti-ozet'),
         adminApi.get('/admin/odoo-employees'),
         adminApi.get('/admin/pos-kullanicilar'),
+        adminApi.get('/admin/branch-list'),
+        adminApi.get('/admin/personel-belgeler-ozet'),
       ])
       setBaglantiOzet(ozRes.data)
       setOdooPersoneller(odooRes.data?.data ?? [])
       setPosKullanicilar(posRes.data?.data ?? [])
+      setSubeler(subeRes.data?.data ?? [])
+      setPersonelBelgeler(belgeRes.data?.data ?? {})
     } catch { }
   }
 
@@ -209,14 +242,14 @@ export default function IKPage() {
   }
 
   async function posKullaniciOlustur(personelId: string) {
-    if (!yeniPosForm.username || !yeniPosForm.pin) {
-      alert('Kullanıcı adı ve PIN zorunlu')
+    if (!yeniPosForm.username || !yeniPosForm.pin || !yeniPosForm.branchId) {
+      alert('Kullanıcı adı, PIN ve şube zorunlu')
       return
     }
     setBaglamaYukleniyor(true)
     try {
       await adminApi.post(`/admin/personel-pos-olustur/${personelId}`, yeniPosForm)
-      setYeniPosForm({ username: '', pin: '', role: 'SALES_STAFF' })
+      setYeniPosForm({ username: '', pin: '', role: 'SALES_STAFF', branchId: '' })
       await yuklePersonelSekmesi()
       alert('POS kullanıcısı oluşturuldu ve bağlandı')
     } catch (e: any) {
@@ -604,6 +637,7 @@ export default function IKPage() {
                   <th style={th}>Odoo</th>
                   <th style={th}>POS</th>
                   <th style={th}>Durum</th>
+                  <th style={th}>Belgeler</th>
                   <th style={th}>Bağla</th>
                   <th style={th}></th>
                 </tr>
@@ -652,6 +686,30 @@ export default function IKPage() {
                             <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{p.aktif ? 'Aktif' : 'Pasif'}</div>
                           )}
                         </td>
+                        <td style={{ padding: '7px 10px' }}>
+                          <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                            {BELGE_TIPLERI.filter((t) => t !== 'DIGER').map((tip) => {
+                              const var_ = belgeTipiVar(personelBelgeler[p.id], tip)
+                              return (
+                                <span
+                                  key={tip}
+                                  style={{
+                                    fontSize: 9,
+                                    padding: '1px 5px',
+                                    borderRadius: 10,
+                                    fontWeight: 500,
+                                    background: var_ ? '#EAF3DE' : '#FCEBEB',
+                                    color: var_ ? '#27500A' : '#791F1F',
+                                    border: `0.5px solid ${var_ ? '#C0DD97' : '#F7C1C1'}`,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {var_ ? '✓' : '✗'} {BELGE_ETIKET[tip]}
+                                </span>
+                              )
+                            })}
+                          </div>
+                        </td>
                         <td style={td}>
                           <button
                             type="button"
@@ -670,7 +728,7 @@ export default function IKPage() {
 
                       {panelAcik && (
                         <tr key={`${p.id}-panel`}>
-                          <td colSpan={9} style={{ ...td, backgroundColor: '#fafafa' }}>
+                          <td colSpan={10} style={{ ...td, backgroundColor: '#fafafa' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                               {/* PDKS */}
                               <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
@@ -777,6 +835,27 @@ export default function IKPage() {
                                           <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Kullanıcı Adı</label>
                                           <input value={yeniPosForm.username} onChange={(e) => setYeniPosForm((s) => ({ ...s, username: e.target.value }))} placeholder="ör: ayse.demir" style={inp} />
                                         </div>
+                                        <div style={{ marginBottom: 6 }}>
+                                          <label style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                                            Şube *
+                                          </label>
+                                          <select
+                                            value={yeniPosForm.branchId}
+                                            onChange={(e) => setYeniPosForm((p) => ({ ...p, branchId: e.target.value }))}
+                                            style={{
+                                              width: '100%', fontSize: 11, padding: '4px 8px',
+                                              border: '0.5px solid var(--color-border-secondary)',
+                                              borderRadius: 4, marginTop: 2,
+                                              background: 'var(--color-background-primary)',
+                                              color: 'var(--color-text-primary)',
+                                            }}
+                                          >
+                                            <option value="">— Şube seç —</option>
+                                            {subeler.map((s) => (
+                                              <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
+                                            ))}
+                                          </select>
+                                        </div>
                                         <div>
                                           <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>PIN</label>
                                           <input type="password" value={yeniPosForm.pin} onChange={(e) => setYeniPosForm((s) => ({ ...s, pin: e.target.value }))} placeholder="123456" maxLength={6} style={inp} />
@@ -802,13 +881,71 @@ export default function IKPage() {
                                 )}
                               </div>
                             </div>
+                            <div style={{
+                              marginTop: 12,
+                              padding: '10px 12px',
+                              background: '#E6F1FB',
+                              borderRadius: 8,
+                              fontSize: 12,
+                            }}
+                            >
+                              <div style={{ fontWeight: 500, marginBottom: 6 }}>
+                                📎 Belge Yükleme Linki
+                              </div>
+                              <div style={{
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                                background: '#fff',
+                                padding: '4px 8px',
+                                borderRadius: 4,
+                                marginBottom: 6,
+                                wordBreak: 'break-all',
+                                color: '#374151',
+                              }}
+                              >
+                                {window.location.origin}/belge-yukle/{p.id}
+                              </div>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(
+                                      `${window.location.origin}/belge-yukle/${p.id}`,
+                                    )
+                                    alert('Link kopyalandı!')
+                                  }}
+                                  style={{ fontSize: 11, padding: '4px 10px' }}
+                                >
+                                  📋 Kopyala
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const link = `${window.location.origin}/belge-yukle/${p.id}`
+                                    const msg = `Merhaba ${p.ad}, belge yükleme linkiniz: ${link}`
+                                    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`)
+                                  }}
+                                  style={{
+                                    fontSize: 11,
+                                    padding: '4px 10px',
+                                    background: '#25D366',
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  WhatsApp ile Gönder
+                                </button>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       )}
                     </>
                   )
                 })}
-                {filtreliPersoneller.length === 0 && <tr><td colSpan={9} style={{ ...td, textAlign: 'center' as const, color: '#9ca3af', padding: 30 }}>Henüz personel eklenmemiş</td></tr>}
+                {filtreliPersoneller.length === 0 && <tr><td colSpan={10} style={{ ...td, textAlign: 'center' as const, color: '#9ca3af', padding: 30 }}>Henüz personel eklenmemiş</td></tr>}
               </tbody>
             </table>
           </div>
@@ -832,7 +969,7 @@ export default function IKPage() {
                 <div>
                   <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Tip</label>
                   <select value={yeniBelge.tip} onChange={(e) => setYeniBelge((p) => ({ ...p, tip: e.target.value }))} style={inp}>
-                    {BELGE_TIPLERI.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    {BELGE_FORM_TIPLERI.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
                 <div>
