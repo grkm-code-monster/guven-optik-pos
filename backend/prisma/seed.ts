@@ -104,6 +104,28 @@ async function main() {
     }
   }
 
+  const gvnSubeler = [
+    { name: 'Güven Optik 1959 - 1', code: 'GVN1', sirketId: 3, sirketAdi: 'ADESE', pdksPlaceId: 5732 },
+    { name: 'Güven Optik 1959 - 2', code: 'GVN2', sirketId: 2, sirketAdi: 'NG', pdksPlaceId: 5727 },
+    { name: 'Güven Optik 1959 - 3', code: 'GVN3', sirketId: 3, sirketAdi: 'ADESE', pdksPlaceId: 5733 },
+    { name: 'Güven Optik 1959 - 5', code: 'GVN5', sirketId: 4, sirketAdi: 'POTENTIAL', pdksPlaceId: 5735 },
+    { name: 'Güven Optik 1959 - 6', code: 'GVN6', sirketId: 3, sirketAdi: 'ADESE' },
+    { name: 'Güven Optik 1959 - 7', code: 'GVN7', sirketId: 3, sirketAdi: 'ADESE' },
+    { name: 'Güven Optik 1959 - 8', code: 'GVN8', sirketId: 3, sirketAdi: 'ADESE' },
+    { name: 'Güven Optik 1959 - 9', code: 'GVN9', sirketId: 3, sirketAdi: 'ADESE', pdksPlaceId: 5734 },
+    { name: 'Güven Optik 1959 - 10', code: 'GVN10', sirketId: 2, sirketAdi: 'NG' },
+    { name: 'Ana Depo', code: 'ANADEPO', sirketId: 2, sirketAdi: 'NG' },
+    { name: 'Yönetim', code: 'YONETIM', sirketId: 1, sirketAdi: 'GÜVEN OPTİK 1959', pdksPlaceId: 8027 },
+  ];
+
+  for (const sube of gvnSubeler) {
+    await prisma.branch.upsert({
+      where: { code: sube.code },
+      update: sube,
+      create: { ...sube, isActive: true },
+    });
+  }
+
   console.log('Seed OK: branch PILOT01, user admin / PIN 123456');
 }
 

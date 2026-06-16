@@ -748,8 +748,16 @@ router.get('/branch-list', async (_req: Request, res: Response) => {
         id: true,
         name: true,
         code: true,
+        isActive: true,
+        sirketId: true,
+        sirketAdi: true,
+        vkn: true,
+        odooLocationId: true,
+        pdksPlaceId: true,
+        uyumsoftUser: true,
+        adres: true,
+        telefon: true,
         yedekSorumluId: true,
-        yedekSorumlu: { select: { id: true, name: true, role: true } },
       },
       orderBy: { code: 'asc' },
     });
@@ -757,6 +765,66 @@ router.get('/branch-list', async (_req: Request, res: Response) => {
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// Şube oluştur
+router.post('/branch', authorize(Role.ADMIN), async (req, res, next) => {
+  try {
+    const { name, code, sirketId, sirketAdi, vkn,
+      odooLocationId, pdksPlaceId, uyumsoftUser,
+      uyumsoftPass, adres, telefon } = req.body;
+    if (!name?.trim() || !code?.trim()) {
+      return res.status(400).json({ error: 'name ve code zorunlu' });
+    }
+    const branch = await prisma.branch.create({
+      data: {
+        name: name.trim(), code: code.trim().toUpperCase(),
+        isActive: true,
+        sirketId: sirketId ? Number(sirketId) : null,
+        sirketAdi: sirketAdi || null, vkn: vkn || null,
+        odooLocationId: odooLocationId ? Number(odooLocationId) : null,
+        pdksPlaceId: pdksPlaceId ? Number(pdksPlaceId) : null,
+        uyumsoftUser: uyumsoftUser || null,
+        uyumsoftPass: uyumsoftPass || null,
+        adres: adres || null, telefon: telefon || null,
+      },
+    });
+    return res.json({ success: true, data: branch });
+  } catch (err: any) {
+    if (err?.code === 'P2002') {
+      return res.status(400).json({ error: 'Bu kod zaten kayıtlı' });
+    }
+    next(err);
+  }
+});
+
+// Şube güncelle
+router.put('/branch/:id', authorize(Role.ADMIN), async (req, res, next) => {
+  try {
+    const data: any = {};
+    const strFields = ['name', 'sirketAdi', 'vkn', 'adres', 'telefon', 'uyumsoftUser', 'uyumsoftPass'];
+    const numFields = ['sirketId', 'odooLocationId', 'pdksPlaceId'];
+    for (const f of strFields) {
+      if (req.body[f] !== undefined) data[f] = req.body[f] || null;
+    }
+    for (const f of numFields) {
+      if (req.body[f] !== undefined) data[f] = req.body[f] ? Number(req.body[f]) : null;
+    }
+    if (req.body.isActive !== undefined) data.isActive = Boolean(req.body.isActive);
+    const branch = await prisma.branch.update({ where: { id: req.params.id }, data });
+    return res.json({ success: true, data: branch });
+  } catch (err) { next(err); }
+});
+
+// PDKS places
+router.get('/pdks-places', authenticate, authorize(Role.ADMIN), async (req, res, next) => {
+  try {
+    const r = await axios.get(
+      `https://app.patronpdks.com/api/v4/organizations/${process.env.PDKS_ORG_ID}/places`,
+      { headers: { Token: process.env.PDKS_TOKEN, 'Content-Type': 'application/json; charset=UTF-8', 'Accept-Language': 'tr' } },
+    );
+    return res.json({ success: true, data: r.data?.data ?? [] });
+  } catch (err) { next(err); }
 });
 
 router.patch('/branch/:branchId/yedek-sorumlu', async (req: Request, res: Response, next: NextFunction) => {
@@ -3951,19 +4019,33 @@ router.post('/personel-pos-bagla/:id', async (req, res, next) => {
 
 router.post('/personel-pos-olustur/:id', async (req, res, next) => {
   try {
-    const { username, pin, role } = req.body;
+    const { username, pin, role, branchId } = req.body;
     const personel = await prisma.personel.findUnique({
       where: { id: req.params.id },
     });
     if (!personel) return res.status(404).json({ error: 'Personel bulunamadı' });
 
-    const branch = await prisma.branch.findFirst({
-      where: { code: personel.subeId ?? '' },
-    });
-    if (!branch) {
-      return res.status(400).json({
-        error: 'Şube bulunamadı — personelin subeId alanını kontrol edin',
+    let branch = null;
+    if (branchId) {
+      branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    }
+    if (!branch && personel.subeId) {
+      branch = await prisma.branch.findFirst({
+        where: { code: personel.subeId },
       });
+    }
+    if (!branch) {
+      const branches = await prisma.branch.findMany({
+        where: { isActive: true },
+        take: 1,
+      });
+      if (branches.length) {
+        return res.status(400).json({
+          error: 'Şube seçilmedi',
+          branches: branches.map((b) => ({ id: b.id, name: b.name, code: b.code })),
+        });
+      }
+      return res.status(400).json({ error: 'Hiç şube bulunamadı' });
     }
 
     const pinHash = await bcrypt.hash(pin, 10);

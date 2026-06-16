@@ -1,7 +1,8 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 06.06.2026
+Son güncelleme: 16.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Branch tablosu genişletildi: GVN1-10 eklendi, şirket/Odoo/PDKS/Uyumsoft bağlantı alanları, şube CRUD ekranı
 - [bugün] — IK personel bağlantı yönetimi: PDKS/Odoo/POS üçlü panel
 - [bugün] — Patron PDKS API v4 entegrasyonu bağlantısı kuruldu
 - [bugün] — Uyumsoft e-fatura SOAP entegrasyonu bağlantısı kuruldu
@@ -62,12 +63,17 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] PDKS bağlantısı kuruldu (Patron API v4 — personel, konum endpoint'leri)
 - [x] Personel PDKS/Odoo/POS bağlantı yönetimi
 - [x] Personel bağlantı özet kartları
+- [x] Branch tablosuna şirket/VKN bilgileri eklendi
+- [x] GVN1-GVN10 şubeleri seed ile eklendi
+- [x] Tanımlamalar şube CRUD ekranı (Odoo/PDKS/Uyumsoft bağlantı)
 
 ## Kısa vadeli — açık
 - [ ] Uyumsoft SendInvoice — e-fatura gönderme
 - [ ] Uyumsoft e-arşiv gönderme
 - [ ] Satış onayında otomatik fatura tetikleme
-- [ ] Branch tablosuna şirket/VKN bilgileri
+- [ ] Her şube için Odoo lokasyon ID bağlantısı (Tanımlamalar'dan)
+- [ ] Her şube için PDKS place ID bağlantısı (Tanımlamalar'dan)
+- [ ] Uyumsoft multi-şirket token yönetimi
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
 - [ ] Mevcut personelleri Odoo ile eşleştir (link-employee endpoint ile)
 - [ ] report.service.ts buildPersonelHedefMap — string match yerine userId FK kullanacak şekilde güncelle (sonraki sprint)

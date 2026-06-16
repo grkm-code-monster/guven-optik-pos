@@ -327,47 +327,75 @@ type PosBranch = {
   id: string
   name: string
   code: string
-  yedekSorumluId?: string | null
-  yedekSorumlu?: { id: string; name: string; role: string } | null
+  isActive?: boolean
+  sirketId?: number | null
+  sirketAdi?: string | null
+  vkn?: string | null
+  odooLocationId?: number | null
+  pdksPlaceId?: number | null
+  uyumsoftUser?: string | null
+  adres?: string | null
+  telefon?: string | null
 }
 
-type BranchUser = { id: string; name: string; role: string }
+const SIRKETLER = [
+  { id: 1, ad: 'GÜVEN OPTİK 1959' },
+  { id: 2, ad: 'NG' },
+  { id: 3, ad: 'ADESE' },
+  { id: 4, ad: 'POTENTIAL' },
+]
+
+const emptyForm = {
+  name: '',
+  code: '',
+  sirketId: '',
+  sirketAdi: '',
+  vkn: '',
+  odooLocationId: '',
+  pdksPlaceId: '',
+  uyumsoftUser: '',
+  uyumsoftPass: '',
+  adres: '',
+  telefon: '',
+}
+
+function badge(ok: boolean, okLabel: string, failLabel: string): React.CSSProperties {
+  return {
+    display: 'inline-block',
+    padding: '3px 8px',
+    borderRadius: 6,
+    fontSize: 11,
+    fontWeight: 700,
+    backgroundColor: ok ? '#dcfce7' : '#fee2e2',
+    color: ok ? '#166534' : '#b91c1c',
+  }
+}
 
 function SubelerTab() {
-  const [branches, setBranches] = useState<PosBranch[]>([])
-  const [branchUsers, setBranchUsers] = useState<Record<string, BranchUser[]>>({})
+  const [branches, setBranches] = useState<any[]>([])
+  const [odooLokasyonlar, setOdooLokasyonlar] = useState<any[]>([])
+  const [pdksYerler, setPdksYerler] = useState<any[]>([])
+  const [secilenBranch, setSecilenBranch] = useState<string | null>(null)
+  const [yeniForm, setYeniForm] = useState(false)
+  const [form, setForm] = useState(emptyForm)
+  const [yukleniyor, setYukleniyor] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [savingId, setSavingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError(null)
     try {
-      const res = await adminApi.get('/admin/branch-list')
-      if (!res.data?.success) {
-        setError(res.data?.error ?? 'Şubeler yüklenemedi')
-        setBranches([])
-        return
-      }
-      const list: PosBranch[] = res.data.data ?? []
-      setBranches(list)
-
-      const usersMap: Record<string, BranchUser[]> = {}
-      await Promise.all(
-        list.map(async (b) => {
-          try {
-            const uRes = await adminApi.get(`/admin/branch/${b.id}/personeller`)
-            usersMap[b.id] = uRes.data?.data ?? []
-          } catch {
-            usersMap[b.id] = []
-          }
-        }),
-      )
-      setBranchUsers(usersMap)
-    } catch (e: any) {
-      setError(e?.response?.data?.error ?? 'Şubeler yüklenemedi')
+      const [brRes, odooRes, pdksRes] = await Promise.all([
+        adminApi.get('/admin/branch-list'),
+        adminApi.get('/admin/branches'),
+        adminApi.get('/admin/pdks-places'),
+      ])
+      setBranches(brRes.data?.data ?? [])
+      setOdooLokasyonlar(odooRes.data?.data ?? [])
+      setPdksYerler(pdksRes.data?.data ?? [])
+    } catch {
       setBranches([])
+      setOdooLokasyonlar([])
+      setPdksYerler([])
     } finally {
       setLoading(false)
     }
@@ -377,84 +405,282 @@ function SubelerTab() {
     void load()
   }, [load])
 
-  async function yedekSorumluKaydet(branchId: string, yedekSorumluId: string) {
-    setSavingId(branchId)
-    setError(null)
+  function formAlanlari(
+    f: typeof form,
+    setF: React.Dispatch<React.SetStateAction<typeof form>>,
+    onKaydet: () => void,
+    kaydetLabel: string,
+  ) {
+    return (
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 16, backgroundColor: '#f9fafb' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <input
+            placeholder="Şube Adı *"
+            value={f.name}
+            onChange={(e) => setF((p) => ({ ...p, name: e.target.value }))}
+            style={inputStyle}
+          />
+          <input
+            placeholder="Kod *"
+            value={f.code}
+            onChange={(e) => setF((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
+            style={inputStyle}
+          />
+          <input
+            placeholder="Telefon"
+            value={f.telefon}
+            onChange={(e) => setF((p) => ({ ...p, telefon: e.target.value }))}
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <select
+            value={f.sirketId}
+            onChange={(e) => {
+              const s = SIRKETLER.find((x) => String(x.id) === e.target.value)
+              setF((p) => ({ ...p, sirketId: e.target.value, sirketAdi: s ? s.ad : '' }))
+            }}
+            style={inputStyle}
+          >
+            <option value="">Şirket seçin...</option>
+            {SIRKETLER.map((s) => (
+              <option key={s.id} value={String(s.id)}>
+                {s.ad}
+              </option>
+            ))}
+          </select>
+          <input
+            placeholder="VKN"
+            value={f.vkn}
+            onChange={(e) => setF((p) => ({ ...p, vkn: e.target.value }))}
+            style={inputStyle}
+          />
+          <input
+            placeholder="Adres"
+            value={f.adres}
+            onChange={(e) => setF((p) => ({ ...p, adres: e.target.value }))}
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <select
+            value={f.odooLocationId}
+            onChange={(e) => setF((p) => ({ ...p, odooLocationId: e.target.value }))}
+            style={inputStyle}
+          >
+            <option value="">Odoo Lokasyon...</option>
+            {odooLokasyonlar.map((l: any) => (
+              <option key={l.id} value={String(l.id)}>
+                {l.name ?? l.complete_name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={f.pdksPlaceId}
+            onChange={(e) => setF((p) => ({ ...p, pdksPlaceId: e.target.value }))}
+            style={inputStyle}
+          >
+            <option value="">PDKS Yer...</option>
+            {pdksYerler.map((p: any) => (
+              <option key={p.id} value={String(p.id)}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              placeholder="Uyumsoft kullanıcı"
+              value={f.uyumsoftUser}
+              onChange={(e) => setF((p) => ({ ...p, uyumsoftUser: e.target.value }))}
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            <input
+              placeholder="Uyumsoft şifre"
+              type="password"
+              value={f.uyumsoftPass}
+              onChange={(e) => setF((p) => ({ ...p, uyumsoftPass: e.target.value }))}
+              style={{ ...inputStyle, flex: 1 }}
+            />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            disabled={yukleniyor}
+            onClick={onKaydet}
+            style={{ ...btnStyle, padding: '10px 20px', backgroundColor: '#1a1a2e', color: 'white' }}
+          >
+            {yukleniyor ? 'Kaydediliyor...' : kaydetLabel}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setYeniForm(false)
+              setSecilenBranch(null)
+              setForm(emptyForm)
+            }}
+            style={{ ...btnStyle, padding: '10px 20px', backgroundColor: '#f3f4f6', color: '#374151' }}
+          >
+            İptal
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  async function kaydet(id?: string) {
+    setYukleniyor(true)
     try {
-      await adminApi.patch(`/admin/branch/${branchId}/yedek-sorumlu`, {
-        yedekSorumluId: yedekSorumluId || null,
-      })
+      if (id) {
+        await adminApi.put(`/admin/branch/${id}`, form)
+      } else {
+        await adminApi.post('/admin/branch', form)
+      }
+      setYeniForm(false)
+      setSecilenBranch(null)
+      setForm(emptyForm)
       await load()
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? e?.response?.data?.error ?? 'Kayıt başarısız')
+      alert(e?.response?.data?.error ?? 'Kayıt başarısız')
     } finally {
-      setSavingId(null)
+      setYukleniyor(false)
     }
+  }
+
+  function duzenleAc(b: PosBranch) {
+    setSecilenBranch(b.id)
+    setYeniForm(false)
+    setForm({
+      name: b.name ?? '',
+      code: b.code ?? '',
+      sirketId: b.sirketId != null ? String(b.sirketId) : '',
+      sirketAdi: b.sirketAdi ?? '',
+      vkn: b.vkn ?? '',
+      odooLocationId: b.odooLocationId != null ? String(b.odooLocationId) : '',
+      pdksPlaceId: b.pdksPlaceId != null ? String(b.pdksPlaceId) : '',
+      uyumsoftUser: b.uyumsoftUser ?? '',
+      uyumsoftPass: '',
+      adres: b.adres ?? '',
+      telefon: b.telefon ?? '',
+    })
   }
 
   return (
     <div>
-      <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 900 }}>Şubeler</h2>
-      <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
-        POS şubeleri ve kalıcı yedek sorumlu ataması. Günlük görevli ataması mağaza müdürü dashboard&apos;undan yapılır.
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Şubeler</h2>
+        <button
+          type="button"
+          onClick={() => {
+            setYeniForm(true)
+            setSecilenBranch(null)
+            setForm(emptyForm)
+          }}
+          style={{
+            padding: '10px 16px',
+            borderRadius: 10,
+            border: 'none',
+            backgroundColor: '#1a1a2e',
+            color: 'white',
+            fontWeight: 800,
+            cursor: 'pointer',
+          }}
+        >
+          + Yeni Şube
+        </button>
+      </div>
 
-      {error ? <p style={{ color: '#ef4444', fontSize: 13 }}>{error}</p> : null}
       {loading ? <p style={{ color: '#6b7280' }}>Yükleniyor...</p> : null}
 
+      {yeniForm
+        ? formAlanlari(form, setForm, () => void kaydet(), 'Kaydet')
+        : null}
+
+      {secilenBranch
+        ? formAlanlari(form, setForm, () => void kaydet(secilenBranch), 'Güncelle')
+        : null}
+
       {!loading && branches.length > 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {branches.map((b) => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          {branches.map((b: PosBranch) => (
             <div
               key={b.id}
               style={{
                 border: '1px solid #e5e7eb',
                 borderRadius: 10,
                 padding: 14,
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 12,
-                alignItems: 'center',
+                backgroundColor: 'white',
               }}
             >
-              <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                 <div style={{ fontWeight: 800, fontSize: 15 }}>{b.name}</div>
-                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>Kod: {b.code}</div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      backgroundColor: '#f3f4f6',
+                      color: '#374151',
+                    }}
+                  >
+                    {b.code}
+                  </span>
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      backgroundColor: b.isActive !== false ? '#dcfce7' : '#fee2e2',
+                      color: b.isActive !== false ? '#166534' : '#b91c1c',
+                    }}
+                  >
+                    {b.isActive !== false ? 'Aktif' : 'Pasif'}
+                  </span>
+                </div>
               </div>
-              <div>
-                <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>
-                  Yedek Sorumlu
-                </label>
-                <select
-                  value={b.yedekSorumluId ?? ''}
-                  disabled={savingId === b.id}
-                  onChange={(e) => void yedekSorumluKaydet(b.id, e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: 8,
-                    border: '1px solid #e5e7eb',
-                    fontSize: 13,
-                  }}
-                >
-                  <option value="">— Seçilmedi —</option>
-                  {(branchUsers[b.id] ?? []).map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.role})
-                    </option>
-                  ))}
-                </select>
-                {savingId === b.id ? (
-                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>Kaydediliyor...</div>
-                ) : null}
+              <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 4 }}>
+                {b.sirketAdi ?? '—'}
               </div>
+              <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 10 }}>
+                VKN: {b.vkn ?? '—'}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                <span style={badge(!!b.odooLocationId, `✓ loc:${b.odooLocationId}`, '✗ Odoo')}>
+                  {b.odooLocationId ? `✓ loc:${b.odooLocationId}` : '✗ Odoo'}
+                </span>
+                <span style={badge(!!b.pdksPlaceId, `✓ place:${b.pdksPlaceId}`, '✗ PDKS')}>
+                  {b.pdksPlaceId ? `✓ place:${b.pdksPlaceId}` : '✗ PDKS'}
+                </span>
+                <span style={badge(!!b.uyumsoftUser, '✓ UYM', '✗ UYM')}>
+                  {b.uyumsoftUser ? '✓ UYM' : '✗ UYM'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => duzenleAc(b)}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #e5e7eb',
+                  background: 'white',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  width: '100%',
+                }}
+              >
+                Düzenle
+              </button>
             </div>
           ))}
         </div>
       ) : null}
 
-      {!loading && branches.length === 0 && !error ? (
-        <p style={{ color: '#6b7280' }}>Aktif şube bulunamadı.</p>
+      {!loading && branches.length === 0 ? (
+        <p style={{ color: '#6b7280' }}>Şube bulunamadı.</p>
       ) : null}
     </div>
   )

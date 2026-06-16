@@ -43,6 +43,15 @@ model Branch {
   name            String
   code            String    @unique
   isActive        Boolean   @default(true)
+  sirketId        Int?
+  sirketAdi       String?
+  vkn             String?
+  odooLocationId  Int?
+  pdksPlaceId     Int?
+  uyumsoftUser    String?
+  uyumsoftPass    String?
+  adres           String?
+  telefon         String?
   yedekSorumluId  String?
   users           User[]
   yedekSorumlu    User?     @relation("BranchYedekSorumlu", fields: [yedekSorumluId], references: [id])
