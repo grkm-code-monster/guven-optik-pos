@@ -2,6 +2,7 @@
 Son güncelleme: 16.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Branch tablosu: GVN1-10 eklendi, prisma generate düzeltildi
 - [bugün] — Branch tablosu genişletildi: GVN1-10 eklendi, şirket/Odoo/PDKS/Uyumsoft bağlantı alanları, şube CRUD ekranı
 - [bugün] — IK personel bağlantı yönetimi: PDKS/Odoo/POS üçlü panel
 - [bugün] — Patron PDKS API v4 entegrasyonu bağlantısı kuruldu
