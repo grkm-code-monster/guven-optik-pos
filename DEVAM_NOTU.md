@@ -1,7 +1,8 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 16.06.2026
+Son güncelleme: 18.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Personel şube ataması tamamlandı (22 otomatik + 3 manuel)
 - [bugün] — IK belge yönetimi: eksik gösterimi, WhatsApp link, public belge yükleme formu
 - [bugün] — Branch tablosu: GVN1-10 eklendi, prisma generate düzeltildi
 - [bugün] — Branch tablosu genişletildi: GVN1-10 eklendi, şirket/Odoo/PDKS/Uyumsoft bağlantı alanları, şube CRUD ekranı
@@ -68,6 +69,8 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] Branch tablosuna şirket/VKN bilgileri eklendi
 - [x] GVN1-GVN10 şubeleri seed ile eklendi
 - [x] Tanımlamalar şube CRUD ekranı (Odoo/PDKS/Uyumsoft bağlantı)
+- [x] Personelleri şubelere ata
+- [x] Odoo departman yapısından otomatik şube eşleştirme
 
 ## Kısa vadeli — açık
 - [ ] Uyumsoft SendInvoice — e-fatura gönderme

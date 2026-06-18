@@ -3668,14 +3668,40 @@ router.get('/muhasebe-dashboard', async (req, res) => {
 })
 
 // ── PERSONEL CRUD ─────────────────────────────────────────────────
+router.post('/personel-sube-guncelle', async (req, res, next) => {
+  try {
+    const { ad, soyad, subeId, subeAdi, odooEmployeeId } = req.body;
+    const personel = await prisma.personel.findFirst({
+      where: {
+        ad: { contains: ad, mode: 'insensitive' },
+        soyad: { contains: soyad, mode: 'insensitive' },
+      },
+    });
+    if (!personel) {
+      return res.status(404).json({ error: `${ad} ${soyad} bulunamadı` });
+    }
+    await prisma.personel.update({
+      where: { id: personel.id },
+      data: { subeId, subeAdi, odooEmployeeId },
+    });
+    return res.json({
+      success: true,
+      personel: `${personel.ad} ${personel.soyad}`,
+      subeId,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/personel-ekle', async (req, res) => {
   try {
     const { PrismaClient } = await import('@prisma/client')
     const prisma = new PrismaClient()
-    const { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas, pdksId, aylikHedef } = req.body
+    const { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas, pdksId, aylikHedef, odooEmployeeId } = req.body
     if (!ad?.trim() || !soyad?.trim() || !pozisyon) return res.status(400).json({ error: 'Ad, soyad, pozisyon zorunlu' })
     const personel = await prisma.personel.create({
-      data: { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas: Number(maas) || 0, aylikHedef: aylikHedef ? Number(aylikHedef) : 0, pdksId }
+      data: { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas: Number(maas) || 0, aylikHedef: aylikHedef ? Number(aylikHedef) : 0, pdksId, odooEmployeeId: odooEmployeeId ? Number(odooEmployeeId) : undefined }
     })
     await prisma.$disconnect()
     return res.json({ success: true, data: personel })
@@ -4028,6 +4054,106 @@ router.get('/personel-baglanti-ozet', async (req, res, next) => {
       success: true,
       ozet: { toplam: personeller.length, tam, eksik, hicYok },
       data: personeller,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/personel-sube-toplu-ata', async (req, res, next) => {
+  try {
+    const employees = await execute(
+      'hr.employee',
+      'search_read',
+      [[['active', '=', true]]],
+      { fields: ['id', 'name', 'department_id', 'job_title'] },
+    );
+
+    function subeKoduBul(deptName: string): string {
+      if (!deptName) return 'YONETIM';
+      const match = deptName.match(/GVN(\d+)\s+Mağaza/i);
+      if (match) return `GVN${match[1]}`;
+      return 'YONETIM';
+    }
+
+    const branches = await prisma.branch.findMany({
+      select: { id: true, code: true },
+    });
+    const branchMap = new Map(branches.map((b) => [b.code, b.id]));
+
+    const guncellenen: { personel: string; sube: string }[] = [];
+    const atlanan: { emp: string; sebep: string }[] = [];
+
+    for (const emp of employees) {
+      const deptName = emp.department_id?.[1] ?? '';
+      const subeKodu = subeKoduBul(deptName);
+      const subeId = branchMap.get(subeKodu);
+
+      if (!subeId) {
+        atlanan.push({ emp: emp.name, sebep: `${subeKodu} bulunamadı` });
+        continue;
+      }
+
+      const personel = await prisma.personel.findFirst({
+        where: { odooEmployeeId: emp.id },
+      });
+
+      if (!personel) {
+        const parcalar = emp.name.trim().split(' ');
+        const soyad = parcalar[parcalar.length - 1];
+        const ad = parcalar.slice(0, -1).join(' ');
+
+        const personelIsim = await prisma.personel.findFirst({
+          where: {
+            OR: [
+              {
+                ad: { contains: ad, mode: 'insensitive' },
+                soyad: { contains: soyad, mode: 'insensitive' },
+              },
+              {
+                ad: { contains: soyad, mode: 'insensitive' },
+              },
+            ],
+          },
+        });
+
+        if (personelIsim) {
+          await prisma.personel.update({
+            where: { id: personelIsim.id },
+            data: {
+              subeId: subeKodu,
+              subeAdi: `Güven Optik 1959 - ${subeKodu.replace('GVN', '')}`,
+              odooEmployeeId: emp.id,
+            },
+          });
+          guncellenen.push({
+            personel: `${personelIsim.ad} ${personelIsim.soyad}`,
+            sube: subeKodu,
+          });
+        } else {
+          atlanan.push({ emp: emp.name, sebep: "Prisma'da bulunamadı" });
+        }
+        continue;
+      }
+
+      await prisma.personel.update({
+        where: { id: personel.id },
+        data: {
+          subeId: subeKodu,
+          subeAdi: `Güven Optik 1959 - ${subeKodu.replace('GVN', '')}`,
+        },
+      });
+      guncellenen.push({
+        personel: `${personel.ad} ${personel.soyad}`,
+        sube: subeKodu,
+      });
+    }
+
+    return res.json({
+      success: true,
+      guncellenen: guncellenen.length,
+      atlanan: atlanan.length,
+      detay: { guncellenen, atlanan },
     });
   } catch (err) {
     next(err);
