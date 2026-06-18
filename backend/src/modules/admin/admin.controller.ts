@@ -5077,6 +5077,27 @@ router.get('/odoo-sablon-listesi', async (req, res, next) => {
   }
 });
 
+router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
+  try {
+    const tmplId = Number(req.params.tmplId);
+    const variants = await execute(
+      'product.product', 'search_read',
+      [[['product_tmpl_id', '=', tmplId]]],
+      {
+        fields: [
+          'id', 'name', 'default_code', 'barcode',
+          'lst_price', 'standard_price',
+          'product_template_attribute_value_ids',
+        ],
+        limit: 500,
+      },
+    );
+    return res.json({ success: true, data: variants });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/odoo-sablon/:tmplId', async (req, res, next) => {
   try {
     const tmplId = Number(req.params.tmplId);

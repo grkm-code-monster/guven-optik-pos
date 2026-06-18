@@ -161,6 +161,29 @@ export default function UrunYapilandirmaPage() {
     }
   }, [adim])
 
+  useEffect(() => {
+    if (importMod === 'liste' && tmplId) {
+      adminApi.get(`/admin/odoo-sablon/${tmplId}/varyantlar`)
+        .then((res) => {
+          const raw = res.data?.data ?? []
+          const rows = raw.map((v: any) => ({
+            odooId: v.id,
+            name: v.name,
+            model: '',
+            renk: '',
+            olcu: '',
+            icReferans: v.default_code || '',
+            barkod: v.barcode || '',
+            satisFiyati: String(v.lst_price || 0),
+            maliyet: String(v.standard_price || 0),
+            durum: 'synced' as const,
+          }))
+          setVaryantlar(rows)
+        })
+        .catch(() => {})
+    }
+  }, [importMod, tmplId])
+
   const siraliKategoriler = useMemo(
     () => [...kategoriler].sort((a, b) => a.complete_name.localeCompare(b.complete_name, 'tr')),
     [kategoriler],
