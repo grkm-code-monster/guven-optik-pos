@@ -985,17 +985,29 @@ model UtsSube {
 }
 
 model UtsDisFirma {
-  id        String   @id @default(cuid())
-  ad        String
-  vkn       String?
-  kurumNo   String?
-  adres     String?
-  telefon   String?
-  email     String?
-  notlar    String?
-  aktif     Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String                @id @default(cuid())
+  ad             String
+  vkn            String?
+  kurumNo        String?
+  adres          String?
+  telefon        String?
+  email          String?
+  notlar         String?
+  odooPartnerId  Int?
+  aktif          Boolean               @default(true)
+  lokasyonlar    UtsDisFirmaLokasyon[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+}
+
+model UtsDisFirmaLokasyon {
+  id         String      @id @default(cuid())
+  firmaId    String
+  ad         String
+  kurumNo    String?
+  varsayilan Boolean     @default(false)
+  firma      UtsDisFirma @relation(fields: [firmaId], references: [id], onDelete: Cascade)
+  createdAt  DateTime    @default(now())
 }
 
 model UtsBildirim {

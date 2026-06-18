@@ -16,6 +16,14 @@ type BranchRow = {
   } | null
 }
 
+type DisFirmaLokasyon = {
+  id: string
+  firmaId: string
+  ad: string
+  kurumNo?: string | null
+  varsayilan: boolean
+}
+
 type DisFirma = {
   id: string
   ad: string
@@ -25,6 +33,8 @@ type DisFirma = {
   telefon?: string | null
   email?: string | null
   notlar?: string | null
+  odooPartnerId?: number | null
+  lokasyonlar?: DisFirmaLokasyon[]
 }
 
 type KuyrukItem = {
@@ -117,6 +127,7 @@ export default function UtsYonetimiPage() {
   const [sekme, setSekme] = useState<Sekme>('subeler')
   const [branches, setBranches] = useState<BranchRow[]>([])
   const [secilenBranch, setSecilenBranch] = useState<string | null>(null)
+  const secilenBranchData = branches.find((b) => b.id === secilenBranch) ?? null
   const [disFirmalar, setDisFirmalar] = useState<DisFirma[]>([])
   const [kuyruk, setKuyruk] = useState<KuyrukItem[]>([])
   const [yukleniyor, setYukleniyor] = useState(false)
@@ -127,8 +138,14 @@ export default function UtsYonetimiPage() {
 
   const [firmaForm, setFirmaForm] = useState({
     ad: '', vkn: '', kurumNo: '', adres: '', telefon: '', email: '', notlar: '',
+    odooPartnerId: null as number | null,
   })
   const [secilenFirma, setSecilenFirma] = useState<string | null>(null)
+  const [odooArama, setOdooArama] = useState('')
+  const [odooSonuclar, setOdooSonuclar] = useState<any[]>([])
+  const [odooAramaYukleniyor, setOdooAramaYukleniyor] = useState(false)
+  const [lokasyonEkleAcik, setLokasyonEkleAcik] = useState(false)
+  const [lokasyonForm, setLokasyonForm] = useState({ ad: '', kurumNo: '', varsayilan: false })
 
   const [bildirimForm, setBildirimForm] = useState({
     tip: 'ALMA',
@@ -171,9 +188,24 @@ export default function UtsYonetimiPage() {
     if (sekme === 'firmalar' || sekme === 'bildirim') void disYukle()
   }, [sekme, disYukle])
 
-  const seciliBranchData = useMemo(
-    () => branches.find((b) => b.id === secilenBranch) ?? null,
-    [branches, secilenBranch],
+  useEffect(() => {
+    if (sekme !== 'firmalar' || odooArama.trim().length < 2) {
+      setOdooSonuclar([])
+      return
+    }
+    const t = setTimeout(() => {
+      setOdooAramaYukleniyor(true)
+      adminApi.get('/admin/uts/odoo-cariler', { params: { q: odooArama.trim() } })
+        .then((res) => setOdooSonuclar(res.data?.data ?? []))
+        .catch(() => setOdooSonuclar([]))
+        .finally(() => setOdooAramaYukleniyor(false))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [odooArama, sekme])
+
+  const secilenFirmaData = useMemo(
+    () => disFirmalar.find((f) => f.id === secilenFirma) ?? null,
+    [disFirmalar, secilenFirma],
   )
 
   const depoGrup = useMemo(
@@ -244,12 +276,39 @@ export default function UtsYonetimiPage() {
       telefon: firma.telefon ?? '',
       email: firma.email ?? '',
       notlar: firma.notlar ?? '',
+      odooPartnerId: firma.odooPartnerId ?? null,
     })
+    setLokasyonEkleAcik(false)
+    setLokasyonForm({ ad: '', kurumNo: '', varsayilan: false })
   }
 
   function yeniFirma() {
     setSecilenFirma(null)
-    setFirmaForm({ ad: '', vkn: '', kurumNo: '', adres: '', telefon: '', email: '', notlar: '' })
+    setFirmaForm({
+      ad: '', vkn: '', kurumNo: '', adres: '', telefon: '', email: '', notlar: '',
+      odooPartnerId: null,
+    })
+    setOdooArama('')
+    setOdooSonuclar([])
+    setLokasyonEkleAcik(false)
+    setLokasyonForm({ ad: '', kurumNo: '', varsayilan: false })
+  }
+
+  function odooPartnerSec(partner: any) {
+    const adres = [partner.street, partner.city].filter(Boolean).join(' ').trim()
+    setFirmaForm({
+      ad: partner.name ?? '',
+      vkn: partner.vat ?? '',
+      kurumNo: '',
+      adres,
+      telefon: partner.phone ?? '',
+      email: partner.email ?? '',
+      notlar: '',
+      odooPartnerId: partner.id ?? null,
+    })
+    setOdooArama('')
+    setOdooSonuclar([])
+    setSecilenFirma(null)
   }
 
   async function firmaKaydet() {
@@ -261,14 +320,67 @@ export default function UtsYonetimiPage() {
     try {
       if (secilenFirma) {
         await adminApi.put(`/admin/uts/dis-firma/${secilenFirma}`, firmaForm)
+        setMesaj({ tip: 'ok', text: 'Firma kaydedildi' })
       } else {
-        await adminApi.post('/admin/uts/dis-firma', firmaForm)
+        const res = await adminApi.post('/admin/uts/dis-firma', firmaForm)
+        setSecilenFirma(res.data?.data?.id ?? null)
+        setMesaj({ tip: 'ok', text: 'Firma oluşturuldu' })
       }
-      setMesaj({ tip: 'ok', text: 'Firma kaydedildi' })
       await disYukle()
-      yeniFirma()
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Kayıt başarısız' })
+    } finally {
+      setYukleniyor(false)
+    }
+  }
+
+  async function lokasyonKaydet() {
+    if (!secilenFirma) {
+      setMesaj({ tip: 'err', text: 'Önce firmayı kaydedin' })
+      return
+    }
+    if (!lokasyonForm.ad.trim()) {
+      setMesaj({ tip: 'err', text: 'Lokasyon adı zorunlu' })
+      return
+    }
+    setYukleniyor(true)
+    try {
+      await adminApi.post(`/admin/uts/dis-firma/${secilenFirma}/lokasyon`, lokasyonForm)
+      setLokasyonForm({ ad: '', kurumNo: '', varsayilan: false })
+      setLokasyonEkleAcik(false)
+      setMesaj({ tip: 'ok', text: 'Lokasyon eklendi' })
+      await disYukle()
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Lokasyon kaydedilemedi' })
+    } finally {
+      setYukleniyor(false)
+    }
+  }
+
+  async function lokasyonSil(id: string) {
+    setYukleniyor(true)
+    try {
+      await adminApi.delete(`/admin/uts/dis-firma-lokasyon/${id}`)
+      setMesaj({ tip: 'ok', text: 'Lokasyon silindi' })
+      await disYukle()
+    } catch {
+      setMesaj({ tip: 'err', text: 'Lokasyon silinemedi' })
+    } finally {
+      setYukleniyor(false)
+    }
+  }
+
+  async function lokasyonVarsayilanYap(lok: DisFirmaLokasyon) {
+    setYukleniyor(true)
+    try {
+      await adminApi.put(`/admin/uts/dis-firma-lokasyon/${lok.id}`, {
+        ad: lok.ad,
+        kurumNo: lok.kurumNo,
+        varsayilan: true,
+      })
+      await disYukle()
+    } catch {
+      setMesaj({ tip: 'err', text: 'Varsayılan güncellenemedi' })
     } finally {
       setYukleniyor(false)
     }
@@ -277,10 +389,11 @@ export default function UtsYonetimiPage() {
   function firmaBildirimeUygula(firmaId: string) {
     const f = disFirmalar.find((x) => x.id === firmaId)
     if (!f) return
+    const varsayilanLok = f.lokasyonlar?.find((l) => l.varsayilan) ?? f.lokasyonlar?.[0]
     setBildirimForm((p) => ({
       ...p,
       karsiAd: f.ad,
-      karsiKurumNo: f.kurumNo ?? '',
+      karsiKurumNo: varsayilanLok?.kurumNo ?? f.kurumNo ?? '',
       karsiVkn: f.vkn ?? '',
     }))
   }
@@ -549,6 +662,47 @@ export default function UtsYonetimiPage() {
             <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 16 }}>
               {secilenFirma ? 'Firma Düzenle' : 'Yeni Firma'}
             </h2>
+
+            <div style={{ marginBottom: 20, padding: 14, backgroundColor: '#f9fafb', borderRadius: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Odoo&apos;dan içe aktar</div>
+              <input
+                value={odooArama}
+                onChange={(e) => setOdooArama(e.target.value)}
+                placeholder="Firma adı yazın (min. 2 karakter)..."
+                style={inp}
+              />
+              {odooAramaYukleniyor ? (
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>Aranıyor...</div>
+              ) : null}
+              {odooSonuclar.length > 0 ? (
+                <div style={{
+                  marginTop: 8, border: '1px solid #e5e7eb', borderRadius: 8,
+                  maxHeight: 200, overflowY: 'auto', backgroundColor: '#fff',
+                }}>
+                  {odooSonuclar.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => odooPartnerSec(p)}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '10px 12px', border: 'none', borderBottom: '1px solid #f3f4f6',
+                        background: 'transparent', cursor: 'pointer', fontSize: 13,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700 }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: '#6b7280' }}>
+                        {[p.vat, p.city].filter(Boolean).join(' · ')}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <button type="button" onClick={yeniFirma} style={{ ...btnSmall, marginTop: 10 }}>
+                Manuel ekle
+              </button>
+            </div>
+
             <div style={{ display: 'grid', gap: 12, maxWidth: 520 }}>
               {(['ad', 'vkn', 'kurumNo', 'telefon', 'email'] as const).map((key) => (
                 <div key={key}>
@@ -568,10 +722,97 @@ export default function UtsYonetimiPage() {
                 <label style={{ fontSize: 12, fontWeight: 600 }}>Notlar</label>
                 <textarea value={firmaForm.notlar} onChange={(e) => setFirmaForm((p) => ({ ...p, notlar: e.target.value }))} style={{ ...inp, minHeight: 80 }} />
               </div>
+              {firmaForm.odooPartnerId ? (
+                <div style={{ fontSize: 12, color: '#6b7280' }}>Odoo Partner ID: {firmaForm.odooPartnerId}</div>
+              ) : null}
               <button type="button" onClick={() => void firmaKaydet()} disabled={yukleniyor} style={btnPrimary}>
                 Kaydet
               </button>
             </div>
+
+            {secilenFirma && secilenFirmaData ? (
+              <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid #e5e7eb' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>Lokasyonlar</h3>
+                  <button
+                    type="button"
+                    onClick={() => setLokasyonEkleAcik((v) => !v)}
+                    style={btnSmall}
+                  >
+                    + Lokasyon ekle
+                  </button>
+                </div>
+
+                {(secilenFirmaData.lokasyonlar ?? []).length === 0 && !lokasyonEkleAcik ? (
+                  <div style={{ fontSize: 13, color: '#9ca3af' }}>Henüz lokasyon yok</div>
+                ) : null}
+
+                <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+                  {(secilenFirmaData.lokasyonlar ?? []).map((lok) => (
+                    <div
+                      key={lok.id}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void lokasyonVarsayilanYap(lok)}
+                        title="Varsayılan yap"
+                        style={{
+                          border: 'none', background: 'transparent', cursor: 'pointer',
+                          fontSize: 16, color: lok.varsayilan ? AMBER : '#d1d5db',
+                        }}
+                      >
+                        ★
+                      </button>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{lok.ad}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>
+                          {lok.kurumNo ? `KUN: ${lok.kurumNo}` : 'Kurum no yok'}
+                          {lok.varsayilan ? ' · Varsayılan' : ''}
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => void lokasyonSil(lok.id)} style={{ ...btnSmall, color: RED }}>
+                        Sil
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {lokasyonEkleAcik ? (
+                  <div style={{
+                    display: 'grid', gap: 10, padding: 12,
+                    border: '1px dashed #e5e7eb', borderRadius: 8,
+                  }}>
+                    <input
+                      placeholder="Lokasyon adı (ör. Merkez, İstanbul Fabrika)"
+                      value={lokasyonForm.ad}
+                      onChange={(e) => setLokasyonForm((p) => ({ ...p, ad: e.target.value }))}
+                      style={inp}
+                    />
+                    <input
+                      placeholder="UTS kurum no"
+                      value={lokasyonForm.kurumNo}
+                      onChange={(e) => setLokasyonForm((p) => ({ ...p, kurumNo: e.target.value }))}
+                      style={inp}
+                    />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                      <input
+                        type="checkbox"
+                        checked={lokasyonForm.varsayilan}
+                        onChange={(e) => setLokasyonForm((p) => ({ ...p, varsayilan: e.target.checked }))}
+                      />
+                      Varsayılan lokasyon
+                    </label>
+                    <button type="button" onClick={() => void lokasyonKaydet()} disabled={yukleniyor} style={btnPrimary}>
+                      Lokasyonu Kaydet
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

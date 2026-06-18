@@ -5814,10 +5814,30 @@ router.post('/uts/token-test/:branchId', async (req, res, next) => {
   }
 });
 
+router.get('/uts/odoo-cariler', async (req, res, next) => {
+  try {
+    const q = (req.query.q as string) || '';
+    const domain: unknown[] = [
+      ['is_company', '=', true],
+      ['active', '=', true],
+    ];
+    if (q) domain.push(['name', 'ilike', q]);
+    const partners = await execute(
+      'res.partner', 'search_read',
+      [domain],
+      { fields: ['id', 'name', 'vat', 'phone', 'email', 'street', 'city'], limit: 30 },
+    );
+    return res.json({ success: true, data: partners });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/uts/dis-firmalar', async (req, res, next) => {
   try {
     const data = await prisma.utsDisFirma.findMany({
       where: { aktif: true },
+      include: { lokasyonlar: { orderBy: { varsayilan: 'desc' } } },
       orderBy: { ad: 'asc' },
     });
     return res.json({ success: true, data });
@@ -5828,10 +5848,13 @@ router.get('/uts/dis-firmalar', async (req, res, next) => {
 
 router.post('/uts/dis-firma', async (req, res, next) => {
   try {
-    const { ad, vkn, kurumNo, adres, telefon, email, notlar } = req.body;
+    const { ad, vkn, kurumNo, adres, telefon, email, notlar, odooPartnerId } = req.body;
     if (!ad?.trim()) return res.status(400).json({ error: 'Firma adı zorunlu' });
     const data = await prisma.utsDisFirma.create({
-      data: { ad, vkn, kurumNo, adres, telefon, email, notlar },
+      data: {
+        ad, vkn, kurumNo, adres, telefon, email, notlar,
+        odooPartnerId: odooPartnerId ? Number(odooPartnerId) : undefined,
+      },
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -5841,12 +5864,75 @@ router.post('/uts/dis-firma', async (req, res, next) => {
 
 router.put('/uts/dis-firma/:id', async (req, res, next) => {
   try {
-    const { ad, vkn, kurumNo, adres, telefon, email, notlar } = req.body;
+    const { ad, vkn, kurumNo, adres, telefon, email, notlar, odooPartnerId } = req.body;
     const data = await prisma.utsDisFirma.update({
       where: { id: req.params.id },
-      data: { ad, vkn, kurumNo, adres, telefon, email, notlar },
+      data: {
+        ad, vkn, kurumNo, adres, telefon, email, notlar,
+        odooPartnerId: odooPartnerId ? Number(odooPartnerId) : null,
+      },
     });
     return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/uts/dis-firma/:firmaId/lokasyon', async (req, res, next) => {
+  try {
+    const { ad, kurumNo, varsayilan } = req.body;
+    if (!ad?.trim()) return res.status(400).json({ error: 'Lokasyon adı zorunlu' });
+
+    if (varsayilan) {
+      await prisma.utsDisFirmaLokasyon.updateMany({
+        where: { firmaId: req.params.firmaId },
+        data: { varsayilan: false },
+      });
+    }
+
+    const data = await prisma.utsDisFirmaLokasyon.create({
+      data: {
+        firmaId: req.params.firmaId,
+        ad,
+        kurumNo,
+        varsayilan: !!varsayilan,
+      },
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/uts/dis-firma-lokasyon/:id', async (req, res, next) => {
+  try {
+    const { ad, kurumNo, varsayilan } = req.body;
+    const mevcut = await prisma.utsDisFirmaLokasyon.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!mevcut) return res.status(404).json({ error: 'Lokasyon bulunamadı' });
+
+    if (varsayilan) {
+      await prisma.utsDisFirmaLokasyon.updateMany({
+        where: { firmaId: mevcut.firmaId },
+        data: { varsayilan: false },
+      });
+    }
+
+    const data = await prisma.utsDisFirmaLokasyon.update({
+      where: { id: req.params.id },
+      data: { ad, kurumNo, varsayilan: !!varsayilan },
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/uts/dis-firma-lokasyon/:id', async (req, res, next) => {
+  try {
+    await prisma.utsDisFirmaLokasyon.delete({ where: { id: req.params.id } });
+    return res.json({ success: true });
   } catch (err) {
     next(err);
   }
