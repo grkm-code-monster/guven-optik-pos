@@ -39,6 +39,7 @@ export interface FaturaData {
 
 interface SupplierInfo {
   vkn: string;
+  idScheme: 'VKN' | 'TCKN';
   unvan: string;
   vergiDairesi: string;
   adres: string;
@@ -49,6 +50,9 @@ interface SupplierInfo {
 }
 
 const NG_VKN = process.env.UYUMSOFT_NG_VKN ?? '23819441406';
+const UYUMSOFT_ACCOUNT_VKN = process.env.UYUMSOFT_DEFAULT_VKN ?? NG_VKN;
+const UYUMSOFT_SENDER_UNVAN =
+  process.env.UYUMSOFT_SENDER_UNVAN ?? 'NEJLA GÜMÜŞKESEN';
 
 const SIRKET_SUBE_MAP: Record<string, string[]> = {
   ADESE: ['GVN1', 'GVN3', 'GVN6', 'GVN7', 'GVN8', 'GVN9'],
@@ -62,46 +66,76 @@ function sirketForSube(sube: string): 'ADESE' | 'NG' | 'POTENTIAL' {
   return 'ADESE';
 }
 
+function supplierIdScheme(vknOrTckn: string): 'VKN' | 'TCKN' {
+  return vknOrTckn.replace(/\D/g, '').length === 11 ? 'TCKN' : 'VKN';
+}
+
+function buildSupplierInfo(
+  vknOrTckn: string,
+  unvan: string,
+  vergiDairesi: string,
+  adres: string,
+  il: string,
+  ilce: string,
+  telefon: string,
+  email: string,
+): SupplierInfo {
+  return {
+    vkn: vknOrTckn,
+    idScheme: supplierIdScheme(vknOrTckn),
+    unvan,
+    vergiDairesi,
+    adres,
+    il,
+    ilce,
+    telefon,
+    email,
+  };
+}
+
 function getSupplierInfo(sube: string, branch?: Branch | null): SupplierInfo {
   const sirket = sirketForSube(sube);
   const branchVkn = branch?.vkn?.trim() || '';
 
   if (sirket === 'NG') {
-    return {
-      vkn: branchVkn || NG_VKN,
-      unvan: 'NG OPTİK',
-      vergiDairesi: 'Konak',
-      adres: branch?.adres ?? 'İzmir',
-      il: 'İZMİR',
-      ilce: 'Konak',
-      telefon: branch?.telefon ?? '',
-      email: 'info@guvenoptik.com',
-    };
+    const vkn = branchVkn || NG_VKN || UYUMSOFT_ACCOUNT_VKN;
+    return buildSupplierInfo(
+      vkn,
+      'NG OPTİK',
+      'Konak',
+      branch?.adres ?? 'İzmir',
+      'İZMİR',
+      'Konak',
+      branch?.telefon ?? '',
+      'info@guvenoptik.com',
+    );
   }
 
   if (sirket === 'POTENTIAL') {
-    return {
-      vkn: branchVkn || process.env.UYUMSOFT_POTENTIAL_VKN || '',
-      unvan: 'POTANSİYEL OPTİK',
-      vergiDairesi: 'Konak',
-      adres: branch?.adres ?? 'İzmir',
-      il: 'İZMİR',
-      ilce: 'Konak',
-      telefon: branch?.telefon ?? '',
-      email: 'info@guvenoptik.com',
-    };
+    const vkn = branchVkn || process.env.UYUMSOFT_POTENTIAL_VKN || UYUMSOFT_ACCOUNT_VKN;
+    return buildSupplierInfo(
+      vkn,
+      'POTANSİYEL OPTİK',
+      'Konak',
+      branch?.adres ?? 'İzmir',
+      'İZMİR',
+      'Konak',
+      branch?.telefon ?? '',
+      'info@guvenoptik.com',
+    );
   }
 
-  return {
-    vkn: branchVkn || process.env.UYUMSOFT_ADESE_VKN || '',
-    unvan: 'ADESE OPTİK',
-    vergiDairesi: 'Konak',
-    adres: branch?.adres ?? 'İzmir',
-    il: 'İZMİR',
-    ilce: 'Konak',
-    telefon: branch?.telefon ?? '',
-    email: 'info@guvenoptik.com',
-  };
+  const vkn = branchVkn || process.env.UYUMSOFT_ADESE_VKN || UYUMSOFT_ACCOUNT_VKN;
+  return buildSupplierInfo(
+    vkn,
+    branchVkn ? 'ADESE OPTİK' : UYUMSOFT_SENDER_UNVAN,
+    'Konak',
+    branch?.adres ?? 'İzmir',
+    'İZMİR',
+    'Konak',
+    branch?.telefon ?? '',
+    'info@guvenoptik.com',
+  );
 }
 
 export async function mukellefiyetSorgula(vkn: string): Promise<{
@@ -140,6 +174,64 @@ function escapeXML(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+function toTrUpper(text: string): string {
+  return text.toLocaleUpperCase('tr-TR');
+}
+
+function splitAdSoyad(name: string): { ad: string; soyad: string } {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { ad: 'MÜŞTERİ', soyad: 'MÜŞTERİ' };
+  if (parts.length === 1) return { ad: toTrUpper(parts[0]), soyad: toTrUpper(parts[0]) };
+  const soyad = parts.pop()!;
+  return { ad: toTrUpper(parts.join(' ')), soyad: toTrUpper(soyad) };
+}
+
+function buildCustomerPartyXml(data: FaturaData): string {
+  const idScheme = data.aliciVkn.replace(/\D/g, '').length === 10 ? 'VKN' : 'TCKN';
+  const { ad, soyad } = splitAdSoyad(data.aliciAdi);
+  const isTckn = idScheme === 'TCKN';
+
+  const kimlikXML = isTckn
+    ? `<cac:Person>
+      <cbc:FirstName>${escapeXML(ad)}</cbc:FirstName>
+      <cbc:FamilyName>${escapeXML(soyad)}</cbc:FamilyName>
+    </cac:Person>`
+    : `<cac:PartyName>
+      <cbc:Name>${escapeXML(toTrUpper(data.aliciAdi))}</cbc:Name>
+    </cac:PartyName>`;
+
+  return `
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cac:PartyIdentification>
+        <cbc:ID schemeID="${idScheme}">${escapeXML(data.aliciVkn)}</cbc:ID>
+      </cac:PartyIdentification>
+      ${kimlikXML}
+      <cac:PostalAddress>
+        <cbc:StreetName>${escapeXML(data.aliciAdres)}</cbc:StreetName>
+        <cbc:CitySubdivisionName>${escapeXML(data.aliciIlce)}</cbc:CitySubdivisionName>
+        <cbc:CityName>${escapeXML(data.aliciIl)}</cbc:CityName>
+        <cac:Country>
+          <cbc:IdentificationCode>TR</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      ${
+        data.aliciVergiDairesi
+          ? `<cac:PartyTaxScheme>
+        <cac:TaxScheme>
+          <cbc:Name>${escapeXML(data.aliciVergiDairesi)}</cbc:Name>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>`
+          : ''
+      }
+      <cac:Contact>
+        ${data.aliciTel ? `<cbc:Telephone>${escapeXML(data.aliciTel)}</cbc:Telephone>` : ''}
+        ${data.aliciEmail ? `<cbc:ElectronicMail>${escapeXML(data.aliciEmail)}</cbc:ElectronicMail>` : ''}
+      </cac:Contact>
+    </cac:Party>
+  </cac:AccountingCustomerParty>`;
 }
 
 export function buildUBLXML(
@@ -274,10 +366,10 @@ export function buildUBLXML(
     <cac:Party>
       <cbc:WebsiteURI>https://guvenoptik.com</cbc:WebsiteURI>
       <cac:PartyIdentification>
-        <cbc:ID schemeID="VKN">${escapeXML(satici.vkn)}</cbc:ID>
+        <cbc:ID schemeID="${satici.idScheme}">${escapeXML(satici.vkn)}</cbc:ID>
       </cac:PartyIdentification>
       <cac:PartyName>
-        <cbc:Name>${escapeXML(satici.unvan)}</cbc:Name>
+        <cbc:Name>${escapeXML(satici.idScheme === 'TCKN' ? toTrUpper(satici.unvan) : satici.unvan)}</cbc:Name>
       </cac:PartyName>
       <cac:PostalAddress>
         <cbc:StreetName>${escapeXML(satici.adres)}</cbc:StreetName>
@@ -300,38 +392,7 @@ export function buildUBLXML(
       </cac:Contact>
     </cac:Party>
   </cac:AccountingSupplierParty>
-  <cac:AccountingCustomerParty>
-    <cac:Party>
-      <cac:PartyIdentification>
-        <cbc:ID schemeID="${data.aliciVkn.length === 10 ? 'VKN' : 'TCKN'}">${escapeXML(data.aliciVkn)}</cbc:ID>
-      </cac:PartyIdentification>
-      <cac:PartyName>
-        <cbc:Name>${escapeXML(data.aliciAdi)}</cbc:Name>
-      </cac:PartyName>
-      <cac:PostalAddress>
-        <cbc:StreetName>${escapeXML(data.aliciAdres)}</cbc:StreetName>
-        <cbc:CitySubdivisionName>${escapeXML(data.aliciIlce)}</cbc:CitySubdivisionName>
-        <cbc:CityName>${escapeXML(data.aliciIl)}</cbc:CityName>
-        <cac:Country>
-          <cbc:IdentificationCode>TR</cbc:IdentificationCode>
-        </cac:Country>
-      </cac:PostalAddress>
-      ${
-        data.aliciVergiDairesi
-          ? `<cac:PartyTaxScheme>
-        <cac:TaxScheme>
-          <cbc:Name>${escapeXML(data.aliciVergiDairesi)}</cbc:Name>
-          <cbc:TaxTypeCode>VKN</cbc:TaxTypeCode>
-        </cac:TaxScheme>
-      </cac:PartyTaxScheme>`
-          : ''
-      }
-      <cac:Contact>
-        ${data.aliciTel ? `<cbc:Telephone>${escapeXML(data.aliciTel)}</cbc:Telephone>` : ''}
-        ${data.aliciEmail ? `<cbc:ElectronicMail>${escapeXML(data.aliciEmail)}</cbc:ElectronicMail>` : ''}
-      </cac:Contact>
-    </cac:Party>
-  </cac:AccountingCustomerParty>
+  ${buildCustomerPartyXml(data)}
   <cac:TaxTotal>
     <cbc:TaxAmount currencyID="${data.doviz || 'TRY'}">${toplamKDV.toFixed(2)}</cbc:TaxAmount>
     ${taxSubtotalXML}
@@ -365,7 +426,6 @@ export async function eFaturaGonder(
   const profileId = eFaturaMukellef ? 'TEMELFATURA' : 'EARSIVFATURA';
   const supplier = getSupplierInfo(data.sube, branch);
   const xmlContent = buildUBLXML(data, profileId, supplier);
-  const xmlBase64 = Buffer.from(xmlContent, 'utf8').toString('base64');
   const ettn =
     xmlContent.match(/<cbc:UUID>([^<]+)<\/cbc:UUID>/)?.[1] ?? randomUUID().toUpperCase();
 
@@ -377,8 +437,8 @@ export async function eFaturaGonder(
       profileId,
       supplierVkn: supplier.vkn,
       aliciVkn: data.aliciVkn,
+      aliciAdi: data.aliciAdi,
       receiverAlias: eFaturaMukellef && alias ? alias : undefined,
-      xmlBase64,
       xmlContent,
     });
 
@@ -389,15 +449,16 @@ export async function eFaturaGonder(
       res?.IsSucceeded === 'true';
 
     if (basarili) {
+      const value = Array.isArray(res?.Value) ? res?.Value[0] : res?.Value;
       const uuid =
+        value?.attributes?.Id ||
+        value?.Id ||
         res?.DocumentId ||
         res?.ETTN ||
-        ettn ||
-        res?.Value?.attributes?.Id ||
-        res?.Value?.Id;
+        ettn;
       return {
         basarili: true,
-        faturaNo: data.faturaNo,
+        faturaNo: value?.attributes?.Number || value?.Number || data.faturaNo,
         uuid,
         profileId,
       };
@@ -408,7 +469,7 @@ export async function eFaturaGonder(
       basarili: false,
       faturaNo: data.faturaNo,
       profileId,
-      hata: res?._format ? `${hataMsg} [format: ${res._format}]` : hataMsg,
+      hata: hataMsg,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
