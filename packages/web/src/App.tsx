@@ -25,6 +25,7 @@ import FinansPage from './pages/admin/FinansPage'
 import PatronPage from './pages/admin/PatronPage'
 import GarantiYonetimPage from './pages/admin/GarantiYonetimPage'
 import UrunYapilandirmaPage from './pages/admin/UrunYapilandirmaPage'
+import UtsYonetimiPage from './pages/admin/UtsYonetimiPage'
 import BelgeYuklePage from './pages/BelgeYuklePage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="depo" element={<DepoPage />} />
           <Route path="urun-yapilandirma" element={<UrunYapilandirmaPage />} />
           <Route path="garanti" element={<GarantiYonetimPage />} />
+          <Route path="uts" element={<UtsYonetimiPage />} />
           <Route path="muhasebe" element={<MuhasebePage />} />
           <Route path="ik" element={<IKPage />} />
           <Route path="finans" element={<FinansPage />} />

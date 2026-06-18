@@ -56,6 +56,8 @@ model Branch {
   users           User[]
   yedekSorumlu    User?     @relation("BranchYedekSorumlu", fields: [yedekSorumluId], references: [id])
   gorevliler      Gorevli[]
+  utsSube         UtsSube?
+  utsBildirimler  UtsBildirim[]
 }
 
 model Gorevli {
@@ -967,4 +969,60 @@ model WarrantyMessage {
   user      User?    @relation(fields: [userId], references: [id])
   message   String
   createdAt DateTime @default(now())
+}
+
+model UtsSube {
+  id          String    @id @default(cuid())
+  branchId    String    @unique
+  kurumNo     String?
+  token       String?
+  ortam       String    @default("canli") // test | canli
+  aktif       Boolean   @default(false)
+  sonKontrol  DateTime?
+  branch      Branch    @relation(fields: [branchId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model UtsDisFirma {
+  id        String   @id @default(cuid())
+  ad        String
+  vkn       String?
+  kurumNo   String?
+  adres     String?
+  telefon   String?
+  email     String?
+  notlar    String?
+  aktif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UtsBildirim {
+  id             String   @id @default(cuid())
+  tip            String   // ALMA | VERME | TUKETICIYE_VERME | TANIMSIZ_YERE_VERME | TUKETICIDEN_IADE | HEK_ZAYIAT
+  durum          String   @default("BEKLIYOR") // BEKLIYOR | GONDERILDI | HATA | IPTAL
+  branchId       String
+  karsiKurumNo   String?
+  karsiVkn       String?
+  karsiAd        String?
+  belgeNo        String?
+  payload        Json
+  utsBildirimId  String?
+  hataDetay      String?
+  gonderimZamani DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  branch         Branch   @relation(fields: [branchId], references: [id])
+  kalemler       UtsBildirimKalem[]
+}
+
+model UtsBildirimKalem {
+  id         String      @id @default(cuid())
+  bildirimId String
+  barkod     String
+  seriNo     String?
+  lotNo      String?
+  adet       Int         @default(1)
+  bildirim   UtsBildirim @relation(fields: [bildirimId], references: [id], onDelete: Cascade)
 }

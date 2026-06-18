@@ -5080,6 +5080,7 @@ router.get('/odoo-sablon-listesi', async (req, res, next) => {
 router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
   try {
     const tmplId = Number(req.params.tmplId);
+
     const variants = await execute(
       'product.product', 'search_read',
       [[['product_tmpl_id', '=', tmplId]]],
@@ -5092,7 +5093,47 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
         limit: 500,
       },
     );
-    return res.json({ success: true, data: variants });
+
+    const allPtavIds = [...new Set(
+      variants.flatMap((v: { product_template_attribute_value_ids?: number[] }) => v.product_template_attribute_value_ids ?? []),
+    )];
+
+    const ptavMap = new Map<number, { attrName: string; valueName: string }>();
+
+    if (allPtavIds.length > 0) {
+      const ptavlar = await execute(
+        'product.template.attribute.value', 'read',
+        [allPtavIds],
+        { fields: ['id', 'attribute_id', 'product_attribute_value_id'] },
+      );
+      for (const p of ptavlar) {
+        ptavMap.set(p.id, {
+          attrName: p.attribute_id?.[1] ?? '',
+          valueName: p.product_attribute_value_id?.[1] ?? '',
+        });
+      }
+    }
+
+    const result = variants.map((v: { id: number; default_code?: string | false; barcode?: string | false; lst_price?: number; standard_price?: number; product_template_attribute_value_ids?: number[] }) => {
+      const attrs: Record<string, string> = {};
+      for (const ptavId of v.product_template_attribute_value_ids ?? []) {
+        const ptav = ptavMap.get(ptavId);
+        if (ptav) attrs[ptav.attrName] = ptav.valueName;
+      }
+      return {
+        id: v.id,
+        default_code: v.default_code || '',
+        barcode: v.barcode || '',
+        lst_price: v.lst_price || 0,
+        standard_price: v.standard_price || 0,
+        model: attrs.MODEL || '',
+        renk: attrs.RENK || '',
+        olcu: attrs['ÖLÇÜ'] || '',
+        attrs,
+      };
+    });
+
+    return res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
@@ -5648,6 +5689,301 @@ router.patch('/odoo-varyant-guncelle', async (req, res, next) => {
       ]);
     }
     return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+async function gondermeBildiriminiYap(bildirim: {
+  id: string;
+  tip: string;
+  payload: unknown;
+  kalemler: Array<{ barkod: string; seriNo: string | null; lotNo: string | null; adet: number }>;
+}, utsSube: { token: string; ortam: string }) {
+  const baseUrl = utsSube.ortam === 'test'
+    ? 'https://utstest.saglik.gov.tr'
+    : 'https://utsuygulama.saglik.gov.tr';
+
+  const endpointMap: Record<string, string> = {
+    ALMA: '/UTS/uh/rest/bildirim/alma/ekle',
+    VERME: '/UTS/uh/rest/bildirim/verme/ekle',
+    TUKETICIYE_VERME: '/UTS/uh/rest/bildirim/tuketiciyeVerme/ekle',
+    TANIMSIZ_YERE_VERME: '/UTS/uh/rest/bildirim/utsdeTanimsizYereVerme/ekle',
+    TUKETICIDEN_IADE: '/UTS/uh/rest/bildirim/tuketicidenIadeAlma/ekle',
+    HEK_ZAYIAT: '/UTS/uh/rest/bildirim/hekZayiat/ekle',
+  };
+
+  const endpoint = endpointMap[bildirim.tip];
+  if (!endpoint) throw new Error(`Bilinmeyen bildirim tipi: ${bildirim.tip}`);
+
+  const payloadBase = typeof bildirim.payload === 'object' && bildirim.payload !== null
+    ? { ...(bildirim.payload as Record<string, unknown>) }
+    : {};
+
+  const sonuclar: unknown[] = [];
+  for (const kalem of bildirim.kalemler) {
+    const body: Record<string, unknown> = { ...payloadBase };
+    body.UNO = kalem.barkod;
+    if (kalem.seriNo) body.SNO = kalem.seriNo;
+    if (kalem.lotNo) body.LNO = kalem.lotNo;
+    if (kalem.adet > 1) body.ADT = kalem.adet;
+
+    const resp = await axios.post(
+      `${baseUrl}${endpoint}`,
+      body,
+      { headers: { utsToken: utsSube.token, 'Content-Type': 'application/json' } },
+    );
+    sonuclar.push(resp.data);
+  }
+
+  const first = sonuclar[0] as { SNC?: string } | undefined;
+  await prisma.utsBildirim.update({
+    where: { id: bildirim.id },
+    data: {
+      durum: 'GONDERILDI',
+      utsBildirimId: first?.SNC || null,
+      gonderimZamani: new Date(),
+      hataDetay: null,
+    },
+  });
+  return sonuclar;
+}
+
+// ── UTS YÖNETİMİ ─────────────────────────────────────────────────
+router.get('/uts/subeler', async (req, res, next) => {
+  try {
+    const branches = await prisma.branch.findMany({
+      where: { isActive: true },
+      include: { utsSube: true },
+      orderBy: { code: 'asc' },
+    });
+    return res.json({ success: true, data: branches });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/uts/sube-kaydet', async (req, res, next) => {
+  try {
+    const { branchId, kurumNo, token, ortam } = req.body;
+    if (!branchId) return res.status(400).json({ error: 'branchId zorunlu' });
+    const sube = await prisma.utsSube.upsert({
+      where: { branchId },
+      update: { kurumNo, token, ortam, aktif: !!(kurumNo && token) },
+      create: {
+        branchId,
+        kurumNo,
+        token,
+        ortam: ortam || 'canli',
+        aktif: !!(kurumNo && token),
+      },
+    });
+    return res.json({ success: true, data: sube });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/uts/token-test/:branchId', async (req, res, next) => {
+  try {
+    const utsSube = await prisma.utsSube.findUnique({
+      where: { branchId: req.params.branchId },
+    });
+    if (!utsSube?.token) return res.status(400).json({ error: 'Token tanımlı değil' });
+
+    const baseUrl = utsSube.ortam === 'test'
+      ? 'https://utstest.saglik.gov.tr'
+      : 'https://utsuygulama.saglik.gov.tr';
+
+    await axios.post(
+      `${baseUrl}/UTS/rest/kurum/firmaSorgula`,
+      { VRG: '1' },
+      { headers: { utsToken: utsSube.token, 'Content-Type': 'application/json' } },
+    );
+    await prisma.utsSube.update({
+      where: { branchId: req.params.branchId },
+      data: { sonKontrol: new Date(), aktif: true },
+    });
+    return res.json({ success: true, mesaj: 'Token geçerli' });
+  } catch (err) {
+    await prisma.utsSube.update({
+      where: { branchId: req.params.branchId },
+      data: { sonKontrol: new Date(), aktif: false },
+    }).catch(() => {});
+    return res.json({ success: false, mesaj: 'Token geçersiz veya bağlantı hatası' });
+  }
+});
+
+router.get('/uts/dis-firmalar', async (req, res, next) => {
+  try {
+    const data = await prisma.utsDisFirma.findMany({
+      where: { aktif: true },
+      orderBy: { ad: 'asc' },
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/uts/dis-firma', async (req, res, next) => {
+  try {
+    const { ad, vkn, kurumNo, adres, telefon, email, notlar } = req.body;
+    if (!ad?.trim()) return res.status(400).json({ error: 'Firma adı zorunlu' });
+    const data = await prisma.utsDisFirma.create({
+      data: { ad, vkn, kurumNo, adres, telefon, email, notlar },
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/uts/dis-firma/:id', async (req, res, next) => {
+  try {
+    const { ad, vkn, kurumNo, adres, telefon, email, notlar } = req.body;
+    const data = await prisma.utsDisFirma.update({
+      where: { id: req.params.id },
+      data: { ad, vkn, kurumNo, adres, telefon, email, notlar },
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/uts/kuyruk', async (req, res, next) => {
+  try {
+    const data = await prisma.utsBildirim.findMany({
+      where: { durum: { in: ['BEKLIYOR', 'HATA'] } },
+      include: {
+        branch: { select: { name: true, code: true } },
+        kalemler: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/uts/bildirim-olustur', async (req, res, next) => {
+  try {
+    const {
+      tip, branchId, kalemler,
+      karsiKurumNo, karsiVkn, karsiAd,
+      belgeNo, hemenGonder,
+    } = req.body;
+
+    if (!tip || !branchId || !kalemler?.length) {
+      return res.status(400).json({ error: 'tip, branchId ve kalemler zorunlu' });
+    }
+
+    const payload: Prisma.InputJsonValue = { BNO: belgeNo ?? null };
+    if (karsiKurumNo) (payload as Record<string, unknown>).KUN = Number(karsiKurumNo);
+    if (karsiVkn) (payload as Record<string, unknown>).VKN = karsiVkn;
+
+    const bildirim = await prisma.utsBildirim.create({
+      data: {
+        tip,
+        branchId,
+        belgeNo,
+        karsiKurumNo,
+        karsiVkn,
+        karsiAd,
+        payload,
+        durum: 'BEKLIYOR',
+        kalemler: {
+          create: kalemler.map((k: { barkod: string; seriNo?: string; lotNo?: string; adet?: number }) => ({
+            barkod: k.barkod,
+            seriNo: k.seriNo || null,
+            lotNo: k.lotNo || null,
+            adet: k.adet || 1,
+          })),
+        },
+      },
+      include: { kalemler: true },
+    });
+
+    if (hemenGonder) {
+      const utsSube = await prisma.utsSube.findUnique({ where: { branchId } });
+      if (utsSube?.token && utsSube?.aktif) {
+        try {
+          await gondermeBildiriminiYap(bildirim, { token: utsSube.token, ortam: utsSube.ortam });
+        } catch {
+          // gönderim başarısız, kuyrukta kalır
+        }
+      }
+    }
+
+    const guncel = await prisma.utsBildirim.findUnique({
+      where: { id: bildirim.id },
+      include: { kalemler: true },
+    });
+    return res.json({ success: true, data: guncel });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/uts/bildirim-gonder/:id', async (req, res, next) => {
+  try {
+    const bildirim = await prisma.utsBildirim.findUnique({
+      where: { id: req.params.id },
+      include: { kalemler: true, branch: true },
+    });
+    if (!bildirim) return res.status(404).json({ error: 'Bildirim bulunamadı' });
+
+    const utsSube = await prisma.utsSube.findUnique({
+      where: { branchId: bildirim.branchId },
+    });
+    if (!utsSube?.token) {
+      return res.status(400).json({ error: 'Bu şube için token tanımlı değil' });
+    }
+
+    await gondermeBildiriminiYap(bildirim, { token: utsSube.token, ortam: utsSube.ortam });
+    return res.json({ success: true });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Gönderim hatası';
+    await prisma.utsBildirim.update({
+      where: { id: req.params.id },
+      data: { durum: 'HATA', hataDetay: message },
+    }).catch(() => {});
+    return res.status(500).json({ error: message });
+  }
+});
+
+router.post('/uts/toplu-gonder', async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    const sonuclar: Array<{ id: string; durum: string; sebep?: string }> = [];
+    for (const id of (ids || [])) {
+      try {
+        const bildirim = await prisma.utsBildirim.findUnique({
+          where: { id },
+          include: { kalemler: true },
+        });
+        if (!bildirim) continue;
+        const utsSube = await prisma.utsSube.findUnique({
+          where: { branchId: bildirim.branchId },
+        });
+        if (!utsSube?.token) {
+          sonuclar.push({ id, durum: 'HATA', sebep: 'Token yok' });
+          continue;
+        }
+        await gondermeBildiriminiYap(bildirim, { token: utsSube.token, ortam: utsSube.ortam });
+        sonuclar.push({ id, durum: 'GONDERILDI' });
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Gönderim hatası';
+        await prisma.utsBildirim.update({
+          where: { id },
+          data: { durum: 'HATA', hataDetay: message },
+        }).catch(() => {});
+        sonuclar.push({ id, durum: 'HATA', sebep: message });
+      }
+    }
+    return res.json({ success: true, sonuclar });
   } catch (err) {
     next(err);
   }

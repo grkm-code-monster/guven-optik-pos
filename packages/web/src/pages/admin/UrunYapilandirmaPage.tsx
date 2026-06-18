@@ -168,10 +168,10 @@ export default function UrunYapilandirmaPage() {
           const raw = res.data?.data ?? []
           const rows = raw.map((v: any) => ({
             odooId: v.id,
-            name: v.name,
-            model: '',
-            renk: '',
-            olcu: '',
+            name: `${v.model} ${v.renk} ${v.olcu}`.trim(),
+            model: v.model,
+            renk: v.renk,
+            olcu: v.olcu,
             icReferans: v.default_code || '',
             barkod: v.barcode || '',
             satisFiyati: String(v.lst_price || 0),

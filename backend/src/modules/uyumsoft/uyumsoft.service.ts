@@ -57,6 +57,15 @@ export async function isEInvoiceUser(
   return result?.IsEInvoiceUserResult === true;
 }
 
+export async function getUserAliasses(vknTckn: string): Promise<unknown> {
+  const c = await getClient();
+  const [result] = await c.GetUserAliassesAsync({
+    userInfo: USER_INFO,
+    vknTckn,
+  });
+  return result;
+}
+
 export async function getAccessToken(): Promise<string> {
   const c = await getClient();
   const [result] = await c.GetAccessTokenAsync({
@@ -68,3 +77,5 @@ export async function getAccessToken(): Promise<string> {
   });
   return result?.GetAccessTokenResult?.Token ?? '';
 }
+
+export { getClient, USER_INFO };
