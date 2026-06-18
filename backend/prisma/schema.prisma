@@ -1078,3 +1078,11 @@ model FaturaKuyruk {
 
   @@index([durum])
 }
+
+model ChatbotKullanim {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  kullanimSayisi Int      @default(0)
+  ilkKullanimAt  DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

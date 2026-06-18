@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { ChatbotButon } from '../../components/ChatbotPanel'
 
 export const adminApi = axios.create({ baseURL: '/api' })
 
@@ -150,6 +151,7 @@ export default function AdminLayout() {
       <main style={{ flex: 1, padding: 24, overflow: 'auto' }}>
         <Outlet />
       </main>
+      <ChatbotButon />
     </div>
   )
 }

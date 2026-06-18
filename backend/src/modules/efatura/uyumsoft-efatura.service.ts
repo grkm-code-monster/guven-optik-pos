@@ -2,7 +2,6 @@ import { randomUUID } from 'crypto';
 import type { Branch, Customer, Product, Sale, SaleItem } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import {
-  GONDEREN_BIRIM,
   isEInvoiceUser,
   getUserAliasses,
   sendInvoice,
@@ -367,31 +366,49 @@ export async function eFaturaGonder(
   const supplier = getSupplierInfo(data.sube, branch);
   const xmlContent = buildUBLXML(data, profileId, supplier);
   const xmlBase64 = Buffer.from(xmlContent, 'utf8').toString('base64');
+  const ettn =
+    xmlContent.match(/<cbc:UUID>([^<]+)<\/cbc:UUID>/)?.[1] ?? randomUUID().toUpperCase();
 
   try {
     const res = await sendInvoice({
-      Sender: GONDEREN_BIRIM,
-      Receiver: eFaturaMukellef && alias ? alias : data.aliciVkn,
-      DocumentType: 'INVOICE',
-      ContentType: 'XML',
-      Content: xmlBase64,
-      LocalReferenceId: data.faturaNo,
+      faturaNo: data.faturaNo,
+      ettn,
+      faturaTarihi: data.faturaTarihi,
+      profileId,
+      supplierVkn: supplier.vkn,
+      aliciVkn: data.aliciVkn,
+      receiverAlias: eFaturaMukellef && alias ? alias : undefined,
+      xmlBase64,
+      xmlContent,
     });
 
-    if (res?.IsSucceded || res?.IsSucceeded) {
+    const basarili =
+      res?.IsSucceded === true ||
+      res?.IsSucceeded === true ||
+      res?.IsSucceded === 'true' ||
+      res?.IsSucceeded === 'true';
+
+    if (basarili) {
+      const uuid =
+        res?.DocumentId ||
+        res?.ETTN ||
+        ettn ||
+        res?.Value?.attributes?.Id ||
+        res?.Value?.Id;
       return {
         basarili: true,
         faturaNo: data.faturaNo,
-        uuid: res.DocumentId || res.ETTN,
+        uuid,
         profileId,
       };
     }
 
+    const hataMsg = res?.Message || res?.ErrorMessage || JSON.stringify(res) || 'Bilinmeyen hata';
     return {
       basarili: false,
       faturaNo: data.faturaNo,
       profileId,
-      hata: res?.Message || res?.ErrorMessage || 'Bilinmeyen hata',
+      hata: res?._format ? `${hataMsg} [format: ${res._format}]` : hataMsg,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

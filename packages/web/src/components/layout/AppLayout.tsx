@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
+import { ChatbotButon } from '../ChatbotPanel'
 import { useAuthStore } from '../../store/auth.store'
 
 export default function AppLayout() {
@@ -41,6 +42,7 @@ export default function AppLayout() {
           </div>
         </div>
       </div>
+      <ChatbotButon />
     </div>
   )
 }
