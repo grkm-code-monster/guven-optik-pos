@@ -2,6 +2,7 @@
 Son güncelleme: 18.06.2026
 
 ## Son commitler (güncellendi)
+- [bugün] — Varyant import tamamlandı: mevcut varyantlar Odoo'dan çekiliyor, duplicate koruması, PTAV model/renk/ölçü parse
 - [bugün] — Personel şube ataması tamamlandı (22 otomatik + 3 manuel)
 - [bugün] — IK belge yönetimi: eksik gösterimi, WhatsApp link, public belge yükleme formu
 - [bugün] — Branch tablosu: GVN1-10 eklendi, prisma generate düzeltildi
@@ -71,6 +72,8 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] Tanımlamalar şube CRUD ekranı (Odoo/PDKS/Uyumsoft bağlantı)
 - [x] Personelleri şubelere ata
 - [x] Odoo departman yapısından otomatik şube eşleştirme
+- [x] Varyant import: Excel yapıştır, önizle, duplicate koruması
+- [x] Mevcut varyantlar Odoo'dan çekiliyor (model/renk/ölçü PTAV parse)
 
 ## Kısa vadeli — açık
 - [ ] Uyumsoft SendInvoice — e-fatura gönderme
@@ -91,7 +94,6 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Personel↔PDKS id eşleştirmesi (pdksId alanı ile)
 - [ ] PDKS giriş/çıkış → dashboard görevli otomatik atama
 - [ ] Puantaj raporu IK modülüne entegrasyon
-- [ ] Ürün yapılandırma — Excel ile toplu varyant girişi
 - [ ] Ürün yapılandırma — Barkod yazdırma
 - [ ] Depo ürün girişi akışı (stok miktarı tanımlama)
 - [ ] PDF çıktısı jsPDF ile
