@@ -295,16 +295,15 @@ export default function UtsYonetimiPage() {
   }
 
   function odooPartnerSec(partner: any) {
-    const adres = [partner.street, partner.city].filter(Boolean).join(' ').trim()
     setFirmaForm({
-      ad: partner.name ?? '',
-      vkn: partner.vat ?? '',
+      ad: partner.name || '',
+      vkn: partner.vat && partner.vat !== false ? partner.vat : '',
       kurumNo: '',
-      adres,
-      telefon: partner.phone ?? '',
-      email: partner.email ?? '',
+      telefon: partner.phone && partner.phone !== false ? partner.phone : '',
+      email: partner.email && partner.email !== false ? partner.email : '',
+      adres: [partner.street, partner.city].filter((x) => x && x !== false).join(', '),
       notlar: '',
-      odooPartnerId: partner.id ?? null,
+      odooPartnerId: partner.id,
     })
     setOdooArama('')
     setOdooSonuclar([])
