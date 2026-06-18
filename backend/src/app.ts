@@ -27,6 +27,13 @@ export function createApp() {
   app.use(cors());
   app.use(express.json());
 
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+
   app.use('/api/auth', authRouter);
   app.use('/api/shifts', shiftsRouter);
   app.use('/api/customers', customersRouter);
