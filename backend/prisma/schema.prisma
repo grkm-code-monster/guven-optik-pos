@@ -269,6 +269,8 @@ model Sale {
   odooSaleOrderId    Int?
   odooSynced         Boolean    @default(false)
   odooSyncError      String?
+  eFaturaId          String?
+  eFaturaDurum       String?    // GONDERILDI, BEKLIYOR, HATA
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
   customer Customer @relation(fields: [customerId], references: [id])
@@ -1037,4 +1039,42 @@ model UtsBildirimKalem {
   lotNo      String?
   adet       Int         @default(1)
   bildirim   UtsBildirim @relation(fields: [bildirimId], references: [id], onDelete: Cascade)
+}
+
+model Fatura {
+  id           String    @id @default(cuid())
+  faturaNo     String    @unique
+  uuid         String?
+  satisId      String?
+  transferId   String?
+  sube         String
+  aliciVkn     String
+  aliciAdi     String
+  tutar        Float
+  durum        String    @default("GONDERILDI") // GONDERILDI, HATA, IPTAL
+  profileId    String    @default("EARSIVFATURA") // TEMELFATURA / EARSIVFATURA
+  hata         String?
+  gonderilenAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([sube])
+  @@index([satisId])
+  @@index([transferId])
+  @@index([durum])
+}
+
+model FaturaKuyruk {
+  id           String    @id @default(cuid())
+  satisId      String?
+  transferId   String?
+  faturaNo     String
+  faturaData   String    // JSON
+  durum        String    @default("BEKLIYOR") // BEKLIYOR, GONDERILDI, BASARISIZ
+  deneme       Int       @default(0)
+  hata         String?
+  gonderilenAt DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([durum])
 }

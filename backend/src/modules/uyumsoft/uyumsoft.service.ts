@@ -78,4 +78,33 @@ export async function getAccessToken(): Promise<string> {
   return result?.GetAccessTokenResult?.Token ?? '';
 }
 
-export { getClient, USER_INFO };
+export interface SendInvoiceRequest {
+  Sender: string;
+  Receiver: string;
+  DocumentType: string;
+  ContentType: string;
+  Content: string;
+  LocalReferenceId: string;
+}
+
+export interface SendInvoiceResult {
+  IsSucceded?: boolean;
+  IsSucceeded?: boolean;
+  DocumentId?: string;
+  ETTN?: string;
+  Message?: string;
+  ErrorMessage?: string;
+}
+
+export async function sendInvoice(
+  request: SendInvoiceRequest,
+): Promise<SendInvoiceResult | undefined> {
+  const c = await getClient();
+  const [result] = await c.SendInvoiceAsync({
+    userInfo: USER_INFO,
+    request,
+  });
+  return result?.SendInvoiceResult;
+}
+
+export { getClient, USER_INFO, GONDEREN_BIRIM };

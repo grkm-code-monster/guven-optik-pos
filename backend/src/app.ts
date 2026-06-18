@@ -15,6 +15,7 @@ import expenseRouter from './modules/expenses/expense.controller';
 import openAccountRouter from './modules/openaccount/openaccount.controller';
 import warrantyRouter from './modules/warranty/warranty.controller';
 import uyumsoftRouter from './modules/uyumsoft/uyumsoft.controller';
+import efaturaRouter from './modules/efatura/efatura.controller';
 import pdksRouter from './modules/pdks/pdks.controller';
 
 export function createApp() {
@@ -38,6 +39,7 @@ export function createApp() {
   app.use('/api/open-account', openAccountRouter);
   app.use('/api/warranty', warrantyRouter);
   app.use('/api/uyumsoft', uyumsoftRouter);
+  app.use('/api/efatura', efaturaRouter);
   app.use('/api/pdks', pdksRouter);
 
   app.use((_req: Request, res: Response) => {

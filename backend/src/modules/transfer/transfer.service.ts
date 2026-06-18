@@ -1,8 +1,16 @@
 // @ts-nocheck
 import * as odooService from '../odoo/odoo.service';
 import * as odooLocations from '../odoo/odooLocations';
+import { tetikleTransferEFatura } from '../efatura/uyumsoft-efatura.service';
 import { isDevMockEnabled, MOCK_BEKLEYEN, MOCK_URUN_ARA } from './transfer.mock';
 /** "RAYBAN GÜNEŞ GÖZLÜĞÜ (2140, C101, 50)" → şablon adı + varyant değerleri */
+function branchCodeFromLocationId(locId) {
+    for (const [code, id] of Object.entries(odooLocations.LOKASYON_ID_MAP)) {
+        if (id === locId)
+            return code;
+    }
+    return 'GVN1';
+}
 function parseVariantDisplayName(displayName) {
     const dn = displayName.trim();
     const match = dn.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
@@ -618,6 +626,19 @@ export async export function acceptTransfer(transferId, sayimlar) {
                 // custom field may not exist
             }
         }
+        let branchCode = 'GVN1';
+        try {
+            const pickingDetail = (await odooService.execute('stock.picking', 'read', [[pickingId]], { fields: ['location_dest_id'] }, companyId));
+            const destId = m2oId(pickingDetail?.[0]?.location_dest_id);
+            if (destId)
+                branchCode = branchCodeFromLocationId(destId);
+        }
+        catch {
+            // optional
+        }
+        tetikleTransferEFatura(pickingId, branchCode).catch((err) => {
+            console.error('[e-Fatura] Transfer kabul tetikleme:', err);
+        });
         return { success: true, transferId: pickingId };
     });
 }

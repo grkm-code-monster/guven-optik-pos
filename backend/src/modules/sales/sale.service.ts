@@ -12,6 +12,7 @@ import {
 import { prisma } from '../../database/prisma';
 import { execute } from '../odoo/odoo.service';
 import { calculateCommission } from '../payments/commission.service';
+import { tetikleSatisEFatura } from '../efatura/uyumsoft-efatura.service';
 import type { AddSaleItemInputType, ConfirmSaleInputType, CreateSaleInputType, VoidSaleInputType } from './sale.types';
 
 function codeError(code: string, message: string) {
@@ -823,6 +824,10 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
       })
       .catch(() => {});
   }
+
+  tetikleSatisEFatura(saleId).catch((err) => {
+    console.error('[e-Fatura] Satış onay tetikleme hatası:', err);
+  });
 
   return result;
 }
