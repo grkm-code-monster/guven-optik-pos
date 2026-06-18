@@ -25,8 +25,7 @@ adminApi.interceptors.response.use(
 type MenuItem = {
   label: string
   icon?: string
-  to?: string
-  disabled?: boolean
+  to: string
 }
 
 type MenuGroup = {
@@ -60,7 +59,7 @@ const MENU: MenuGroup[] = [
   },
   {
     title: '👑 PATRON PANELİ',
-    items: [{ label: 'Patron Görünümü', icon: '👑', to: '/admin/patron', disabled: true }],
+    items: [{ label: 'Patron Görünümü', icon: '👑', to: '/admin/patron' }],
   },
 ]
 
@@ -107,39 +106,10 @@ export default function AdminLayout() {
               >
                 {group.title}
               </div>
-              {group.items.map((item) =>
-                item.disabled ? (
-                  <div
-                    key={item.label}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '10px 20px',
-                      opacity: 0.4,
-                      cursor: 'not-allowed',
-                      fontSize: 14,
-                    }}
-                  >
-                    {item.icon ? <span>{item.icon}</span> : null}
-                    <span style={{ flex: 1 }}>{item.label}</span>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        backgroundColor: '#fef08a',
-                        color: '#854d0e',
-                        padding: '2px 6px',
-                        borderRadius: 999,
-                      }}
-                    >
-                      Yakında
-                    </span>
-                  </div>
-                ) : (
+              {group.items.map((item) => (
                   <NavLink
                     key={item.to}
-                    to={item.to!}
+                    to={item.to}
                     style={({ isActive }) => ({
                       display: 'flex',
                       alignItems: 'center',
@@ -155,8 +125,7 @@ export default function AdminLayout() {
                     {item.icon ? <span>{item.icon}</span> : null}
                     {item.label}
                   </NavLink>
-                ),
-              )}
+              ))}
             </div>
           ))}
         </nav>
