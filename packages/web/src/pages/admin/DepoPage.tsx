@@ -1483,6 +1483,20 @@ function UrunGirisTab() {
   const [cariArama, setCariArama] = useState('')
   const [cariSonuclar, setCariSonuclar] = useState<Tedarikci[]>([])
   const [cariAramaLoading, setCariAramaLoading] = useState(false)
+  const [cariAramaYapildi, setCariAramaYapildi] = useState(false)
+  const [yeniCariModalAcik, setYeniCariModalAcik] = useState(false)
+  const [yeniCariKaydetLoading, setYeniCariKaydetLoading] = useState(false)
+  const [yeniCariForm, setYeniCariForm] = useState({
+    name: '',
+    vkn: '',
+    vergiDairesi: '',
+    adres: '',
+    il: '',
+    ilce: '',
+    telefon: '',
+    email: '',
+    tip: 'tuzel' as 'tuzel' | 'gercek',
+  })
 
   // Alıcı şirket
   const [sirketler, setSirketler] = useState<Array<{id: number; name: string; vat: string}>>([])
@@ -1886,18 +1900,64 @@ function UrunGirisTab() {
   }
 
   async function araCariler(q: string) {
-    if (!q.trim() || q.length < 2) { setCariSonuclar([]); return }
+    if (!q.trim() || q.length < 2) {
+      setCariSonuclar([])
+      setCariAramaYapildi(false)
+      return
+    }
     setCariAramaLoading(true)
     try {
       const res = await adminApi.get(`/admin/cari-ara?q=${encodeURIComponent(q)}`)
       setCariSonuclar(res.data?.data ?? [])
     } catch {
-      setCariSonuclar([
-        { id: 1, name: 'Gözbir Optik', tip: 'cari' as const },
-        { id: 2, name: 'Opsan Optik', tip: 'cari' as const },
-        { id: 3, name: 'Rodenstock Türkiye', tip: 'cari' as const },
-      ].filter(c => c.name.toLowerCase().includes(q.toLowerCase())))
-    } finally { setCariAramaLoading(false) }
+      setCariSonuclar([])
+    } finally {
+      setCariAramaLoading(false)
+      setCariAramaYapildi(true)
+    }
+  }
+
+  function yeniCariModalAc() {
+    setYeniCariForm({
+      name: cariArama.trim(),
+      vkn: '',
+      vergiDairesi: '',
+      adres: '',
+      il: '',
+      ilce: '',
+      telefon: '',
+      email: '',
+      tip: 'tuzel',
+    })
+    setYeniCariModalAcik(true)
+  }
+
+  async function yeniCariKaydet() {
+    if (!yeniCariForm.name.trim()) {
+      setError('Firma adı zorunlu')
+      return
+    }
+    setYeniCariKaydetLoading(true)
+    setError(null)
+    try {
+      const res = await adminApi.post('/admin/cari-olustur', {
+        ...yeniCariForm,
+        sirketId: secilenSirketId ?? undefined,
+      })
+      const cari = res.data?.data
+      if (!cari?.id) throw new Error('Cari oluşturulamadı')
+      setCariId(cari.id)
+      setCariAdi(cari.name)
+      setCariArama(cari.name)
+      setCariSonuclar([])
+      setCariAramaYapildi(false)
+      setYeniCariModalAcik(false)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } }; message?: string }
+      setError(err?.response?.data?.error ?? err?.message ?? 'Cari kaydedilemedi')
+    } finally {
+      setYeniCariKaydetLoading(false)
+    }
   }
 
   async function kategoriveNitelikleriYukle() {
@@ -2336,6 +2396,8 @@ function UrunGirisTab() {
           setAdim('giris-tipi')
           uyumsoftStateSifirla()
           setCariAdi(''); setCariId(null); setCariArama('')
+          setCariAramaYapildi(false)
+          setYeniCariModalAcik(false)
           setSecilenSirketId(null); setSecilenSirketAdi('')
           setFizikiTedarikciId(null); setFizikiTedarikciAdi(''); setFizikiArama('')
           setFaturaNo(''); setFaturaReferans(''); setFaturaToplamKdvHaric('')
@@ -3070,12 +3132,22 @@ function UrunGirisTab() {
 
           <div style={{ marginBottom: 16, position: 'relative' }}>
             <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Cari (Fatura Sahibi) *</label>
-            <input value={cariArama} onChange={e => { setCariArama(e.target.value); void araCariler(e.target.value) }} placeholder="Gözbir, Opsan..." style={{ ...inp, borderColor: cariId ? '#059669' : undefined }} />
+            <input
+              value={cariArama}
+              onChange={e => {
+                setCariArama(e.target.value)
+                setCariId(null)
+                setCariAdi('')
+                void araCariler(e.target.value)
+              }}
+              placeholder="Gözbir, Opsan..."
+              style={{ ...inp, borderColor: cariId ? '#059669' : undefined }}
+            />
             {cariId && <div style={{ fontSize: 12, color: '#059669', marginTop: 4, fontWeight: 700 }}>✓ {cariAdi} seçildi</div>}
             {cariSonuclar.length > 0 && !cariId && (
               <div style={{ position: 'absolute', zIndex: 10, top: '100%', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
                 {cariSonuclar.map(c => (
-                  <div key={c.id} onClick={() => { setCariId(c.id); setCariAdi(c.name); setCariArama(c.name); setCariSonuclar([]) }}
+                  <div key={c.id} onClick={() => { setCariId(c.id); setCariAdi(c.name); setCariArama(c.name); setCariSonuclar([]); setCariAramaYapildi(false) }}
                     style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f3f4f6' }}
                     onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f9fafb')}
                     onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'white')}>
@@ -3085,6 +3157,27 @@ function UrunGirisTab() {
               </div>
             )}
             {cariAramaLoading && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>Aranıyor...</div>}
+            {!cariAramaLoading && cariAramaYapildi && !cariId && cariArama.trim().length >= 2 && cariSonuclar.length === 0 && (
+              <button
+                type="button"
+                onClick={yeniCariModalAc}
+                style={{
+                  marginTop: 8,
+                  padding: '8px 12px',
+                  backgroundColor: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: '#1d4ed8',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  width: '100%',
+                }}
+              >
+                + Yeni Cari Tanımla: &quot;{cariArama.trim()}&quot;
+              </button>
+            )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
             <div>
@@ -3641,6 +3734,88 @@ function UrunGirisTab() {
             Stok girişi yapılmış ancak faturası henüz gelmemiş kayıtlar.
           </div>
           <BekleyenFaturalarTab onGeri={() => setAdim('giris-tipi')} />
+        </div>
+      )}
+
+      {yeniCariModalAcik && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: 14, width: 'min(480px, 100%)', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 900 }}>Yeni Cari Tanımla</div>
+              <button type="button" onClick={() => setYeniCariModalAcik(false)} style={{ border: 'none', background: 'transparent', fontSize: 20, cursor: 'pointer' }}>×</button>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              {(['tuzel', 'gercek'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setYeniCariForm((f) => ({ ...f, tip: t }))}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    border: `2px solid ${yeniCariForm.tip === t ? '#1a1a2e' : '#e5e7eb'}`,
+                    backgroundColor: yeniCariForm.tip === t ? '#1a1a2e' : '#fff',
+                    color: yeniCariForm.tip === t ? '#fff' : '#374151',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {t === 'tuzel' ? 'Tüzel (Şirket)' : 'Gerçek (Şahıs)'}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>Firma / Kişi Adı *</label>
+                <input value={yeniCariForm.name} onChange={(e) => setYeniCariForm((f) => ({ ...f, name: e.target.value }))} style={{ ...inp, marginBottom: 0 }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>VKN / TCKN</label>
+                  <input value={yeniCariForm.vkn} onChange={(e) => setYeniCariForm((f) => ({ ...f, vkn: e.target.value }))} style={{ ...inp, marginBottom: 0 }} placeholder="1234567890" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>Vergi Dairesi</label>
+                  <input value={yeniCariForm.vergiDairesi} onChange={(e) => setYeniCariForm((f) => ({ ...f, vergiDairesi: e.target.value }))} style={{ ...inp, marginBottom: 0 }} />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>Adres</label>
+                <input value={yeniCariForm.adres} onChange={(e) => setYeniCariForm((f) => ({ ...f, adres: e.target.value }))} style={{ ...inp, marginBottom: 0 }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>İl</label>
+                  <input value={yeniCariForm.il} onChange={(e) => setYeniCariForm((f) => ({ ...f, il: e.target.value }))} style={{ ...inp, marginBottom: 0 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>İlçe</label>
+                  <input value={yeniCariForm.ilce} onChange={(e) => setYeniCariForm((f) => ({ ...f, ilce: e.target.value }))} style={{ ...inp, marginBottom: 0 }} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>Telefon</label>
+                  <input value={yeniCariForm.telefon} onChange={(e) => setYeniCariForm((f) => ({ ...f, telefon: e.target.value }))} style={{ ...inp, marginBottom: 0 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>E-posta</label>
+                  <input type="email" value={yeniCariForm.email} onChange={(e) => setYeniCariForm((f) => ({ ...f, email: e.target.value }))} style={{ ...inp, marginBottom: 0 }} />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+              <button type="button" onClick={() => setYeniCariModalAcik(false)} style={{ ...btnSmall, flex: 1 }}>İptal</button>
+              <button type="button" disabled={yeniCariKaydetLoading || !yeniCariForm.name.trim()} onClick={() => void yeniCariKaydet()} style={{ ...btnPrimary, flex: 1, backgroundColor: '#059669' }}>
+                {yeniCariKaydetLoading ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

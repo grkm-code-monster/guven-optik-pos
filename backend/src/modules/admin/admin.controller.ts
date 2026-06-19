@@ -1492,6 +1492,76 @@ router.get('/cari-ara', async (req: Request, res: Response) => {
   }
 });
 
+// ── CARİ OLUŞTUR (Odoo res.partner) ────────────────────────────────
+router.post('/cari-olustur', async (req: Request, res: Response) => {
+  try {
+    const {
+      name,
+      vkn,
+      vergiDairesi,
+      adres,
+      il,
+      ilce,
+      telefon,
+      email,
+      tip,
+      sirketId,
+    } = req.body ?? {};
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'Firma adı zorunlu' });
+    }
+
+    const isCompany = tip !== 'gercek';
+    const partnerVals: Record<string, unknown> = {
+      name: String(name).trim(),
+      is_company: isCompany,
+      supplier_rank: 1,
+    };
+
+    if (vkn && String(vkn).trim()) partnerVals.vat = String(vkn).trim();
+    if (adres && String(adres).trim()) partnerVals.street = String(adres).trim();
+    if (ilce && String(ilce).trim()) partnerVals.street2 = String(ilce).trim();
+    if (il && String(il).trim()) partnerVals.city = String(il).trim();
+    if (telefon && String(telefon).trim()) partnerVals.phone = String(telefon).trim();
+    if (email && String(email).trim()) partnerVals.email = String(email).trim();
+
+    if (vergiDairesi && String(vergiDairesi).trim()) {
+      partnerVals.comment = `Vergi Dairesi: ${String(vergiDairesi).trim()}`;
+    }
+
+    const companyId = sirketId ? Number(sirketId) : undefined;
+    const partnerId = await execute(
+      'res.partner',
+      'create',
+      [partnerVals],
+      {},
+      companyId,
+    );
+
+    const created = await execute(
+      'res.partner',
+      'read',
+      [[partnerId]],
+      { fields: ['id', 'name', 'vat', 'phone', 'email'] },
+      companyId,
+    );
+
+    const p = created[0] as { id: number; name: string; vat?: string };
+    return res.json({
+      data: {
+        id: p.id,
+        name: p.name,
+        tip: 'cari' as const,
+        vat: p.vat || '',
+      },
+    });
+  } catch (err: any) {
+    console.error('[cari-olustur hata]', err?.message ?? err);
+    return res.status(500).json({ error: err?.message ?? 'Cari oluşturulamadı' });
+  }
+});
+
 // ── KATEGORİ LİSTESİ (Odoo product.category) ──────────────────────
 router.get('/kategori-listesi', async (_req: Request, res: Response) => {
   try {
