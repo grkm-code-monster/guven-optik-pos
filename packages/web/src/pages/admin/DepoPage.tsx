@@ -1224,46 +1224,84 @@ type UyumsoftHamSatir = {
   sira: number
   stokKodu: string
   urunAdi: string
+  malzemeHizmet: string
   barkod: string
   miktar: number
   birimFiyat: number
   kdvOrani: number
-  iskonto?: number
+  iskontoOrani: string
+  iskontoTutar: number
+  iskonto: number
+  siparisNo: string
 }
 
-type UyumsoftKolonAnahtari = 'stokKodu' | 'urunAdi' | 'barkod' | 'miktar' | 'birimFiyat' | 'kdvOrani'
-type UyumsoftKolonRol = 'urunAdi' | 'stokKodu' | 'barkod' | 'miktar' | 'birimFiyat' | 'kdvOrani' | 'yoksay'
+type UyumsoftKolonAnahtari =
+  | 'stokKodu'
+  | 'malzemeHizmet'
+  | 'urunAdi'
+  | 'barkod'
+  | 'miktar'
+  | 'birimFiyat'
+  | 'iskontoOrani'
+  | 'iskontoTutar'
+  | 'kdvOrani'
+  | 'siparisNo'
+type UyumsoftKolonRol =
+  | 'urunAdi'
+  | 'malzemeHizmet'
+  | 'stokKodu'
+  | 'barkod'
+  | 'miktar'
+  | 'birimFiyat'
+  | 'iskontoOrani'
+  | 'iskontoTutar'
+  | 'kdvOrani'
+  | 'siparisNo'
+  | 'yoksay'
 type UyumsoftKolonMap = Record<UyumsoftKolonAnahtari, UyumsoftKolonRol>
 
 const UYUMSOFT_KOLON_ANAHTARLARI: UyumsoftKolonAnahtari[] = [
-  'stokKodu', 'urunAdi', 'barkod', 'miktar', 'birimFiyat', 'kdvOrani',
+  'stokKodu', 'malzemeHizmet', 'urunAdi', 'barkod', 'miktar', 'birimFiyat',
+  'iskontoOrani', 'iskontoTutar', 'kdvOrani', 'siparisNo',
 ]
 
 const UYUMSOFT_KOLON_ETIKETLERI: Record<UyumsoftKolonAnahtari, string> = {
   stokKodu: 'Ürün Kodu',
-  urunAdi: 'Ürün Adı',
+  malzemeHizmet: 'Malzeme/Hizmet Adı',
+  urunAdi: 'Kısa Ad (Name)',
   barkod: 'Barkod',
   miktar: 'Miktar',
   birimFiyat: 'Birim Fiyat',
+  iskontoOrani: 'İskonto Oranı',
+  iskontoTutar: 'İskonto Tutarı',
   kdvOrani: 'KDV Oranı',
+  siparisNo: 'Sipariş No',
 }
 
 const VARSAYILAN_UYUMSOFT_KOLON_MAP: UyumsoftKolonMap = {
   stokKodu: 'stokKodu',
-  urunAdi: 'urunAdi',
+  malzemeHizmet: 'urunAdi',
+  urunAdi: 'yoksay',
   barkod: 'barkod',
   miktar: 'miktar',
   birimFiyat: 'birimFiyat',
+  iskontoOrani: 'iskontoOrani',
+  iskontoTutar: 'iskontoTutar',
   kdvOrani: 'kdvOrani',
+  siparisNo: 'siparisNo',
 }
 
 const UYUMSOFT_ROL_SECENEKLERI: { value: UyumsoftKolonRol; label: string }[] = [
   { value: 'urunAdi', label: 'Ürün Adı' },
+  { value: 'malzemeHizmet', label: 'Malzeme/Hizmet Adı' },
   { value: 'stokKodu', label: 'Stok Kodu / SKU' },
   { value: 'barkod', label: 'Barkod' },
   { value: 'miktar', label: 'Miktar' },
   { value: 'birimFiyat', label: 'Birim Fiyat' },
+  { value: 'iskontoOrani', label: 'İskonto Oranı' },
+  { value: 'iskontoTutar', label: 'İskonto Tutarı' },
   { value: 'kdvOrani', label: 'KDV Oranı' },
+  { value: 'siparisNo', label: 'Sipariş No' },
   { value: 'yoksay', label: 'Yoksay' },
 ]
 
@@ -1709,7 +1747,7 @@ function UrunGirisTab() {
       bizimUrunOdooId: null,
       miktar: Number(uyumsoftRolDeger(satir, 'miktar') || satir.miktar || 1),
       birimFiyat: uyumsoftRolDeger(satir, 'birimFiyat') || String(satir.birimFiyat),
-      iskonto: satir.iskonto ? String(satir.iskonto) : '0',
+      iskonto: String(satir.iskonto ?? 0),
       kdvOrani: uyumsoftRolDeger(satir, 'kdvOrani') || String(satir.kdvOrani || 20),
       eslesti: false,
     }))
@@ -3417,7 +3455,7 @@ function UrunGirisTab() {
                 <span style={kaynakBadgeUyumsoft}>UYUMSOFT</span>
               </div>
               <div style={{ overflowX: 'auto', padding: 12 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720, backgroundColor: '#fff', borderRadius: 8 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100, backgroundColor: '#fff', borderRadius: 8 }}>
                   <thead>
                     <tr style={{ backgroundColor: '#fef3c7' }}>
                       <th style={{ ...th, width: 40 }}>#</th>

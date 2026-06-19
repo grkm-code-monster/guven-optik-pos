@@ -323,12 +323,17 @@ export interface InboxInvoiceDetail {
     sira: number;
     stokKodu: string;
     urunAdi: string;
+    malzemeHizmet: string;
     barkod: string;
     miktar: number;
     birimFiyat: number;
     kdvOrani: number;
-    iskonto?: number;
+    iskontoOrani: string;
+    iskontoTutar: number;
+    iskonto: number;
+    siparisNo: string;
   }>;
+  siparisNo: string;
 }
 
 function parseInboxListItem(raw: Record<string, unknown>): InboxInvoiceListItem {
@@ -348,6 +353,39 @@ function parseInboxListItem(raw: Record<string, unknown>): InboxInvoiceListItem 
   };
 }
 
+function parseLineAllowances(
+  allowanceRaw: unknown,
+  miktar: number,
+  birimFiyat: number,
+): { iskontoOrani: string; iskontoTutar: number; iskonto: number } {
+  const list = Array.isArray(allowanceRaw) ? allowanceRaw : allowanceRaw ? [allowanceRaw] : [];
+  const discounts = list.filter((row) => {
+    const charge = row as Record<string, unknown>;
+    return charge.ChargeIndicator === false || charge.ChargeIndicator === 'false';
+  });
+
+  if (!discounts.length) {
+    return { iskontoOrani: '', iskontoTutar: 0, iskonto: 0 };
+  }
+
+  const oranlar = discounts.map((row) => {
+    const mult = Number(ublAlanOku((row as Record<string, unknown>).MultiplierFactorNumeric) || 0);
+    return Math.round(mult * 10000) / 100;
+  });
+  const tutar = discounts.reduce(
+    (sum, row) => sum + Number(ublAlanOku((row as Record<string, unknown>).Amount) || 0),
+    0,
+  );
+  const base = miktar * birimFiyat;
+  const iskonto = base > 0 ? Math.round((tutar / base) * 10000) / 100 : 0;
+
+  return {
+    iskontoOrani: oranlar.map((o) => `${o}%`).join(', '),
+    iskontoTutar: tutar,
+    iskonto,
+  };
+}
+
 function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDetail | null {
   const inv = value.Invoice as Record<string, unknown> | undefined;
   if (!inv) return null;
@@ -357,6 +395,9 @@ function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDe
     | undefined;
   const supplier = parseSupplierParty(party);
 
+  const orderRef = inv.OrderReference as Record<string, unknown> | undefined;
+  const siparisNo = String(ublAlanOku(orderRef?.ID) || '');
+
   const rawLines = inv.InvoiceLine;
   const lineArr = Array.isArray(rawLines) ? rawLines : rawLines ? [rawLines] : [];
 
@@ -365,24 +406,32 @@ function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDe
     const taxSub = row.TaxTotal as Record<string, unknown> | undefined;
     const sub = taxSub?.TaxSubtotal;
     const subRow = Array.isArray(sub) ? sub[0] : sub;
-    const allowance = row.AllowanceCharge as Record<string, unknown> | undefined;
     const item = row.Item as Record<string, unknown> | undefined;
     const sellersId = item?.SellersItemIdentification as Record<string, unknown> | undefined;
     const standardId = item?.StandardItemIdentification as Record<string, unknown> | undefined;
-    const stokKodu = String(ublAlanOku(sellersId?.ID) || '');
+    const stokKodu = String(ublAlanOku(sellersId?.ID) || ublAlanOku(item?.Name) || '');
     const gtin = String(ublAlanOku(standardId?.ID) || '');
+    const miktar = Number(ublAlanOku(row.InvoicedQuantity) || 1);
+    const birimFiyat = Number(ublAlanOku((row.Price as Record<string, unknown>)?.PriceAmount) || 0);
+    const { iskontoOrani, iskontoTutar, iskonto } = parseLineAllowances(
+      row.AllowanceCharge,
+      miktar,
+      birimFiyat,
+    );
 
     return {
       sira: Number(ublAlanOku(row.ID) || idx + 1),
       stokKodu,
       urunAdi: String(ublAlanOku(item?.Name) || ''),
+      malzemeHizmet: String(ublAlanOku(item?.Description) || ''),
       barkod: gtin || stokKodu,
-      miktar: Number(ublAlanOku(row.InvoicedQuantity) || 1),
-      birimFiyat: Number(ublAlanOku((row.Price as Record<string, unknown>)?.PriceAmount) || 0),
+      miktar,
+      birimFiyat,
       kdvOrani: Number(ublAlanOku((subRow as Record<string, unknown>)?.Percent) || 20),
-      iskonto: allowance
-        ? Number(ublAlanOku(allowance.Amount) || 0)
-        : undefined,
+      iskontoOrani,
+      iskontoTutar,
+      iskonto,
+      siparisNo,
     };
   });
 
@@ -399,6 +448,7 @@ function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDe
     payableAmount: Number(ublAlanOku(monetary?.PayableAmount) || 0),
     currency: String(ublAlanOku(inv.DocumentCurrencyCode) || 'TRY'),
     lines,
+    siparisNo,
   };
 }
 

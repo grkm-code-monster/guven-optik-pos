@@ -6,7 +6,9 @@
     "dev": "nodemon --exec ts-node src/server.ts",
     "build": "tsc",
     "migrate": "prisma migrate dev",
-    "seed": "prisma db seed"
+    "seed": "prisma db seed",
+    "import-urun-toplu": "ts-node --transpile-only scripts/import-urun-toplu.ts",
+    "fix-tracking-serial": "ts-node --transpile-only scripts/fix-tracking-serial.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"

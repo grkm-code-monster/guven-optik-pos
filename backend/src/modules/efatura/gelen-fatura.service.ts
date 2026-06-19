@@ -12,44 +12,60 @@ const GIRIS_TIPI = 'UYUMSOFT_GELEN';
 
 export const UYUMSOFT_KOLON_ANAHTARLARI = [
   'stokKodu',
+  'malzemeHizmet',
   'urunAdi',
   'barkod',
   'miktar',
   'birimFiyat',
+  'iskontoOrani',
+  'iskontoTutar',
   'kdvOrani',
+  'siparisNo',
 ] as const;
 
 export type UyumsoftKolonAnahtari = (typeof UYUMSOFT_KOLON_ANAHTARLARI)[number];
 
 export type UyumsoftKolonRol =
   | 'urunAdi'
+  | 'malzemeHizmet'
   | 'stokKodu'
   | 'barkod'
   | 'miktar'
   | 'birimFiyat'
+  | 'iskontoOrani'
+  | 'iskontoTutar'
   | 'kdvOrani'
+  | 'siparisNo'
   | 'yoksay';
 
 export type UyumsoftKolonMap = Record<UyumsoftKolonAnahtari, UyumsoftKolonRol>;
 
 export const VARSAYILAN_KOLON_MAP: UyumsoftKolonMap = {
   stokKodu: 'stokKodu',
-  urunAdi: 'urunAdi',
+  malzemeHizmet: 'urunAdi',
+  urunAdi: 'yoksay',
   barkod: 'barkod',
   miktar: 'miktar',
   birimFiyat: 'birimFiyat',
+  iskontoOrani: 'iskontoOrani',
+  iskontoTutar: 'iskontoTutar',
   kdvOrani: 'kdvOrani',
+  siparisNo: 'siparisNo',
 };
 
 export interface UyumsoftHamSatir {
   sira: number;
   stokKodu: string;
   urunAdi: string;
+  malzemeHizmet: string;
   barkod: string;
   miktar: number;
   birimFiyat: number;
   kdvOrani: number;
-  iskonto?: number;
+  iskontoOrani: string;
+  iskontoTutar: number;
+  iskonto: number;
+  siparisNo: string;
 }
 
 export interface GelenFaturaOzet {
@@ -76,6 +92,7 @@ function detaydanOzet(detay: InboxInvoiceDetail) {
     supplierTitle: detay.supplierTitle,
     supplierVkn: detay.supplierVkn,
     supplier: detay.supplier,
+    siparisNo: detay.siparisNo,
     issueDate: detay.issueDate,
     taxExclusiveAmount: detay.taxExclusiveAmount,
     payableAmount: detay.payableAmount,
@@ -251,11 +268,15 @@ function normalizeKolonMap(raw: unknown): UyumsoftKolonMap {
     const val = obj[key];
     if (
       val === 'urunAdi' ||
+      val === 'malzemeHizmet' ||
       val === 'stokKodu' ||
       val === 'barkod' ||
       val === 'miktar' ||
       val === 'birimFiyat' ||
+      val === 'iskontoOrani' ||
+      val === 'iskontoTutar' ||
       val === 'kdvOrani' ||
+      val === 'siparisNo' ||
       val === 'yoksay'
     ) {
       base[key] = val;
@@ -360,7 +381,7 @@ export function hamSatirlardanUrunSatirlari(
     bizimUrunOdooId: null as number | null,
     miktar: Number(rolDeger(satir, 'miktar') || satir.miktar || 1),
     birimFiyat: rolDeger(satir, 'birimFiyat') || String(satir.birimFiyat),
-    iskonto: satir.iskonto ? String(satir.iskonto) : '0',
+    iskonto: String(satir.iskonto ?? 0),
     kdvOrani: rolDeger(satir, 'kdvOrani') || String(satir.kdvOrani || 20),
     eslesti: false,
   }));
@@ -387,7 +408,8 @@ export async function urunGirisineAktar(
   }
 
   const supplierEksik = !detay?.supplier;
-  if ((!detay || supplierEksik) && kayit.uyumsoftEttn) {
+  const linesEksik = !detay?.lines?.length || detay.lines.some((l) => l.malzemeHizmet === undefined);
+  if ((!detay || supplierEksik || linesEksik) && kayit.uyumsoftEttn) {
     const fresh = await getInboxInvoice(kayit.uyumsoftEttn);
     if (fresh) {
       detay = detaydanOzet(fresh);
@@ -425,11 +447,15 @@ export async function urunGirisineAktar(
     sira: line.sira,
     stokKodu: line.stokKodu || '',
     urunAdi: line.urunAdi || '',
+    malzemeHizmet: line.malzemeHizmet || '',
     barkod: line.barkod || '',
     miktar: line.miktar,
     birimFiyat: line.birimFiyat,
     kdvOrani: line.kdvOrani,
-    iskonto: line.iskonto,
+    iskontoOrani: line.iskontoOrani || '',
+    iskontoTutar: line.iskontoTutar ?? 0,
+    iskonto: line.iskonto ?? 0,
+    siparisNo: line.siparisNo || detay.siparisNo || '',
   }));
 
   const { kolonMap, kayitli: kolonMapKayitli } = await getSutunEslestirme({
@@ -439,7 +465,7 @@ export async function urunGirisineAktar(
 
   const utsKalemler = hamSatirlar
     .filter((l) => l.barkod)
-    .map((l) => ({ barkod: l.barkod, adet: l.miktar, urunAdi: l.urunAdi }));
+    .map((l) => ({ barkod: l.barkod, adet: l.miktar, urunAdi: l.malzemeHizmet || l.urunAdi }));
 
   await prisma.bekleyenFatura.update({
     where: { id },
