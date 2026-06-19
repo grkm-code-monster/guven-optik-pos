@@ -16,6 +16,7 @@ import openAccountRouter from './modules/openaccount/openaccount.controller';
 import warrantyRouter from './modules/warranty/warranty.controller';
 import uyumsoftRouter from './modules/uyumsoft/uyumsoft.controller';
 import efaturaRouter from './modules/efatura/efatura.controller';
+import gelenFaturaRouter from './modules/efatura/gelen-fatura.controller';
 import chatbotRouter from './modules/chatbot/chatbot.controller';
 import pdksRouter from './modules/pdks/pdks.controller';
 import { authenticate } from './middleware/authenticate';
@@ -49,6 +50,7 @@ export function createApp() {
   app.use('/api/warranty', warrantyRouter);
   app.use('/api/uyumsoft', uyumsoftRouter);
   app.use('/api/efatura', efaturaRouter);
+  app.use('/api/efatura/gelen', gelenFaturaRouter);
   app.use('/api/chatbot', authenticate, chatbotRouter);
   app.use('/api/pdks', pdksRouter);
 

@@ -220,4 +220,205 @@ export async function sendInvoice(
   return parsed;
 }
 
+// ── Gelen (inbox) e-fatura ────────────────────────────────────────
+
+export function ublAlanOku(value: unknown): string | number | boolean {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(ublAlanOku).filter(Boolean).join(', ');
+  }
+  const obj = value as Record<string, unknown>;
+  if (obj.$value != null) return String(obj.$value);
+  if (obj._ != null) return String(obj._);
+  return '';
+}
+
+export interface InboxInvoiceListItem {
+  invoiceId: string;
+  documentId: string;
+  supplierVkn: string;
+  supplierTitle: string;
+  status: string;
+  isNew: boolean;
+  isSeen: boolean;
+  issueDate?: string;
+  payableAmount: number;
+  taxExclusiveAmount: number;
+  currency: string;
+  createDateUtc?: string;
+}
+
+export interface InboxInvoiceDetail {
+  documentId: string;
+  invoiceNo: string;
+  issueDate: string;
+  supplierVkn: string;
+  supplierTitle: string;
+  taxExclusiveAmount: number;
+  payableAmount: number;
+  currency: string;
+  lines: Array<{
+    sira: number;
+    urunAdi: string;
+    miktar: number;
+    birimFiyat: number;
+    kdvOrani: number;
+    iskonto?: number;
+    barkod?: string;
+  }>;
+}
+
+function parseInboxListItem(raw: Record<string, unknown>): InboxInvoiceListItem {
+  return {
+    invoiceId: String(raw.InvoiceId ?? ''),
+    documentId: String(raw.DocumentId ?? ''),
+    supplierVkn: '',
+    supplierTitle: '',
+    status: String(raw.Status ?? ''),
+    isNew: raw.IsNew === true || raw.IsNew === 'true',
+    isSeen: raw.IsSeen === true || raw.IsSeen === 'true',
+    issueDate: raw.ExecutionDate ? String(raw.ExecutionDate).slice(0, 10) : undefined,
+    payableAmount: Number(raw.PayableAmount ?? 0),
+    taxExclusiveAmount: Number(raw.TaxExclusiveAmount ?? 0),
+    currency: String(raw.DocumentCurrencyCode ?? 'TRY'),
+    createDateUtc: raw.CreateDateUtc ? String(raw.CreateDateUtc) : undefined,
+  };
+}
+
+function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDetail | null {
+  const inv = value.Invoice as Record<string, unknown> | undefined;
+  if (!inv) return null;
+
+  const party = (inv.AccountingSupplierParty as Record<string, unknown>)?.Party as
+    | Record<string, unknown>
+    | undefined;
+  const ids = party?.PartyIdentification;
+  const idList = Array.isArray(ids) ? ids : ids ? [ids] : [];
+  const vknRow = idList.find((row) => {
+    const scheme = (row as Record<string, unknown>)?.ID as Record<string, unknown> | undefined;
+    const s = scheme?.attributes as Record<string, string> | undefined;
+    return s?.schemeID === 'VKN' || s?.schemeID === 'TCKN';
+  }) as Record<string, unknown> | undefined;
+  const supplierVkn = String(ublAlanOku(vknRow?.ID) || '');
+  const supplierTitle = String(ublAlanOku((party?.PartyName as Record<string, unknown>)?.Name) || '');
+
+  const rawLines = inv.InvoiceLine;
+  const lineArr = Array.isArray(rawLines) ? rawLines : rawLines ? [rawLines] : [];
+
+  const lines = lineArr.map((line, idx) => {
+    const row = line as Record<string, unknown>;
+    const taxSub = row.TaxTotal as Record<string, unknown> | undefined;
+    const sub = taxSub?.TaxSubtotal;
+    const subRow = Array.isArray(sub) ? sub[0] : sub;
+    const allowance = row.AllowanceCharge as Record<string, unknown> | undefined;
+    const sellersId = (row.Item as Record<string, unknown>)?.SellersItemIdentification as
+      | Record<string, unknown>
+      | undefined;
+
+    return {
+      sira: Number(ublAlanOku(row.ID) || idx + 1),
+      urunAdi: String(ublAlanOku((row.Item as Record<string, unknown>)?.Name) || ''),
+      miktar: Number(ublAlanOku(row.InvoicedQuantity) || 1),
+      birimFiyat: Number(ublAlanOku((row.Price as Record<string, unknown>)?.PriceAmount) || 0),
+      kdvOrani: Number(ublAlanOku((subRow as Record<string, unknown>)?.Percent) || 20),
+      iskonto: allowance
+        ? Number(ublAlanOku(allowance.Amount) || 0)
+        : undefined,
+      barkod: String(ublAlanOku(sellersId?.ID) || ''),
+    };
+  });
+
+  const monetary = inv.LegalMonetaryTotal as Record<string, unknown> | undefined;
+
+  return {
+    documentId: String(ublAlanOku(inv.UUID) || ''),
+    invoiceNo: String(ublAlanOku(inv.ID) || ''),
+    issueDate: String(ublAlanOku(inv.IssueDate) || '').slice(0, 10),
+    supplierVkn,
+    supplierTitle,
+    taxExclusiveAmount: Number(ublAlanOku(monetary?.TaxExclusiveAmount) || 0),
+    payableAmount: Number(ublAlanOku(monetary?.PayableAmount) || 0),
+    currency: String(ublAlanOku(inv.DocumentCurrencyCode) || 'TRY'),
+    lines,
+  };
+}
+
+export async function getInboxInvoiceList(query: {
+  createStartDate?: Date;
+  createEndDate?: Date;
+  pageIndex?: number;
+  pageSize?: number;
+  onlyNewest?: boolean;
+  onlyUnread?: boolean;
+}): Promise<{
+  items: InboxInvoiceListItem[];
+  totalCount: number;
+  pageIndex: number;
+  pageSize: number;
+}> {
+  const c = await getClient();
+  const start = query.createStartDate ?? new Date(Date.now() - 30 * 86400000);
+  const end = query.createEndDate ?? new Date();
+  const pageIndex = query.pageIndex ?? 0;
+  const pageSize = query.pageSize ?? 50;
+
+  const [result] = await c.GetInboxInvoiceListAsync({
+    userInfo: USER_INFO,
+    query: {
+      attributes: {
+        OnlyNewestInvoices: query.onlyNewest ?? false,
+        PageIndex: pageIndex,
+        PageSize: pageSize,
+      },
+      CreateStartDate: start.toISOString(),
+      CreateEndDate: end.toISOString(),
+      ExecutionStartDate: null,
+      ExecutionEndDate: null,
+      Status: null,
+    },
+  });
+
+  const parsed = result?.GetInboxInvoiceListResult as Record<string, unknown> | undefined;
+  if (parsed?.IsSucceded === false || parsed?.IsSucceded === 'false') {
+    throw new Error(String(parsed.Message || parsed.ErrorMessage || 'Gelen fatura listesi alınamadı'));
+  }
+
+  const value = parsed?.Value as Record<string, unknown> | undefined;
+  const attrs = (value?.attributes ?? {}) as Record<string, string>;
+  const rawItems = value?.Items;
+  const items = (Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [])
+    .map((item) => parseInboxListItem(item as Record<string, unknown>))
+    .filter((item) => {
+      if (!query.onlyUnread) return true;
+      return item.isNew || !item.isSeen;
+    });
+
+  return {
+    items,
+    totalCount: Number(attrs.TotalCount ?? items.length),
+    pageIndex: Number(attrs.PageIndex ?? pageIndex),
+    pageSize: Number(attrs.PageSize ?? pageSize),
+  };
+}
+
+export async function getInboxInvoice(documentId: string): Promise<InboxInvoiceDetail | null> {
+  const c = await getClient();
+  const [result] = await c.GetInboxInvoiceAsync({
+    userInfo: USER_INFO,
+    invoiceId: documentId,
+  });
+
+  const parsed = result?.GetInboxInvoiceResult as Record<string, unknown> | undefined;
+  if (parsed?.IsSucceded === false || parsed?.IsSucceded === 'false') {
+    throw new Error(String(parsed.Message || parsed.ErrorMessage || 'Fatura detayı alınamadı'));
+  }
+
+  const value = parsed?.Value as Record<string, unknown> | undefined;
+  if (!value) return null;
+  return parseInboxInvoiceDetail(value);
+}
+
 export { getClient, USER_INFO, GONDEREN_BIRIM };

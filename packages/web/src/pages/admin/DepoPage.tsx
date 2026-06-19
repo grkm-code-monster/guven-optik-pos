@@ -1139,6 +1139,14 @@ const btnSmall: React.CSSProperties = {
   backgroundColor: '#f3f4f6', color: '#374151', fontWeight: 700,
   fontSize: 12, cursor: 'pointer',
 }
+const kaynakBadgeOdoo: React.CSSProperties = {
+  fontSize: 9, fontWeight: 900, padding: '2px 6px', borderRadius: 4,
+  backgroundColor: '#dbeafe', color: '#1d4ed8', letterSpacing: '0.05em', flexShrink: 0,
+}
+const kaynakBadgeUyumsoft: React.CSSProperties = {
+  fontSize: 9, fontWeight: 900, padding: '2px 6px', borderRadius: 4,
+  backgroundColor: '#fef3c7', color: '#b45309', letterSpacing: '0.05em', flexShrink: 0,
+}
 const th: React.CSSProperties = {
   textAlign: 'left', padding: '10px 12px', fontSize: 11,
   fontWeight: 800, color: '#6b7280', textTransform: 'uppercase',
@@ -1528,11 +1536,93 @@ function UrunGirisTab() {
   const [dovizKuru, setDovizKuru] = useState<{USD: number; EUR: number; tarih: string} | null>(null)
   const [dovizYukleniyor, setDovizYukleniyor] = useState(false)
 
+  // Uyumsoft gelen fatura
+  const [gelenModalAcik, setGelenModalAcik] = useState(false)
+  const [gelenFaturalar, setGelenFaturalar] = useState<Array<{
+    id: string
+    uyumsoftNo: string | null
+    tedarikciAdi: string | null
+    faturaTarihi?: string
+    tutarKdvHaric?: number
+    kalemSayisi: number
+    durum: string
+  }>>([])
+  const [gelenYukleniyor, setGelenYukleniyor] = useState(false)
+  const [gelenFaturaId, setGelenFaturaId] = useState<string | null>(null)
+  const [branches, setBranches] = useState<Array<{ id: string; code: string; name: string }>>([])
+
   const LOKASYON_ID_MAP: Record<string, number> = {
     'GVN1': 53, 'GVN3': 54, 'GVN4': 55, 'GVN6': 56,
     'GVN8': 57, 'GVN9': 58, 'GVN2': 59, 'GVN10': 60,
     'ANADEPO': 61, 'GVN5': 62,
   }
+
+  async function gelenFaturalariYukle() {
+    setGelenYukleniyor(true)
+    try {
+      const res = await adminApi.get('/efatura/gelen/listele')
+      setGelenFaturalar(res.data?.data ?? [])
+    } catch {
+      setGelenFaturalar([])
+    } finally {
+      setGelenYukleniyor(false)
+    }
+  }
+
+  async function gelenFaturalariCek() {
+    setGelenYukleniyor(true)
+    try {
+      const res = await adminApi.post('/efatura/gelen/cek', { onlyUnread: true, pageSize: 30 })
+      setGelenFaturalar(res.data?.data ?? [])
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } }; message?: string }
+      setError(err?.response?.data?.error ?? err?.message ?? 'Uyumsoft çekme hatası')
+    } finally {
+      setGelenYukleniyor(false)
+    }
+  }
+
+  async function gelenFaturadanAktar(faturaId: string) {
+    setGelenYukleniyor(true)
+    try {
+      const res = await adminApi.post(`/efatura/gelen/${faturaId}/urun-girisine-aktar`, {
+        hedefDepo: 'ANADEPO',
+      })
+      const form = res.data?.form
+      if (!form) throw new Error('Form verisi alınamadı')
+
+      setGirisTipi('FATURAYLA')
+      setGelenFaturaId(res.data?.bekleyenFaturaId ?? faturaId)
+      setCariAdi(form.cariAdi)
+      setCariArama(form.cariAdi)
+      setFaturaNo(form.faturaNo)
+      setFaturaReferans(form.faturaReferans)
+      setFaturaTarihi(form.faturaTarihi)
+      setFaturaToplamKdvHaric(String(form.faturaToplamKdvHaric ?? ''))
+      setSatirlar(form.satirlar)
+      setAdim('satirlar')
+      setGelenModalAcik(false)
+      setError(null)
+
+      const hedefLok = form.hedefDepo || 'ANADEPO'
+      const depoLok = LOKASYONLAR.find(l => l.id === hedefLok)
+      if (depoLok) {
+        setSecilenSirketId(depoLok.sirketId)
+        setSecilenSirketAdi(depoLok.sirket)
+      }
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } }; message?: string }
+      setError(err?.response?.data?.error ?? err?.message ?? 'Aktarım hatası')
+    } finally {
+      setGelenYukleniyor(false)
+    }
+  }
+
+  useEffect(() => {
+    adminApi.get('/admin/branches').then(res => {
+      setBranches(res.data?.data ?? [])
+    }).catch(() => setBranches([]))
+  }, [])
 
   // Örnek faturalar
   const ORNEK_FATURALAR = [
@@ -2035,7 +2125,6 @@ function UrunGirisTab() {
         if (res.data.hatalar?.length) mesajlar.push(`⚠️ Uyarılar: ${res.data.hatalar.join(', ')}`)
         setError(mesajlar.length > 0 ? mesajlar.join('\n') : null)
 
-        // Fatura beklemede veya irsaliyeli ise bekleyen fatura kaydı oluştur
         if (girisTipi === 'FATURA_SONRA' || girisTipi === 'IRSALIYELI') {
           const hedefLokasyon = lotlar[0]?.lokasyon ?? 'ANADEPO'
           try {
@@ -2060,7 +2149,31 @@ function UrunGirisTab() {
           }
         }
 
-        // Formu sıfırla
+        if (gelenFaturaId) {
+          const anadepo = branches.find(b => b.code === 'ANADEPO')
+          const utsKalemler = lotlar
+            .filter((l: LotSatiri) => (l.barkod || l.utsKodu)?.trim())
+            .map((l: LotSatiri) => ({
+              barkod: (l.barkod || l.utsKodu).trim(),
+              lotNo: l.lotNo || undefined,
+              seriNo: l.lotNo || undefined,
+              adet: 1,
+            }))
+          if (anadepo && utsKalemler.length > 0) {
+            try {
+              await adminApi.post(`/efatura/gelen/${gelenFaturaId}/uts-alma`, {
+                branchId: anadepo.id,
+                kalemler: utsKalemler,
+                belgeNo: faturaNo,
+              })
+              mesajlar.push(`✓ UTS Alma bildirimi kuyruğa eklendi (${utsKalemler.length} kalem)`)
+            } catch (utsErr: unknown) {
+              console.warn('[uts alma]', utsErr)
+            }
+          }
+          setGelenFaturaId(null)
+        }
+
         setTimeout(() => {
           setAdim('giris-tipi')
           setCariAdi(''); setCariId(null); setCariArama('')
@@ -2520,12 +2633,65 @@ function UrunGirisTab() {
             ))}
           </div>
 
-          <div style={{ marginTop: 20, display: 'flex', gap: 8 }}>
-            <button type="button" onClick={() => {
-              setAdim('bekleyen-faturalar')
-            }} style={{ padding: '10px 16px', backgroundColor: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#374151' }}>
-              📋 Bekleyen Faturaları Görüntüle
-            </button>
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10, fontWeight: 600 }}>Fatura kaynağını seçin</div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setGirisTipi('FATURAYLA')
+                  setAdim('fatura')
+                }}
+                style={{
+                  flex: '1 1 240px',
+                  padding: '14px 18px',
+                  backgroundColor: '#eff6ff',
+                  border: '2px solid #bfdbfe',
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  color: '#1e40af',
+                  textAlign: 'left',
+                }}
+              >
+                <div>📋 Odoo&apos;dan Manuel Seç</div>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', marginTop: 4 }}>
+                  Odoo&apos;da kayıtlı vendor bill faturaları
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setGelenModalAcik(true)
+                  void gelenFaturalariYukle()
+                }}
+                style={{
+                  flex: '1 1 240px',
+                  padding: '14px 18px',
+                  backgroundColor: '#fffbeb',
+                  border: '2px solid #fde68a',
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  color: '#b45309',
+                  textAlign: 'left',
+                }}
+              >
+                <div>🔗 Uyumsoft&apos;tan Otomatik Çek (e-Fatura)</div>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', marginTop: 4 }}>
+                  Gelen e-faturaları Uyumsoft inbox&apos;tan çek
+                </div>
+              </button>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <button type="button" onClick={() => {
+                setAdim('bekleyen-faturalar')
+              }} style={{ padding: '8px 14px', backgroundColor: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#374151' }}>
+                📋 Bekleyen Faturaları Görüntüle
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2580,11 +2746,16 @@ function UrunGirisTab() {
           {faturaListesiAcik && secilenSirketId && (
             <div style={{ marginBottom: 20, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
               <div style={{ backgroundColor: '#f9fafb', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>
-                  📋 {secilenSirketAdi} — Gelen Faturalar
-                  <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
-                    {faturaListesi.length} fatura
-                  </span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>
+                    📋 {secilenSirketAdi} — Odoo Faturaları (Manuel)
+                    <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
+                      {faturaListesi.length} fatura
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>
+                    📋 Odoo&apos;da kayıtlı faturalar
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button
@@ -2632,6 +2803,7 @@ function UrunGirisTab() {
                         onMouseLeave={e => { e.currentTarget.style.backgroundColor = f.islendi ? '#f9fafb' : 'white' }}>
                         <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => faturaSecimYap(f)}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                            <span style={kaynakBadgeOdoo}>ODOO</span>
                             <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{f.name}</span>
                             {f.ref && <span style={{ fontSize: 11, color: '#9ca3af' }}>{f.ref}</span>}
                             <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 20, fontWeight: 700,
@@ -3243,6 +3415,55 @@ function UrunGirisTab() {
             Stok girişi yapılmış ancak faturası henüz gelmemiş kayıtlar.
           </div>
           <BekleyenFaturalarTab onGeri={() => setAdim('giris-tipi')} />
+        </div>
+      )}
+
+      {gelenModalAcik && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: 14, width: 'min(720px, 100%)', maxHeight: '80vh', overflow: 'auto', padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 900 }}>🔗 Uyumsoft&apos;tan Otomatik Gelen Faturalar (e-Fatura)</div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>Tedarikçiden gelen e-faturaları Uyumsoft inbox&apos;tan seçip ürün girişine aktarın</div>
+              </div>
+              <button type="button" onClick={() => setGelenModalAcik(false)} style={{ border: 'none', background: 'transparent', fontSize: 20, cursor: 'pointer' }}>×</button>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <button type="button" disabled={gelenYukleniyor} onClick={() => void gelenFaturalariCek()} style={{ ...btnPrimary, fontSize: 12 }}>
+                {gelenYukleniyor ? 'Çekiliyor...' : 'Uyumsoft\'tan Çek'}
+              </button>
+              <button type="button" disabled={gelenYukleniyor} onClick={() => void gelenFaturalariYukle()} style={{ ...btnSmall, fontSize: 12 }}>
+                Listeyi Yenile
+              </button>
+            </div>
+
+            {gelenFaturalar.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+                Kayıt yok. &quot;Uyumsoft&apos;tan Çek&quot; ile yeni faturaları getirin.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {gelenFaturalar.map(f => (
+                  <div key={f.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={kaynakBadgeUyumsoft}>UYUMSOFT</span>
+                        <span>{f.uyumsoftNo || '—'} — {f.tedarikciAdi || 'Tedarikçi'}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>
+                        {f.faturaTarihi || '—'} · {f.kalemSayisi} kalem · ₺{(f.tutarKdvHaric ?? 0).toLocaleString('tr-TR')}
+                        {f.durum === 'AKTARILDI' && <span style={{ marginLeft: 8, color: '#059669' }}>Aktarıldı</span>}
+                      </div>
+                    </div>
+                    <button type="button" disabled={gelenYukleniyor} onClick={() => void gelenFaturadanAktar(f.id)} style={{ ...btnPrimary, fontSize: 12, whiteSpace: 'nowrap' }}>
+                      Ürün Girişine Aktar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

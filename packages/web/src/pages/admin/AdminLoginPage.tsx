@@ -30,8 +30,17 @@ export default function AdminLoginPage() {
       localStorage.setItem(ADMIN_TOKEN_KEY, token)
       localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user))
       navigate('/admin/dashboard', { replace: true })
-    } catch {
-      setError('Yetkisiz erişim')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string; message?: string } } }
+      if (!err?.response) {
+        setError('Sunucuya bağlanılamadı. Backend (port 3000) çalışıyor mu?')
+      } else if (err.response.data?.error === 'INVALID_CREDENTIALS') {
+        setError('Kullanıcı adı veya PIN hatalı')
+      } else if (err.response.data?.error === 'ACCOUNT_LOCKED') {
+        setError('Çok fazla hatalı deneme. 5 dakika sonra tekrar deneyin.')
+      } else {
+        setError(err.response.data?.message ?? 'Giriş başarısız')
+      }
     } finally {
       setLoading(false)
     }

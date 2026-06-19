@@ -866,11 +866,15 @@ model OzelSiparis {
 // ── BEKLEYEN FATURA ───────────────────────────────────────────────
 model BekleyenFatura {
   id              String    @id @default(cuid())
-  girisTipi       String    // FATURA_SONRA | IRSALIYELI | FATURASIZ
+  girisTipi       String    // FATURA_SONRA | IRSALIYELI | FATURASIZ | UYUMSOFT_GELEN
   tedarikciAdi    String?
   tedarikciId     Int?
   irsaliyeNo      String?
   uyumsoftNo      String?   // Uyumsoft fatura numarası (ör: GVN/2026/000123)
+  uyumsoftEttn    String?   @unique // Gelen e-fatura DocumentId / UUID
+  uyumsoftVeri    String?   // JSON: Uyumsoft fatura özeti + kalemler
+  uyumsoftDurum   String?   // Approved, IsNew vb.
+  hedefDepo       String?   @default("ANADEPO")
   tedarikciIrsaliyeNo String? // Tedarikçinin irsaliye numarası
   aciklama        String?
   sirketId        Int?
@@ -888,6 +892,8 @@ model BekleyenFatura {
   notlar          String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  @@index([girisTipi, durum])
 }
 
 enum WarrantyStatus {
