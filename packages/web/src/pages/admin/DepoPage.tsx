@@ -1171,6 +1171,7 @@ type Tedarikci = {
 type FaturaSatiri = {
   id: string
   tedarikciUrunAdi: string
+  tedarikciKodu?: string
   uretici: string
   bizimUrunId: string | null
   bizimUrunAdi: string
@@ -1181,6 +1182,53 @@ type FaturaSatiri = {
   kdvOrani: string
   eslesti: boolean
 }
+
+type UyumsoftHamSatir = {
+  sira: number
+  stokKodu: string
+  urunAdi: string
+  barkod: string
+  miktar: number
+  birimFiyat: number
+  kdvOrani: number
+  iskonto?: number
+}
+
+type UyumsoftKolonAnahtari = 'stokKodu' | 'urunAdi' | 'barkod' | 'miktar' | 'birimFiyat' | 'kdvOrani'
+type UyumsoftKolonRol = 'urunAdi' | 'stokKodu' | 'barkod' | 'miktar' | 'birimFiyat' | 'kdvOrani' | 'yoksay'
+type UyumsoftKolonMap = Record<UyumsoftKolonAnahtari, UyumsoftKolonRol>
+
+const UYUMSOFT_KOLON_ANAHTARLARI: UyumsoftKolonAnahtari[] = [
+  'stokKodu', 'urunAdi', 'barkod', 'miktar', 'birimFiyat', 'kdvOrani',
+]
+
+const UYUMSOFT_KOLON_ETIKETLERI: Record<UyumsoftKolonAnahtari, string> = {
+  stokKodu: 'Ürün Kodu',
+  urunAdi: 'Ürün Adı',
+  barkod: 'Barkod',
+  miktar: 'Miktar',
+  birimFiyat: 'Birim Fiyat',
+  kdvOrani: 'KDV Oranı',
+}
+
+const VARSAYILAN_UYUMSOFT_KOLON_MAP: UyumsoftKolonMap = {
+  stokKodu: 'stokKodu',
+  urunAdi: 'urunAdi',
+  barkod: 'barkod',
+  miktar: 'miktar',
+  birimFiyat: 'birimFiyat',
+  kdvOrani: 'kdvOrani',
+}
+
+const UYUMSOFT_ROL_SECENEKLERI: { value: UyumsoftKolonRol; label: string }[] = [
+  { value: 'urunAdi', label: 'Ürün Adı' },
+  { value: 'stokKodu', label: 'Stok Kodu / SKU' },
+  { value: 'barkod', label: 'Barkod' },
+  { value: 'miktar', label: 'Miktar' },
+  { value: 'birimFiyat', label: 'Birim Fiyat' },
+  { value: 'kdvOrani', label: 'KDV Oranı' },
+  { value: 'yoksay', label: 'Yoksay' },
+]
 
 type LotSatiri = {
   id: string
@@ -1551,10 +1599,111 @@ function UrunGirisTab() {
   const [gelenFaturaId, setGelenFaturaId] = useState<string | null>(null)
   const [branches, setBranches] = useState<Array<{ id: string; code: string; name: string }>>([])
 
+  // Uyumsoft sütun eşleştirme (adım 2)
+  const [uyumsoftKaynak, setUyumsoftKaynak] = useState(false)
+  const [uyumsoftHamSatirlar, setUyumsoftHamSatirlar] = useState<UyumsoftHamSatir[]>([])
+  const [uyumsoftKolonMap, setUyumsoftKolonMap] = useState<UyumsoftKolonMap>({ ...VARSAYILAN_UYUMSOFT_KOLON_MAP })
+  const [uyumsoftTedarikciVkn, setUyumsoftTedarikciVkn] = useState<string | null>(null)
+  const [uyumsoftKolonKayitli, setUyumsoftKolonKayitli] = useState(false)
+
   const LOKASYON_ID_MAP: Record<string, number> = {
     'GVN1': 53, 'GVN3': 54, 'GVN4': 55, 'GVN6': 56,
     'GVN8': 57, 'GVN9': 58, 'GVN2': 59, 'GVN10': 60,
     'ANADEPO': 61, 'GVN5': 62,
+  }
+
+  function uyumsoftKolonMapDogrula(): string | null {
+    const zorunlu: UyumsoftKolonRol[] = ['urunAdi', 'miktar', 'birimFiyat']
+    const roller = Object.values(uyumsoftKolonMap).filter((r) => r !== 'yoksay')
+    for (const rol of zorunlu) {
+      if (roller.filter((r) => r === rol).length !== 1) {
+        const etiket = UYUMSOFT_ROL_SECENEKLERI.find((s) => s.value === rol)?.label ?? rol
+        return `"${etiket}" için tam bir sütun eşleştirmesi seçin.`
+      }
+    }
+    const seen = new Set<UyumsoftKolonRol>()
+    for (const rol of roller) {
+      if (seen.has(rol)) {
+        const etiket = UYUMSOFT_ROL_SECENEKLERI.find((s) => s.value === rol)?.label ?? rol
+        return `"${etiket}" birden fazla sütuna atanmış.`
+      }
+      seen.add(rol)
+    }
+    return null
+  }
+
+  function uyumsoftRolDeger(satir: UyumsoftHamSatir, rol: UyumsoftKolonRol): string {
+    for (const kolon of UYUMSOFT_KOLON_ANAHTARLARI) {
+      if (uyumsoftKolonMap[kolon] === rol) {
+        const val = satir[kolon]
+        return val == null ? '' : String(val)
+      }
+    }
+    return ''
+  }
+
+  function uyumsoftSatirlariOlustur(): FaturaSatiri[] {
+    const faturaId = gelenFaturaId ?? 'tmp'
+    return uyumsoftHamSatirlar.map((satir, idx) => ({
+      id: `uyum-${faturaId}-${idx}`,
+      tedarikciUrunAdi: uyumsoftRolDeger(satir, 'urunAdi'),
+      tedarikciKodu: uyumsoftRolDeger(satir, 'stokKodu') || undefined,
+      uretici: '',
+      bizimUrunId: null,
+      bizimUrunAdi: '',
+      bizimUrunOdooId: null,
+      miktar: Number(uyumsoftRolDeger(satir, 'miktar') || satir.miktar || 1),
+      birimFiyat: uyumsoftRolDeger(satir, 'birimFiyat') || String(satir.birimFiyat),
+      iskonto: satir.iskonto ? String(satir.iskonto) : '0',
+      kdvOrani: uyumsoftRolDeger(satir, 'kdvOrani') || String(satir.kdvOrani || 20),
+      eslesti: false,
+    }))
+  }
+
+  async function faturaAdimindanDevam() {
+    if (!secilenSirketId) {
+      setError('Alıcı şirket seçimi zorunlu.')
+      return
+    }
+    if (girisTipi === 'FATURAYLA' && (!cariAdi.trim() || !faturaNo.trim())) {
+      setError('Cari ve fatura no zorunlu.')
+      return
+    }
+
+    if (uyumsoftKaynak) {
+      const mapHata = uyumsoftKolonMapDogrula()
+      if (mapHata) {
+        setError(mapHata)
+        return
+      }
+      try {
+        await adminApi.put('/efatura/gelen/sutun-eslestirme', {
+          tedarikciVkn: uyumsoftTedarikciVkn ?? undefined,
+          tedarikciAdi: cariAdi,
+          kolonMap: uyumsoftKolonMap,
+        })
+        if (gelenFaturaId) {
+          await adminApi.post(`/efatura/gelen/${gelenFaturaId}/onayla-aktarim`)
+        }
+        setSatirlar(uyumsoftSatirlariOlustur())
+        setUyumsoftKolonKayitli(true)
+      } catch (e: unknown) {
+        const err = e as { response?: { data?: { error?: string } }; message?: string }
+        setError(err?.response?.data?.error ?? err?.message ?? 'Sütun eşleştirme kaydedilemedi')
+        return
+      }
+    }
+
+    setError(null)
+    setAdim('satirlar')
+  }
+
+  function uyumsoftStateSifirla() {
+    setUyumsoftKaynak(false)
+    setUyumsoftHamSatirlar([])
+    setUyumsoftKolonMap({ ...VARSAYILAN_UYUMSOFT_KOLON_MAP })
+    setUyumsoftTedarikciVkn(null)
+    setUyumsoftKolonKayitli(false)
   }
 
   async function gelenFaturalariYukle() {
@@ -1599,8 +1748,17 @@ function UrunGirisTab() {
       setFaturaReferans(form.faturaReferans)
       setFaturaTarihi(form.faturaTarihi)
       setFaturaToplamKdvHaric(String(form.faturaToplamKdvHaric ?? ''))
-      setSatirlar(form.satirlar)
-      setAdim('satirlar')
+      setUyumsoftKaynak(true)
+      setUyumsoftHamSatirlar(form.hamSatirlar ?? [])
+      setUyumsoftKolonMap(form.kolonMap ?? { ...VARSAYILAN_UYUMSOFT_KOLON_MAP })
+      setUyumsoftTedarikciVkn(form.tedarikciVkn ?? null)
+      setUyumsoftKolonKayitli(!!form.kolonMapKayitli)
+      setSatirlar([{
+        id: `s-${Date.now()}`,
+        tedarikciUrunAdi: '', uretici: '', bizimUrunId: null, bizimUrunAdi: '',
+        bizimUrunOdooId: null, miktar: 1, birimFiyat: '', iskonto: '0', kdvOrani: '10', eslesti: false,
+      }])
+      setAdim('fatura')
       setGelenModalAcik(false)
       setError(null)
 
@@ -2176,6 +2334,7 @@ function UrunGirisTab() {
 
         setTimeout(() => {
           setAdim('giris-tipi')
+          uyumsoftStateSifirla()
           setCariAdi(''); setCariId(null); setCariArama('')
           setSecilenSirketId(null); setSecilenSirketAdi('')
           setFizikiTedarikciId(null); setFizikiTedarikciAdi(''); setFizikiArama('')
@@ -2959,9 +3118,73 @@ function UrunGirisTab() {
             <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Fatura Toplamı KDV Hariç (₺)</label>
             <input type="number" value={faturaToplamKdvHaric} onChange={e => setFaturaToplamKdvHaric(e.target.value)} placeholder="0.00" style={inp} />
           </div>
+
+          {uyumsoftKaynak && uyumsoftHamSatirlar.length > 0 && (
+            <div style={{ marginBottom: 24, border: '1px solid #fde68a', borderRadius: 12, overflow: 'hidden', backgroundColor: '#fffbeb' }}>
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 900, color: '#92400e' }}>
+                    Uyumsoft Fatura Satırları — Sütun Eşleştirme
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                    Ham fatura verisini doğru alanlara eşleştirin. {uyumsoftKolonKayitli ? '✓ Bu tedarikçi için kayıtlı profil yüklendi.' : 'İlk eşleştirme bu tedarikçi için hatırlanacak.'}
+                  </div>
+                </div>
+                <span style={kaynakBadgeUyumsoft}>UYUMSOFT</span>
+              </div>
+              <div style={{ overflowX: 'auto', padding: 12 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720, backgroundColor: '#fff', borderRadius: 8 }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#fef3c7' }}>
+                      <th style={{ ...th, width: 40 }}>#</th>
+                      {UYUMSOFT_KOLON_ANAHTARLARI.map((kolon) => (
+                        <th key={kolon} style={{ ...th, minWidth: 110 }}>{UYUMSOFT_KOLON_ETIKETLERI[kolon]}</th>
+                      ))}
+                    </tr>
+                    <tr style={{ backgroundColor: '#fffbeb' }}>
+                      <th style={{ ...th, fontSize: 10 }}>Eşleştir</th>
+                      {UYUMSOFT_KOLON_ANAHTARLARI.map((kolon) => (
+                        <th key={`map-${kolon}`} style={{ ...th, padding: '6px 8px' }}>
+                          <select
+                            value={uyumsoftKolonMap[kolon]}
+                            onChange={(e) => setUyumsoftKolonMap((prev) => ({
+                              ...prev,
+                              [kolon]: e.target.value as UyumsoftKolonRol,
+                            }))}
+                            style={{ width: '100%', fontSize: 11, padding: '4px 6px', borderRadius: 6, border: '1px solid #e5e7eb' }}
+                            title="Bu sütun neyi temsil ediyor?"
+                          >
+                            {UYUMSOFT_ROL_SECENEKLERI.map((opt) => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uyumsoftHamSatirlar.map((satir) => (
+                      <tr key={satir.sira} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <td style={{ ...td, fontSize: 11, color: '#9ca3af' }}>{satir.sira}</td>
+                        {UYUMSOFT_KOLON_ANAHTARLARI.map((kolon) => (
+                          <td key={`${satir.sira}-${kolon}`} style={{ ...td, fontSize: 12 }}>
+                            {String(satir[kolon] ?? '—')}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: '10px 16px', fontSize: 11, color: '#92400e', borderTop: '1px solid #fde68a' }}>
+                Stok Kodu / SKU olarak işaretlenen sütun, ürün satırlarında <strong>Tedarikçi Kodu</strong> alanına ayrılır.
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10 }}>
-            <button type="button" onClick={() => setAdim('giris-tipi')} style={btnSmall}>← Geri</button>
-            <button type="button" onClick={() => { if (!secilenSirketId) { setError('Alıcı şirket seçimi zorunlu.'); return }; if (girisTipi === 'FATURAYLA' && (!cariAdi.trim() || !faturaNo.trim())) { setError('Cari ve fatura no zorunlu.'); return }; setError(null); setAdim('satirlar') }} style={btnPrimary}>
+            <button type="button" onClick={() => { uyumsoftStateSifirla(); setAdim('giris-tipi') }} style={btnSmall}>← Geri</button>
+            <button type="button" onClick={() => void faturaAdimindanDevam()} style={btnPrimary}>
               Devam → Ürün Satırları
             </button>
           </div>
@@ -3005,6 +3228,9 @@ function UrunGirisTab() {
                     <tr key={s.id} style={{ backgroundColor: s.eslesti ? '#f0fdf4' : 'white', borderBottom: '1px solid #f3f4f6' }}>
                       <td style={td}>
                         <input value={s.tedarikciUrunAdi} onChange={e => satirGuncelle(s.id, 'tedarikciUrunAdi', e.target.value)} placeholder="Faturadaki ürün adı..." style={{ ...inp, marginBottom: 0, fontSize: 12 }} />
+                        {s.tedarikciKodu && (
+                          <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3 }}>Kod: {s.tedarikciKodu}</div>
+                        )}
                       </td>
                       <td style={td}>
                         <input value={s.uretici} onChange={e => satirGuncelle(s.id, 'uretici', e.target.value)} placeholder="Hoya..." style={{ ...inp, marginBottom: 0, fontSize: 12 }} />

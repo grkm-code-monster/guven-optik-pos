@@ -262,12 +262,13 @@ export interface InboxInvoiceDetail {
   currency: string;
   lines: Array<{
     sira: number;
+    stokKodu: string;
     urunAdi: string;
+    barkod: string;
     miktar: number;
     birimFiyat: number;
     kdvOrani: number;
     iskonto?: number;
-    barkod?: string;
   }>;
 }
 
@@ -314,20 +315,23 @@ function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDe
     const sub = taxSub?.TaxSubtotal;
     const subRow = Array.isArray(sub) ? sub[0] : sub;
     const allowance = row.AllowanceCharge as Record<string, unknown> | undefined;
-    const sellersId = (row.Item as Record<string, unknown>)?.SellersItemIdentification as
-      | Record<string, unknown>
-      | undefined;
+    const item = row.Item as Record<string, unknown> | undefined;
+    const sellersId = item?.SellersItemIdentification as Record<string, unknown> | undefined;
+    const standardId = item?.StandardItemIdentification as Record<string, unknown> | undefined;
+    const stokKodu = String(ublAlanOku(sellersId?.ID) || '');
+    const gtin = String(ublAlanOku(standardId?.ID) || '');
 
     return {
       sira: Number(ublAlanOku(row.ID) || idx + 1),
-      urunAdi: String(ublAlanOku((row.Item as Record<string, unknown>)?.Name) || ''),
+      stokKodu,
+      urunAdi: String(ublAlanOku(item?.Name) || ''),
+      barkod: gtin || stokKodu,
       miktar: Number(ublAlanOku(row.InvoicedQuantity) || 1),
       birimFiyat: Number(ublAlanOku((row.Price as Record<string, unknown>)?.PriceAmount) || 0),
       kdvOrani: Number(ublAlanOku((subRow as Record<string, unknown>)?.Percent) || 20),
       iskonto: allowance
         ? Number(ublAlanOku(allowance.Amount) || 0)
         : undefined,
-      barkod: String(ublAlanOku(sellersId?.ID) || ''),
     };
   });
 

@@ -2,8 +2,11 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { authenticate } from '../../middleware/authenticate';
 import {
   cekGelenFaturalar,
+  getSutunEslestirme,
   listeleGelenFaturalar,
+  onaylaUyumsoftAktarim,
   olusturUtsAlmaBildirimi,
+  saveSutunEslestirme,
   urunGirisineAktar,
 } from './gelen-fatura.service';
 
@@ -39,11 +42,46 @@ router.post('/cek', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
+router.get('/sutun-eslestirme', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { tedarikciVkn, tedarikciAdi } = req.query;
+    const sonuc = await getSutunEslestirme({
+      tedarikciVkn: typeof tedarikciVkn === 'string' ? tedarikciVkn : undefined,
+      tedarikciAdi: typeof tedarikciAdi === 'string' ? tedarikciAdi : undefined,
+    });
+    return res.json(sonuc);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/sutun-eslestirme', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { tedarikciVkn, tedarikciAdi, kolonMap } = req.body ?? {};
+    if (!kolonMap) {
+      return res.status(400).json({ error: 'kolonMap zorunlu' });
+    }
+    await saveSutunEslestirme({ tedarikciVkn, tedarikciAdi, kolonMap });
+    return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/:id/urun-girisine-aktar', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { hedefDepo } = req.body ?? {};
     const sonuc = await urunGirisineAktar(req.params.id, { hedefDepo });
     return res.json(sonuc);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/onayla-aktarim', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await onaylaUyumsoftAktarim(req.params.id);
+    return res.json({ success: true });
   } catch (err) {
     next(err);
   }

@@ -896,6 +896,18 @@ model BekleyenFatura {
   @@index([girisTipi, durum])
 }
 
+// Uyumsoft gelen fatura — tedarikçi bazlı sütun eşleştirme profili
+model UyumsoftSutunEslestirme {
+  id           String   @id @default(cuid())
+  tedarikciVkn String?  @unique
+  tedarikciAdi String?
+  kolonMap     String   // JSON: { stokKodu: "stokKodu", urunAdi: "urunAdi", ... }
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tedarikciAdi])
+}
+
 enum WarrantyStatus {
   OPEN
   SENT_TO_SUPPLIER

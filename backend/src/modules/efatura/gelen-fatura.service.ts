@@ -8,6 +8,48 @@ import {
 
 const GIRIS_TIPI = 'UYUMSOFT_GELEN';
 
+export const UYUMSOFT_KOLON_ANAHTARLARI = [
+  'stokKodu',
+  'urunAdi',
+  'barkod',
+  'miktar',
+  'birimFiyat',
+  'kdvOrani',
+] as const;
+
+export type UyumsoftKolonAnahtari = (typeof UYUMSOFT_KOLON_ANAHTARLARI)[number];
+
+export type UyumsoftKolonRol =
+  | 'urunAdi'
+  | 'stokKodu'
+  | 'barkod'
+  | 'miktar'
+  | 'birimFiyat'
+  | 'kdvOrani'
+  | 'yoksay';
+
+export type UyumsoftKolonMap = Record<UyumsoftKolonAnahtari, UyumsoftKolonRol>;
+
+export const VARSAYILAN_KOLON_MAP: UyumsoftKolonMap = {
+  stokKodu: 'stokKodu',
+  urunAdi: 'urunAdi',
+  barkod: 'barkod',
+  miktar: 'miktar',
+  birimFiyat: 'birimFiyat',
+  kdvOrani: 'kdvOrani',
+};
+
+export interface UyumsoftHamSatir {
+  sira: number;
+  stokKodu: string;
+  urunAdi: string;
+  barkod: string;
+  miktar: number;
+  birimFiyat: number;
+  kdvOrani: number;
+  iskonto?: number;
+}
+
 export interface GelenFaturaOzet {
   id: string;
   uyumsoftNo: string | null;
@@ -135,11 +177,13 @@ export async function cekGelenFaturalar(opts?: {
     const ozet = detaydanOzet(detay);
     const kalemlerJson = JSON.stringify(
       detay.lines.map((k) => ({
+        stokKodu: k.stokKodu,
         urunAdi: k.urunAdi,
+        barkod: k.barkod,
         miktar: k.miktar,
         birimFiyat: k.birimFiyat,
         kdvOrani: k.kdvOrani,
-        barkod: k.barkod,
+        iskonto: k.iskonto,
       })),
     );
 
@@ -181,26 +225,141 @@ export async function cekGelenFaturalar(opts?: {
 
 export interface UrunGirisFormVerisi {
   girisTipi: 'FATURAYLA';
+  kaynak: 'UYUMSOFT';
   cariAdi: string;
+  tedarikciVkn: string;
   faturaNo: string;
   faturaReferans: string;
   faturaTarihi: string;
   faturaToplamKdvHaric: number;
   hedefDepo: string;
-  satirlar: Array<{
-    id: string;
-    tedarikciUrunAdi: string;
-    uretici: string;
-    bizimUrunId: string | null;
-    bizimUrunAdi: string;
-    bizimUrunOdooId: number | null;
-    miktar: number;
-    birimFiyat: string;
-    iskonto: string;
-    kdvOrani: string;
-    eslesti: boolean;
-  }>;
+  hamSatirlar: UyumsoftHamSatir[];
+  kolonMap: UyumsoftKolonMap;
+  kolonMapKayitli: boolean;
   utsKalemler: Array<{ barkod: string; adet: number; urunAdi: string }>;
+}
+
+function normalizeKolonMap(raw: unknown): UyumsoftKolonMap {
+  const base = { ...VARSAYILAN_KOLON_MAP };
+  if (!raw || typeof raw !== 'object') return base;
+  const obj = raw as Record<string, string>;
+  for (const key of UYUMSOFT_KOLON_ANAHTARLARI) {
+    const val = obj[key];
+    if (
+      val === 'urunAdi' ||
+      val === 'stokKodu' ||
+      val === 'barkod' ||
+      val === 'miktar' ||
+      val === 'birimFiyat' ||
+      val === 'kdvOrani' ||
+      val === 'yoksay'
+    ) {
+      base[key] = val;
+    }
+  }
+  return base;
+}
+
+export async function getSutunEslestirme(opts: {
+  tedarikciVkn?: string;
+  tedarikciAdi?: string;
+}): Promise<{ kolonMap: UyumsoftKolonMap; kayitli: boolean }> {
+  const vkn = opts.tedarikciVkn?.trim();
+  const adi = opts.tedarikciAdi?.trim();
+
+  let kayit = vkn
+    ? await prisma.uyumsoftSutunEslestirme.findUnique({ where: { tedarikciVkn: vkn } })
+    : null;
+
+  if (!kayit && adi) {
+    kayit = await prisma.uyumsoftSutunEslestirme.findFirst({
+      where: { tedarikciAdi: { equals: adi, mode: 'insensitive' } },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  if (!kayit) {
+    return { kolonMap: { ...VARSAYILAN_KOLON_MAP }, kayitli: false };
+  }
+
+  try {
+    return {
+      kolonMap: normalizeKolonMap(JSON.parse(kayit.kolonMap)),
+      kayitli: true,
+    };
+  } catch {
+    return { kolonMap: { ...VARSAYILAN_KOLON_MAP }, kayitli: false };
+  }
+}
+
+export async function saveSutunEslestirme(opts: {
+  tedarikciVkn?: string;
+  tedarikciAdi?: string;
+  kolonMap: UyumsoftKolonMap;
+}): Promise<void> {
+  const vkn = opts.tedarikciVkn?.trim() || null;
+  const adi = opts.tedarikciAdi?.trim() || null;
+  const kolonMap = normalizeKolonMap(opts.kolonMap);
+  const json = JSON.stringify(kolonMap);
+
+  if (vkn) {
+    await prisma.uyumsoftSutunEslestirme.upsert({
+      where: { tedarikciVkn: vkn },
+      create: { tedarikciVkn: vkn, tedarikciAdi: adi, kolonMap: json },
+      update: { tedarikciAdi: adi ?? undefined, kolonMap: json },
+    });
+    return;
+  }
+
+  if (!adi) {
+    throw new Error('Tedarikçi bilgisi gerekli');
+  }
+
+  const mevcut = await prisma.uyumsoftSutunEslestirme.findFirst({
+    where: { tedarikciAdi: { equals: adi, mode: 'insensitive' } },
+  });
+
+  if (mevcut) {
+    await prisma.uyumsoftSutunEslestirme.update({
+      where: { id: mevcut.id },
+      data: { kolonMap: json, tedarikciAdi: adi },
+    });
+  } else {
+    await prisma.uyumsoftSutunEslestirme.create({
+      data: { tedarikciAdi: adi, kolonMap: json },
+    });
+  }
+}
+
+export function hamSatirlardanUrunSatirlari(
+  bekleyenFaturaId: string,
+  hamSatirlar: UyumsoftHamSatir[],
+  kolonMap: UyumsoftKolonMap,
+) {
+  const rolDeger = (satir: UyumsoftHamSatir, rol: UyumsoftKolonRol): string => {
+    for (const kolon of UYUMSOFT_KOLON_ANAHTARLARI) {
+      if (kolonMap[kolon] === rol) {
+        const val = satir[kolon];
+        return val == null ? '' : String(val);
+      }
+    }
+    return '';
+  };
+
+  return hamSatirlar.map((satir, idx) => ({
+    id: `uyum-${bekleyenFaturaId}-${idx}`,
+    tedarikciUrunAdi: rolDeger(satir, 'urunAdi'),
+    tedarikciKodu: rolDeger(satir, 'stokKodu'),
+    uretici: '',
+    bizimUrunId: null as string | null,
+    bizimUrunAdi: '',
+    bizimUrunOdooId: null as number | null,
+    miktar: Number(rolDeger(satir, 'miktar') || satir.miktar || 1),
+    birimFiyat: rolDeger(satir, 'birimFiyat') || String(satir.birimFiyat),
+    iskonto: satir.iskonto ? String(satir.iskonto) : '0',
+    kdvOrani: rolDeger(satir, 'kdvOrani') || String(satir.kdvOrani || 20),
+    eslesti: false,
+  }));
 }
 
 export async function urunGirisineAktar(
@@ -245,28 +404,29 @@ export async function urunGirisineAktar(
 
   const hedefDepo = opts?.hedefDepo ?? kayit.hedefDepo ?? 'ANADEPO';
 
-  const satirlar = detay.lines.map((line, idx) => ({
-    id: `uyum-${id}-${idx}`,
-    tedarikciUrunAdi: line.urunAdi,
-    uretici: '',
-    bizimUrunId: null,
-    bizimUrunAdi: '',
-    bizimUrunOdooId: null,
+  const hamSatirlar: UyumsoftHamSatir[] = detay.lines.map((line) => ({
+    sira: line.sira,
+    stokKodu: line.stokKodu || '',
+    urunAdi: line.urunAdi || '',
+    barkod: line.barkod || '',
     miktar: line.miktar,
-    birimFiyat: String(line.birimFiyat),
-    iskonto: '0',
-    kdvOrani: String(line.kdvOrani || 20),
-    eslesti: false,
+    birimFiyat: line.birimFiyat,
+    kdvOrani: line.kdvOrani,
+    iskonto: line.iskonto,
   }));
 
-  const utsKalemler = detay.lines
+  const { kolonMap, kayitli: kolonMapKayitli } = await getSutunEslestirme({
+    tedarikciVkn: detay.supplierVkn,
+    tedarikciAdi: detay.supplierTitle,
+  });
+
+  const utsKalemler = hamSatirlar
     .filter((l) => l.barkod)
-    .map((l) => ({ barkod: l.barkod!, adet: l.miktar, urunAdi: l.urunAdi }));
+    .map((l) => ({ barkod: l.barkod, adet: l.miktar, urunAdi: l.urunAdi }));
 
   await prisma.bekleyenFatura.update({
     where: { id },
     data: {
-      durum: 'AKTARILDI',
       hedefDepo,
       subeAdi: hedefDepo,
     },
@@ -276,16 +436,32 @@ export async function urunGirisineAktar(
     bekleyenFaturaId: id,
     form: {
       girisTipi: 'FATURAYLA',
+      kaynak: 'UYUMSOFT',
       cariAdi: detay.supplierTitle,
+      tedarikciVkn: detay.supplierVkn,
       faturaNo: detay.invoiceNo,
       faturaReferans: detay.documentId,
       faturaTarihi: detay.issueDate || new Date().toISOString().slice(0, 10),
       faturaToplamKdvHaric: detay.taxExclusiveAmount,
       hedefDepo,
-      satirlar,
+      hamSatirlar,
+      kolonMap,
+      kolonMapKayitli,
       utsKalemler,
     },
   };
+}
+
+export async function onaylaUyumsoftAktarim(id: string): Promise<void> {
+  const kayit = await prisma.bekleyenFatura.findFirst({
+    where: { id, girisTipi: GIRIS_TIPI },
+  });
+  if (!kayit) throw new Error('Gelen fatura kaydı bulunamadı');
+
+  await prisma.bekleyenFatura.update({
+    where: { id },
+    data: { durum: 'AKTARILDI' },
+  });
 }
 
 export async function olusturUtsAlmaBildirimi(
