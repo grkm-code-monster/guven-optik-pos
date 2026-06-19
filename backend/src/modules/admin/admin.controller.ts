@@ -1465,16 +1465,23 @@ router.get('/cari-ara', async (req: Request, res: Response) => {
     const q = String(req.query.q ?? '').trim();
     if (!q || q.length < 2) return res.json({ data: [] });
 
+    const digitsOnly = q.replace(/\D/g, '');
+    const isVknQuery = /^\d{10,11}$/.test(digitsOnly);
+
+    const domain: unknown[] = [['active', '=', true]];
+    if (isVknQuery) {
+      domain.push(['vat', 'ilike', digitsOnly]);
+    } else {
+      domain.push(['is_company', '=', true]);
+      domain.push('|');
+      domain.push(['name', 'ilike', q]);
+      domain.push(['vat', 'ilike', q]);
+    }
+
     const partners = await execute(
       'res.partner',
       'search_read',
-      [[
-        ['active', '=', true],
-        ['is_company', '=', true],
-        '|',
-        ['name', 'ilike', q],
-        ['vat', 'ilike', q],
-      ]],
+      [domain],
       { fields: ['id', 'name', 'vat', 'phone', 'email'], limit: 20, order: 'name asc' },
     );
 

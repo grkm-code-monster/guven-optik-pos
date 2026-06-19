@@ -3,7 +3,9 @@ import { prisma } from '../../database/prisma';
 import {
   getInboxInvoice,
   getInboxInvoiceList,
+  tipFromVkn,
   type InboxInvoiceDetail,
+  type UyumsoftSupplierParty,
 } from '../uyumsoft/uyumsoft.service';
 
 const GIRIS_TIPI = 'UYUMSOFT_GELEN';
@@ -73,6 +75,7 @@ function detaydanOzet(detay: InboxInvoiceDetail) {
     invoiceNo: detay.invoiceNo,
     supplierTitle: detay.supplierTitle,
     supplierVkn: detay.supplierVkn,
+    supplier: detay.supplier,
     issueDate: detay.issueDate,
     taxExclusiveAmount: detay.taxExclusiveAmount,
     payableAmount: detay.payableAmount,
@@ -228,6 +231,7 @@ export interface UrunGirisFormVerisi {
   kaynak: 'UYUMSOFT';
   cariAdi: string;
   tedarikciVkn: string;
+  tedarikci: UyumsoftSupplierParty;
   faturaNo: string;
   faturaReferans: string;
   faturaTarihi: string;
@@ -382,7 +386,8 @@ export async function urunGirisineAktar(
     }
   }
 
-  if (!detay && kayit.uyumsoftEttn) {
+  const supplierEksik = !detay?.supplier;
+  if ((!detay || supplierEksik) && kayit.uyumsoftEttn) {
     const fresh = await getInboxInvoice(kayit.uyumsoftEttn);
     if (fresh) {
       detay = detaydanOzet(fresh);
@@ -401,6 +406,18 @@ export async function urunGirisineAktar(
   if (!detay) {
     throw new Error('Fatura detayı okunamadı');
   }
+
+  const supplier: UyumsoftSupplierParty = detay.supplier ?? {
+    name: detay.supplierTitle,
+    vkn: detay.supplierVkn,
+    vergiDairesi: '',
+    adres: '',
+    il: '',
+    ilce: '',
+    telefon: '',
+    email: '',
+    tip: tipFromVkn(detay.supplierVkn),
+  };
 
   const hedefDepo = opts?.hedefDepo ?? kayit.hedefDepo ?? 'ANADEPO';
 
@@ -439,6 +456,7 @@ export async function urunGirisineAktar(
       kaynak: 'UYUMSOFT',
       cariAdi: detay.supplierTitle,
       tedarikciVkn: detay.supplierVkn,
+      tedarikci: supplier,
       faturaNo: detay.invoiceNo,
       faturaReferans: detay.documentId,
       faturaTarihi: detay.issueDate || new Date().toISOString().slice(0, 10),

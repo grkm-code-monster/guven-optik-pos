@@ -251,12 +251,71 @@ export interface InboxInvoiceListItem {
   createDateUtc?: string;
 }
 
+export interface UyumsoftSupplierParty {
+  name: string;
+  vkn: string;
+  vergiDairesi: string;
+  adres: string;
+  il: string;
+  ilce: string;
+  telefon: string;
+  email: string;
+  tip: 'tuzel' | 'gercek';
+}
+
+export function tipFromVkn(vkn: string): 'tuzel' | 'gercek' {
+  const digits = vkn.replace(/\D/g, '');
+  if (digits.length === 11) return 'gercek';
+  return 'tuzel';
+}
+
+function parseSupplierParty(party: Record<string, unknown> | undefined): UyumsoftSupplierParty {
+  const ids = party?.PartyIdentification;
+  const idList = Array.isArray(ids) ? ids : ids ? [ids] : [];
+  const vknRow = idList.find((row) => {
+    const scheme = (row as Record<string, unknown>)?.ID as Record<string, unknown> | undefined;
+    const s = scheme?.attributes as Record<string, string> | undefined;
+    return s?.schemeID === 'VKN' || s?.schemeID === 'TCKN';
+  }) as Record<string, unknown> | undefined;
+  const vkn = String(ublAlanOku(vknRow?.ID) || '').replace(/\D/g, '');
+
+  let name = String(ublAlanOku((party?.PartyName as Record<string, unknown>)?.Name) || '');
+  const person = party?.Person as Record<string, unknown> | undefined;
+  if (!name && person) {
+    name = `${ublAlanOku(person.FirstName)} ${ublAlanOku(person.FamilyName)}`.trim();
+  }
+
+  const taxScheme = party?.PartyTaxScheme as Record<string, unknown> | undefined;
+  const taxSchemeInner = taxScheme?.TaxScheme as Record<string, unknown> | undefined;
+  const vergiDairesi = String(ublAlanOku(taxSchemeInner?.Name) || '');
+
+  const postal = party?.PostalAddress as Record<string, unknown> | undefined;
+  const street = String(ublAlanOku(postal?.StreetName) || '');
+  const building = String(ublAlanOku(postal?.BuildingNumber) || '');
+  const adres = [street, building].filter(Boolean).join(' ').trim();
+
+  const contact = party?.Contact as Record<string, unknown> | undefined;
+
+  return {
+    name,
+    vkn,
+    vergiDairesi,
+    adres,
+    il: String(ublAlanOku(postal?.CityName) || ''),
+    ilce: String(ublAlanOku(postal?.CitySubdivisionName) || ''),
+    telefon: String(ublAlanOku(contact?.Telephone) || ''),
+    email: String(ublAlanOku(contact?.ElectronicMail) || ''),
+    tip: tipFromVkn(vkn),
+  };
+}
+
 export interface InboxInvoiceDetail {
   documentId: string;
   invoiceNo: string;
   issueDate: string;
   supplierVkn: string;
   supplierTitle: string;
+  supplier: UyumsoftSupplierParty;
   taxExclusiveAmount: number;
   payableAmount: number;
   currency: string;
@@ -296,15 +355,7 @@ function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDe
   const party = (inv.AccountingSupplierParty as Record<string, unknown>)?.Party as
     | Record<string, unknown>
     | undefined;
-  const ids = party?.PartyIdentification;
-  const idList = Array.isArray(ids) ? ids : ids ? [ids] : [];
-  const vknRow = idList.find((row) => {
-    const scheme = (row as Record<string, unknown>)?.ID as Record<string, unknown> | undefined;
-    const s = scheme?.attributes as Record<string, string> | undefined;
-    return s?.schemeID === 'VKN' || s?.schemeID === 'TCKN';
-  }) as Record<string, unknown> | undefined;
-  const supplierVkn = String(ublAlanOku(vknRow?.ID) || '');
-  const supplierTitle = String(ublAlanOku((party?.PartyName as Record<string, unknown>)?.Name) || '');
+  const supplier = parseSupplierParty(party);
 
   const rawLines = inv.InvoiceLine;
   const lineArr = Array.isArray(rawLines) ? rawLines : rawLines ? [rawLines] : [];
@@ -341,8 +392,9 @@ function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDe
     documentId: String(ublAlanOku(inv.UUID) || ''),
     invoiceNo: String(ublAlanOku(inv.ID) || ''),
     issueDate: String(ublAlanOku(inv.IssueDate) || '').slice(0, 10),
-    supplierVkn,
-    supplierTitle,
+    supplierVkn: supplier.vkn,
+    supplierTitle: supplier.name,
+    supplier,
     taxExclusiveAmount: Number(ublAlanOku(monetary?.TaxExclusiveAmount) || 0),
     payableAmount: Number(ublAlanOku(monetary?.PayableAmount) || 0),
     currency: String(ublAlanOku(inv.DocumentCurrencyCode) || 'TRY'),
