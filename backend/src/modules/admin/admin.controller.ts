@@ -5,7 +5,8 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { prisma } from '../../database/prisma';
 import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
-import { execute } from '../odoo/odoo.service';
+import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
+import { LOKASYON_ID_MAP } from '../odoo/odooLocations';
 
 const router = Router();
 
@@ -2151,6 +2152,506 @@ router.post('/fatura-islendi', async (req: Request, res: Response) => {
   }
 });
 
+async function resolveProductVariantId(
+  bizimUrunOdooId: number | null | undefined,
+  bizimUrunProductId: number | null | undefined,
+  companyId?: number,
+): Promise<number | null> {
+  const cid = companyId && companyId > 0 ? companyId : undefined;
+
+  if (bizimUrunProductId) {
+    try {
+      const rows = await execute('product.product', 'read', [[bizimUrunProductId]], { fields: ['id'] }, cid);
+      if (rows?.[0]?.id) return rows[0].id;
+    } catch { /* fallthrough */ }
+  }
+
+  if (!bizimUrunOdooId) return null;
+
+  try {
+    const asProduct = await execute('product.product', 'read', [[bizimUrunOdooId]], { fields: ['id'] }, cid);
+    if (asProduct?.[0]?.id) return asProduct[0].id;
+  } catch { /* template id olabilir */ }
+
+  const variants = await execute(
+    'product.product',
+    'search_read',
+    [[['product_tmpl_id', '=', bizimUrunOdooId]]],
+    { fields: ['id'], limit: 1 },
+    cid,
+  );
+  return variants?.[0]?.id ?? null;
+}
+
+async function resolveProductTemplateId(
+  bizimUrunOdooId: number | null | undefined,
+  bizimUrunProductId: number | null | undefined,
+  companyId?: number,
+): Promise<number | null> {
+  const cid = companyId && companyId > 0 ? companyId : undefined;
+
+  if (bizimUrunOdooId) {
+    try {
+      const tmpl = await execute('product.template', 'read', [[bizimUrunOdooId]], { fields: ['id'] }, cid);
+      if (tmpl?.[0]?.id) return tmpl[0].id;
+    } catch { /* variant id olabilir */ }
+  }
+
+  if (bizimUrunProductId) {
+    const rows = await execute(
+      'product.product',
+      'read',
+      [[bizimUrunProductId]],
+      { fields: ['product_tmpl_id'] },
+      cid,
+    );
+    const tmplRef = rows?.[0]?.product_tmpl_id;
+    if (Array.isArray(tmplRef)) return tmplRef[0] ?? null;
+    if (typeof tmplRef === 'number') return tmplRef;
+  }
+
+  return bizimUrunOdooId ?? null;
+}
+
+function odooErrText(err: any): string {
+  return String(err?.faultString ?? err?.message ?? err ?? 'Bilinmeyen hata');
+}
+
+async function getProductUomId(productId: number, companyId?: number): Promise<number> {
+  const rows = await execute('product.product', 'read', [[productId]], { fields: ['uom_id'] }, companyId);
+  const uom = rows?.[0]?.uom_id;
+  if (Array.isArray(uom)) return uom[0] ?? 1;
+  return typeof uom === 'number' ? uom : 1;
+}
+
+async function isLotAvailableForReceipt(
+  lotId: number,
+  companyId?: number,
+  excludePickingId?: number,
+): Promise<{ available: boolean; reason?: string }> {
+  const cid = companyId && companyId > 0 ? companyId : undefined;
+
+  const doneMls = await execute(
+    'stock.move.line',
+    'search_read',
+    [[['lot_id', '=', lotId], ['state', '=', 'done']]],
+    { fields: ['id', 'picking_id'], limit: 3 },
+    cid,
+  );
+  if (doneMls?.length) {
+    const pickName = doneMls[0].picking_id?.[1] ?? doneMls[0].picking_id?.[0];
+    return { available: false, reason: `Seri no zaten teslim alınmış (picking: ${pickName})` };
+  }
+
+  const openMls = await execute(
+    'stock.move.line',
+    'search_read',
+    [[['lot_id', '=', lotId], ['state', 'not in', ['done', 'cancel']]]],
+    { fields: ['id', 'picking_id', 'state'], limit: 5 },
+    cid,
+  );
+  for (const ml of openMls ?? []) {
+    const pickId = ml.picking_id?.[0];
+    if (excludePickingId && pickId === excludePickingId) continue;
+    const pickName = ml.picking_id?.[1] ?? pickId;
+    return { available: false, reason: `Seri no başka picking'de kullanımda: ${pickName} (ml ${ml.id})` };
+  }
+
+  const quants = await execute(
+    'stock.quant',
+    'search_read',
+    [[['lot_id', '=', lotId], ['quantity', '>', 0]]],
+    { fields: ['location_id', 'quantity'], limit: 5 },
+    cid,
+  );
+  for (const q of quants ?? []) {
+    const locName = String(q.location_id?.[1] ?? '');
+    if (!locName.toLowerCase().includes('vendor')) {
+      return { available: false, reason: `Seri no stokta: ${locName} (qty=${q.quantity})` };
+    }
+  }
+
+  return { available: true };
+}
+
+async function getOrCreateStockLot(
+  lotNo: string,
+  productId: number,
+  companyId?: number,
+  barkod?: string,
+): Promise<number> {
+  const cid = companyId && companyId > 0 ? companyId : undefined;
+  const existing = await execute(
+    'stock.lot',
+    'search_read',
+    [[['name', '=', lotNo], ['product_id', '=', productId]]],
+    { fields: ['id'], limit: 1 },
+    cid,
+  );
+  if (existing?.[0]?.id) {
+    const avail = await isLotAvailableForReceipt(existing[0].id, cid);
+    if (!avail.available) {
+      throw new Error(
+        `Seri no "${lotNo}" yeniden kullanılamaz: ${avail.reason}. ` +
+        'Önceki yarım kalan girişi temizleyin veya sihirbazı yeni oturumla (yeni GRS no) başlatın.',
+      );
+    }
+    console.log(`[urun-giris] mevcut lot kullanıldı (müsait): ${lotNo} → ${existing[0].id}`);
+    return existing[0].id;
+  }
+
+  const lotVals: Record<string, any> = { name: lotNo, product_id: productId };
+  if (barkod) lotVals.ref = barkod;
+  if (cid) lotVals.company_id = cid;
+  const lotId = await execute('stock.lot', 'create', [lotVals], {}, cid);
+  console.log(`[urun-giris] yeni lot oluşturuldu: ${lotNo} → ${lotId}`);
+  return lotId;
+}
+
+async function resolveLotOdooId(
+  lot: any,
+  lotIdMap: Record<string, number>,
+  companyId?: number,
+): Promise<number | null> {
+  // Sadece bu isteğin lotIdMap'inden çöz — eski fatura bazlı Odoo araması yapma
+  return lotIdMap[lot.id] ?? null;
+}
+
+async function reportOrphanReceipts(faturaNo: string, companyId?: number): Promise<string[]> {
+  const cid = companyId && companyId > 0 ? companyId : undefined;
+  const warnings: string[] = [];
+  if (!faturaNo?.trim()) return warnings;
+
+  const pos = await execute(
+    'purchase.order',
+    'search_read',
+    [[['origin', '=', faturaNo]]],
+    { fields: ['id', 'name', 'state'], order: 'id asc' },
+    cid,
+  );
+  const partnerRefPos = await execute(
+    'purchase.order',
+    'search_read',
+    [[['partner_ref', '=', faturaNo]]],
+    { fields: ['id', 'name', 'state'], order: 'id asc' },
+    cid,
+  );
+  const allPos = [...(pos ?? []), ...(partnerRefPos ?? [])].filter(
+    (p, i, arr) => arr.findIndex((x) => x.id === p.id) === i,
+  );
+
+  for (const po of allPos) {
+    const pickings = await execute(
+      'stock.picking',
+      'search_read',
+      [[['purchase_id', '=', po.id]]],
+      { fields: ['id', 'name', 'state'], limit: 5 },
+      cid,
+    );
+    for (const p of pickings) {
+      if (p.state === 'assigned' || p.state === 'confirmed' || p.state === 'waiting') {
+        warnings.push(`Yarım kalan ürün kabulü: ${p.name} (PO ${po.name}, state=${p.state})`);
+      }
+    }
+  }
+
+  const orphanLots = await execute(
+    'stock.lot',
+    'search_read',
+    [[['name', 'ilike', faturaNo]]],
+    { fields: ['id', 'name'], order: 'id asc', limit: 20 },
+    cid,
+  );
+  for (const lot of orphanLots ?? []) {
+    const doneMls = await execute(
+      'stock.move.line',
+      'search_read',
+      [[['lot_id', '=', lot.id], ['state', '=', 'done']]],
+      { fields: ['picking_id'], limit: 1 },
+      cid,
+    );
+    const activeMls = await execute(
+      'stock.move.line',
+      'search_read',
+      [[['lot_id', '=', lot.id], ['state', 'in', ['assigned', 'partially_available']]]],
+      { fields: ['picking_id'], limit: 3 },
+      cid,
+    );
+    if (doneMls?.length && activeMls?.length) {
+      warnings.push(
+        `Seri no çakışması: ${lot.name} hem teslim alınmış hem aktif picking'de (${activeMls.length} ml)`,
+      );
+    }
+  }
+
+  return warnings;
+}
+
+async function postVendorBill(
+  invoiceId: number,
+  companyId?: number,
+): Promise<{ ok: boolean; name?: string; state?: string; error?: string }> {
+  const cid = companyId && companyId > 0 ? companyId : undefined;
+
+  const before = await execute(
+    'account.move',
+    'read',
+    [[invoiceId]],
+    { fields: ['id', 'name', 'state', 'move_type'] },
+    cid,
+  );
+  const inv = before?.[0];
+  if (!inv) return { ok: false, error: 'Fatura bulunamadı' };
+  if (inv.state === 'posted') {
+    return { ok: true, name: inv.name, state: 'posted' };
+  }
+  if (inv.state === 'cancel') {
+    return { ok: false, error: 'Fatura iptal edilmiş' };
+  }
+
+  const postKwargs = {
+    context: {
+      allowed_company_ids: [...ODOO_ALL_COMPANY_IDS],
+      ...(cid ? { force_company: cid } : {}),
+      skip_invoice_sync: true,
+    },
+  };
+
+  const tryPost = async (extraCtx: Record<string, unknown> = {}) => {
+    await execute(
+      'account.move',
+      'action_post',
+      [[invoiceId]],
+      { context: { ...postKwargs.context, ...extraCtx } },
+      cid,
+    );
+  };
+
+  try {
+    console.log(`[urun-giris] action_post başlıyor invoice=${invoiceId}`);
+    await tryPost();
+  } catch (err: any) {
+    const msg = odooErrText(err);
+    console.warn('[urun-giris] action_post hata:', msg.slice(0, 300));
+    const lower = msg.toLowerCase();
+    if (lower.includes('duplicate') || lower.includes('kopya')) {
+      try {
+        await tryPost({ disable_duplicate_check: true, no_new_invoice: true });
+      } catch (err2: any) {
+        return { ok: false, error: odooErrText(err2) };
+      }
+    } else {
+      return { ok: false, error: msg };
+    }
+  }
+
+  const after = await execute(
+    'account.move',
+    'read',
+    [[invoiceId]],
+    { fields: ['name', 'state'] },
+    cid,
+  );
+  const state = after?.[0]?.state;
+  if (state !== 'posted') {
+    return { ok: false, state, error: `Onay sonrası state=${state ?? 'bilinmiyor'}` };
+  }
+  console.log(`[urun-giris] fatura onaylandı: ${after[0].name}`);
+  return { ok: true, name: after[0].name, state: 'posted' };
+}
+
+function validatePickingKwargs(companyId?: number) {
+  return {
+    context: {
+      skip_backorder: true,
+      skip_immediate: true,
+      allowed_company_ids: [...ODOO_ALL_COMPANY_IDS],
+      ...(companyId && companyId > 0 ? { force_company: companyId } : {}),
+    },
+  };
+}
+
+async function validateIncomingPicking(pickingId: number, companyId?: number): Promise<void> {
+  const cid = companyId && companyId > 0 ? companyId : undefined;
+  const validateKwargs = validatePickingKwargs(cid);
+  console.log(`[urun-giris] button_validate başlıyor picking=${pickingId} company=${cid ?? '-'}`);
+  try {
+    await execute('stock.picking', 'button_validate', [[pickingId]], validateKwargs, cid);
+    return;
+  } catch (err: any) {
+    const msg = odooErrText(err).toLowerCase();
+    console.warn('[urun-giris] button_validate hata:', odooErrText(err).slice(0, 300));
+    if (!msg.includes('immediate') && !msg.includes('backorder') && !msg.includes('wizard')) {
+      throw err;
+    }
+  }
+  try {
+    const wizId = await execute(
+      'stock.immediate.transfer',
+      'create',
+      [{ pick_ids: [[6, 0, [pickingId]]] }],
+      {},
+      cid,
+    );
+    await execute('stock.immediate.transfer', 'process', [[wizId]], {}, cid);
+    console.log(`[urun-giris] immediate.transfer tamamlandı picking=${pickingId}`);
+    return;
+  } catch (wizErr: any) {
+    console.warn('[urun-giris] immediate.transfer hata:', odooErrText(wizErr).slice(0, 300));
+  }
+  await execute('stock.picking', 'button_validate', [[pickingId]], validateKwargs, cid);
+}
+
+async function assignLotsAndValidatePicking(
+  pickingId: number,
+  lotlar: any[],
+  lotIdMap: Record<string, number>,
+  companyId?: number,
+): Promise<void> {
+  const cid = companyId && companyId > 0 ? companyId : undefined;
+  const anadepoId = LOKASYON_ID_MAP.ANADEPO;
+
+  const pickingRows = await execute(
+    'stock.picking',
+    'read',
+    [[pickingId]],
+    { fields: ['id', 'name', 'state', 'location_id', 'location_dest_id', 'company_id'] },
+    cid,
+  );
+  const picking = pickingRows?.[0];
+  if (!picking) throw new Error(`Picking bulunamadı: ${pickingId}`);
+
+  const locationId = picking.location_id?.[0];
+  const locationDestId = anadepoId || picking.location_dest_id?.[0];
+  console.log(
+    `[urun-giris] picking ${picking.name} state=${picking.state} loc=${picking.location_id?.[1]} → dest=${locationDestId}`,
+  );
+
+  if (locationDestId && picking.location_dest_id?.[0] !== locationDestId) {
+    await execute('stock.picking', 'write', [[pickingId], { location_dest_id: locationDestId }], {}, cid);
+  }
+
+  if (picking.state === 'draft') {
+    await execute('stock.picking', 'action_confirm', [[pickingId]], {}, cid);
+  }
+  if (['draft', 'confirmed', 'waiting'].includes(picking.state)) {
+    try {
+      await execute('stock.picking', 'action_assign', [[pickingId]], {}, cid);
+    } catch (assignErr: any) {
+      console.warn('[urun-giris] action_assign uyarı:', odooErrText(assignErr).slice(0, 200));
+    }
+  }
+
+  const orderedLotIds: number[] = [];
+  for (const lot of lotlar ?? []) {
+    const lotOdooId = await resolveLotOdooId(lot, lotIdMap, cid);
+    if (lotOdooId) orderedLotIds.push(lotOdooId);
+    else console.warn(`[urun-giris] lot çözülemedi: ${lot.lotNo ?? lot.id}`);
+  }
+  console.log(`[urun-giris] ${orderedLotIds.length}/${lotlar?.length ?? 0} lot move line'a atanacak`);
+
+  const moves = await execute(
+    'stock.move',
+    'search_read',
+    [[['picking_id', '=', pickingId]]],
+    { fields: ['id', 'product_id', 'product_uom_qty', 'state'], order: 'id asc' },
+    cid,
+  );
+
+  type MoveLineSlot = {
+    moveLineId?: number;
+    moveId: number;
+    productId: number;
+    uomId: number;
+  };
+  const slots: MoveLineSlot[] = [];
+
+  for (const move of moves as any[]) {
+    const productId = move.product_id?.[0];
+    const uomId = await getProductUomId(productId, cid);
+    const qty = Math.max(1, Math.round(Number(move.product_uom_qty) || 1));
+
+    let moveLines = await execute(
+      'stock.move.line',
+      'search_read',
+      [[['move_id', '=', move.id]]],
+      { fields: ['id', 'quantity', 'lot_id'], order: 'id asc' },
+      cid,
+    );
+
+    if (!moveLines?.length) {
+      for (let i = 0; i < qty; i++) {
+        slots.push({ moveId: move.id, productId, uomId });
+      }
+    } else {
+      for (let i = 0; i < qty; i++) {
+        slots.push({
+          moveLineId: moveLines[i]?.id,
+          moveId: move.id,
+          productId,
+          uomId,
+        });
+      }
+    }
+  }
+
+  if (orderedLotIds.length < slots.length) {
+    throw new Error(
+      `Seri/lot eksik: ${slots.length} adet bekleniyor, ${orderedLotIds.length} lot bulundu. ` +
+      'Aynı seri no ile tekrar deneme yapıldıysa lotlar yeniden eşleştirilemedi.',
+    );
+  }
+
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    const lotOdooId = orderedLotIds[i];
+    const avail = await isLotAvailableForReceipt(lotOdooId, cid, pickingId);
+    if (!avail.available) {
+      throw new Error(`move.line ${i + 1}: lot ${lotOdooId} atanamaz — ${avail.reason}`);
+    }
+
+    const mlVals: Record<string, unknown> = {
+      quantity: 1,
+      lot_id: lotOdooId,
+      location_id: locationId,
+      location_dest_id: locationDestId,
+      product_id: slot.productId,
+      product_uom_id: slot.uomId,
+    };
+
+    if (slot.moveLineId) {
+      await execute('stock.move.line', 'write', [[slot.moveLineId], mlVals], {}, cid);
+      console.log(`[urun-giris] move.line ${slot.moveLineId} ← lot ${lotOdooId}`);
+    } else {
+      const mlId = await execute(
+        'stock.move.line',
+        'create',
+        [{
+          picking_id: pickingId,
+          move_id: slot.moveId,
+          ...mlVals,
+        }],
+        {},
+        cid,
+      );
+      console.log(`[urun-giris] move.line create ${mlId} ← lot ${lotOdooId}`);
+    }
+  }
+
+  await validateIncomingPicking(pickingId, cid);
+
+  const after = await execute(
+    'stock.picking',
+    'read',
+    [[pickingId]],
+    { fields: ['state'] },
+    cid,
+  );
+  if (after?.[0]?.state !== 'done') {
+    throw new Error(`Picking validate sonrası state=${after?.[0]?.state ?? 'bilinmiyor'} (done bekleniyordu)`);
+  }
+}
+
 // ── ÜRÜN GİRİŞİ ANA ENDPOINT ──────────────────────────────────────
 router.post('/urun-giris', async (req: Request, res: Response) => {
   try {
@@ -2167,10 +2668,22 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
       faturaToplamKdvHaric,
       satirlar,
       lotlar,
+      girisNo,
     } = req.body ?? {};
 
     const sonuclar: Record<string, any> = {};
     const hatalar: string[] = [];
+    const cid = sirketId && Number(sirketId) > 0 ? Number(sirketId) : undefined;
+    const satirList = satirlar ?? [];
+    const lotList = lotlar ?? [];
+
+    console.log(`[urun-giris] ${satirList.length} satır, ${lotList.length} lot gönderildi (fatura: ${faturaNo ?? '-'}, giris: ${girisNo ?? '-'})`);
+
+    const orphanWarnings = await reportOrphanReceipts(faturaNo ?? '', cid);
+    if (orphanWarnings.length) {
+      console.warn('[urun-giris] yetim/yarım kayıt uyarıları:', orphanWarnings);
+      hatalar.push(...orphanWarnings.map((w) => `⚠️ ${w}`));
+    }
 
     // ── 0) CARİ PARTNER KONTROL / OLUŞTUR ─────────────────────────
     let gercekCariId = cariId;
@@ -2195,49 +2708,66 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
 
     // ── 1) SATIN ALMA SİPARİŞİ (purchase.order) ───────────────────
     let poId: number | null = null;
+    let poLineCount = 0;
     try {
-      const poLines = [];
-      for (const satir of satirlar ?? []) {
-        if (!satir.bizimUrunOdooId) continue;
-        const variants = await execute(
-          'product.product',
-          'search_read',
-          [[['product_tmpl_id', '=', satir.bizimUrunOdooId]]],
-          { fields: ['id'], limit: 1 },
-        );
-        const productId = variants[0]?.id;
-        if (!productId) continue;
-        poLines.push([0, 0, {
-          product_id: productId,
-          name: satir.tedarikciUrunAdi || satir.bizimUrunAdi || '',
-          product_qty: satir.miktar || 1,
-          price_unit: Number(satir.birimFiyat) || 0,
-          discount: Number(satir.iskonto) || 0,
-          date_planned: faturaTarihi || new Date().toISOString().slice(0, 10),
-          product_uom: 1,
-        }]);
-      }
-
-      if (poLines.length > 0 && tedarikciId) {
+      if (tedarikciId && satirList.length > 0) {
         const poVals: Record<string, any> = {
           partner_id: tedarikciId,
           date_order: faturaTarihi || new Date().toISOString().slice(0, 10),
           origin: faturaNo || '',
           partner_ref: faturaNo || '',
           notes: `Fatura: ${faturaNo} | Cari: ${cariAdi} | Fiziki Tedarikçi: ${fizikiTedarikciAdi || '-'}`,
-          order_line: poLines,
         };
-        if (sirketId) poVals.company_id = sirketId;
+        if (cid) poVals.company_id = cid;
 
-        poId = await execute('purchase.order', 'create', [poVals]);
-        try {
-          await execute('purchase.order', 'button_confirm', [[poId]]);
-        } catch (ce: any) {
-          console.warn('[po confirm]', ce?.message);
+        poId = await execute('purchase.order', 'create', [poVals], {}, cid);
+
+        for (const satir of satirList) {
+          const productId = await resolveProductVariantId(
+            satir.bizimUrunOdooId,
+            satir.bizimUrunProductId,
+            cid,
+          );
+          if (!productId) {
+            console.warn('[urun-giris] PO satır atlandı — ürün bulunamadı:', satir.id, satir.bizimUrunOdooId);
+            continue;
+          }
+          await execute(
+            'purchase.order.line',
+            'create',
+            [{
+              order_id: poId,
+              product_id: productId,
+              name: satir.tedarikciUrunAdi || satir.bizimUrunAdi || '',
+              product_qty: satir.miktar || 1,
+              price_unit: Number(satir.birimFiyat) || 0,
+              discount: Number(satir.iskonto) || 0,
+              date_planned: faturaTarihi || new Date().toISOString().slice(0, 10),
+              product_uom: 1,
+            }],
+            {},
+            cid,
+          );
+          poLineCount++;
         }
 
-        const poData = await execute('purchase.order', 'read', [[poId]], { fields: ['id', 'name'] });
-        sonuclar.purchaseOrder = { id: poId, name: poData[0]?.name };
+        console.log(`[urun-giris] PO ${poId}: ${poLineCount}/${satirList.length} satır oluşturuldu`);
+
+        if (poLineCount > 0) {
+          try {
+            await execute('purchase.order', 'button_confirm', [[poId]], {}, cid);
+          } catch (ce: any) {
+            console.warn('[po confirm]', ce?.message);
+          }
+
+          const poData = await execute('purchase.order', 'read', [[poId]], { fields: ['id', 'name'] }, cid);
+          sonuclar.purchaseOrder = { id: poId, name: poData[0]?.name, satirSayisi: poLineCount };
+        } else {
+          try {
+            await execute('purchase.order', 'unlink', [[poId]], {}, cid);
+          } catch { /* boş PO silinemezse sorun değil */ }
+          poId = null;
+        }
       }
     } catch (poErr: any) {
       console.error('[purchase.order hata]', poErr?.message);
@@ -2248,132 +2778,142 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
     const lotIdMap: Record<string, number> = {};
     const barkodGuncellenenler = new Set<number>();
     try {
-      for (const lot of lotlar ?? []) {
-        if (!lot.bizimUrunOdooId || !lot.lotNo) continue;
+      for (const lot of lotList) {
+        if (!lot.lotNo) continue;
         try {
-          const variants = await execute(
-            'product.product',
-            'search_read',
-            [[['product_tmpl_id', '=', lot.bizimUrunOdooId]]],
-            { fields: ['id'], limit: 1 },
+          const productId = await resolveProductVariantId(
+            lot.bizimUrunOdooId,
+            lot.bizimUrunProductId,
+            cid,
           );
-          const productId = variants[0]?.id;
-          if (!productId) continue;
+          if (!productId) {
+            console.warn('[urun-giris] lot atlandı — ürün bulunamadı:', lot.lotNo);
+            continue;
+          }
 
-          const lotVals: Record<string, any> = {
-            name: lot.lotNo,
-            product_id: productId,
-          };
-          if (lot.barkod) lotVals.ref = lot.barkod;
-          if (sirketId) lotVals.company_id = sirketId;
-
-          const lotId = await execute('stock.lot', 'create', [lotVals]);
+          const lotId = await getOrCreateStockLot(lot.lotNo, productId, cid, lot.barkod);
           lotIdMap[lot.id] = lotId;
 
-          // Barkodu ürün kartına da yaz (ilk kez)
-          if (lot.barkod && !barkodGuncellenenler.has(lot.bizimUrunOdooId)) {
+          const templateId = await resolveProductTemplateId(
+            lot.bizimUrunOdooId,
+            lot.bizimUrunProductId,
+            cid,
+          );
+          if (lot.barkod && templateId && !barkodGuncellenenler.has(templateId)) {
             try {
-              await execute('product.template', 'write', [[lot.bizimUrunOdooId], { barcode: lot.barkod }]);
-              barkodGuncellenenler.add(lot.bizimUrunOdooId);
+              await execute('product.template', 'write', [[templateId], { barcode: lot.barkod }], {}, cid);
+              barkodGuncellenenler.add(templateId);
             } catch (be: any) {
               console.warn('[barkod güncelle]', be?.message);
             }
           }
         } catch (le: any) {
-          console.warn('[stock.lot hata]', lot.lotNo, le?.message);
+          const lotMsg = odooErrText(le);
+          console.warn('[stock.lot hata]', lot.lotNo, lotMsg.slice(0, 200));
+          hatalar.push(`Lot ${lot.lotNo}: ${lotMsg.slice(0, 150)}`);
         }
       }
       sonuclar.lotSayisi = Object.keys(lotIdMap).length;
+      console.log(`[urun-giris] lotIdMap: ${sonuclar.lotSayisi}/${lotList.length}`);
     } catch (lotErr: any) {
-      hatalar.push(`Lot oluşturma: ${lotErr?.message}`);
+      hatalar.push(`Lot oluşturma: ${odooErrText(lotErr)}`);
     }
 
     // ── 3) STOK HAREKETİ ONAYLA (picking validate) ────────────────
+    let stokGirisiBasarili = false;
     if (poId) {
       try {
-        const pickings = await execute('stock.picking', 'search_read',
+        const pickings = await execute(
+          'stock.picking',
+          'search_read',
           [[['purchase_id', '=', poId]]],
-          { fields: ['id', 'name', 'state'], limit: 5 });
+          { fields: ['id', 'name', 'state'], limit: 5 },
+          cid,
+        );
+
+        console.log(`[urun-giris] PO ${poId} için ${pickings.length} picking bulundu`);
+
+        if (!pickings.length) {
+          const msg = `PO ${poId} için ürün kabul (stock.picking) bulunamadı — stok girişi yapılamadı`;
+          console.error(`[urun-giris] ${msg}`);
+          hatalar.push(msg);
+        }
 
         for (const picking of pickings) {
-          if (picking.state === 'done') continue;
+          if (picking.state === 'done') {
+            stokGirisiBasarili = true;
+            sonuclar.picking = { id: picking.id, name: picking.name, state: 'done' };
+            continue;
+          }
           try {
-            await execute('stock.picking', 'action_confirm', [[picking.id]]);
-            await execute('stock.picking', 'action_assign', [[picking.id]]);
-
-            // Move line'ları çek
-            const moveLines = await execute('stock.move.line', 'search_read',
-              [[['picking_id', '=', picking.id]]],
-              { fields: ['id', 'product_id', 'move_id'], limit: 100 });
-
-            // Her move line için: lot_id ata + qty_done set et
-            for (const ml of moveLines) {
-              const writeVals: Record<string, any> = { quantity: 1 };
-
-              // Bu move line'ın ürününe karşılık gelen lot'u bul
-              const ilgiliLot = (lotlar ?? []).find((l: any) => {
-                if (!l.bizimUrunOdooId) return false;
-                return true; // İlk lot'u ata (seri no bazlı ayrım sonra yapılabilir)
-              });
-
-              const lotOdooId = ilgiliLot ? lotIdMap[ilgiliLot.id] : null;
-              if (lotOdooId) writeVals.lot_id = lotOdooId;
-
-              await execute('stock.move.line', 'write', [[ml.id], writeVals]);
+            await assignLotsAndValidatePicking(picking.id, lotList, lotIdMap, cid);
+            const validated = await execute(
+              'stock.picking',
+              'read',
+              [[picking.id]],
+              { fields: ['id', 'name', 'state'] },
+              cid,
+            );
+            const finalState = validated[0]?.state;
+            sonuclar.picking = {
+              id: picking.id,
+              name: picking.name,
+              state: finalState,
+            };
+            stokGirisiBasarili = finalState === 'done';
+            console.log(`[urun-giris] picking ${picking.name} → ${finalState}`);
+            if (!stokGirisiBasarili) {
+              hatalar.push(`Stok girişi tamamlanamadı: ${picking.name} state=${finalState}`);
             }
-
-            // Eğer move line yoksa immediate transfer yap
-            if (moveLines.length === 0) {
-              const moves = await execute('stock.move', 'search_read',
-                [[['picking_id', '=', picking.id]]],
-                { fields: ['id', 'product_uom_qty'], limit: 100 });
-              for (const move of moves) {
-                await execute('stock.move', 'write',
-                  [[move.id], { quantity_done: move.product_uom_qty || 1 }]);
-              }
-            }
-
-            await execute('stock.picking', 'button_validate', [[picking.id]]);
-            sonuclar.picking = { id: picking.id, name: picking.name };
           } catch (ve: any) {
-            const msg = ve?.faultString ?? ve?.message ?? '';
-            console.warn('[picking validate]', msg.slice(0, 150));
-            if (!msg.includes('backorder') && !msg.includes('wizard') && !msg.includes('immediate')) {
-              hatalar.push(`Stok hareketi: ${msg}`);
-            } else {
-              sonuclar.picking = { id: picking.id, name: picking.name, uyari: 'wizard' };
-            }
+            const msg = odooErrText(ve);
+            console.error('[urun-giris] picking validate HATA:', msg.slice(0, 400));
+            hatalar.push(`Stok girişi başarısız (${picking.name}): ${msg.slice(0, 300)}`);
+            sonuclar.picking = { id: picking.id, name: picking.name, state: picking.state, hata: msg.slice(0, 300) };
           }
         }
       } catch (pe: any) {
-        console.warn('[picking bul hata]', pe?.message);
+        const msg = odooErrText(pe);
+        console.error('[urun-giris] picking bul/validate HATA:', msg.slice(0, 400));
+        hatalar.push(`Stok hareketi aranırken hata: ${msg.slice(0, 300)}`);
       }
     }
 
-    // ── 4) SATIN ALMA FATURASI ─────────────────────────────────────
-    // Picking validate olduktan sonra fatura oluştur
-    if (poId && gercekCariId) {
-      try {
-        // PO'daki teslim alınan miktarı güncelle
-        const poLines = await execute('purchase.order.line', 'search_read',
-          [[['order_id', '=', poId]]],
-          { fields: ['id', 'product_qty', 'qty_received'], limit: 50 });
+    sonuclar.stokGirisiBasarili = stokGirisiBasarili;
+    sonuclar.orphanWarnings = orphanWarnings;
 
-        // Manuel fatura oluştur (action_create_invoice yerine)
+    // ── 4) SATIN ALMA FATURASI (stok girişi başarılıysa oluştur + onayla) ──
+    if (poId && gercekCariId && stokGirisiBasarili) {
+      let invoiceId: number | null = null;
+      try {
+        const poLines = await execute(
+          'purchase.order.line',
+          'search_read',
+          [[['order_id', '=', poId]]],
+          { fields: ['id', 'product_id', 'product_qty', 'qty_received'], order: 'id asc', limit: 100 },
+          cid,
+        );
+
+        const poLineUsage = new Map<number, number>();
         const invLines = [];
-        for (const satir of satirlar ?? []) {
-          if (!satir.bizimUrunOdooId) continue;
-          const variants = await execute('product.product', 'search_read',
-            [[['product_tmpl_id', '=', satir.bizimUrunOdooId]]],
-            { fields: ['id'], limit: 1 });
-          const productId = variants[0]?.id;
+        for (const satir of satirList) {
+          const productId = await resolveProductVariantId(
+            satir.bizimUrunOdooId,
+            satir.bizimUrunProductId,
+            cid,
+          );
           if (!productId) continue;
+          const matching = (poLines as any[]).filter((pl) => pl.product_id?.[0] === productId);
+          const idx = poLineUsage.get(productId) ?? 0;
+          const purchaseLineId = matching[idx]?.id ?? false;
+          poLineUsage.set(productId, idx + 1);
+
           invLines.push([0, 0, {
             product_id: productId,
             name: satir.tedarikciUrunAdi || satir.bizimUrunAdi || '',
             quantity: satir.miktar || 1,
             price_unit: Number(satir.birimFiyat) || 0,
-            purchase_line_id: poLines.find((pl: any) => pl)?.id || false,
+            purchase_line_id: purchaseLineId,
           }]);
         }
 
@@ -2386,33 +2926,67 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
             invoice_origin: sonuclar.purchaseOrder?.name || '',
             invoice_line_ids: invLines,
           };
-          if (sirketId) invVals.company_id = sirketId;
+          if (cid) invVals.company_id = cid;
 
-          const invoiceId = await execute('account.move', 'create', [invVals]);
+          invoiceId = await execute('account.move', 'create', [invVals], {}, cid);
           const invData = await execute('account.move', 'read',
-            [[invoiceId]], { fields: ['id', 'name'] });
-          sonuclar.vendorBill = { id: invoiceId, name: invData[0]?.name };
+            [[invoiceId]], { fields: ['id', 'name', 'state'] }, cid);
+          sonuclar.vendorBill = { id: invoiceId, name: invData[0]?.name, state: invData[0]?.state };
 
-          // İşlendi etiketi
           await execute('account.move', 'write',
-            [[invoiceId], { narration: `[POS-ISLENDI] ${new Date().toISOString().slice(0, 10)}` }]);
+            [[invoiceId], { narration: `[POS-ISLENDI] ${new Date().toISOString().slice(0, 10)}` }], {}, cid);
+        } else {
+          // PO'da mevcut taslak fatura varsa onu kullan
+          const poData = await execute('purchase.order', 'read', [[poId]], { fields: ['invoice_ids'] }, cid);
+          const existingIds: number[] = poData?.[0]?.invoice_ids ?? [];
+          for (const eid of existingIds) {
+            const inv = (await execute('account.move', 'read', [[eid]], { fields: ['state', 'move_type'] }, cid))?.[0];
+            if (inv?.move_type === 'in_invoice' && inv?.state === 'draft') {
+              invoiceId = eid;
+              break;
+            }
+          }
+        }
+
+        if (invoiceId) {
+          const postResult = await postVendorBill(invoiceId, cid);
+          sonuclar.faturaOnay = postResult;
+          if (postResult.ok) {
+            sonuclar.vendorBill = {
+              ...(sonuclar.vendorBill ?? { id: invoiceId }),
+              id: invoiceId,
+              name: postResult.name,
+              state: 'posted',
+            };
+          } else {
+            console.error('[urun-giris] fatura onay HATA:', postResult.error);
+            hatalar.push(`Fatura onaylanamadı: ${postResult.error ?? 'bilinmeyen hata'}`);
+          }
         }
       } catch (ie: any) {
-        const msg = ie?.faultString ?? ie?.message ?? '';
-        console.warn('[vendor bill hata]', msg.slice(0, 150));
+        const msg = odooErrText(ie);
+        console.error('[vendor bill hata]', msg.slice(0, 300));
         hatalar.push(`Satın alma faturası: ${msg.slice(0, 200)}`);
       }
+    } else if (poId && gercekCariId && !stokGirisiBasarili) {
+      console.log('[urun-giris] stok girişi başarısız — tedarikçi faturası oluşturulmadı/onaylanmadı');
     }
 
     // ── 5) SATIŞ FİYATI GÜNCELLE ──────────────────────────────────
     try {
       const fiyatGuncellenenler = new Set<number>();
-      for (const lot of lotlar ?? []) {
-        if (!lot.bizimUrunOdooId || !lot.satisFiyati || fiyatGuncellenenler.has(lot.bizimUrunOdooId)) continue;
+      for (const lot of lotList) {
+        if (!lot.satisFiyati) continue;
+        const templateId = await resolveProductTemplateId(
+          lot.bizimUrunOdooId,
+          lot.bizimUrunProductId,
+          cid,
+        );
+        if (!templateId || fiyatGuncellenenler.has(templateId)) continue;
         const fiyat = Number(lot.satisFiyati);
         if (fiyat <= 0) continue;
-        await execute('product.template', 'write', [[lot.bizimUrunOdooId], { list_price: fiyat }]);
-        fiyatGuncellenenler.add(lot.bizimUrunOdooId);
+        await execute('product.template', 'write', [[templateId], { list_price: fiyat }], {}, cid);
+        fiyatGuncellenenler.add(templateId);
       }
       sonuclar.fiyatGuncellenen = fiyatGuncellenenler.size;
     } catch (fyErr: any) {
@@ -2421,6 +2995,7 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
+      stokGirisiBasarili,
       sonuclar,
       hatalar: hatalar.length > 0 ? hatalar : undefined,
     });

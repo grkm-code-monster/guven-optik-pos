@@ -1213,6 +1213,7 @@ type FaturaSatiri = {
   bizimUrunId: string | null
   bizimUrunAdi: string
   bizimUrunOdooId: number | null
+  bizimUrunProductId?: number | null
   miktar: number
   birimFiyat: string
   iskonto: string
@@ -1312,6 +1313,7 @@ type LotSatiri = {
   tedarikciUrunAdi: string
   bizimUrunAdi: string
   bizimUrunOdooId: number | null
+  bizimUrunProductId?: number | null
   uretici: string
   barkod: string
   utsKodu: string
@@ -2211,9 +2213,9 @@ function UrunGirisTab() {
       const res = await adminApi.get(`/admin/urun-varyanlar/${u.id}`)
       const data = res.data?.data ?? []
       if (data.length === 1) {
-        // Tek varyant varsa direkt seç
+        // Tek varyant: template id koru, varyant id ayrı alanda
         setVaryantPopup(null)
-        urunSec({ ...u, id: data[0].id, name: data[0].name, default_code: data[0].defaultCode })
+        urunSec(u, { productVariantId: data[0].id, displayName: data[0].name || u.name })
       } else {
         setVaryantlar(data)
       }
@@ -2226,11 +2228,15 @@ function UrunGirisTab() {
     }
   }
 
-  function urunSec(urun: OdooUrun) {
+  function urunSec(urun: OdooUrun, opts?: { productVariantId?: number | null; displayName?: string }) {
     if (!aktifSatirId) return
     setSatirlar(prev => prev.map(s => s.id === aktifSatirId ? {
-      ...s, bizimUrunId: String(urun.id), bizimUrunAdi: urun.name,
-      bizimUrunOdooId: urun.id, eslesti: true
+      ...s,
+      bizimUrunId: String(urun.id),
+      bizimUrunAdi: opts?.displayName ?? urun.name,
+      bizimUrunOdooId: urun.id,
+      bizimUrunProductId: opts?.productVariantId ?? null,
+      eslesti: true,
     } : s))
     setUrunPopupAcik(false)
   }
@@ -2452,9 +2458,10 @@ function UrunGirisTab() {
   }
 
   // Adım 2 → Adım 3: Her satır × miktar = lotlar
+  // Seri no: girisNo bazlı (her sihirbaz oturumu benzersiz) — faturaNo tek başına deterministik olmamalı
   function lotlariOlustur() {
     const yeniLotlar: LotSatiri[] = []
-    satirlar.forEach(satir => {
+    satirlar.forEach((satir, satirIdx) => {
       for (let i = 0; i < satir.miktar; i++) {
         yeniLotlar.push({
           id: `l-${satir.id}-${i}`,
@@ -2463,10 +2470,11 @@ function UrunGirisTab() {
           tedarikciUrunAdi: satir.tedarikciUrunAdi,
           bizimUrunAdi: satir.bizimUrunAdi,
           bizimUrunOdooId: satir.bizimUrunOdooId,
+          bizimUrunProductId: satir.bizimUrunProductId ?? null,
           uretici: satir.uretici,
           barkod: '',
           utsKodu: '',
-          lotNo: `${faturaNo || 'FAT'}-${satir.id.slice(-4)}-${String(i + 1).padStart(3, '0')}`,
+          lotNo: `${girisNo}-S${String(satirIdx + 1).padStart(2, '0')}-${String(i + 1).padStart(3, '0')}`,
           birimFiyat: satir.birimFiyat,
           lokasyon: 'ANADEPO',
           satisFiyati: '',
@@ -2517,11 +2525,17 @@ function UrunGirisTab() {
       if (res.data?.success) {
         setSuccess(true)
         const s = res.data.sonuclar ?? {}
+        const stokOk = res.data.stokGirisiBasarili === true || s.picking?.state === 'done'
         const mesajlar = []
-        if (s.purchaseOrder) mesajlar.push(`✓ Satın alma siparişi: ${s.purchaseOrder.name}`)
+        if (s.purchaseOrder) mesajlar.push(`✓ Satın alma siparişi: ${s.purchaseOrder.name}${s.purchaseOrder.satirSayisi ? ` (${s.purchaseOrder.satirSayisi} satır)` : ''}`)
+        if (stokOk) mesajlar.push(`✓ Stok girişi tamamlandı: ${s.picking?.name ?? 'picking'}`)
+        else if (s.picking) mesajlar.push(`✗ Stok girişi başarısız: ${s.picking.name} (${s.picking.state ?? 'bekliyor'})${s.picking.hata ? ` — ${s.picking.hata}` : ''}`)
+        else mesajlar.push('✗ Stok girişi başarısız: ürün kabul (picking) oluşturulamadı veya validate edilemedi')
+        if (s.faturaOnay?.ok) mesajlar.push(`✓ Fatura onaylandı: ${s.faturaOnay.name ?? s.vendorBill?.name ?? ''}`)
+        else if (s.vendorBill || s.faturaOnay) mesajlar.push(`⚠️ Fatura onaylanamadı: ${s.faturaOnay?.error ?? 'taslak kaldı'}`)
         if (s.lotSayisi) mesajlar.push(`✓ ${s.lotSayisi} lot/seri no oluşturuldu`)
         if (s.fiyatGuncellenen) mesajlar.push(`✓ ${s.fiyatGuncellenen} ürün satış fiyatı güncellendi`)
-        if (res.data.hatalar?.length) mesajlar.push(`⚠️ Uyarılar: ${res.data.hatalar.join(', ')}`)
+        if (res.data.hatalar?.length) mesajlar.push(`⚠️ Hatalar:\n${res.data.hatalar.join('\n')}`)
         setError(mesajlar.length > 0 ? mesajlar.join('\n') : null)
 
         if (girisTipi === 'FATURA_SONRA' || girisTipi === 'IRSALIYELI') {
@@ -2652,8 +2666,20 @@ function UrunGirisTab() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {varyantlar.map(v => (
                         <div key={v.id} onClick={() => {
+                          if (!varyantPopup) return
                           setVaryantPopup(null)
-                          urunSec({ id: v.id, name: v.name, default_code: v.defaultCode, barcode: v.barcode } as any)
+                          urunSec(
+                            {
+                              id: varyantPopup.templateId,
+                              name: varyantPopup.templateAdi,
+                              default_code: v.defaultCode ?? '',
+                              barcode: v.barcode ?? '',
+                              type: 'product',
+                              list_price: 0,
+                              standard_price: 0,
+                            },
+                            { productVariantId: v.id, displayName: v.name },
+                          )
                         }}
                           style={{ padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                           onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f0f9ff')}
@@ -3011,8 +3037,38 @@ function UrunGirisTab() {
           <div style={{ fontSize: 15, fontWeight: 900, color: '#1a1a2e', marginBottom: 6 }}>Ürün Giriş Tipi</div>
           <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>Bu girişin nasıl yapılacağını seçin.</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Uyumsoft — üst seviye kart (eski "Fatura ile Giriş" yerine) */}
+            <div
+              onClick={() => {
+                setGelenModalAcik(true)
+                void gelenFaturalariYukle()
+              }}
+              style={{
+                border: '2px solid #fde68a',
+                borderRadius: 12,
+                padding: '16px 20px',
+                cursor: 'pointer',
+                backgroundColor: '#fffbeb',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = '#d97706')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = '#fde68a')}
+            >
+              <div style={{ fontSize: 28 }}>🔗</div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#b45309', marginBottom: 3 }}>
+                  Uyumsoft&apos;tan Otomatik Çek (e-Fatura)
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>
+                  Gelen e-faturaları Uyumsoft inbox&apos;tan çek
+                </div>
+              </div>
+            </div>
+
             {[
-              { tip: 'FATURAYLA' as const, icon: '📄', baslik: 'Fatura ile Giriş', aciklama: 'Fatura ürünle birlikte geldi. Tam kayıt yapılacak.', renk: '#059669', bg: '#f0fdf4', border: '#86efac' },
               { tip: 'FATURA_SONRA' as const, icon: '⏳', baslik: 'Ürün Geldi, Fatura Beklemede', aciklama: 'Stok girişi yapılır, fatura gelince eşleştirilir.', renk: '#d97706', bg: '#fffbeb', border: '#fde68a' },
               { tip: 'IRSALIYELI' as const, icon: '📋', baslik: 'İrsaliyeli Giriş', aciklama: 'İrsaliye numarasıyla giriş. Fatura sonra veya birlikte gelebilir.', renk: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
               { tip: 'FATURASIZ' as const, icon: '🔓', baslik: 'Faturasız Giriş', aciklama: 'Eski stok veya kaynağı belirsiz giriş. Sadece stoka işlenir.', renk: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
@@ -3037,9 +3093,9 @@ function UrunGirisTab() {
             ))}
           </div>
 
-          <div style={{ marginTop: 20 }}>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10, fontWeight: 600 }}>Fatura kaynağını seçin</div>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10, fontWeight: 600 }}>Diğer Giriş Seçenekleri</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
               <button
                 type="button"
                 onClick={() => {
@@ -3047,52 +3103,54 @@ function UrunGirisTab() {
                   setAdim('fatura')
                 }}
                 style={{
-                  flex: '1 1 240px',
-                  padding: '14px 18px',
+                  padding: '14px 12px',
                   backgroundColor: '#eff6ff',
                   border: '2px solid #bfdbfe',
                   borderRadius: 10,
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: 800,
                   cursor: 'pointer',
                   color: '#1e40af',
-                  textAlign: 'left',
+                  textAlign: 'center',
                 }}
               >
-                <div>📋 Odoo&apos;dan Manuel Seç</div>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', marginTop: 4 }}>
-                  Odoo&apos;da kayıtlı vendor bill faturaları
-                </div>
+                📋 Odoo&apos;dan Manuel Seç
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setGelenModalAcik(true)
-                  void gelenFaturalariYukle()
+                  setGirisTipi('FATURAYLA')
+                  setAdim('fatura')
                 }}
                 style={{
-                  flex: '1 1 240px',
-                  padding: '14px 18px',
-                  backgroundColor: '#fffbeb',
-                  border: '2px solid #fde68a',
+                  padding: '14px 12px',
+                  backgroundColor: '#f0fdf4',
+                  border: '2px solid #86efac',
                   borderRadius: 10,
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: 800,
                   cursor: 'pointer',
-                  color: '#b45309',
-                  textAlign: 'left',
+                  color: '#059669',
+                  textAlign: 'center',
                 }}
               >
-                <div>🔗 Uyumsoft&apos;tan Otomatik Çek (e-Fatura)</div>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', marginTop: 4 }}>
-                  Gelen e-faturaları Uyumsoft inbox&apos;tan çek
-                </div>
+                📄 Fatura ile Giriş
               </button>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <button type="button" onClick={() => {
-                setAdim('bekleyen-faturalar')
-              }} style={{ padding: '8px 14px', backgroundColor: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#374151' }}>
+              <button
+                type="button"
+                onClick={() => setAdim('bekleyen-faturalar')}
+                style={{
+                  padding: '14px 12px',
+                  backgroundColor: '#f3f4f6',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  color: '#374151',
+                  textAlign: 'center',
+                }}
+              >
                 📋 Bekleyen Faturaları Görüntüle
               </button>
             </div>
