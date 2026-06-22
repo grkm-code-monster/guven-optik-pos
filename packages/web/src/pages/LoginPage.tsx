@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login } from '../api/auth.api'
+import { login, pdksContinue } from '../api/auth.api'
 import { useAuthStore } from '../store/auth.store'
+import Modal from '../components/ui/Modal'
+import Button from '../components/ui/Button'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const setAuth = useAuthStore((s) => s.setAuth)
+  const setShiftId = useAuthStore((s) => s.setShiftId)
+  const logout = useAuthStore((s) => s.logout)
   const token = useAuthStore((s) => s.token)
 
   const [config] = useState(() => {
@@ -27,6 +31,8 @@ export default function LoginPage() {
   const [pin, setPin] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [pdksModalOpen, setPdksModalOpen] = useState(false)
+  const [pdksContinuing, setPdksContinuing] = useState(false)
 
   const trimmedUsername = useMemo(() => username.trim(), [username])
 
@@ -41,8 +47,11 @@ export default function LoginPage() {
     try {
       const res = await login(trimmedUsername, p)
       setAuth(res.token, { id: res.user.id, name: res.user.name, role: res.user.role, branchId: res.user.branchId }, res.shiftId)
-      if (!res.shiftId) navigate('/shift/open', { replace: true })
-      else navigate('/', { replace: true })
+      if (res.pdksAttendance === 'missing') {
+        setPdksModalOpen(true)
+        return
+      }
+      navigate('/', { replace: true })
     } catch (e: any) {
       const code = e?.response?.data?.error
       const msg = e?.response?.data?.message
@@ -56,6 +65,28 @@ export default function LoginPage() {
 
   function handleSubmit() {
     void submit(pin)
+  }
+
+  async function handlePdksContinue() {
+    if (pdksContinuing) return
+    setPdksContinuing(true)
+    try {
+      const res = await pdksContinue()
+      setShiftId(res.shiftId)
+      setPdksModalOpen(false)
+      navigate('/', { replace: true })
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'Devam edilemedi')
+      setPdksModalOpen(false)
+    } finally {
+      setPdksContinuing(false)
+    }
+  }
+
+  function handlePdksExit() {
+    setPdksModalOpen(false)
+    logout()
+    setPin('')
   }
 
   useEffect(() => {
@@ -229,6 +260,20 @@ export default function LoginPage() {
           {loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}
         </button>
       </div>
+
+      <Modal open={pdksModalOpen} title="PDKS Kontrolü" onClose={handlePdksExit}>
+        <p style={{ fontSize: 14, color: '#374151', marginBottom: 20, lineHeight: 1.5 }}>
+          Patron PDKS&apos;te bugün giriş kaydınız bulunamadı. Devam etmek ister misiniz?
+        </p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Button className="flex-1" disabled={pdksContinuing} onClick={() => void handlePdksContinue()}>
+            {pdksContinuing ? 'Devam ediliyor...' : 'Evet, Devam Et'}
+          </Button>
+          <Button variant="secondary" className="flex-1" disabled={pdksContinuing} onClick={handlePdksExit}>
+            Hayır, Çıkış
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }

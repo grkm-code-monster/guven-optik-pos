@@ -37,6 +37,20 @@ export async function getCurrentShift(branchId: string) {
   });
 }
 
+export async function ensureOpenShift(userId: string, branchId: string) {
+  const existing = await getCurrentShift(branchId);
+  if (existing) return existing;
+
+  return prisma.shift.create({
+    data: {
+      userId,
+      branchId,
+      openCash: new Prisma.Decimal(0),
+      status: ShiftStatus.OPEN,
+    },
+  });
+}
+
 export async function closeShift(
   shiftId: string,
   userId: string,

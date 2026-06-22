@@ -2,7 +2,11 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { Role, ShiftStatus } from '@prisma/client';
 import { prisma } from '../../database/prisma';
+import { hasTodayAttendance } from '../pdks/pdks.service';
+import { ensureOpenShift } from '../shifts/shift.service';
 import type { JwtPayload } from './auth.types';
+
+export type PdksAttendanceStatus = 'found' | 'missing' | 'skipped';
 
 const LOCK_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
@@ -63,7 +67,11 @@ export async function login(username: string, pin: string) {
 
   const user = await prisma.user.findUnique({
     where: { username: usernameKey },
-    include: { branch: true },
+    include: {
+      branch: true,
+      personel: { select: { pdksId: true } },
+      personelByUser: { select: { pdksId: true } },
+    },
   });
 
   if (!user) {
@@ -89,13 +97,28 @@ export async function login(username: string, pin: string) {
 
   clearLoginAttempts(usernameKey);
 
-  const openShift = await prisma.shift.findFirst({
+  let openShift = await prisma.shift.findFirst({
     where: {
       branchId: user.branchId,
       status: ShiftStatus.OPEN,
     },
     orderBy: { openedAt: 'desc' },
   });
+
+  const pdksEmployeeId = user.personel?.pdksId ?? user.personelByUser?.pdksId ?? null;
+  let pdksAttendance: PdksAttendanceStatus = 'skipped';
+
+  if (pdksEmployeeId) {
+    const attendance = await hasTodayAttendance(pdksEmployeeId, user.branch.pdksPlaceId);
+    if (attendance === true) {
+      pdksAttendance = 'found';
+      if (!openShift) {
+        openShift = await ensureOpenShift(user.id, user.branchId);
+      }
+    } else if (attendance === false) {
+      pdksAttendance = 'missing';
+    }
+  }
 
   const payload: JwtPayload = {
     userId: user.id,
@@ -116,7 +139,13 @@ export async function login(username: string, pin: string) {
       branchId: user.branchId,
     },
     shiftId: payload.shiftId,
+    pdksAttendance,
   };
+}
+
+export async function continueWithoutPdks(userId: string, branchId: string) {
+  const shift = await ensureOpenShift(userId, branchId);
+  return { shiftId: shift.id };
 }
 
 export async function verifyManagerPin(pin: string, branchId: string) {

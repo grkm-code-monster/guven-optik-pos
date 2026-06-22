@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import { authenticate } from '../../middleware/authenticate';
 import { LoginInput, VerifyManagerPinInput } from './auth.types';
 import * as authService from './auth.service';
 
@@ -80,6 +81,15 @@ router.post('/logout', (_req: Request, res: Response) => {
   return res.status(200).json({
     message: 'Çıkış yapıldı. İstemci tarafında token silinmelidir.',
   });
+});
+
+router.post('/pdks-continue', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await authService.continueWithoutPdks(req.user!.userId, req.user!.branchId);
+    return res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

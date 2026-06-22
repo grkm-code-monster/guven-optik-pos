@@ -9,6 +9,18 @@ import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 import { LOKASYON_ID_MAP } from '../odoo/odooLocations';
 import * as stokYonetimi from './stok-yonetimi.service';
 
+const POS_STOCK_ROLES = [
+  Role.SALES_STAFF,
+  Role.STORE_MANAGER,
+  Role.WAREHOUSE_MANAGER,
+  Role.REGIONAL_MANAGER,
+  Role.ADMIN,
+] as const;
+
+const ODOO_ALL_COMPANIES_KWARGS = {
+  context: { allowed_company_ids: [...ODOO_ALL_COMPANY_IDS] },
+};
+
 const router = Router();
 
 router.get('/public/personel-belge-form/:personelId', async (req, res, next) => {
@@ -362,6 +374,10 @@ router.get(
 );
 
 router.use((req: Request, res: Response, next: NextFunction) => {
+  // POS Stok Sorgula — tüm şube personeli erişebilir; Odoo çağrıları sunucu admin session ile yapılır
+  if (req.path === '/branches' || req.path === '/stock') {
+    return authorize(...POS_STOCK_ROLES)(req, res, next);
+  }
   // Sadece transfer endpoint'lerinde STORE_MANAGER / WAREHOUSE_MANAGER da yetkili
   if (req.path.startsWith('/transfer-')) {
     return authorize(Role.ADMIN, Role.STORE_MANAGER, Role.WAREHOUSE_MANAGER)(req, res, next);
@@ -916,24 +932,40 @@ router.patch('/branch/:branchId/yedek-sorumlu', async (req: Request, res: Respon
   }
 });
 
-// Odoo'dan şubeleri çek
+// Odoo'dan şubeleri çek (POS stok sorgu — tüm şubeler)
 router.get('/branches', async (_req: Request, res: Response) => {
   try {
-    const locations = await execute(
+    const dbBranches = await prisma.branch.findMany({
+      where: { odooLocationId: { not: null } },
+      select: { name: true, code: true, odooLocationId: true },
+      orderBy: { name: 'asc' },
+    });
+
+    const locationIdSet = new Set<number>([
+      ...dbBranches.map((b) => b.odooLocationId!),
+      ...Object.values(LOKASYON_ID_MAP),
+    ]);
+
+    const odooLocations = (await execute(
       'stock.location',
       'search_read',
-      [
-        [
-          ['usage', '=', 'internal'],
-          ['active', '=', true],
-          '|',
-          ['name', 'like', 'GVN'],
-          ['name', '=', 'ANA-DEPO'],
-        ],
-      ],
-      { fields: ['id', 'name', 'complete_name', 'company_id'], limit: 50 },
-    );
-    return res.json({ success: true, data: locations });
+      [[['id', 'in', [...locationIdSet]], ['usage', '=', 'internal'], ['active', '=', true]]],
+      { fields: ['id', 'name', 'complete_name', 'company_id'], limit: 100, ...ODOO_ALL_COMPANIES_KWARGS },
+    )) as Array<{ id: number; name: string; complete_name?: string; company_id?: [number, string] }>;
+
+    const byId = new Map(odooLocations.map((loc) => [loc.id, loc]));
+    for (const b of dbBranches) {
+      if (b.odooLocationId && !byId.has(b.odooLocationId)) {
+        byId.set(b.odooLocationId, {
+          id: b.odooLocationId,
+          name: b.name,
+          complete_name: b.code ? `${b.code} — ${b.name}` : b.name,
+        });
+      }
+    }
+
+    const data = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+    return res.json({ success: true, data });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -942,12 +974,13 @@ router.get('/branches', async (_req: Request, res: Response) => {
 router.get('/stock', async (req: Request, res: Response) => {
   try {
     const { locationId, search } = req.query;
+    const inStockOnly = req.query.inStockOnly !== '0';
 
-    const domain: any[] = [
-      ['location_id.usage', '=', 'internal'],
-      ['quantity', '>', 0],
-    ];
+    const domain: any[] = [['location_id.usage', '=', 'internal']];
 
+    if (inStockOnly) {
+      domain.push(['quantity', '>', 0]);
+    }
     if (locationId) {
       domain.push(['location_id', '=', Number(locationId)]);
     }
@@ -960,9 +993,10 @@ router.get('/stock', async (req: Request, res: Response) => {
       'search_read',
       [domain],
       {
-        fields: ['product_id', 'location_id', 'quantity', 'reserved_quantity'],
-        limit: 100,
+        fields: ['product_id', 'location_id', 'quantity', 'reserved_quantity', 'product_categ_id'],
+        limit: 500,
         order: 'quantity desc',
+        ...ODOO_ALL_COMPANIES_KWARGS,
       },
     );
 

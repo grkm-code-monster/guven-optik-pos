@@ -108,7 +108,7 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
         setLocations(data)
       })
       .catch((e: any) => {
-        setError(e?.response?.data?.error ?? 'Lokasyonlar yüklenemedi')
+        setError(e?.response?.data?.message ?? e?.response?.data?.error ?? 'Lokasyonlar yüklenemedi')
       })
       .finally(() => setLoadingLoc(false))
   }, [api])
@@ -151,7 +151,7 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
       }
       setRows(res.data.data ?? [])
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? 'Stok yüklenemedi')
+      setError(e?.response?.data?.message ?? e?.response?.data?.error ?? 'Stok yüklenemedi')
       setRows([])
     } finally {
       setLoadingStock(false)
