@@ -7,7 +7,9 @@ import {
   topluStokFiyatGuncelle,
   type StokUrun,
 } from '../../api/stok.api'
-import { generateZpl } from '../../api/etiket.api'
+import EtiketSablonSecici from '../../components/etiket/EtiketSablonSecici'
+import { otomatikSablonSec, uretCokluEtiketZpl } from '../../components/etiket/etiket-sablon-helpers'
+import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
 
 const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVN2', 'GVN10', 'ANADEPO', 'GVN5']
 
@@ -77,6 +79,7 @@ export default function StokYonetimiPage() {
   const [etiketAdet, setEtiketAdet] = useState(1)
   const [etiketZpl, setEtiketZpl] = useState('')
   const [etiketYukleniyor, setEtiketYukleniyor] = useState(false)
+  const [etiketSablonId, setEtiketSablonId] = useState<SablonId>('gunes-aksesuar')
 
   const seciliUrunler = useMemo(
     () => urunler.filter((u) => secili.has(u.id)),
@@ -186,6 +189,7 @@ export default function StokYonetimiPage() {
     setEtiketZpl('')
     setEtiketAdet(1)
     setEtiketLokasyon(lokasyon || 'GVN1')
+    setEtiketSablonId(otomatikSablonSec(u.kategori, false))
   }
 
   async function etiketUret() {
@@ -193,17 +197,28 @@ export default function StokYonetimiPage() {
     setEtiketYukleniyor(true)
     try {
       const lotlar = await getUrunLotlari(etiketUrun.id, etiketLokasyon)
-      const adet = Math.max(1, Math.min(etiketAdet, lotlar.length || etiketAdet))
-      const items = (lotlar.length ? lotlar.slice(0, adet) : [{ seriNo: '-', fiyat: etiketUrun.satisFiyati, barkod: etiketUrun.icReferans || null }]).map((l) => ({
+      const maxStok = Math.max(1, etiketUrun.toplamStok)
+      const adet = Math.max(1, Math.min(etiketAdet, maxStok, lotlar.length || maxStok))
+      const kaynak = lotlar.length
+        ? lotlar.slice(0, adet)
+        : Array.from({ length: adet }, () => ({
+          seriNo: '-',
+          fiyat: etiketUrun.satisFiyati,
+          barkod: etiketUrun.icReferans || null,
+        }))
+      const items = kaynak.map((l) => ({
         urunAdi: etiketUrun.urunAdi,
         seriNo: l.seriNo || '-',
         fiyat: l.fiyat ?? etiketUrun.satisFiyati,
         barkod: l.barkod ?? etiketUrun.icReferans,
+        icReferans: etiketUrun.icReferans,
+        lokasyon: etiketLokasyon,
+        miktar: etiketUrun.toplamStok,
+        lotNo: l.seriNo || undefined,
       }))
-      const res = await generateZpl(items, 'admin')
-      setEtiketZpl(res.zpl)
+      setEtiketZpl(uretCokluEtiketZpl(etiketSablonId, items))
     } catch (e: any) {
-      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'ZPL üretilemedi' })
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.message ?? 'ZPL üretilemedi' })
     } finally {
       setEtiketYukleniyor(false)
     }
@@ -468,7 +483,7 @@ export default function StokYonetimiPage() {
       {/* Etiket modal */}
       {etiketAcik && etiketUrun ? (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 480 }}>
+          <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 640, maxHeight: '90vh', overflow: 'auto' }}>
             <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 8 }}>Etiket Bas</div>
             <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>{etiketUrun.urunAdi}</div>
 
@@ -480,13 +495,31 @@ export default function StokYonetimiPage() {
                 </select>
               </label>
               <label>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>Adet (max stok)</span>
-                <input type="number" min={1} value={etiketAdet} onChange={(e) => setEtiketAdet(Number(e.target.value) || 1)} style={{ ...inp, marginTop: 4 }} />
+                <span style={{ fontSize: 12, fontWeight: 700 }}>Adet (max stok: {etiketUrun.toplamStok})</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, etiketUrun.toplamStok)}
+                  value={etiketAdet}
+                  onChange={(e) => setEtiketAdet(Math.min(Math.max(1, Number(e.target.value) || 1), Math.max(1, etiketUrun.toplamStok)))}
+                  style={{ ...inp, marginTop: 4 }}
+                />
               </label>
             </div>
 
+            {!etiketZpl ? (
+              <div style={{ marginBottom: 16 }}>
+                <EtiketSablonSecici
+                  urunKategori={etiketUrun.kategori}
+                  utsKodlu={false}
+                  secilenId={etiketSablonId}
+                  onSecim={(id) => setEtiketSablonId(id as SablonId)}
+                />
+              </div>
+            ) : null}
+
             {etiketZpl ? (
-              <textarea readOnly value={etiketZpl} rows={6} style={{ ...inp, fontFamily: 'monospace', fontSize: 11, marginBottom: 12 }} />
+              <textarea readOnly value={etiketZpl} rows={8} style={{ ...inp, fontFamily: 'monospace', fontSize: 11, marginBottom: 12 }} />
             ) : null}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

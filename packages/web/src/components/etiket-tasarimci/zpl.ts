@@ -21,14 +21,20 @@ function buildGs1Data(veri: EtiketVeri): string {
 
 function resolveElementText(el: CanvasElement, veri: EtiketVeri): string | null {
   switch (el.type) {
-    case 'kulakcik': return null
+    case 'kulakcik':
+    case 'cizgi':
+    case 'cerceve':
+    case 'gs1Kod':
+      return null
+    case 'icReferansRenk':
+      return `${veri.icReferans ?? 'REF001'}  |  ${veri.renkVaryant ?? 'Siyah'}`
+    case 'sonGuncelleme':
+      return `Son fiyat günc: ${veri.sonGuncelleme ?? '22.06.2026'}`
     case 'urunAdi': return veri.urunAdi ?? 'ÖRNEK ÜRÜN ADI'
     case 'icReferans': return veri.icReferans ?? 'REF001'
     case 'renkVaryant': return veri.renkVaryant ?? 'Siyah'
-    case 'icReferansRenk': return `${veri.icReferans ?? 'REF001'} · ${veri.renkVaryant ?? 'Siyah'}`
     case 'fiyat': return veri.fiyat != null ? formatFiyat(veri.fiyat) : '999,00 TL'
     case 'kdvDahildir': return 'KDV DAHİLDİR'
-    case 'sonGuncelleme': return veri.sonGuncelleme ?? new Date().toLocaleDateString('tr-TR')
     case 'seriNo': return `Seri: ${veri.seriNo ?? 'SN-123456'}`
     case 'serbestMetin': return el.text ?? 'Metin'
     case 'barcode128': return veri.barkod ?? veri.icReferans ?? 'REF001'
@@ -38,7 +44,7 @@ function resolveElementText(el: CanvasElement, veri: EtiketVeri): string | null 
 }
 
 function elementToZpl(el: CanvasElement, veri: EtiketVeri): string {
-  if (el.type === 'kulakcik') return ''
+  if (el.type === 'kulakcik' || el.type === 'cizgi' || el.type === 'cerceve' || el.type === 'gs1Kod') return ''
   const x = Math.round(el.x)
   const y = Math.round(el.y)
 

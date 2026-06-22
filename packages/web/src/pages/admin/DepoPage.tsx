@@ -5,6 +5,9 @@ import { adminApi } from './AdminLayout'
 import { StockQueryPanel } from '../StokSorgulaPage'
 import YeniTransfer from '../../components/transfer/YeniTransfer'
 import BekleyenTransferler from '../../components/transfer/BekleyenTransferler'
+import EtiketSablonSecici from '../../components/etiket/EtiketSablonSecici'
+import { otomatikSablonSec, uretCokluEtiketZpl } from '../../components/etiket/etiket-sablon-helpers'
+import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
 
 // ── Sabitler ─────────────────────────────────────────────────
 const LOKASYONLAR = [
@@ -1367,6 +1370,21 @@ type LotSatiri = {
   disMusteriAdi: string
 }
 
+function urunAdindanKategori(ad: string): string {
+  const a = (ad || '').toLowerCase()
+  if (a.includes('çerçeve') || a.includes('cerceve') || a.includes('cerçeve')) return 'Çerçeve'
+  if (a.includes('güneş') || a.includes('gunes')) return 'Güneş Gözlüğü'
+  if (a.includes('aksesuar')) return 'Aksesuar'
+  return ''
+}
+
+function varsayilanSablonLotlardan(lotlar: LotSatiri[]): SablonId {
+  const ilk = lotlar[0]
+  if (!ilk) return 'gunes-aksesuar'
+  const kat = urunAdindanKategori(ilk.bizimUrunAdi || ilk.tedarikciUrunAdi)
+  return otomatikSablonSec(kat, Boolean(ilk.utsKodu))
+}
+
 type OdooUrun = {
   id: number
   name: string
@@ -1719,6 +1737,12 @@ function UrunGirisTab() {
   const [dovizKuru, setDovizKuru] = useState<{USD: number; EUR: number; tarih: string} | null>(null)
   const [dovizYukleniyor, setDovizYukleniyor] = useState(false)
 
+  // Etiket basma (adım 5 sonrası)
+  const [etiketSablonId, setEtiketSablonId] = useState<SablonId>('gunes-aksesuar')
+  const [etiketAdetler, setEtiketAdetler] = useState<Record<string, number>>({})
+  const [etiketZpl, setEtiketZpl] = useState('')
+  const [etiketKopyalandi, setEtiketKopyalandi] = useState(false)
+
   // Uyumsoft gelen fatura
   const [gelenModalAcik, setGelenModalAcik] = useState(false)
   const [gelenFaturalar, setGelenFaturalar] = useState<Array<{
@@ -1841,6 +1865,44 @@ function UrunGirisTab() {
     setUyumsoftTedarikci(null)
     setUyumsoftKolonKayitli(false)
     setUyumsoftCariModalAcik(false)
+  }
+
+  function sihirbaziSifirla() {
+    setAdim('giris-tipi')
+    uyumsoftStateSifirla()
+    setCariAdi(''); setCariId(null); setCariArama('')
+    setCariAramaYapildi(false)
+    setYeniCariModalAcik(false)
+    setUyumsoftCariModalAcik(false)
+    setFizikiAramaYapildi(false)
+    setSecilenSirketId(null); setSecilenSirketAdi('')
+    setFizikiTedarikciId(null); setFizikiTedarikciAdi(''); setFizikiArama('')
+    setFaturaNo(''); setFaturaReferans(''); setFaturaToplamKdvHaric('')
+    setFaturaTarihi(new Date().toISOString().slice(0, 10))
+    setSatirlar([{ id: `s-${Date.now()}`, tedarikciUrunAdi: '', uretici: '', bizimUrunId: null, bizimUrunAdi: '', bizimUrunOdooId: null, miktar: 1, birimFiyat: '', iskonto: '0', kdvOrani: '10', eslesti: false }])
+    setLotlar([]); setIrsaliyeler([])
+    setSuccess(false); setError(null)
+    setEtiketZpl('')
+    setEtiketAdetler({})
+    setEtiketKopyalandi(false)
+    setGirisTipi(null)
+  }
+
+  function etiketZplUret() {
+    const items = lotlar.flatMap((lot) => {
+      const adet = Math.max(1, etiketAdetler[lot.id] ?? 1)
+      const veri = {
+        urunAdi: lot.bizimUrunAdi || lot.tedarikciUrunAdi,
+        seriNo: lot.lotNo,
+        fiyat: lot.satisFiyati || lot.birimFiyat,
+        barkod: lot.barkod || undefined,
+        utsKodu: lot.utsKodu || null,
+        lotNo: lot.lotNo,
+        lokasyon: lot.lokasyon,
+      }
+      return Array.from({ length: adet }, () => veri)
+    })
+    setEtiketZpl(uretCokluEtiketZpl(etiketSablonId, items))
   }
 
   async function odooCariBul(vkn?: string, adi?: string): Promise<Tedarikci | null> {
@@ -2578,6 +2640,13 @@ function UrunGirisTab() {
         if (res.data.hatalar?.length) mesajlar.push(`⚠️ Hatalar:\n${res.data.hatalar.join('\n')}`)
         setError(mesajlar.length > 0 ? mesajlar.join('\n') : null)
 
+        const adetMap: Record<string, number> = {}
+        lotlar.forEach((l) => { adetMap[l.id] = 1 })
+        setEtiketAdetler(adetMap)
+        setEtiketSablonId(varsayilanSablonLotlardan(lotlar))
+        setEtiketZpl('')
+        setEtiketKopyalandi(false)
+
         if (girisTipi === 'FATURA_SONRA' || girisTipi === 'IRSALIYELI') {
           const hedefLokasyon = lotlar[0]?.lokasyon ?? 'ANADEPO'
           try {
@@ -2626,23 +2695,6 @@ function UrunGirisTab() {
           }
           setGelenFaturaId(null)
         }
-
-        setTimeout(() => {
-          setAdim('giris-tipi')
-          uyumsoftStateSifirla()
-          setCariAdi(''); setCariId(null); setCariArama('')
-          setCariAramaYapildi(false)
-          setYeniCariModalAcik(false)
-          setUyumsoftCariModalAcik(false)
-          setFizikiAramaYapildi(false)
-          setSecilenSirketId(null); setSecilenSirketAdi('')
-          setFizikiTedarikciId(null); setFizikiTedarikciAdi(''); setFizikiArama('')
-          setFaturaNo(''); setFaturaReferans(''); setFaturaToplamKdvHaric('')
-          setFaturaTarihi(new Date().toISOString().slice(0, 10))
-          setSatirlar([{ id: `s-${Date.now()}`, tedarikciUrunAdi: '', uretici: '', bizimUrunId: null, bizimUrunAdi: '', bizimUrunOdooId: null, miktar: 1, birimFiyat: '', iskonto: '0', kdvOrani: '10', eslesti: false }])
-          setLotlar([]); setIrsaliyeler([])
-          setSuccess(false); setError(null)
-        }, 4000)
       } else {
         setError(res.data?.error ?? 'Kayıt başarısız')
       }
@@ -4038,6 +4090,104 @@ function UrunGirisTab() {
               ))}
             </div>
           )}
+
+          {success && lotlar.length > 0 ? (
+            <div style={{ backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 12 }}>Etiket Basmak İster misiniz?</div>
+
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 16, backgroundColor: 'white' }}>
+                {lotlar.map((lot) => (
+                  <div
+                    key={lot.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 100px 90px',
+                      gap: 10,
+                      alignItems: 'center',
+                      padding: '10px 12px',
+                      borderBottom: '1px solid #f3f4f6',
+                      fontSize: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{lot.bizimUrunAdi || lot.tedarikciUrunAdi}</div>
+                      <div style={{ color: '#6b7280', marginTop: 2 }}>
+                        Seri: {lot.lotNo}
+                        {lot.barkod ? ` · Barkod: ${lot.barkod}` : ''}
+                        {lot.utsKodu ? ' · UTS' : ''}
+                      </div>
+                    </div>
+                    <div style={{ color: '#059669', fontWeight: 700, textAlign: 'right' }}>
+                      ₺{Number(lot.satisFiyati || lot.birimFiyat || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                      <span style={{ fontSize: 11, color: '#6b7280' }}>Adet</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={etiketAdetler[lot.id] ?? 1}
+                        onChange={(e) => setEtiketAdetler((prev) => ({
+                          ...prev,
+                          [lot.id]: Math.max(1, Number(e.target.value) || 1),
+                        }))}
+                        style={{ width: 52, padding: '4px 6px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 12 }}
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
+
+              {!etiketZpl ? (
+                <div style={{ marginBottom: 16 }}>
+                  <EtiketSablonSecici
+                    urunKategori={urunAdindanKategori(lotlar[0]?.bizimUrunAdi || lotlar[0]?.tedarikciUrunAdi || '')}
+                    utsKodlu={Boolean(lotlar[0]?.utsKodu)}
+                    secilenId={etiketSablonId}
+                    onSecim={(id) => setEtiketSablonId(id as SablonId)}
+                  />
+                </div>
+              ) : null}
+
+              {etiketZpl ? (
+                <div style={{ marginBottom: 12 }}>
+                  <textarea
+                    readOnly
+                    value={etiketZpl}
+                    rows={8}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', boxSizing: 'border-box' }}
+                  />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(etiketZpl)
+                        setEtiketKopyalandi(true)
+                        setTimeout(() => setEtiketKopyalandi(false), 2000)
+                      }}
+                      style={{ ...btnSmall, fontWeight: 700 }}
+                    >
+                      {etiketKopyalandi ? '✓ Kopyalandı' : 'Kopyala'}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button type="button" onClick={sihirbaziSifirla} style={btnSmall}>
+                  Atla
+                </button>
+                {!etiketZpl ? (
+                  <button type="button" onClick={etiketZplUret} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
+                    ZPL Üret
+                  </button>
+                ) : (
+                  <button type="button" onClick={sihirbaziSifirla} style={btnPrimary}>
+                    Tamamla
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           {!success && error && (
             <div style={{ backgroundColor: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#991b1b' }}>

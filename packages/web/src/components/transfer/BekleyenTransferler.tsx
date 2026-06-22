@@ -133,6 +133,9 @@ export default function BekleyenTransferler({
         barkod: u.barkod ?? null,
         secili: u.etiketSecili !== false,
         categAdi: u.categAdi,
+        renkVaryant: u.varyant ?? u.renkVaryant,
+        utsKodu: u.utsKodu ?? null,
+        utsKodlu: u.utsDurumu === 'ALINDI' || Boolean(u.utsKodu),
       }))
   }
 

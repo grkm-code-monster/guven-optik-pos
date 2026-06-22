@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
-import { generateZpl, type EtiketItem } from '../../api/etiket.api'
+import { useEffect, useMemo, useState } from 'react'
+import type { SablonId } from '../etiket-tasarimci/sablon-types'
+import EtiketSablonSecici from './EtiketSablonSecici'
+import { otomatikSablonSec, uretCokluEtiketZpl } from './etiket-sablon-helpers'
 
 export type EtiketModalUrun = {
   key: string
@@ -9,6 +11,9 @@ export type EtiketModalUrun = {
   barkod?: string | null
   secili: boolean
   categAdi?: string
+  renkVaryant?: string
+  utsKodu?: string | null
+  utsKodlu?: boolean
 }
 
 type Props = {
@@ -18,16 +23,31 @@ type Props = {
   onKapat: () => void
 }
 
-export default function EtiketBasModal({ acik, urunler, source = 'pos', onKapat }: Props) {
+function varsayilanSablon(urunler: EtiketModalUrun[]): SablonId {
+  const ilk = urunler.find((u) => u.secili) ?? urunler[0]
+  if (!ilk) return 'gunes-aksesuar'
+  const uts = ilk.utsKodlu ?? Boolean(ilk.utsKodu) ?? false
+  return otomatikSablonSec(ilk.categAdi ?? '', uts)
+}
+
+export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
   const [secimler, setSecimler] = useState<EtiketModalUrun[]>([])
+  const [sablonId, setSablonId] = useState<SablonId>('gunes-aksesuar')
   const [zpl, setZpl] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [kopyalandi, setKopyalandi] = useState(false)
 
+  const ilkSecili = useMemo(
+    () => secimler.find((u) => u.secili) ?? secimler[0],
+    [secimler],
+  )
+
   useEffect(() => {
     if (acik) {
-      setSecimler(urunler.map((u) => ({ ...u })))
+      const list = urunler.map((u) => ({ ...u }))
+      setSecimler(list)
+      setSablonId(varsayilanSablon(list))
       setZpl('')
       setError(null)
       setKopyalandi(false)
@@ -38,26 +58,30 @@ export default function EtiketBasModal({ acik, urunler, source = 'pos', onKapat 
 
   const seciliSayisi = secimler.filter((s) => s.secili).length
 
-  async function etiketBas() {
+  function etiketBas() {
     setLoading(true)
     setError(null)
     try {
-      const payload: EtiketItem[] = secimler
-        .filter((s) => s.secili)
-        .map((s) => ({
-          urunAdi: s.urunAdi,
-          seriNo: s.seriNo || '-',
-          fiyat: s.fiyat,
-          barkod: s.barkod,
-        }))
+      const payload = secimler.filter((s) => s.secili)
       if (!payload.length) {
         setError('En az 1 ürün seçin')
         return
       }
-      const res = await generateZpl(payload, source)
-      setZpl(res.zpl)
+      const zplKod = uretCokluEtiketZpl(
+        sablonId,
+        payload.map((s) => ({
+          urunAdi: s.urunAdi,
+          seriNo: s.seriNo || '-',
+          fiyat: s.fiyat,
+          barkod: s.barkod,
+          icReferans: s.barkod ?? undefined,
+          renkVaryant: s.renkVaryant,
+          utsKodu: s.utsKodu,
+        })),
+      )
+      setZpl(zplKod)
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? e?.message ?? 'ZPL üretilemedi')
+      setError(e?.message ?? 'ZPL üretilemedi')
     } finally {
       setLoading(false)
     }
@@ -85,7 +109,7 @@ export default function EtiketBasModal({ acik, urunler, source = 'pos', onKapat 
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
     }}>
       <div style={{
-        backgroundColor: 'white', borderRadius: 16, width: '100%', maxWidth: 640,
+        backgroundColor: 'white', borderRadius: 16, width: '100%', maxWidth: 720,
         maxHeight: '90vh', overflow: 'auto', padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -94,10 +118,10 @@ export default function EtiketBasModal({ acik, urunler, source = 'pos', onKapat 
         </div>
 
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
-          Aksesuar, güneş gözlüğü ve optik çerçeveler varsayılan seçili. Cam ürünleri varsayılan seçili değil.
+          Ürünleri seçin, şablon belirleyin ve ZPL üretin.
         </div>
 
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 12 }}>
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
           {secimler.map((u) => (
             <label key={u.key} style={{
               display: 'grid', gridTemplateColumns: '28px 1fr auto', gap: 10, alignItems: 'center',
@@ -122,6 +146,17 @@ export default function EtiketBasModal({ acik, urunler, source = 'pos', onKapat 
           ))}
         </div>
 
+        {!zpl ? (
+          <div style={{ marginBottom: 16 }}>
+            <EtiketSablonSecici
+              urunKategori={ilkSecili?.categAdi ?? ''}
+              utsKodlu={ilkSecili?.utsKodlu ?? Boolean(ilkSecili?.utsKodu) ?? false}
+              secilenId={sablonId}
+              onSecim={(id) => setSablonId(id as SablonId)}
+            />
+          </div>
+        ) : null}
+
         {error ? <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 8 }}>{error}</div> : null}
 
         {zpl ? (
@@ -130,7 +165,7 @@ export default function EtiketBasModal({ acik, urunler, source = 'pos', onKapat 
               readOnly
               value={zpl}
               rows={8}
-              style={{ width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb' }}
+              style={{ width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', boxSizing: 'border-box' }}
             />
             <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
               ZPL içeriğini Argox yazıcı yazılımına yapıştırın.
@@ -154,7 +189,7 @@ export default function EtiketBasModal({ acik, urunler, source = 'pos', onKapat 
             <button
               type="button"
               disabled={loading || seciliSayisi === 0}
-              onClick={() => void etiketBas()}
+              onClick={etiketBas}
               style={{
                 padding: '10px 18px', borderRadius: 8, border: 'none', fontWeight: 800, cursor: 'pointer',
                 backgroundColor: '#059669', color: 'white', opacity: loading || seciliSayisi === 0 ? 0.6 : 1,
