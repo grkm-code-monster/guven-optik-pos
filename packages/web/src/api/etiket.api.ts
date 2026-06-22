@@ -8,6 +8,16 @@ export type EtiketItem = {
   barkod?: string | null
 }
 
+export type EtiketSablonKayit = {
+  id: string
+  ad: string
+  kategori: string
+  elemanlar: unknown
+  etiketGenislik: number
+  etiketYukseklik: number
+  aktif: boolean
+}
+
 function clientFor(source: 'pos' | 'admin') {
   if (source === 'admin') {
     const token = localStorage.getItem('admin-token')
@@ -25,5 +35,57 @@ export async function generateZpl(
 ): Promise<{ zpl: string; count: number }> {
   const client = clientFor(source)
   const res = await client.post('/etiket/zpl', { etiketler })
+  return res.data
+}
+
+export async function generateZplFromSablon(
+  payload: {
+    elemanlar: unknown[]
+    etiketGenislik: number
+    etiketYukseklik: number
+    veri?: Record<string, unknown>
+    etiketler?: Record<string, unknown>[]
+    sablonId?: string
+  },
+  source: 'pos' | 'admin' = 'admin',
+): Promise<{ zpl: string; count: number }> {
+  const client = clientFor(source)
+  const res = await client.post('/etiket/zpl', payload)
+  return res.data
+}
+
+export async function getEtiketSablonlari(kategori?: string) {
+  const client = clientFor('admin')
+  const res = await client.get('/etiket/sablonlar', { params: kategori ? { kategori } : undefined })
+  return (res.data?.data ?? []) as EtiketSablonKayit[]
+}
+
+export async function kaydetEtiketSablon(payload: {
+  ad: string
+  kategori: string
+  elemanlar: unknown[]
+  etiketGenislik: number
+  etiketYukseklik: number
+}) {
+  const client = clientFor('admin')
+  const res = await client.post('/etiket/sablon', payload)
+  return res.data?.data as EtiketSablonKayit
+}
+
+export async function guncelleEtiketSablon(id: string, payload: Partial<{
+  ad: string
+  kategori: string
+  elemanlar: unknown[]
+  etiketGenislik: number
+  etiketYukseklik: number
+}>) {
+  const client = clientFor('admin')
+  const res = await client.put(`/etiket/sablon/${id}`, payload)
+  return res.data?.data as EtiketSablonKayit
+}
+
+export async function silEtiketSablon(id: string) {
+  const client = clientFor('admin')
+  const res = await client.delete(`/etiket/sablon/${id}`)
   return res.data
 }
