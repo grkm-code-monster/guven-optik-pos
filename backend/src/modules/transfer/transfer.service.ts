@@ -51,6 +51,19 @@ function logOdooError(label, err) {
     console.error(`[Odoo Hatası] ${label}:`, odooErrMessage(err), err);
 }
 const BEKLEYEN_PICKING_STATES = ['confirmed', 'assigned'];
+
+export async function getPickingDestBranchCode(pickingId: string | number): Promise<string> {
+    const id = Number(pickingId);
+    if (!Number.isFinite(id)) {
+        throw new Error(`Geçersiz picking id: ${pickingId}`);
+    }
+    const rows = (await odooService.execute('stock.picking', 'read', [[id]], { fields: ['location_dest_id'] }));
+    const locId = m2oId(rows?.[0]?.location_dest_id) ?? 0;
+    if (!locId) {
+        throw new Error('Picking hedef lokasyon bulunamadı');
+    }
+    return branchCodeFromLocationId(locId);
+}
 async function withOdoo(label, fn, mockFallback) {
     try {
         return await fn();
@@ -183,6 +196,80 @@ async function mapQuantToUrun(q, companyId) {
         utsDurumu,
         stok: Number(q.quantity ?? q.available_quantity ?? 0),
         kaynakFatura,
+    };
+}
+/** Etiket basımı için varsayılan seçim — cam hariç */
+const CAM_KATEGORI_ID = 4;
+const ETİKET_VARSAYILAN_KATEGORI_IDS = [6, 7, 8]; // çerçeve, güneş, aksesuar
+
+function etiketVarsayilanSecili(categId: number | null, categAdi: string, urunAdi: string): boolean {
+    if (categId === CAM_KATEGORI_ID) return false;
+    const upper = `${categAdi} ${urunAdi}`.toUpperCase();
+    if (upper.includes('OPTİK CAM') || upper.includes('OPTIK CAM') || /\bCAM\b/.test(upper)) return false;
+    if (categId && ETİKET_VARSAYILAN_KATEGORI_IDS.includes(categId)) return true;
+    if (upper.includes('AKSESUAR') || upper.includes('GÜNEŞ') || upper.includes('GUNEŞ') || upper.includes('ÇERÇEVE')) return true;
+    return false;
+}
+
+async function mapMoveLinesToUrunler(moveLines: any[], companyId: number) {
+    const productIds = [...new Set((moveLines ?? []).map((ml) => m2oId(ml.product_id)).filter(Boolean))];
+    let productMap = new Map<number, any>();
+    if (productIds.length) {
+        const products = (await odooService.execute('product.product', 'read', [productIds], {
+            fields: ['id', 'categ_id', 'lst_price', 'barcode', 'default_code'],
+        }, companyId)) ?? [];
+        productMap = new Map(products.map((p: any) => [p.id, p]));
+    }
+
+    return (moveLines ?? []).map((ml) => {
+        const pid = m2oId(ml.product_id) ?? 0;
+        const prod = productMap.get(pid);
+        const categId = m2oId(prod?.categ_id);
+        const categAdi = m2oName(prod?.categ_id);
+        const qty = Number(ml.quantity ?? 0) || 1;
+        const ad = m2oName(ml.product_id);
+        return {
+            moveLineId: ml.id,
+            id: pid,
+            ad,
+            varyant: '',
+            lotNo: ml.lot_id ? m2oName(ml.lot_id) : null,
+            seriNo: ml.lot_id ? m2oName(ml.lot_id) : null,
+            beklenenAdet: qty,
+            sayilanAdet: qty,
+            utsKodu: ml.x_uts_kodu ?? null,
+            utsDurumu: ml.x_uts_durumu ?? 'BEKLEMEDE',
+            fiyat: prod?.lst_price ?? 0,
+            barkod: prod?.barcode ?? prod?.default_code ?? null,
+            categId,
+            categAdi,
+            etiketSecili: etiketVarsayilanSecili(categId, categAdi, ad),
+        };
+    });
+}
+
+async function mapPickingToTransfer(p: any, companyId: number) {
+    const moveLineFields = [
+        'id', 'product_id', 'lot_id', 'quantity', 'product_uom_id', 'x_uts_kodu', 'x_uts_durumu',
+    ];
+    let moveLines: any[] = [];
+    try {
+        moveLines = (await odooService.execute('stock.move.line', 'search_read', [[['picking_id', '=', p.id]]], { fields: moveLineFields }, companyId)) ?? [];
+    }
+    catch (err) {
+        console.error('[transfer] stock.move.line:', odooErrMessage(err));
+        moveLines = (await odooService.execute('stock.move.line', 'search_read', [[['picking_id', '=', p.id]]], { fields: ['id', 'product_id', 'lot_id', 'quantity'] }, companyId)) ?? [];
+    }
+    const urunler = await mapMoveLinesToUrunler(moveLines, companyId);
+    return {
+        transferId: p.id,
+        refNo: p.name,
+        tarih: p.scheduled_date,
+        gonderen: m2oName(p.location_id),
+        alici: m2oName(p.location_dest_id),
+        personel: parsePersonelFromNote(p.note),
+        durum: p.state,
+        urunler,
     };
 }
 /** Frontend kategori kodu → Odoo product.category id */
@@ -447,7 +534,7 @@ export async export function createTransfer(input) {
         };
     });
 }
-export async export function listBekleyen(lokasyon) {
+export async function listBekleyen(lokasyon) {
     return withOdoo('bekleyen', async () => {
         const lokasyonId = await odooLocations.getLokasyonId(lokasyon);
         if (!lokasyonId)
@@ -456,15 +543,7 @@ export async export function listBekleyen(lokasyon) {
         if (!companyId)
             throw new Error(`Lokasyon şirketi tanımsız: ${lokasyon}`);
         const pickingFields = [
-            'id',
-            'name',
-            'location_id',
-            'location_dest_id',
-            'scheduled_date',
-            'origin',
-            'note',
-            'move_line_ids',
-            'state',
+            'id', 'name', 'location_id', 'location_dest_id', 'scheduled_date', 'origin', 'note', 'state',
         ];
         const pickinglar = (await odooService.execute('stock.picking', 'search_read', [
             [
@@ -472,53 +551,34 @@ export async export function listBekleyen(lokasyon) {
                 ['state', 'in', BEKLEYEN_PICKING_STATES],
             ],
         ], { fields: pickingFields, limit: 50, order: 'scheduled_date desc' }, companyId));
-        const transferler = await Promise.all((pickinglar ?? []).map(async (p) => {
-            const moveLineFields = [
-                'id',
-                'product_id',
-                'lot_id',
-                'quantity',
-                'product_uom_id',
-                'x_uts_kodu',
-                'x_uts_durumu',
-            ];
-            let moveLines = [];
-            try {
-                moveLines = (await odooService.execute('stock.move.line', 'search_read', [[['picking_id', '=', p.id]]], { fields: moveLineFields }, companyId));
-            }
-            catch (err) {
-                console.error('[transfer/bekleyen] stock.move.line search_read:', odooErrMessage(err), err);
-                moveLines = (await odooService.execute('stock.move.line', 'search_read', [[['picking_id', '=', p.id]]], { fields: ['id', 'product_id', 'lot_id', 'quantity', 'product_uom_id'] }, companyId));
-            }
-            return {
-                transferId: p.id,
-                refNo: p.name,
-                tarih: p.scheduled_date,
-                gonderen: m2oName(p.location_id),
-                alici: m2oName(p.location_dest_id),
-                personel: parsePersonelFromNote(p.note),
-                durum: p.state,
-                urunler: (moveLines ?? []).map((ml) => {
-                    const qty = Number(ml.quantity ?? 0) || 1;
-                    return {
-                        moveLineId: ml.id,
-                        id: m2oId(ml.product_id),
-                        ad: m2oName(ml.product_id),
-                        varyant: '',
-                        lotNo: ml.lot_id ? m2oName(ml.lot_id) : null,
-                        beklenenAdet: qty,
-                        sayilanAdet: qty,
-                        utsKodu: ml.x_uts_kodu ?? null,
-                        utsDurumu: ml.x_uts_durumu ?? 'BEKLEMEDE',
-                    };
-                }),
-            };
-        }));
+        const transferler = await Promise.all((pickinglar ?? []).map((p) => mapPickingToTransfer(p, companyId)));
         return transferler;
     }, MOCK_BEKLEYEN.filter((t) => {
         const alici = String(t.alici ?? '').toUpperCase();
         return alici === lokasyon.toUpperCase() || alici.includes(lokasyon.toUpperCase());
     }));
+}
+
+export async function listGonderilen(lokasyon) {
+    return withOdoo('gonderilen', async () => {
+        const lokasyonId = await odooLocations.getLokasyonId(lokasyon);
+        if (!lokasyonId)
+            throw new Error(`Lokasyon bulunamadı: ${lokasyon}`);
+        const companyId = odooLocations.getCompanyIdFromLokasyon(lokasyon);
+        if (!companyId)
+            throw new Error(`Lokasyon şirketi tanımsız: ${lokasyon}`);
+        const pickingFields = [
+            'id', 'name', 'location_id', 'location_dest_id', 'scheduled_date', 'origin', 'note', 'state',
+        ];
+        const pickinglar = (await odooService.execute('stock.picking', 'search_read', [
+            [
+                ['location_id', '=', lokasyonId],
+                ['state', 'in', BEKLEYEN_PICKING_STATES],
+            ],
+        ], { fields: pickingFields, limit: 50, order: 'scheduled_date desc' }, companyId));
+        const transferler = await Promise.all((pickinglar ?? []).map((p) => mapPickingToTransfer(p, companyId)));
+        return transferler;
+    }, []);
 }
 function validatePickingKwargs(companyId) {
     return {

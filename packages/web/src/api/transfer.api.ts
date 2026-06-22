@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { apiClient } from './client'
 
 export type TransferUrun = {
@@ -12,13 +13,27 @@ export type TransferUrun = {
   kaynakFatura?: string | null
 }
 
-export async function searchTransferProducts(params: {
-  q: string
-  yontem: string
-  lokasyon: string
-  kategoriId?: number
-  kategoriIds?: number[]
-}): Promise<TransferUrun[]> {
+function transferClient(source: 'pos' | 'admin' = 'pos') {
+  if (source === 'admin') {
+    const token = localStorage.getItem('admin-token')
+    return axios.create({
+      baseURL: '/api',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+  }
+  return apiClient
+}
+
+export async function searchTransferProducts(
+  params: {
+    q: string
+    yontem: string
+    lokasyon: string
+    kategoriId?: number
+    kategoriIds?: number[]
+  },
+  source: 'pos' | 'admin' = 'pos',
+): Promise<TransferUrun[]> {
   const queryParams: Record<string, string | number> = {
     q: params.q,
     yontem: params.yontem,
@@ -26,7 +41,7 @@ export async function searchTransferProducts(params: {
   }
   if (params.kategoriId != null) queryParams.kategoriId = params.kategoriId
   if (params.kategoriIds?.length) queryParams.kategoriIds = params.kategoriIds.join(',')
-  const res = await apiClient.get('/transfer/urun-ara', { params: queryParams })
+  const res = await transferClient(source).get('/transfer/urun-ara', { params: queryParams })
   return res.data
 }
 
@@ -38,22 +53,27 @@ export async function createTransfer(payload: {
   not: string
   urunler: any[]
   personel: string
-}) {
-  const res = await apiClient.post('/transfer/olustur', payload)
+}, source: 'pos' | 'admin' = 'pos') {
+  const res = await transferClient(source).post('/transfer/olustur', payload)
   return res.data
 }
 
-export async function getBekleyenTransferler(lokasyon: string) {
-  const res = await apiClient.get('/transfer/bekleyen', { params: { lokasyon } })
+export async function getBekleyenTransferler(lokasyon: string, source: 'pos' | 'admin' = 'pos') {
+  const res = await transferClient(source).get('/transfer/bekleyen', { params: { lokasyon } })
   return res.data
 }
 
-export async function kabulTransfer(payload: { transferId: string; sayimlar: any[] }) {
-  const res = await apiClient.post('/transfer/kabul', payload)
+export async function getGonderilenTransferler(lokasyon: string, source: 'pos' | 'admin' = 'pos') {
+  const res = await transferClient(source).get('/transfer/gonderilen', { params: { lokasyon } })
   return res.data
 }
 
-export async function sorunTransfer(payload: { transferId: string; not: string }) {
-  const res = await apiClient.post('/transfer/sorun', payload)
+export async function kabulTransfer(payload: { transferId: string; sayimlar: any[] }, source: 'pos' | 'admin' = 'pos') {
+  const res = await transferClient(source).post('/transfer/kabul', payload)
+  return res.data
+}
+
+export async function sorunTransfer(payload: { transferId: string; not: string }, source: 'pos' | 'admin' = 'pos') {
+  const res = await transferClient(source).post('/transfer/sorun', payload)
   return res.data
 }

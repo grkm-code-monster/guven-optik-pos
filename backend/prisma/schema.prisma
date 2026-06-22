@@ -33,6 +33,7 @@ model User {
 enum Role {
   SALES_STAFF
   STORE_MANAGER
+  WAREHOUSE_MANAGER
   REGIONAL_MANAGER
   ACCOUNTANT
   ADMIN
@@ -1103,4 +1104,20 @@ model ChatbotKullanim {
   kullanimSayisi Int      @default(0)
   ilkKullanimAt  DateTime @default(now())
   updatedAt      DateTime @updatedAt
+}
+
+model FiyatDegisiklikBildirimi {
+  id                 String   @id @default(cuid())
+  urunId             Int      // Odoo product.template id
+  urunAdi            String
+  eskiFiyat          Decimal  @db.Decimal(12, 2)
+  yeniFiyat          Decimal  @db.Decimal(12, 2)
+  fiyatTipi          String   @default("SATIS") // SATIS | ALIS
+  degistirenUserId   String
+  subeKodu           String   // GVN1, ANADEPO vb.
+  okundu             Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  @@index([subeKodu, okundu])
+  @@index([createdAt])
 }

@@ -82,6 +82,46 @@ function StokTab() {
 
 // ── TRANSFER SEKMESİ ──────────────────────────────────────────
 function TransferTab() {
+  const [altSekme, setAltSekme] = useState<'lot' | 'sube'>('lot')
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <button
+          type="button"
+          onClick={() => setAltSekme('lot')}
+          style={{
+            padding: '10px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 800, fontSize: 13,
+            backgroundColor: altSekme === 'lot' ? '#1a1a2e' : '#f3f4f6',
+            color: altSekme === 'lot' ? 'white' : '#374151',
+          }}
+        >
+          Lot Transfer
+        </button>
+        <button
+          type="button"
+          onClick={() => setAltSekme('sube')}
+          style={{
+            padding: '10px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 800, fontSize: 13,
+            backgroundColor: altSekme === 'sube' ? '#1a1a2e' : '#f3f4f6',
+            color: altSekme === 'sube' ? 'white' : '#374151',
+          }}
+        >
+          Şube Transferleri
+        </button>
+      </div>
+
+      {altSekme === 'lot' ? <LotTransferTab /> : (
+        <div style={{ display: 'grid', gap: 20 }}>
+          <YeniTransfer source="admin" />
+          <BekleyenTransferler source="admin" useMockFallback={false} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LotTransferTab() {
   const [aramaQ, setAramaQ] = useState('')
   const [aramaSonuclar, setAramaSonuclar] = useState<Array<{
     lotId: number; lotName: string; barkod: string

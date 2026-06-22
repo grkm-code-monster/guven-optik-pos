@@ -25,6 +25,7 @@ import FinansPage from './pages/admin/FinansPage'
 import PatronPage from './pages/admin/PatronPage'
 import GarantiYonetimPage from './pages/admin/GarantiYonetimPage'
 import UrunYapilandirmaPage from './pages/admin/UrunYapilandirmaPage'
+import StokYonetimiPage from './pages/admin/StokYonetimiPage'
 import UtsYonetimiPage from './pages/admin/UtsYonetimiPage'
 import BelgeYuklePage from './pages/BelgeYuklePage'
 
@@ -53,6 +54,7 @@ export default function App() {
           <Route path="subeler" element={<Navigate to="/admin/tanimlamalar" replace />} />
           <Route path="kampanyalar" element={<KampanyalarPage />} />
           <Route path="depo" element={<DepoPage />} />
+          <Route path="stok-yonetimi" element={<StokYonetimiPage />} />
           <Route path="urun-yapilandirma" element={<UrunYapilandirmaPage />} />
           <Route path="garanti" element={<GarantiYonetimPage />} />
           <Route path="uts" element={<UtsYonetimiPage />} />

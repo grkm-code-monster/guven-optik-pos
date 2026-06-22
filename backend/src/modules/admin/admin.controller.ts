@@ -7,6 +7,7 @@ import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
 import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 import { LOKASYON_ID_MAP } from '../odoo/odooLocations';
+import * as stokYonetimi from './stok-yonetimi.service';
 
 const router = Router();
 
@@ -360,7 +361,19 @@ router.get(
   },
 );
 
-router.use(authorize(Role.ADMIN));
+router.use((req: Request, res: Response, next: NextFunction) => {
+  // Sadece transfer endpoint'lerinde STORE_MANAGER / WAREHOUSE_MANAGER da yetkili
+  if (req.path.startsWith('/transfer-')) {
+    return authorize(Role.ADMIN, Role.STORE_MANAGER, Role.WAREHOUSE_MANAGER)(req, res, next);
+  }
+  if (req.path.startsWith('/fiyat-degisiklikleri')) {
+    return authorize(Role.ADMIN, Role.STORE_MANAGER)(req, res, next);
+  }
+  if (req.path.startsWith('/stok-urun') || req.path.startsWith('/stok-fiyat')) {
+    return authorize(Role.ADMIN, Role.WAREHOUSE_MANAGER)(req, res, next);
+  }
+  return authorize(Role.ADMIN)(req, res, next);
+});
 
 function codeError(code: string, message: string) {
   const err = new Error(code) as Error & { code: string; message: string };
@@ -6341,6 +6354,139 @@ router.patch('/odoo-varyant-guncelle', async (req, res, next) => {
       ]);
     }
     return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── STOK YÖNETİMİ ────────────────────────────────────────────────
+async function kullaniciSubeKodu(branchId: string): Promise<string | undefined> {
+  const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { code: true } });
+  return branch?.code;
+}
+
+router.get('/stok-urunleri', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { q, kategoriId, fiyatMin, fiyatMax, stokDurumu, lokasyon, kdv, page, limit } = req.query;
+    const result = await stokYonetimi.listStokUrunleri({
+      q: q ? String(q) : undefined,
+      kategoriId: kategoriId ? Number(kategoriId) : undefined,
+      fiyatMin: fiyatMin != null ? Number(fiyatMin) : undefined,
+      fiyatMax: fiyatMax != null ? Number(fiyatMax) : undefined,
+      stokDurumu: stokDurumu as 'tumu' | 'var' | 'sifir' | undefined,
+      lokasyon: lokasyon ? String(lokasyon) : undefined,
+      kdv: kdv ? Number(kdv) : undefined,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 50,
+    });
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/stok-fiyat', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { urunId, satisFiyati, alisFiyati } = req.body ?? {};
+    if (!urunId) return res.status(400).json({ error: 'urunId zorunlu' });
+    const result = await stokYonetimi.guncelleStokFiyat({
+      urunId: Number(urunId),
+      satisFiyati: satisFiyati != null ? Number(satisFiyati) : undefined,
+      alisFiyati: alisFiyati != null ? Number(alisFiyati) : undefined,
+      degistirenUserId: user.userId,
+    });
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/stok-fiyat-toplu', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { urunIds, tip, deger, hedef } = req.body ?? {};
+    if (!Array.isArray(urunIds) || !urunIds.length) {
+      return res.status(400).json({ error: 'urunIds zorunlu' });
+    }
+    const result = await stokYonetimi.topluFiyatGuncelle({
+      urunIds: urunIds.map(Number),
+      tip: tip ?? 'yuzde',
+      deger: Number(deger) || 0,
+      hedef: hedef ?? 'satis',
+      degistirenUserId: user.userId,
+    });
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/stok-urun/:tmplId/lotlar', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tmplId = Number(req.params.tmplId);
+    const lokasyon = String(req.query.lokasyon ?? 'GVN1');
+    const lotlar = await stokYonetimi.getUrunLotlari(tmplId, lokasyon);
+    return res.json({ data: lotlar });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/fiyat-degisiklikleri', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    let subeKodu: string | undefined;
+    if (user.role === Role.STORE_MANAGER) {
+      subeKodu = await kullaniciSubeKodu(user.branchId);
+    } else if (req.query.subeKodu) {
+      subeKodu = String(req.query.subeKodu);
+    }
+    const okundu = req.query.okundu === 'true' ? true : req.query.okundu === 'false' ? false : undefined;
+    const data = await stokYonetimi.listFiyatBildirimleri({ subeKodu, okundu });
+    return res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/fiyat-degisiklikleri/sayac', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    let subeKodu: string | undefined;
+    if (user.role === Role.STORE_MANAGER) {
+      subeKodu = await kullaniciSubeKodu(user.branchId);
+    }
+    const count = await stokYonetimi.fiyatBildirimSayac(subeKodu);
+    return res.json({ count });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/fiyat-degisiklikleri/:id/okundu', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await stokYonetimi.bildirimOkundu(req.params.id);
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/fiyat-degisiklikleri/okundu-tumu', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    let subeKodu: string | undefined;
+    if (user.role === Role.STORE_MANAGER) {
+      subeKodu = await kullaniciSubeKodu(user.branchId);
+    }
+    const count = await stokYonetimi.bildirimleriOkunduIsaretle(subeKodu);
+    return res.json({ success: true, count });
   } catch (err) {
     next(err);
   }

@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { authenticate } from '../../middleware/authenticate';
+import { Role } from '@prisma/client';
+import { prisma } from '../../database/prisma';
 import { isDevMockEnabled } from './transfer.mock';
 import * as transferService from './transfer.service';
 
@@ -89,9 +91,53 @@ router.get('/bekleyen', async (req, res) => {
   }
 });
 
+router.get('/gonderilen', async (req, res) => {
+  try {
+    const lokasyon = String(req.query.lokasyon ?? 'GVN1');
+    const rows = await transferService.listGonderilen(lokasyon);
+    return res.status(200).json(rows);
+  } catch (err) {
+    return handleOdooFailure(res, err);
+  }
+});
+
 router.post('/kabul', async (req, res) => {
   try {
     const { transferId, sayimlar } = req.body ?? {};
+
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Kimlik doğrulama gerekli' });
+    }
+
+    const acceptRoles: Role[] = [Role.STORE_MANAGER, Role.ADMIN];
+    if (!acceptRoles.includes(user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Kabul işlemi sadece mağaza müdürü veya admin tarafından yapılabilir.',
+        error: 'INSUFFICIENT_PERMISSION',
+      });
+    }
+
+    // Şube kısıtı: STORE_MANAGER sadece kendi şubesine gelen transferi kabul edebilir
+    if (user.role === Role.STORE_MANAGER) {
+      const targetBranchCode = await transferService.getPickingDestBranchCode(String(transferId ?? ''));
+      const targetBranch = await prisma.branch.findUnique({
+        where: { code: targetBranchCode },
+        select: { id: true, code: true },
+      });
+      if (!targetBranch) {
+        return res.status(400).json({ success: false, message: `Hedef şube bulunamadı: ${targetBranchCode}` });
+      }
+      if (targetBranch.id !== user.branchId) {
+        return res.status(403).json({
+          success: false,
+          message: `Bu transfer ${targetBranch.code} şubesine ait. Sadece hedef şubenin müdürü kabul edebilir.`,
+          error: 'BRANCH_MISMATCH',
+        });
+      }
+    }
+
     const result = await transferService.acceptTransfer(String(transferId ?? ''), sayimlar ?? []);
     if (!result.success) {
       return res.status(404).json(result);

@@ -1,7 +1,9 @@
 import axios from 'axios'
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { ChatbotButon } from '../../components/ChatbotPanel'
+import FiyatBildirimPanel from '../../components/admin/FiyatBildirimPanel'
+import { getFiyatBildirimSayac } from '../../api/stok.api'
 
 export const adminApi = axios.create({ baseURL: '/api' })
 
@@ -46,6 +48,7 @@ const MENU: MenuGroup[] = [
     title: '📦 DEPO',
     items: [
       { label: 'Depo Yönetimi', icon: '📦', to: '/admin/depo' },
+      { label: 'Stok Yönetimi', icon: '🏷️', to: '/admin/stok-yonetimi' },
       { label: 'Ürün Yapılandırma', icon: '⚙️', to: '/admin/urun-yapilandirma' },
       { label: 'Garanti & İade', icon: '🔧', to: '/admin/garanti' },
       { label: 'UTS Yönetimi', icon: '🏥', to: '/admin/uts' },
@@ -67,12 +70,46 @@ const MENU: MenuGroup[] = [
 
 export default function AdminLayout() {
   const navigate = useNavigate()
+  const [bildirimSayac, setBildirimSayac] = useState(0)
+  const [bildirimAcik, setBildirimAcik] = useState(false)
+
+  const adminUser = (() => {
+    try {
+      const raw = localStorage.getItem('admin-user')
+      return raw ? JSON.parse(raw) as { role?: string } : null
+    } catch {
+      return null
+    }
+  })()
+
+  const menu = useMemo(() => {
+    const role = adminUser?.role
+    if (role === 'STORE_MANAGER') {
+      return MENU.map((g) => ({
+        ...g,
+        items: g.items.filter((i) => i.to !== '/admin/stok-yonetimi'),
+      }))
+    }
+    return MENU
+  }, [adminUser?.role])
 
   useEffect(() => {
     if (!localStorage.getItem('admin-token')) {
       navigate('/admin/login', { replace: true })
     }
   }, [navigate])
+
+  const sayacYukle = () => {
+    getFiyatBildirimSayac()
+      .then(setBildirimSayac)
+      .catch(() => setBildirimSayac(0))
+  }
+
+  useEffect(() => {
+    sayacYukle()
+    const t = setInterval(sayacYukle, 60000)
+    return () => clearInterval(t)
+  }, [])
 
   function logout() {
     localStorage.removeItem('admin-token')
@@ -93,9 +130,32 @@ export default function AdminLayout() {
           padding: '20px 0',
         }}
       >
-        <div style={{ padding: '0 20px 20px', fontWeight: 900, fontSize: 18 }}>Yönetim Paneli</div>
+        <div style={{ padding: '0 20px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>Yönetim Paneli</div>
+          <button
+            type="button"
+            onClick={() => setBildirimAcik(true)}
+            title="Fiyat değişiklik bildirimleri"
+            style={{
+              position: 'relative', border: 'none', background: 'rgba(255,255,255,0.1)',
+              borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 16,
+            }}
+          >
+            🔔
+            {bildirimSayac > 0 ? (
+              <span style={{
+                position: 'absolute', top: -4, right: -4, backgroundColor: '#ef4444',
+                color: 'white', fontSize: 10, fontWeight: 800, borderRadius: 10,
+                minWidth: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '0 4px',
+              }}>
+                {bildirimSayac > 99 ? '99+' : bildirimSayac}
+              </span>
+            ) : null}
+          </button>
+        </div>
         <nav style={{ flex: 1, overflowY: 'auto' }}>
-          {MENU.map((group) => (
+          {menu.map((group) => (
             <div key={group.title} style={{ marginBottom: 16 }}>
               <div
                 style={{
@@ -152,6 +212,11 @@ export default function AdminLayout() {
         <Outlet />
       </main>
       <ChatbotButon />
+      <FiyatBildirimPanel
+        acik={bildirimAcik}
+        onKapat={() => setBildirimAcik(false)}
+        onSayacGuncelle={sayacYukle}
+      />
     </div>
   )
 }

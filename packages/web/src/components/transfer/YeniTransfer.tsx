@@ -74,10 +74,26 @@ const MOCK_URUNLER = [
   },
 ]
 
-export default function YeniTransfer() {
-  const user = useAuthStore((s) => s.user)
+function readAdminUser(): { id?: string; role?: string } | null {
+  try {
+    const raw = localStorage.getItem('admin-user')
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
 
-  const [cikisLok, setCikisLok] = useState('')
+type Props = {
+  source?: 'pos' | 'admin'
+  defaultLokasyon?: string
+}
+
+export default function YeniTransfer({ source = 'pos', defaultLokasyon }: Props) {
+  const posUser = useAuthStore((s) => s.user)
+  const adminUser = source === 'admin' ? readAdminUser() : null
+  const user = posUser ?? adminUser
+
+  const [cikisLok, setCikisLok] = useState(defaultLokasyon ?? '')
   const [girisLok, setGirisLok] = useState('')
   const [tarih, setTarih] = useState(bugunTarih())
   const [referans, setReferans] = useState('')
@@ -106,13 +122,13 @@ export default function YeniTransfer() {
     }
     const t = setTimeout(() => {
       setAramaLoading(true)
-      searchTransferProducts({ q: aramaMetni.trim(), yontem: aramaYontemi, lokasyon: cikisLok })
-        .then((rows) => setAramaOneri(Array.isArray(rows) && rows.length ? rows : MOCK_URUNLER))
-        .catch(() => setAramaOneri(MOCK_URUNLER))
+      searchTransferProducts({ q: aramaMetni.trim(), yontem: aramaYontemi, lokasyon: cikisLok }, source)
+        .then((rows) => setAramaOneri(Array.isArray(rows) && rows.length ? rows : source === 'pos' ? MOCK_URUNLER : []))
+        .catch(() => setAramaOneri(source === 'pos' ? MOCK_URUNLER : []))
         .finally(() => setAramaLoading(false))
     }, 300)
     return () => clearTimeout(t)
-  }, [aramaMetni, aramaYontemi, cikisLok])
+  }, [aramaMetni, aramaYontemi, cikisLok, source])
 
   function urunEkle(u: any) {
     setUrunler((prev) => [
@@ -165,8 +181,8 @@ export default function YeniTransfer() {
         referans,
         not,
         urunler,
-        personel: user.id,
-      })
+        personel: String(user.id),
+      }, source)
       if (data?.success) {
         setSuccess(`Transfer oluşturuldu: ${data.transferId ?? ''} ${data.odooPickingId ? `(Odoo #${data.odooPickingId})` : ''}`)
         setCikisLok('')

@@ -2,7 +2,7 @@ export interface User {
   id: string
   name: string
   username: string
-  role: 'SALES_STAFF' | 'STORE_MANAGER' | 'REGIONAL_MANAGER' | 'ACCOUNTANT' | 'ADMIN'
+  role: 'SALES_STAFF' | 'STORE_MANAGER' | 'WAREHOUSE_MANAGER' | 'REGIONAL_MANAGER' | 'ACCOUNTANT' | 'ADMIN'
   branchId: string
 }
 
