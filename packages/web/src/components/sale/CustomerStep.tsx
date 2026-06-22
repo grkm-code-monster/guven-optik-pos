@@ -133,6 +133,9 @@ export default function CustomerStep({
   async function refreshPrescriptionCard(customerId: string) {
     const list = await getReceteGecmisi(customerId)
     setReceteHistory(list)
+    if (list.length > 0) {
+      applyRecete(list[0])
+    }
     try {
       const full = await getCustomerById(customerId)
       setSelectedCustomer(full)

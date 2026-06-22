@@ -140,6 +140,7 @@ export default function ItemsStep({
         lokasyon,
         kategoriId: aramaYontemi === 'barkod' ? undefined : (pickedKategoriId ?? undefined),
         kategoriIds: aramaYontemi === 'barkod' ? undefined : (pickedKategoriIds ?? undefined),
+        katalog: true,
       })
         .then((data) => {
           const rows = Array.isArray(data) ? data : []

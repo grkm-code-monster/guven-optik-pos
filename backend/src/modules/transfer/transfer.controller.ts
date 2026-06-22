@@ -49,7 +49,8 @@ router.get('/urun-ara', async (req, res) => {
       const parsed = kategoriIdsRaw.split(',').map(Number).filter(n => Number.isFinite(n) && n > 0)
       if (parsed.length > 0) kategoriIds = parsed
     }
-    const rows = await transferService.searchUrun(q, yontem, lokasyon, { kategori, kategoriId, kategoriIds });
+    const katalog = req.query.katalog === '1' || req.query.katalog === 'true';
+    const rows = await transferService.searchUrun(q, yontem, lokasyon, { kategori, kategoriId, kategoriIds, katalog });
     return res.status(200).json(rows);
   } catch (err) {
     return handleOdooFailure(res, err);

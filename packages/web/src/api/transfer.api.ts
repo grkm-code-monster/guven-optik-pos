@@ -31,6 +31,7 @@ export async function searchTransferProducts(
     lokasyon: string
     kategoriId?: number
     kategoriIds?: number[]
+    katalog?: boolean
   },
   source: 'pos' | 'admin' = 'pos',
 ): Promise<TransferUrun[]> {
@@ -41,6 +42,7 @@ export async function searchTransferProducts(
   }
   if (params.kategoriId != null) queryParams.kategoriId = params.kategoriId
   if (params.kategoriIds?.length) queryParams.kategoriIds = params.kategoriIds.join(',')
+  if (params.katalog) queryParams.katalog = '1'
   const res = await transferClient(source).get('/transfer/urun-ara', { params: queryParams })
   return res.data
 }

@@ -3,6 +3,7 @@ import { apiClient } from '../../api/client'
 import { useAuthStore } from '../../store/auth.store'
 import { getAktifLokasyon } from '../../utils/aktifLokasyon'
 import type { LensOrderMeasurementPayload } from '../../utils/saleMeasurements'
+import { buildOzelSiparisReceteFields } from '../../utils/ozelSiparisRecete'
 
 type StokDurum = 'YUKLENIYOR' | 'MEVCUT' | 'BASKA_LOKASYON' | 'YOK'
 
@@ -148,27 +149,24 @@ export default function StokTeminStep({
         ?? 'Müşteri'
       const musteriTelefon = selectedCustomer?.phone ?? ''
       const satisTemsilcisi = useAuthStore.getState().user?.name
-      const recete = latestPrescription
+      const saleItem = (sale?.items ?? []).find((i: any) => i.id === urun.saleItemId)
+      const receteFields = buildOzelSiparisReceteFields({
+        saleItemPrescription: saleItem?.prescription,
+        customerPrescription: latestPrescription,
+        customer: selectedCustomer,
+      })
       const payload: any = {
         musteriAdi: musteriAdi || 'Müşteri',
         musteriTelefon: musteriTelefon || '',
         musteriId: selectedCustomer?.id ?? undefined,
+        satisSiparisId: sale?.id ?? undefined,
         urunAdi: urun.urunAdi || 'Ürün',
         tip: 'RECETELI',
         subeId: getAktifLokasyon(),
         subeAdi: getAktifLokasyon(),
         satisTemsilcisi,
+        ...receteFields,
       }
-      if (recete?.far_r_sph ?? recete?.r_sph) payload.sagSph = recete.far_r_sph ?? recete.r_sph
-      if (recete?.far_r_cyl ?? recete?.r_cyl) payload.sagCyl = recete.far_r_cyl ?? recete.r_cyl
-      if (recete?.far_r_aks ?? recete?.r_axs) payload.sagAks = recete.far_r_aks ?? recete.r_axs
-      if (recete?.far_r_add ?? recete?.r_add) payload.sagAdd = recete.far_r_add ?? recete.r_add
-      if (recete?.far_r_pd) payload.sagPd = recete.far_r_pd
-      if (recete?.far_l_sph ?? recete?.l_sph) payload.solSph = recete.far_l_sph ?? recete.l_sph
-      if (recete?.far_l_cyl ?? recete?.l_cyl) payload.solCyl = recete.far_l_cyl ?? recete.l_cyl
-      if (recete?.far_l_aks ?? recete?.l_axs) payload.solAks = recete.far_l_aks ?? recete.l_axs
-      if (recete?.far_l_add ?? recete?.l_add) payload.solAdd = recete.far_l_add ?? recete.l_add
-      if (recete?.far_l_pd) payload.solPd = recete.far_l_pd
 
       const olcum = lensOrderMeasurements?.find((m) => m.saleItemId === urun.saleItemId)
       if (olcum) payload.olcumBilgisi = [olcum]

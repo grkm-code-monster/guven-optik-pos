@@ -7,9 +7,10 @@ import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
 import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 import { LOKASYON_ID_MAP } from '../odoo/odooLocations';
+import * as pdksService from '../pdks/pdks.service';
 import * as stokYonetimi from './stok-yonetimi.service';
 
-const POS_STOCK_ROLES = [
+const POS_ROLES = [
   Role.SALES_STAFF,
   Role.STORE_MANAGER,
   Role.WAREHOUSE_MANAGER,
@@ -374,13 +375,17 @@ router.get(
 );
 
 router.use((req: Request, res: Response, next: NextFunction) => {
-  // POS Stok Sorgula — tüm şube personeli erişebilir; Odoo çağrıları sunucu admin session ile yapılır
-  if (req.path === '/branches' || req.path === '/stock') {
-    return authorize(...POS_STOCK_ROLES)(req, res, next);
+  // POS — stok sorgu, temin adımı (lokasyon stok, özel sipariş, transfer)
+  if (
+    req.path === '/branches' ||
+    req.path === '/stock' ||
+    req.path === '/lokasyon-stok' ||
+    req.path === '/ozel-siparis-ekle'
+  ) {
+    return authorize(...POS_ROLES)(req, res, next);
   }
-  // Sadece transfer endpoint'lerinde STORE_MANAGER / WAREHOUSE_MANAGER da yetkili
   if (req.path.startsWith('/transfer-')) {
-    return authorize(Role.ADMIN, Role.STORE_MANAGER, Role.WAREHOUSE_MANAGER)(req, res, next);
+    return authorize(...POS_ROLES)(req, res, next);
   }
   if (req.path.startsWith('/fiyat-degisiklikleri')) {
     return authorize(Role.ADMIN, Role.STORE_MANAGER)(req, res, next);
@@ -4872,6 +4877,105 @@ router.post('/personel-odoo-bagla/:id', async (req, res, next) => {
   }
 });
 
+router.put('/personel-pdks/:id', async (req, res, next) => {
+  try {
+    const { pdksId } = req.body;
+    if (!pdksId) {
+      return res.status(400).json({ error: 'PDKS ID zorunlu' });
+    }
+    await prisma.personel.update({
+      where: { id: req.params.id },
+      data: { pdksId: String(pdksId) },
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/personel-pdks/:id', async (req, res, next) => {
+  try {
+    await prisma.personel.update({
+      where: { id: req.params.id },
+      data: { pdksId: null },
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/personel-pos-guncelle/:id', async (req, res, next) => {
+  try {
+    const { username, role, pin } = req.body;
+    const personel = await prisma.personel.findUnique({ where: { id: req.params.id } });
+    if (!personel?.userId) {
+      return res.status(400).json({ error: 'POS kullanıcısı bağlı değil' });
+    }
+
+    const data: Prisma.UserUpdateInput = {};
+    if (username?.trim()) data.username = String(username).trim().toLowerCase();
+    if (role) data.role = role as Role;
+    if (pin) data.pin = await bcrypt.hash(String(pin), 10);
+
+    if (!Object.keys(data).length) {
+      return res.status(400).json({ error: 'Güncellenecek alan yok' });
+    }
+
+    await prisma.user.update({
+      where: { id: personel.userId },
+      data,
+    });
+    return res.json({ success: true });
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e?.code === 'P2002') {
+      return res.status(400).json({ error: 'Bu kullanıcı adı zaten var' });
+    }
+    next(err);
+  }
+});
+
+router.delete('/personel-pos-bagla/:id', async (req, res, next) => {
+  try {
+    const personel = await prisma.personel.findUnique({ where: { id: req.params.id } });
+    if (!personel?.userId) {
+      return res.status(400).json({ error: 'POS bağlantısı yok' });
+    }
+    const userId = personel.userId;
+    await prisma.$transaction([
+      prisma.personel.update({
+        where: { id: req.params.id },
+        data: { userId: null },
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { personelId: null },
+      }),
+    ]);
+    return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/pdks-personeller', async (_req, res, next) => {
+  try {
+    const raw = (await pdksService.getPersoneller()) as
+      | Array<{ id: number; name?: string; givenName?: string; familyName?: string }>
+      | { data?: Array<{ id: number; name?: string; givenName?: string; familyName?: string }> };
+    const list = Array.isArray(raw) ? raw : (raw.data ?? []);
+    return res.json({
+      data: list.map((p: { id: number; name?: string; givenName?: string; familyName?: string }) => ({
+        id: p.id,
+        name: p.name || `${p.givenName ?? ''} ${p.familyName ?? ''}`.trim(),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/personel-pos-bagla/:id', async (req, res, next) => {
   try {
     const { userId } = req.body;
@@ -5246,6 +5350,16 @@ router.post('/prim-hesapla', async (req, res) => {
 })
 
 // ── ÖZEL SİPARİŞ CRUD ─────────────────────────────────────────────
+
+function parseOzelSiparisReceteNum(v: unknown): number | null {
+  if (v == null || v === '') return null
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  const s = String(v).trim().replace(',', '.')
+  if (!s) return null
+  const n = Number(s.replace(/^\+/, ''))
+  return Number.isFinite(n) ? n : null
+}
+
 router.get('/ozel-siparisler', async (req, res) => {
   try {
     const { PrismaClient } = await import('@prisma/client')
@@ -5306,16 +5420,16 @@ router.post('/ozel-siparis-ekle', async (req, res) => {
         sirketId: sirketId ? Number(sirketId) : null,
         tip, urunAdi, urunKodu,
         miktar: Number(miktar) || 1,
-        sagSph: sagSph ? Number(sagSph) : null,
-        sagCyl: sagCyl ? Number(sagCyl) : null,
-        sagAks: sagAks ? Number(sagAks) : null,
-        sagAdd: sagAdd ? Number(sagAdd) : null,
-        sagPd: sagPd ? Number(sagPd) : null,
-        solSph: solSph ? Number(solSph) : null,
-        solCyl: solCyl ? Number(solCyl) : null,
-        solAks: solAks ? Number(solAks) : null,
-        solAdd: solAdd ? Number(solAdd) : null,
-        solPd: solPd ? Number(solPd) : null,
+        sagSph: parseOzelSiparisReceteNum(sagSph),
+        sagCyl: parseOzelSiparisReceteNum(sagCyl),
+        sagAks: parseOzelSiparisReceteNum(sagAks),
+        sagAdd: parseOzelSiparisReceteNum(sagAdd),
+        sagPd: parseOzelSiparisReceteNum(sagPd),
+        solSph: parseOzelSiparisReceteNum(solSph),
+        solCyl: parseOzelSiparisReceteNum(solCyl),
+        solAks: parseOzelSiparisReceteNum(solAks),
+        solAdd: parseOzelSiparisReceteNum(solAdd),
+        solPd: parseOzelSiparisReceteNum(solPd),
         camTipi, camIndeksi, kaplama, cerceveBilgisi,
         tedarikciId: tedarikciId ? Number(tedarikciId) : null,
         tedarikciAdi,

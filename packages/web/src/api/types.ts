@@ -130,6 +130,7 @@ export interface DailyReport {
     OPTIK_CERCEVE: number
     AKSESUAR: number
     SOLUSYON: number
+    DIGER?: number
   }
   temsilciBreakdown?: Array<{
     repName: string

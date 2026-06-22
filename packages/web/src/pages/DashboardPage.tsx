@@ -29,6 +29,7 @@ ChartJS.register(
 import { getDailyReport, getPersonalDailyReport, downloadExcel } from '../api/reports.api'
 import { getCurrentShift } from '../api/shifts.api'
 import type { DailyReport, User } from '../api/types'
+import { downloadGunlukKasaPdf } from '../utils/gunlukKasaPdf'
 
 type SalesDetailRow = NonNullable<DailyReport['salesDetail']>[number]
 
@@ -138,13 +139,6 @@ function handlePrint() {
   window.print()
 }
 
-function discountPct(gross?: string, discount?: string) {
-  const g = Number(gross ?? 0)
-  const d = Number(discount ?? 0)
-  if (!g) return '—'
-  return `${((d / g) * 100).toFixed(1)}%`
-}
-
 function fmtDate(iso?: string) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('tr-TR')
@@ -161,6 +155,23 @@ function cardSlipTotal(row: SalesDetailRow) {
 
 function cardCommissionTotal(row: SalesDetailRow) {
   return row.cardPayments.reduce((s, p) => s + Number(p.commissionAmount), 0)
+}
+
+function summarizeGunlukKasaRows(rows: SalesDetailRow[]) {
+  return rows.reduce(
+    (acc, s) => {
+      acc.gross += Number(s.grossTotal)
+      acc.net += Number(s.netTotal)
+      acc.taxFree += Number(s.taxExcluded)
+      acc.discount += Number(s.grossTotal) * (Number(s.discountPct) / 100)
+      acc.cash += Number(s.cashAmount)
+      acc.slip += cardSlipTotal(s)
+      acc.commission += cardCommissionTotal(s)
+      acc.sgk += Number(s.sgkAmount)
+      return acc
+    },
+    { gross: 0, net: 0, taxFree: 0, discount: 0, cash: 0, slip: 0, commission: 0, sgk: 0 },
+  )
 }
 
 function reportHasShift(report: DailyReport | null): boolean {
@@ -273,12 +284,20 @@ function TabBar({ tabs, active, onChange }: { tabs: string[]; active: number; on
   )
 }
 
-function SectionHeader({ title, showPdf }: { title: string; showPdf?: boolean }) {
+function SectionHeader({
+  title,
+  showPdf,
+  onPdf,
+}: {
+  title: string
+  showPdf?: boolean
+  onPdf?: () => void
+}) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#111' }}>{title}</h2>
       {showPdf ? (
-        <button type="button" onClick={handlePrint} style={PDF_BTN_STYLE}>
+        <button type="button" onClick={onPdf ?? handlePrint} style={PDF_BTN_STYLE}>
           PDF
         </button>
       ) : null}
@@ -294,6 +313,7 @@ function KategoriBars({ report }: { report: DailyReport | null }) {
     ['OPTIK_CERCEVE', 'Çerçeve'],
     ['AKSESUAR', 'Aksesuar'],
     ['SOLUSYON', 'Solüsyon'],
+    ['DIGER', 'Diğer'],
   ] as const
   const max = Math.max(1, ...cats.map(([k]) => report?.kategoriBreakdown?.[k] ?? 0))
   return (
@@ -344,20 +364,7 @@ function GunlukKasaTable({
     ...(showRep ? ['Temsilci'] : []),
   ]
 
-  const totals = rows.reduce(
-    (acc, s) => {
-      acc.gross += Number(s.grossTotal)
-      acc.net += Number(s.netTotal)
-      acc.taxFree += Number(s.taxExcluded)
-      acc.discount += Number(s.grossTotal) * (Number(s.discountPct) / 100)
-      acc.cash += Number(s.cashAmount)
-      acc.slip += cardSlipTotal(s)
-      acc.commission += cardCommissionTotal(s)
-      acc.sgk += Number(s.sgkAmount)
-      return acc
-    },
-    { gross: 0, net: 0, taxFree: 0, discount: 0, cash: 0, slip: 0, commission: 0, sgk: 0 },
-  )
+  const totals = summarizeGunlukKasaRows(rows)
 
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -605,13 +612,26 @@ function GunlukKasaView({
     return rows.filter((s) => s.repName === repFilter)
   }, [report?.salesDetail, repFilter])
 
+  const summary = useMemo(() => summarizeGunlukKasaRows(filtered), [filtered])
+
   const hasShift = reportHasShift(report)
+
+  function handleGunlukKasaPdf() {
+    void downloadGunlukKasaPdf({
+      branchName: report?.branchName ?? 'Şube',
+      date,
+      rows: filtered,
+      summary,
+      showRep,
+    })
+  }
 
   return (
     <div>
       <SectionHeader
         title={`${report?.branchName ?? 'Şube'} — ${fmtDate(date)}`}
         showPdf
+        onPdf={handleGunlukKasaPdf}
       />
       {onDateChange ? (
         <input type="date" value={date} onChange={(e) => onDateChange(e.target.value)} style={{ marginBottom: 12, padding: 8, borderRadius: 8, border: '1px solid #e5e7eb' }} />
@@ -635,12 +655,15 @@ function GunlukKasaView({
         <>
           <MetricCards
             items={[
-              { label: 'Brüt Ciro', value: formatMoney(report?.totalSales ?? report?.netCiro) },
-              { label: 'Sipariş Bedeli', value: formatMoney(report?.totalNet) },
-              { label: 'Nakit Giriş', value: formatMoney(report?.cashIn) },
-              { label: 'Slip Toplamı', value: formatMoney(report?.cardGross) },
-              { label: 'İskonto %', value: discountPct(report?.totalSales, report?.totalDiscount) },
-              { label: 'Satış Adedi', value: String(report?.saleCount ?? report?.satisAdedi ?? 0) },
+              { label: 'Brüt Ciro', value: formatMoney(summary.gross) },
+              { label: 'Sipariş Bedeli', value: formatMoney(summary.net) },
+              { label: 'Nakit Giriş', value: formatMoney(summary.cash) },
+              { label: 'Slip Toplamı', value: formatMoney(summary.slip) },
+              {
+                label: 'İskonto %',
+                value: summary.gross ? `${((summary.discount / summary.gross) * 100).toFixed(1)}%` : '—',
+              },
+              { label: 'Satış Adedi', value: String(filtered.length) },
             ]}
           />
           <div style={{ marginTop: 16 }}>

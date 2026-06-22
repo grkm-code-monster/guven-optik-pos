@@ -9,11 +9,8 @@ import {
 } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import { prisma } from '../../database/prisma';
-
-const ODOO_OPTIK_CAM_CATEGORY_IDS = new Set([
-  4, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
-  37, 38, 39, 40, 41,
-]);
+import { execute } from '../odoo/odoo.service';
+import { kategoriTespit } from '../../utils/kategoriTespit';
 
 type DashboardKategori =
   | 'GUNES_GOZLUGU'
@@ -21,7 +18,8 @@ type DashboardKategori =
   | 'LENS'
   | 'OPTIK_CERCEVE'
   | 'AKSESUAR'
-  | 'SOLUSYON';
+  | 'SOLUSYON'
+  | 'DIGER';
 
 const EMPTY_KATEGORI: Record<DashboardKategori, number> = {
   GUNES_GOZLUGU: 0,
@@ -30,6 +28,17 @@ const EMPTY_KATEGORI: Record<DashboardKategori, number> = {
   OPTIK_CERCEVE: 0,
   AKSESUAR: 0,
   SOLUSYON: 0,
+  DIGER: 0,
+};
+
+const KATEGORI_ETIKET_TO_DASHBOARD: Record<string, DashboardKategori> = {
+  CAM: 'CAM',
+  'ÇERÇEVE': 'OPTIK_CERCEVE',
+  LENS: 'LENS',
+  'SOLÜSYON': 'SOLUSYON',
+  'GÜNEŞ GÖZLÜĞÜ': 'GUNES_GOZLUGU',
+  AKSESUAR: 'AKSESUAR',
+  'DİĞER': 'DIGER',
 };
 
 const PRODUCT_CATEGORY_MAP: Partial<Record<ProductCategory, DashboardKategori>> = {
@@ -59,36 +68,67 @@ function zeroExtras() {
   };
 }
 
-function resolveItemKategori(item: {
-  odooCategoryId: number | null;
-  odooProductName: string | null;
-  product: { category: ProductCategory; name: string } | null;
-}): DashboardKategori {
+function resolveItemKategori(
+  item: {
+    odooCategoryId: number | null;
+    odooProductName: string | null;
+    product: { category: ProductCategory; name: string } | null;
+  },
+  categoryPathById: Map<number, string>,
+): DashboardKategori {
+  const catId = item.odooCategoryId;
+  if (catId != null) {
+    const path = categoryPathById.get(catId);
+    if (path) {
+      const etiket = kategoriTespit(path);
+      return KATEGORI_ETIKET_TO_DASHBOARD[etiket] ?? 'DIGER';
+    }
+  }
+
   const pc = item.product?.category;
   if (pc && PRODUCT_CATEGORY_MAP[pc]) {
     return PRODUCT_CATEGORY_MAP[pc]!;
   }
 
-  const catId = item.odooCategoryId;
-  if (catId != null) {
-    if (ODOO_OPTIK_CAM_CATEGORY_IDS.has(catId)) return 'CAM';
-    if (catId === 6) return 'OPTIK_CERCEVE';
-    if (catId === 8) return 'AKSESUAR';
-    if (catId === 7) {
-      const n = (item.odooProductName ?? item.product?.name ?? '').toLowerCase();
-      if (n.includes('kontakt') || n.includes('lens')) return 'LENS';
-      return 'GUNES_GOZLUGU';
-    }
-  }
+  return 'DIGER';
+}
 
-  const name = (item.odooProductName ?? item.product?.name ?? '').toLowerCase();
-  if (/güneş|gunes|gözlük|gozluk/.test(name)) return 'GUNES_GOZLUGU';
-  if (/solüsyon|solusyon/.test(name)) return 'SOLUSYON';
-  if (/aksesuar/.test(name)) return 'AKSESUAR';
-  if (/çerçeve|cerceve|frame/.test(name)) return 'OPTIK_CERCEVE';
-  if (/kontakt/.test(name) || (/\blens\b/.test(name) && !/cam/.test(name))) return 'LENS';
-  if (/cam|progresif|bifokal/.test(name)) return 'CAM';
-  return 'AKSESUAR';
+async function loadOdooCategoryPaths(categoryIds: Array<number | null | undefined>): Promise<Map<number, string>> {
+  const unique = [...new Set(categoryIds.filter((id): id is number => id != null))];
+  if (unique.length === 0) return new Map();
+
+  try {
+    const rows = (await execute(
+      'product.category',
+      'search_read',
+      [[['id', 'in', unique]]],
+      { fields: ['id', 'complete_name', 'name'], limit: unique.length },
+    )) as Array<{ id: number; complete_name?: string; name?: string }>;
+
+    return new Map(
+      rows.map((row) => [row.id, (row.complete_name ?? row.name ?? '').trim()]),
+    );
+  } catch (err) {
+    console.error('[report] Odoo kategori path yüklenemedi:', err);
+    return new Map();
+  }
+}
+
+async function buildKategoriBreakdown(
+  items: Array<{
+    qty: number;
+    odooCategoryId: number | null;
+    odooProductName: string | null;
+    product: { category: ProductCategory; name: string } | null;
+  }>,
+): Promise<Record<DashboardKategori, number>> {
+  const pathMap = await loadOdooCategoryPaths(items.map((item) => item.odooCategoryId));
+  const kategoriBreakdown: Record<DashboardKategori, number> = { ...EMPTY_KATEGORI };
+  for (const item of items) {
+    const key = resolveItemKategori(item, pathMap);
+    kategoriBreakdown[key] += item.qty ?? 1;
+  }
+  return kategoriBreakdown;
 }
 
 function buildDerivedMetrics(params: {
@@ -414,13 +454,8 @@ export async function getDailyReport(branchId: string, date: Date) {
 
   const saleCount = salesAgg._count._all;
 
-  const kategoriBreakdown: Record<DashboardKategori, number> = { ...EMPTY_KATEGORI };
-  for (const sale of paidSales) {
-    for (const item of sale.items) {
-      const key = resolveItemKategori(item);
-      kategoriBreakdown[key] += item.qty ?? 1;
-    }
-  }
+  const allItems = paidSales.flatMap((sale) => sale.items);
+  const kategoriBreakdown = await buildKategoriBreakdown(allItems);
 
   let toplamSgkHakki = new Prisma.Decimal(0);
   let toplamVakifOdemesi = new Prisma.Decimal(0);
@@ -673,13 +708,8 @@ export async function getPersonalDailyReport(
 
   const saleCount = salesAgg._count._all;
 
-  const kategoriBreakdown: Record<DashboardKategori, number> = { ...EMPTY_KATEGORI };
-  for (const sale of paidSales) {
-    for (const item of sale.items) {
-      const key = resolveItemKategori(item);
-      kategoriBreakdown[key] += item.qty ?? 1;
-    }
-  }
+  const allItems = paidSales.flatMap((sale) => sale.items);
+  const kategoriBreakdown = await buildKategoriBreakdown(allItems);
 
   let toplamSgkHakki = new Prisma.Decimal(0);
   const toplamVakifOdemesi = new Prisma.Decimal(0);
@@ -934,9 +964,10 @@ export async function getKategoriBreakdown({ baslangic, bitis, subeId }: { basla
     include: { product: true },
   });
 
+  const pathMap = await loadOdooCategoryPaths(items.map((item) => item.odooCategoryId));
   const breakdown: Record<string, { ciro: number; adet: number }> = {};
   for (const item of items) {
-    const kat = resolveItemKategori(item as any);
+    const kat = resolveItemKategori(item as any, pathMap);
     if (!breakdown[kat]) breakdown[kat] = { ciro: 0, adet: 0 };
     breakdown[kat].ciro += Number(item.lineTotal);
     breakdown[kat].adet += Number(item.qty);

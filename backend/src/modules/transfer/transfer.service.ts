@@ -295,85 +295,131 @@ export function resolveSearchKategoriId(options) {
     }
     return resolveKategoriId(options?.kategori);
 }
-export async export function searchUrun(q, yontem, lokasyon, options) {
+function applyKategoriToDomain(domain, options) {
+    const kategoriId = resolveSearchKategoriId(options);
+    const ids = options?.kategoriIds;
+    if (ids?.length) {
+        if (ids.length === 1)
+            domain.push(['categ_id', 'child_of', ids[0]]);
+        else
+            domain.push(['categ_id', 'in', ids]);
+    }
+    else if (kategoriId != null) {
+        domain.push(['categ_id', 'child_of', kategoriId]);
+    }
+    return domain;
+}
+async function searchUrunByNameCatalog(term, companyId, options) {
+    const RESULT_LIMIT = 100;
+    const domain = applyKategoriToDomain([
+        ['type', 'in', ['product', 'consu']],
+        ['active', '=', true],
+        ['sale_ok', '=', true],
+        '|', ['name', 'ilike', term], ['default_code', 'ilike', term],
+    ], options);
+    const templates = (await odooService.execute('product.template', 'search_read', [domain], {
+        fields: ['id', 'name', 'list_price'],
+        limit: 50,
+        order: 'name asc',
+    }, companyId)) ?? [];
+    const results = [];
+    for (const tmpl of templates) {
+        const variants = (await odooService.execute('product.product', 'search_read', [
+            [['product_tmpl_id', '=', tmpl.id], ['active', '=', true]],
+        ], {
+            fields: ['id', 'display_name', 'name', 'lst_price', 'list_price'],
+            limit: RESULT_LIMIT - results.length,
+            order: 'display_name asc',
+        }, companyId)) ?? [];
+        for (const v of variants) {
+            results.push(mapVariantToTransferUrun({
+                ...v,
+                display_name: v.display_name ?? v.name ?? tmpl.name,
+                lst_price: v.lst_price ?? v.list_price ?? tmpl.list_price,
+            }));
+            if (results.length >= RESULT_LIMIT)
+                return results;
+        }
+    }
+    if (results.length)
+        return results;
+    const variantDomain = applyKategoriToDomain([
+        ['active', '=', true],
+        '|', ['name', 'ilike', term], ['display_name', 'ilike', term],
+    ], options);
+    const directVariants = (await odooService.execute('product.product', 'search_read', [variantDomain], {
+        fields: ['id', 'display_name', 'name', 'lst_price', 'list_price'],
+        limit: RESULT_LIMIT,
+        order: 'display_name asc',
+    }, companyId)) ?? [];
+    return directVariants.map(mapVariantToTransferUrun);
+}
+async function mapProductsKatalog(productIds, lotRows, companyId) {
+    const sonuclar = [];
+    if (lotRows?.length) {
+        for (const lot of lotRows) {
+            const productId = m2oId(lot.product_id);
+            if (!productId)
+                continue;
+            const products = (await odooService.execute('product.product', 'read', [[productId]], {
+                fields: ['id', 'display_name', 'name', 'lst_price', 'list_price'],
+            }, companyId));
+            const v = products?.[0];
+            if (!v)
+                continue;
+            const mapped = mapVariantToTransferUrun(v);
+            mapped.lotNo = m2oName(lot.id) ?? lot.name ?? null;
+            sonuclar.push(mapped);
+        }
+        return sonuclar;
+    }
+    if (!productIds.length)
+        return [];
+    const variants = (await odooService.execute('product.product', 'read', [productIds], {
+        fields: ['id', 'display_name', 'name', 'lst_price', 'list_price'],
+    }, companyId)) ?? [];
+    return variants.map(mapVariantToTransferUrun);
+}
+export async function searchUrun(q, yontem, lokasyon, options) {
     const term = q.trim();
-    if (term.length < 3)
+    const katalog = options?.katalog === true;
+    const minLen = yontem === 'ad' ? 1 : 3;
+    if (term.length < minLen)
         return [];
     return withOdoo('urun-ara', async () => {
-        const lokasyonId = await odooLocations.getLokasyonId(lokasyon);
-        if (!lokasyonId)
-            throw new Error(`Lokasyon bulunamadı: ${lokasyon}`);
         const companyId = odooLocations.getCompanyIdFromLokasyon(lokasyon);
         if (!companyId)
             throw new Error(`Lokasyon şirketi tanımsız: ${lokasyon}`);
         if (yontem === 'ad') {
-            const kategoriId = resolveSearchKategoriId(options);
-            const domain = [['name', 'ilike', term]];
-            const ids = options?.kategoriIds;
-            if (ids && ids.length > 0) {
-                if (ids.length === 1) {
-                    domain.push(['categ_id', 'child_of', ids[0]]);
-                }
-                else {
-                    domain.push(['categ_id', 'in', ids]);
-                }
-            }
-            else if (kategoriId != null) {
-                domain.push(['categ_id', 'child_of', kategoriId]);
-            }
-            const variants = (await odooService.execute('product.product', 'search_read', [domain], {
-                fields: ['id', 'display_name', 'lst_price'],
-                limit: 20,
-            }, companyId));
-            const results = [...(variants ?? [])];
-
-            // Nitelik değerlerinde de ara — model no, renk kodu gibi
-            const attrDomain: any[] = [
-                ['product_template_attribute_value_ids.name', 'ilike', term],
-                ['active', '=', true],
-                ['type', 'in', ['product', 'consu']],
-            ];
-            if (companyId) attrDomain.push(['company_id', 'in', [false, companyId]]);
-
-            try {
-                const attrResults = await odooService.execute('product.product', 'search_read',
-                    [attrDomain],
-                    { fields: ['id', 'name', 'display_name', 'default_code', 'barcode', 'list_price', 'lst_price', 'standard_price', 'tracking', 'product_tmpl_id'], limit: 100 },
-                    companyId);
-
-                for (const v of attrResults ?? []) {
-                    if (!results.find((r: any) => r.id === v.id)) {
-                        results.push({
-                            ...v,
-                            display_name: v.display_name ?? v.name,
-                            lst_price: v.lst_price ?? v.list_price ?? null,
-                        });
-                    }
-                }
-            } catch { }
-
-            return results.map(mapVariantToTransferUrun);
+            return searchUrunByNameCatalog(term, companyId, options);
         }
+        const lokasyonId = await odooLocations.getLokasyonId(lokasyon);
+        if (!katalog && !lokasyonId)
+            throw new Error(`Lokasyon bulunamadı: ${lokasyon}`);
         let productIds = [];
         let lotIds = [];
+        let lotRows = [];
         if (yontem === 'barkod') {
             const products = (await odooService.execute('product.product', 'search_read', [[['barcode', '=', term]]], { fields: ['id'], limit: 5 }, companyId));
             productIds = (products ?? []).map((p) => p.id);
         }
         else if (yontem === 'uts') {
-            const lots = (await odooService.execute('stock.lot', 'search_read', [[['x_uts_kodu', '=', term]]], { fields: ['id', 'product_id'], limit: 20 }, companyId));
-            lotIds = (lots ?? []).map((l) => l.id);
-            productIds = (lots ?? []).map((l) => m2oId(l.product_id)).filter((x) => x !== null);
+            const lots = (await odooService.execute('stock.lot', 'search_read', [[['x_uts_kodu', '=', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
+            lotRows = lots ?? [];
+            lotIds = lotRows.map((l) => l.id);
+            productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
         }
         else if (yontem === 'lot') {
-            const lots = (await odooService.execute('stock.lot', 'search_read', [[['name', 'ilike', term]]], { fields: ['id', 'product_id'], limit: 20 }, companyId));
-            lotIds = (lots ?? []).map((l) => l.id);
-            productIds = (lots ?? []).map((l) => m2oId(l.product_id)).filter((x) => x !== null);
+            const lots = (await odooService.execute('stock.lot', 'search_read', [[['name', 'ilike', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
+            lotRows = lots ?? [];
+            lotIds = lotRows.map((l) => l.id);
+            productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
         }
         else if (yontem === 'ref') {
-            const lots = (await odooService.execute('stock.lot', 'search_read', [[['ref', 'ilike', term]]], { fields: ['id', 'product_id'], limit: 20 }, companyId));
-            lotIds = (lots ?? []).map((l) => l.id);
-            productIds = (lots ?? []).map((l) => m2oId(l.product_id)).filter((x) => x !== null);
+            const lots = (await odooService.execute('stock.lot', 'search_read', [[['ref', 'ilike', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
+            lotRows = lots ?? [];
+            lotIds = lotRows.map((l) => l.id);
+            productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
             if (!productIds.length) {
                 const products = (await odooService.execute('product.product', 'search_read', [[['default_code', 'ilike', term]]], { fields: ['id'], limit: 10 }, companyId));
                 productIds = (products ?? []).map((p) => p.id);
@@ -382,6 +428,9 @@ export async export function searchUrun(q, yontem, lokasyon, options) {
         else {
             const products = (await odooService.execute('product.product', 'search_read', [[['name', 'ilike', term]]], { fields: ['id'], limit: 10 }, companyId));
             productIds = (products ?? []).map((p) => p.id);
+        }
+        if (katalog) {
+            return mapProductsKatalog(productIds, lotRows, companyId);
         }
         const quantDomain = [
             ['location_id', '=', lokasyonId],

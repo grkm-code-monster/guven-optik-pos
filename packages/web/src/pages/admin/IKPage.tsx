@@ -91,6 +91,7 @@ type BaglantiOzet = {
 }
 
 type OdooEmployee = { id: number; name: string }
+type PdksPersonel = { id: number; name: string }
 type PosKullanici = {
   id: string; name: string; username: string; role: string
   personel: { id: string; ad: string; soyad: string } | null
@@ -160,6 +161,11 @@ export default function IKPage() {
   const [odooSecim, setOdooSecim] = useState<Record<string, string>>({})
   const [posSecim, setPosSecim] = useState<Record<string, string>>({})
   const [odooDegistir, setOdooDegistir] = useState<string | null>(null)
+  const [pdksDegistir, setPdksDegistir] = useState<string | null>(null)
+  const [posDegistir, setPosDegistir] = useState<string | null>(null)
+  const [pdksPersoneller, setPdksPersoneller] = useState<PdksPersonel[]>([])
+  const [pdksForm, setPdksForm] = useState<Record<string, { pdksId: string; adSoyad: string }>>({})
+  const [posForm, setPosForm] = useState<Record<string, { username: string; pin: string; role: string }>>({})
   const [personelBelgeler, setPersonelBelgeler] = useState<Record<string, string[]>>({})
 
   useEffect(() => { void yuklePersonelSekmesi() }, [])
@@ -176,18 +182,20 @@ export default function IKPage() {
 
   async function baglantiYukle() {
     try {
-      const [ozRes, odooRes, posRes, subeRes, belgeRes] = await Promise.all([
+      const [ozRes, odooRes, posRes, subeRes, belgeRes, pdksRes] = await Promise.all([
         adminApi.get('/admin/personel-baglanti-ozet'),
         adminApi.get('/admin/odoo-employees'),
         adminApi.get('/admin/pos-kullanicilar'),
         adminApi.get('/admin/branch-list'),
         adminApi.get('/admin/personel-belgeler-ozet'),
+        adminApi.get('/admin/pdks-personeller').catch(() => ({ data: { data: [] } })),
       ])
       setBaglantiOzet(ozRes.data)
       setOdooPersoneller(odooRes.data?.data ?? [])
       setPosKullanicilar(posRes.data?.data ?? [])
       setSubeler(subeRes.data?.data ?? [])
       setPersonelBelgeler(belgeRes.data?.data ?? {})
+      setPdksPersoneller(pdksRes.data?.data ?? [])
     } catch { }
   }
 
@@ -228,6 +236,105 @@ export default function IKPage() {
       await yuklePersonelSekmesi()
     } catch {
       alert('Bağlantı başarısız')
+    } finally { setBaglamaYukleniyor(false) }
+  }
+
+  function pdksAdSoyadBul(pdksId: string): string {
+    if (!pdksId) return ''
+    return pdksPersoneller.find((x) => String(x.id) === pdksId)?.name ?? ''
+  }
+
+  function pdksFormAc(p: Personel) {
+    const acik = pdksDegistir === p.id
+    if (acik) {
+      setPdksDegistir(null)
+      return
+    }
+    setPdksForm((m) => ({
+      ...m,
+      [p.id]: {
+        pdksId: p.pdksId ?? '',
+        adSoyad: pdksAdSoyadBul(p.pdksId ?? '') || `${p.ad} ${p.soyad}`.trim(),
+      },
+    }))
+    setPdksDegistir(p.id)
+  }
+
+  async function pdksKaydet(personelId: string) {
+    const form = pdksForm[personelId]
+    if (!form?.pdksId?.trim()) {
+      alert('PDKS ID zorunlu')
+      return
+    }
+    setBaglamaYukleniyor(true)
+    try {
+      await adminApi.put(`/admin/personel-pdks/${personelId}`, { pdksId: form.pdksId.trim() })
+      setPdksDegistir(null)
+      await yuklePersonelSekmesi()
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Kaydetme başarısız')
+    } finally { setBaglamaYukleniyor(false) }
+  }
+
+  async function pdksBaglantiKaldir(personelId: string) {
+    if (!window.confirm('PDKS bağlantısı kaldırılsın mı?')) return
+    setBaglamaYukleniyor(true)
+    try {
+      await adminApi.delete(`/admin/personel-pdks/${personelId}`)
+      setPdksDegistir(null)
+      await yuklePersonelSekmesi()
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Bağlantı kaldırılamadı')
+    } finally { setBaglamaYukleniyor(false) }
+  }
+
+  function posFormAc(p: Personel) {
+    const acik = posDegistir === p.id
+    if (acik) {
+      setPosDegistir(null)
+      return
+    }
+    setPosForm((m) => ({
+      ...m,
+      [p.id]: {
+        username: p.user?.username ?? '',
+        pin: '',
+        role: p.user?.role ?? 'SALES_STAFF',
+      },
+    }))
+    setPosDegistir(p.id)
+  }
+
+  async function posGuncelle(personelId: string) {
+    const form = posForm[personelId]
+    if (!form?.username?.trim()) {
+      alert('Kullanıcı adı zorunlu')
+      return
+    }
+    setBaglamaYukleniyor(true)
+    try {
+      const body: { username: string; role: string; pin?: string } = {
+        username: form.username.trim(),
+        role: form.role,
+      }
+      if (form.pin.trim()) body.pin = form.pin.trim()
+      await adminApi.put(`/admin/personel-pos-guncelle/${personelId}`, body)
+      setPosDegistir(null)
+      await yuklePersonelSekmesi()
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Güncelleme başarısız')
+    } finally { setBaglamaYukleniyor(false) }
+  }
+
+  async function posBaglantiKaldir(personelId: string) {
+    if (!window.confirm('POS bağlantısı kaldırılsın mı?')) return
+    setBaglamaYukleniyor(true)
+    try {
+      await adminApi.delete(`/admin/personel-pos-bagla/${personelId}`)
+      setPosDegistir(null)
+      await yuklePersonelSekmesi()
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Bağlantı kaldırılamadı')
     } finally { setBaglamaYukleniyor(false) }
   }
 
@@ -732,17 +839,80 @@ export default function IKPage() {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                               {/* PDKS */}
                               <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
-                                <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>PDKS</div>
-                                {p.pdksId ? (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 900 }}>PDKS</div>
+                                  {p.pdksId ? (
+                                    <button type="button" onClick={() => pdksFormAc(p)} style={{ ...btnSmall, padding: '4px 8px', fontSize: 11 }}>
+                                      {pdksDegistir === p.id ? 'Vazgeç' : 'Değiştir'}
+                                    </button>
+                                  ) : null}
+                                </div>
+                                {p.pdksId && pdksDegistir !== p.id ? (
                                   <div style={{ fontSize: 12, color: '#166534' }}>
                                     <div style={{ fontWeight: 900 }}>✓ Bağlı</div>
                                     <div style={{ marginTop: 6 }}>ID: <strong>{p.pdksId}</strong></div>
-                                    <div style={{ marginTop: 2 }}>{p.ad} {p.soyad}</div>
-                                    <div style={{ marginTop: 2, color: '#6b7280' }}>{p.telefon ?? '—'}</div>
+                                    <div style={{ marginTop: 2 }}>{pdksAdSoyadBul(p.pdksId) || `${p.ad} ${p.soyad}`}</div>
+                                  </div>
+                                ) : pdksDegistir === p.id ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div>
+                                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>PDKS ID</label>
+                                      <input
+                                        type="number"
+                                        value={pdksForm[p.id]?.pdksId ?? ''}
+                                        onChange={(e) => {
+                                          const pdksId = e.target.value
+                                          setPdksForm((m) => ({
+                                            ...m,
+                                            [p.id]: {
+                                              pdksId,
+                                              adSoyad: pdksAdSoyadBul(pdksId) || m[p.id]?.adSoyad || '',
+                                            },
+                                          }))
+                                        }}
+                                        style={inp}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>PDKS&apos;te kayıtlı Ad Soyad</label>
+                                      <input
+                                        value={pdksForm[p.id]?.adSoyad ?? ''}
+                                        readOnly
+                                        style={{ ...inp, backgroundColor: '#f9fafb', color: '#6b7280' }}
+                                      />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                      <button type="button" onClick={() => void pdksKaydet(p.id)} disabled={baglamaYukleniyor} style={btnPrimary}>
+                                        {baglamaYukleniyor ? '...' : 'Kaydet'}
+                                      </button>
+                                      {p.pdksId ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => void pdksBaglantiKaldir(p.id)}
+                                          disabled={baglamaYukleniyor}
+                                          style={{ ...btnSmall, color: '#991b1b', border: '1px solid #fecaca' }}
+                                        >
+                                          Bağlantıyı Kaldır
+                                        </button>
+                                      ) : null}
+                                    </div>
                                   </div>
                                 ) : (
                                   <div style={{ fontSize: 12, color: '#92400e', backgroundColor: '#fffbeb', border: '1px solid #fde68a', padding: 10, borderRadius: 8 }}>
-                                    ⚠ PDKS sisteminden manuel ekleyin.
+                                    ⚠ PDKS sisteminden manuel ekleyin veya ID ile bağlayın.
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPdksForm((m) => ({
+                                          ...m,
+                                          [p.id]: { pdksId: '', adSoyad: `${p.ad} ${p.soyad}`.trim() },
+                                        }))
+                                        setPdksDegistir(p.id)
+                                      }}
+                                      style={{ ...btnSmall, marginTop: 8, display: 'block' }}
+                                    >
+                                      ID ile Bağla
+                                    </button>
                                   </div>
                                 )}
                               </div>
@@ -795,12 +965,69 @@ export default function IKPage() {
 
                               {/* POS */}
                               <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
-                                <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>POS</div>
-                                {p.userId ? (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 900 }}>POS</div>
+                                  {p.userId ? (
+                                    <button type="button" onClick={() => posFormAc(p)} style={{ ...btnSmall, padding: '4px 8px', fontSize: 11 }}>
+                                      {posDegistir === p.id ? 'Vazgeç' : 'Değiştir'}
+                                    </button>
+                                  ) : null}
+                                </div>
+                                {p.userId && posDegistir !== p.id ? (
                                   <div style={{ fontSize: 12, color: '#166534' }}>
                                     <div style={{ fontWeight: 900 }}>✓ Bağlı</div>
                                     <div style={{ marginTop: 6 }}>Kullanıcı: <strong>{p.user?.username ?? p.userId}</strong></div>
                                     <div style={{ marginTop: 2, color: '#6b7280' }}>Rol: {p.user?.role ?? '—'}</div>
+                                  </div>
+                                ) : posDegistir === p.id ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div>
+                                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Kullanıcı Adı</label>
+                                      <input
+                                        value={posForm[p.id]?.username ?? ''}
+                                        onChange={(e) => setPosForm((m) => ({ ...m, [p.id]: { ...m[p.id], username: e.target.value, pin: m[p.id]?.pin ?? '', role: m[p.id]?.role ?? 'SALES_STAFF' } }))}
+                                        style={inp}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Şifre (PIN)</label>
+                                      <input
+                                        type="password"
+                                        value={posForm[p.id]?.pin ?? ''}
+                                        onChange={(e) => setPosForm((m) => ({ ...m, [p.id]: { ...m[p.id], pin: e.target.value, username: m[p.id]?.username ?? '', role: m[p.id]?.role ?? 'SALES_STAFF' } }))}
+                                        placeholder="Değiştirmek istemiyorsanız boş bırakın"
+                                        maxLength={6}
+                                        style={inp}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Rol</label>
+                                      <select
+                                        value={posForm[p.id]?.role ?? 'SALES_STAFF'}
+                                        onChange={(e) => setPosForm((m) => ({ ...m, [p.id]: { ...m[p.id], role: e.target.value, username: m[p.id]?.username ?? '', pin: m[p.id]?.pin ?? '' } }))}
+                                        style={inp}
+                                      >
+                                        <option value="SALES_STAFF">Satış Personeli</option>
+                                        <option value="STORE_MANAGER">Mağaza Müdürü</option>
+                                        <option value="WAREHOUSE_MANAGER">Depo Müdürü</option>
+                                        <option value="ADMIN">Admin</option>
+                                      </select>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                      <button type="button" onClick={() => void posGuncelle(p.id)} disabled={baglamaYukleniyor} style={btnPrimary}>
+                                        {baglamaYukleniyor ? '...' : 'Kaydet'}
+                                      </button>
+                                      {p.userId ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => void posBaglantiKaldir(p.id)}
+                                          disabled={baglamaYukleniyor}
+                                          style={{ ...btnSmall, color: '#991b1b', border: '1px solid #fecaca' }}
+                                        >
+                                          Bağlantıyı Kaldır
+                                        </button>
+                                      ) : null}
+                                    </div>
                                   </div>
                                 ) : (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

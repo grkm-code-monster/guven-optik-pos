@@ -18,6 +18,7 @@ import {
   saleNeedsLensMeasurementStep,
   type LensMeasurementDraft,
 } from '../utils/saleMeasurements'
+import { hasReceteData } from '../utils/ozelSiparisRecete'
 
 function formatMoney(v?: string) {
   if (!v) return '-'
@@ -72,7 +73,7 @@ export default function NewSalePage() {
   }, [storedShiftId])
 
   useEffect(() => {
-    if (currentStep !== 3 && currentStep !== 4 && currentStep !== 5 && currentStep !== 6) return
+    if (currentStep !== 3 && currentStep !== 4 && currentStep !== 5 && currentStep !== 5.5 && currentStep !== 6) return
     if (!sale?.id) return
     getSaleById(sale.id)
       .then(setSale)
@@ -105,14 +106,21 @@ export default function NewSalePage() {
     }
     setError(null)
     setStep(2)
-    getCustomerById(customer.id)
-      .then((full) => setSelectedCustomer(full))
-      .catch((e: any) => console.error('Customer detail fetch error', e))
-    if (!customer.appliedPrescription) {
-      getLatestPrescription(customer.id)
-        .then((r) => setLatestPrescription(r))
-        .catch(() => setLatestPrescription(null))
+    if (customer.appliedPrescription) {
+      getCustomerById(customer.id)
+        .then((full) => setSelectedCustomer(full))
+        .catch((e: any) => console.error('Customer detail fetch error', e))
+      return
     }
+    Promise.all([
+      getLatestPrescription(customer.id).catch(() => null),
+      getCustomerById(customer.id).catch(() => null),
+    ]).then(([rx, full]) => {
+      if (full) setSelectedCustomer(full)
+      if (rx && hasReceteData(rx)) setLatestPrescription(rx)
+      else if (full && hasReceteData(full)) setLatestPrescription(full)
+      else setLatestPrescription(rx)
+    })
   }
 
   useEffect(() => {
