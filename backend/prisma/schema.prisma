@@ -847,7 +847,10 @@ model OzelSiparis {
 
   // Durum takibi
   durum             String   @default("BEKLIYOR")
-  // BEKLIYOR | TEDARIKCIE_GONDERILDI | URETIMDE | KARGODA | TESLIM_ALINDI | MUSTERIYE_TESLIM | IPTAL
+  // BEKLIYOR | GONDERILDI | URETIMDE | KARGODA | TESLIM_ALINDI | LABORATUVARDA | HAZIR | TESLIM_EDILDI | IPTAL
+  // (eski: TEDARIKCIE_GONDERILDI → GONDERILDI, MUSTERIYE_TESLIM → TESLIM_EDILDI)
+
+  olusturanUserId   String?
 
   notlar            String?
   olcumBilgisi      Json?    // LensOrderMeasurement[]
@@ -862,6 +865,37 @@ model OzelSiparis {
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  logs              OzelSiparisLog[]
+  karekodlar        OzelSiparisKarekod[]
+}
+
+model OzelSiparisLog {
+  id        String   @id @default(cuid())
+  siparisId String
+  eskiDurum String?
+  yeniDurum String
+  userId    String?
+  notlar    String?
+  createdAt DateTime @default(now())
+
+  siparis   OzelSiparis @relation(fields: [siparisId], references: [id], onDelete: Cascade)
+
+  @@index([siparisId])
+  @@index([createdAt])
+}
+
+model OzelSiparisKarekod {
+  id            String   @id @default(cuid())
+  siparisId     String
+  karekod       String
+  tarayanUserId String?
+  createdAt     DateTime @default(now())
+
+  siparis       OzelSiparis @relation(fields: [siparisId], references: [id], onDelete: Cascade)
+
+  @@index([siparisId])
+  @@index([karekod])
 }
 
 // ── BEKLEYEN FATURA ───────────────────────────────────────────────
@@ -1119,6 +1153,20 @@ model FiyatDegisiklikBildirimi {
   createdAt          DateTime @default(now())
 
   @@index([subeKodu, okundu])
+  @@index([createdAt])
+}
+
+model Bildirim {
+  id        String   @id @default(cuid())
+  userId    String
+  baslik    String
+  mesaj     String
+  link      String?
+  tip       String   @default("GENEL") // SIPARIS | FIYAT | TRANSFER | GENEL
+  okundu    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, okundu])
   @@index([createdAt])
 }
 

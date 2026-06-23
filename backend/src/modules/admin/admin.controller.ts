@@ -9,6 +9,13 @@ import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 import { LOKASYON_ID_MAP } from '../odoo/odooLocations';
 import * as pdksService from '../pdks/pdks.service';
 import * as stokYonetimi from './stok-yonetimi.service';
+import * as bildirimService from '../bildirim/bildirim.service';
+import {
+  getOzelSiparisLoglari,
+  getOzelSiparisStokGirisDetay,
+  stokaAlOzelSiparis,
+  updateOzelSiparisDurum,
+} from '../ozel-siparis/ozel-siparis.service';
 
 const POS_ROLES = [
   Role.SALES_STAFF,
@@ -5435,7 +5442,8 @@ router.post('/ozel-siparis-ekle', async (req, res) => {
         tedarikciAdi,
         tahminiMaliyet: tahminiMaliyet ? Number(tahminiMaliyet) : null,
         satisFiyati: satisFiyati ? Number(satisFiyati) : null,
-        notlar, olusturanKullanici,
+        notlar,         olusturanKullanici,
+        olusturanUserId: (req as any).user?.userId ?? undefined,
         olcumBilgisi: olcumBilgisi ?? undefined,
         satisTemsilcisi: satisTemsilcisi ?? undefined,
         tahminiGelisTarihi: tahminiGelisTarihi ? new Date(tahminiGelisTarihi) : null,
@@ -5471,22 +5479,51 @@ router.put('/ozel-siparis-guncelle/:id', async (req, res) => {
 
 router.put('/ozel-siparis-durum/:id', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { id } = req.params
     const { durum, tedarikciSiparisNo, notlar, gercekGelisTarihi, teslimTarihi } = req.body
-
-    const data: any = { durum }
-    if (tedarikciSiparisNo) data.tedarikciSiparisNo = tedarikciSiparisNo
-    if (notlar) data.notlar = notlar
-    if (gercekGelisTarihi) data.gercekGelisTarihi = new Date(gercekGelisTarihi)
-    if (teslimTarihi) data.teslimTarihi = new Date(teslimTarihi)
-
-    const siparis = await prisma.ozelSiparis.update({ where: { id }, data })
-    await prisma.$disconnect()
+    const siparis = await updateOzelSiparisDurum(id, {
+      durum,
+      userId: (req as any).user?.userId ?? null,
+      tedarikciSiparisNo,
+      notlar,
+      gercekGelisTarihi,
+      teslimTarihi,
+      bildirimGonder: true,
+    })
     return res.json({ success: true, data: siparis })
   } catch (err: any) {
+    return res.status(400).json({ error: err?.message ?? 'Durum güncellenemedi' })
+  }
+})
+
+router.get('/ozel-siparis-log/:id', async (req, res) => {
+  try {
+    const data = await getOzelSiparisLoglari(req.params.id)
+    return res.json({ data })
+  } catch (err: any) {
     return res.status(500).json({ error: err?.message })
+  }
+})
+
+router.get('/ozel-siparis-stok-giris-detay/:id', async (req, res) => {
+  try {
+    const data = await getOzelSiparisStokGirisDetay(req.params.id)
+    return res.json({ data })
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message })
+  }
+})
+
+router.post('/ozel-siparis-stoka-al/:id', async (req, res) => {
+  try {
+    const { bekleyenFaturaId } = req.body ?? {}
+    const result = await stokaAlOzelSiparis(req.params.id, {
+      userId: (req as any).user?.userId ?? null,
+      bekleyenFaturaId,
+    })
+    return res.json({ success: true, ...result })
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message ?? 'Stoka alınamadı' })
   }
 })
 
@@ -5551,9 +5588,9 @@ router.post('/ozel-siparis-teslim/:id', async (req, res) => {
 
       await prisma.ozelSiparis.update({
         where: { id },
-        data: { durum: 'MUSTERIYE_TESLIM', teslimTarihi: new Date() }
+        data: { durum: 'TESLIM_EDILDI', teslimTarihi: new Date() }
       })
-      sonuc.durum = 'MUSTERIYE_TESLIM'
+      sonuc.durum = 'TESLIM_EDILDI'
 
     } else {
       // Depoya al → normal stok girişi
@@ -6609,7 +6646,10 @@ router.get('/fiyat-degisiklikleri/sayac', async (req: Request, res: Response, ne
     if (user.role === Role.STORE_MANAGER) {
       subeKodu = await kullaniciSubeKodu(user.branchId);
     }
-    const count = await stokYonetimi.fiyatBildirimSayac(subeKodu);
+    let count = await stokYonetimi.fiyatBildirimSayac(subeKodu);
+    if (user.userId) {
+      count += await bildirimService.bildirimSayac(user.userId);
+    }
     return res.json({ count });
   } catch (err) {
     next(err);

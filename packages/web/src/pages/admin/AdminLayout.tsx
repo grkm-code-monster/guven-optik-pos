@@ -2,8 +2,8 @@ import axios from 'axios'
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { ChatbotButon } from '../../components/ChatbotPanel'
-import FiyatBildirimPanel from '../../components/admin/FiyatBildirimPanel'
-import { getFiyatBildirimSayac } from '../../api/stok.api'
+import BildirimPanel from '../../components/admin/BildirimPanel'
+import { getToplamBildirimSayac } from '../../api/bildirim.api'
 
 export const adminApi = axios.create({ baseURL: '/api' })
 
@@ -101,7 +101,7 @@ export default function AdminLayout() {
   }, [navigate])
 
   const sayacYukle = () => {
-    getFiyatBildirimSayac()
+    getToplamBildirimSayac()
       .then(setBildirimSayac)
       .catch(() => setBildirimSayac(0))
   }
@@ -136,7 +136,7 @@ export default function AdminLayout() {
           <button
             type="button"
             onClick={() => setBildirimAcik(true)}
-            title="Fiyat değişiklik bildirimleri"
+            title="Bildirimler"
             style={{
               position: 'relative', border: 'none', background: 'rgba(255,255,255,0.1)',
               borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 16,
@@ -213,7 +213,7 @@ export default function AdminLayout() {
         <Outlet />
       </main>
       <ChatbotButon />
-      <FiyatBildirimPanel
+      <BildirimPanel
         acik={bildirimAcik}
         onKapat={() => setBildirimAcik(false)}
         onSayacGuncelle={sayacYukle}

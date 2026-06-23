@@ -20,6 +20,8 @@ import gelenFaturaRouter from './modules/efatura/gelen-fatura.controller';
 import chatbotRouter from './modules/chatbot/chatbot.controller';
 import pdksRouter from './modules/pdks/pdks.controller';
 import etiketRouter from './modules/etiket/etiket.controller';
+import bildirimRouter from './modules/bildirim/bildirim.controller';
+import ozelSiparisRouter from './modules/ozel-siparis/ozel-siparis.controller';
 import { authenticate } from './middleware/authenticate';
 
 export function createApp() {
@@ -55,6 +57,8 @@ export function createApp() {
   app.use('/api/chatbot', authenticate, chatbotRouter);
   app.use('/api/pdks', pdksRouter);
   app.use('/api/etiket', etiketRouter);
+  app.use('/api/bildirimler', bildirimRouter);
+  app.use('/api/ozel-siparis', ozelSiparisRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({

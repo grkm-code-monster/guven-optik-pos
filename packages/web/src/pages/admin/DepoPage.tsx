@@ -8,6 +8,13 @@ import BekleyenTransferler from '../../components/transfer/BekleyenTransferler'
 import EtiketSablonSecici from '../../components/etiket/EtiketSablonSecici'
 import { otomatikSablonSec, uretCokluEtiketZpl } from '../../components/etiket/etiket-sablon-helpers'
 import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
+import {
+  OZEL_SIPARIS_AKIS,
+  OZEL_SIPARIS_DURUMLAR,
+  OZEL_SIPARIS_DURUM_RENK,
+  normalizeOzelSiparisDurum,
+} from '../../constants/ozelSiparis'
+import { getOzelSiparisStokGirisDetay, stokaAlOzelSiparis } from '../../api/ozelSiparis.api'
 
 // ── Sabitler ─────────────────────────────────────────────────
 const LOKASYONLAR = [
@@ -664,16 +671,8 @@ function SiparislerTab() {
     durum: '', tedarikciSiparisNo: '', notlar: ''
   })
 
-  const DURUMLAR = ['BEKLIYOR', 'TEDARIKCIE_GONDERILDI', 'URETIMDE', 'KARGODA', 'TESLIM_ALINDI', 'MUSTERIYE_TESLIM', 'IPTAL']
-  const DURUM_RENK: Record<string, { bg: string; color: string; label: string }> = {
-    BEKLIYOR: { bg: '#fef3c7', color: '#92400e', label: '⏳ Bekliyor' },
-    TEDARIKCIE_GONDERILDI: { bg: '#eff6ff', color: '#1d4ed8', label: '📤 Gönderildi' },
-    URETIMDE: { bg: '#f3e8ff', color: '#7c3aed', label: '⚙️ Üretimde' },
-    KARGODA: { bg: '#fff7ed', color: '#c2410c', label: '🚚 Kargoda' },
-    TESLIM_ALINDI: { bg: '#dcfce7', color: '#166534', label: '📦 Teslim Alındı' },
-    MUSTERIYE_TESLIM: { bg: '#f0fdf4', color: '#166534', label: '✓ Müşteriye Teslim' },
-    IPTAL: { bg: '#fee2e2', color: '#991b1b', label: '✕ İptal' },
-  }
+  const DURUMLAR = [...OZEL_SIPARIS_DURUMLAR]
+  const DURUM_RENK = OZEL_SIPARIS_DURUM_RENK
 
   useEffect(() => { void siparisleriYukle() }, [durumFiltre])
 
@@ -700,6 +699,16 @@ function SiparislerTab() {
       void siparisleriYukle()
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Hata' })
+    } finally { setLoading(false) }
+  }
+
+  async function durumHizliGuncelle(id: string, durum: string) {
+    setLoading(true)
+    try {
+      await adminApi.put(`/admin/ozel-siparis-durum/${id}`, { durum })
+      void siparisleriYukle()
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Durum güncellenemedi' })
     } finally { setLoading(false) }
   }
 
@@ -1100,7 +1109,8 @@ function SiparislerTab() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {siparisler.map(s => {
-            const durum = DURUM_RENK[s.durum] ?? { bg: '#f3f4f6', color: '#374151', label: s.durum }
+            const normDurum = normalizeOzelSiparisDurum(s.durum)
+            const durum = DURUM_RENK[normDurum] ?? DURUM_RENK[s.durum] ?? { bg: '#f3f4f6', color: '#374151', label: s.durum }
             return (
               <div key={s.id} style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, backgroundColor: 'white' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1133,6 +1143,20 @@ function SiparislerTab() {
                     {s.notlar && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, fontStyle: 'italic' }}>📝 {s.notlar}</div>}
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexDirection: 'column', alignItems: 'flex-end' }}>
+                    {!['TESLIM_EDILDI', 'MUSTERIYE_TESLIM', 'IPTAL'].includes(normDurum) && (
+                      <select
+                        value={normDurum}
+                        disabled={loading}
+                        onChange={(e) => void durumHizliGuncelle(s.id, e.target.value)}
+                        style={{ ...inputS, width: 160, fontWeight: 700, cursor: 'pointer' }}
+                        title="Durum güncelle"
+                      >
+                        {OZEL_SIPARIS_AKIS.map((d) => (
+                          <option key={d} value={d}>{DURUM_RENK[d]?.label ?? d}</option>
+                        ))}
+                        <option value="IPTAL">{DURUM_RENK.IPTAL.label}</option>
+                      </select>
+                    )}
                     {s.durum === 'TESLIM_ALINDI' && (
                       <button type="button" onClick={() => setTeslimPopup(s)}
                         style={{ ...btnPrimary, backgroundColor: '#059669', fontSize: 11, padding: '6px 12px', whiteSpace: 'nowrap' }}>
@@ -1146,12 +1170,6 @@ function SiparislerTab() {
                     >
                       🔍 Detay
                     </button>
-                    {!['MUSTERIYE_TESLIM', 'IPTAL'].includes(s.durum) && (
-                      <button type="button" onClick={() => { setDurumGuncellePopup(s); setDurumGuncelle({ durum: s.durum, tedarikciSiparisNo: s.tedarikciSiparisNo ?? '', notlar: '' }) }}
-                        style={{ ...btnSmall, fontSize: 11, padding: '5px 10px', whiteSpace: 'nowrap' }}>
-                        ✏️ Durum
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
@@ -1201,9 +1219,160 @@ const td: React.CSSProperties = {
   fontSize: 13, color: '#111',
 }
 
+// ── SİPARİŞ ÜRÜN GİRİŞİ ───────────────────────────────────────
+
+function SiparisUrunGirisiTab({ onGeri }: { onGeri: () => void }) {
+  const [siparisler, setSiparisler] = useState<any[]>([])
+  const [secili, setSecili] = useState<any | null>(null)
+  const [detay, setDetay] = useState<any | null>(null)
+  const [bekleyenFaturalar, setBekleyenFaturalar] = useState<any[]>([])
+  const [seciliFaturaId, setSeciliFaturaId] = useState('')
+  const [yukleniyor, setYukleniyor] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [mesaj, setMesaj] = useState<{ tip: 'ok' | 'err'; text: string } | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      setYukleniyor(true)
+      try {
+        const [sipRes, fatRes] = await Promise.all([
+          adminApi.get('/admin/ozel-siparisler?durum=TESLIM_ALINDI'),
+          adminApi.get('/admin/bekleyen-faturalar'),
+        ])
+        setSiparisler(sipRes.data?.data ?? [])
+        setBekleyenFaturalar(fatRes.data?.data ?? [])
+      } catch {
+        setSiparisler([])
+      } finally {
+        setYukleniyor(false)
+      }
+    })()
+  }, [])
+
+  async function siparisSec(s: any) {
+    setSecili(s)
+    setMesaj(null)
+    setDetay(null)
+    try {
+      const data = await getOzelSiparisStokGirisDetay(s.id)
+      setDetay(data)
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Detay yüklenemedi' })
+    }
+  }
+
+  async function stokaAl() {
+    if (!secili) return
+    setLoading(true)
+    setMesaj(null)
+    try {
+      await stokaAlOzelSiparis(secili.id, seciliFaturaId || undefined)
+      setMesaj({ tip: 'ok', text: 'Stoka alındı, sipariş HAZIR durumuna geçti' })
+      setSecili(null)
+      setDetay(null)
+      const sipRes = await adminApi.get('/admin/ozel-siparisler?durum=TESLIM_ALINDI')
+      setSiparisler(sipRes.data?.data ?? [])
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Stoka alınamadı' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: '#1a1a2e' }}>Sipariş Ürün Girişi</div>
+          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Teslim alınmış özel siparişler — karekod eşleştirme, fatura ve stok</div>
+        </div>
+        <button type="button" onClick={onGeri} style={btnSmall}>← Geri</button>
+      </div>
+
+      {mesaj ? (
+        <div style={{
+          marginBottom: 12, padding: '10px 14px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+          backgroundColor: mesaj.tip === 'ok' ? '#dcfce7' : '#fee2e2',
+          color: mesaj.tip === 'ok' ? '#166534' : '#991b1b',
+        }}>
+          {mesaj.text}
+        </div>
+      ) : null}
+
+      <div style={{ display: 'grid', gridTemplateColumns: secili ? '1fr 1.2fr' : '1fr', gap: 16 }}>
+        <div>
+          {yukleniyor ? <div style={{ color: '#9ca3af', fontSize: 13 }}>Yükleniyor...</div> : null}
+          {!yukleniyor && siparisler.length === 0 ? (
+            <div style={{ color: '#9ca3af', fontSize: 13, padding: 24, textAlign: 'center', backgroundColor: '#f9fafb', borderRadius: 12 }}>
+              Teslim alınmış sipariş yok
+            </div>
+          ) : null}
+          {siparisler.map((s) => (
+            <div
+              key={s.id}
+              onClick={() => void siparisSec(s)}
+              style={{
+                border: `2px solid ${secili?.id === s.id ? '#1a1a2e' : '#e5e7eb'}`,
+                borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer', backgroundColor: 'white',
+              }}
+            >
+              <div style={{ fontWeight: 900, fontSize: 14 }}>{s.urunAdi}</div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                {s.musteriAdi} · {s.subeAdi || s.subeId || '—'} · {s.miktar} adet
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {secili && detay ? (
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, backgroundColor: 'white' }}>
+            <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 12 }}>Sipariş Detayı</div>
+            <div style={{ fontSize: 13, marginBottom: 12, lineHeight: 1.7 }}>
+              <div><strong>Müşteri:</strong> {detay.siparis.musteriAdi}</div>
+              <div><strong>Ürün:</strong> {detay.siparis.urunAdi}</div>
+              <div><strong>Hedef şube:</strong> {detay.siparis.subeAdi || detay.siparis.subeId}</div>
+              <div><strong>Beklenen adet:</strong> {detay.siparis.miktar}</div>
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>Taranan Karekodlar</div>
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
+              {(detay.eslestirmeler ?? []).map((k: any) => (
+                <div key={k.id} style={{ padding: '10px 12px', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
+                  <div style={{ fontWeight: 700 }}>{k.karekod}</div>
+                  <div style={{ color: k.lotAdi ? '#166534' : '#b45309', marginTop: 2 }}>
+                    {k.lotAdi ? `✓ Lot: ${k.lotAdi}` : '⚠ Lot eşleşmedi'}
+                    {k.utsKodu ? ` · UTS: ${k.utsKodu}` : ''}
+                    {k.urunAdi ? ` · ${k.urunAdi}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>Bekleyen Fatura (opsiyonel)</label>
+              <select value={seciliFaturaId} onChange={(e) => setSeciliFaturaId(e.target.value)} style={{ ...inp, marginBottom: 0 }}>
+                <option value="">— Fatura seçilmedi —</option>
+                {bekleyenFaturalar.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.tedarikciAdi} · {f.irsaliyeNo || f.odooPickingName || f.id.slice(0, 8)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button type="button" onClick={() => void stokaAl()} disabled={loading} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
+              {loading ? 'İşleniyor...' : 'Stoka al + UTS'}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 // ── ÜRÜN GİRİŞ SEKMESİ ───────────────────────────────────────
 
-type UrunGirisAdim = 'giris-tipi' | 'fatura' | 'satirlar' | 'lotlar' | 'onay' | 'bekleyen-faturalar'
+type UrunGirisAdim = 'giris-tipi' | 'siparis-urun-girisi' | 'fatura' | 'satirlar' | 'lotlar' | 'onay' | 'bekleyen-faturalar'
 
 type Tedarikci = {
   id: number
@@ -3160,6 +3329,33 @@ function UrunGirisTab() {
               </div>
             </div>
 
+            <div
+              onClick={() => setAdim('siparis-urun-girisi')}
+              style={{
+                border: '2px solid #c4b5fd',
+                borderRadius: 12,
+                padding: '16px 20px',
+                cursor: 'pointer',
+                backgroundColor: '#f5f3ff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = '#7c3aed')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = '#c4b5fd')}
+            >
+              <div style={{ fontSize: 28 }}>🛒</div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#6d28d9', marginBottom: 3 }}>
+                  Sipariş Ürün Girişi
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>
+                  POS&apos;tan teslim alınan özel siparişler — karekod, UTS ve stok transferi
+                </div>
+              </div>
+            </div>
+
             {[
               { tip: 'FATURA_SONRA' as const, icon: '⏳', baslik: 'Ürün Geldi, Fatura Beklemede', aciklama: 'Stok girişi yapılır, fatura gelince eşleştirilir.', renk: '#d97706', bg: '#fffbeb', border: '#fde68a' },
               { tip: 'IRSALIYELI' as const, icon: '📋', baslik: 'İrsaliyeli Giriş', aciklama: 'İrsaliye numarasıyla giriş. Fatura sonra veya birlikte gelebilir.', renk: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
@@ -4202,6 +4398,10 @@ function UrunGirisTab() {
             </button>
           </div>
         </div>
+      )}
+
+      {adim === 'siparis-urun-girisi' && (
+        <SiparisUrunGirisiTab onGeri={() => setAdim('giris-tipi')} />
       )}
 
       {adim === 'bekleyen-faturalar' && (
