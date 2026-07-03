@@ -1,7 +1,8 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 18.06.2026
+Son güncelleme: 03.07.2026
 
 ## Son commitler (güncellendi)
+- [03.07.2026 — commit 540f859] — Satışlar listesi, Müşteriler sayfası, DRAFT satışa devam, reçete 2 sekme (Gözlük/Lens), stok cam SPH+CYL öneri + transpoze, Şirket Tanımları sayfası, İYS modal + SirketAyar DB, Patron login fix (adminApi), PDKS şube mekan ID eşleşmesi, iade flow altyapısı (WarrantyClaim 6 yeni alan), Odoo müşteri arama birleşik, kampanya tabloları oluşturuldu, DB reset sonrası şubeler + personeller yeniden kuruldu
 - [bugün] — Varyant import tamamlandı: mevcut varyantlar Odoo'dan çekiliyor, duplicate koruması, PTAV model/renk/ölçü parse
 - [bugün] — Personel şube ataması tamamlandı (22 otomatik + 3 manuel)
 - [bugün] — IK belge yönetimi: eksik gösterimi, WhatsApp link, public belge yükleme formu
@@ -127,3 +128,31 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - Odoo: localhost:8069 (Docker odoo-odoo-1, DB: guvenoptik, port 5433, admin/admin123)
 - Patron Paneli: /admin/patron (ADMIN rolü gerekli)
 - Chart.js: chart.js + react-chartjs-2 kurulu (PatronPage.tsx)
+
+## Kritik Notlar (03.07.2026)
+
+### DB Durumu
+- Migration reset yapıldı — Campaign, CampaignBranchOverride, CampaignLog, SirketAyar tabloları direkt SQL ile oluşturuldu (migration history dışında)
+- WarrantyClaim tablosuna 6 alan eklendi: returnBranchId, supplierId, returnDeadline, cargoTrackingNo, adminApprovedAt, adminApprovedBy
+- Şubeler yeniden oluşturuldu: ANADEPO, GVN1-3, GVN5-10
+- PDKS mekan ID'leri: GVN1=5732, GVN2=5727, GVN3=5733, GVN5=5735, GVN6=5781, GVN7=5779, GVN8=8026, GVN9=5734, ANADEPO=8027, GVN10=eksik
+
+### Bekleyen İşler (Öncelik Sırası)
+1. Garanti & İade admin ekranı — iade talepleri listesi, tedarikçi bazlı gruplandırma, onay akışı
+2. Kullanıcı ve personel kurulumu — tüm şubeler için user oluşturma
+3. İYS entegrasyonu — credentials gelince aktif edilecek (iys.org.tr API)
+4. ADESE/POTENTIAL Uyumsoft — credentials bekleniyor
+5. GVN6/7/8 Patron PDKS — 403 hatası, destek bekleniyor
+6. GVN10 PDKS mekan ID — eksik
+7. Worldline POS terminal — haber bekleniyor
+8. WhatsApp Business API — henüz entegre değil
+9. Kontakt lens stok önerisi
+10. Tedarikçi ürün adı kaydı (satış kaleminde)
+
+### Önemli Teknik Notlar
+- PatronPage artık adminApi kullanıyor (apiClient değil) — login sorunu çözüldü
+- Ürün araması tüm şirketlerde yapılıyor (NG company 2, ADESE 3, POTENTIAL 4)
+- Müşteri araması POS DB + Odoo birleşik — Odoo'da olup POS'ta olmayan müşteriler de geliyor
+- DRAFT satışa devam: /sales/new?saleId=... URL parametresi ile
+- Stok cam öneri: SPH+CYL parse (-2750=−27.50) + transpoze formülü (SPH+CYL, -CYL, AKS±90)
+- SatislarPage varsayılan filtre: PAID (tamamlanmış satışlar)
