@@ -317,11 +317,21 @@ async function searchUrunByNameCatalog(term, companyId, options) {
         ['sale_ok', '=', true],
         '|', ['name', 'ilike', term], ['default_code', 'ilike', term],
     ], options);
-    const templates = (await odooService.execute('product.template', 'search_read', [domain], {
-        fields: ['id', 'name', 'list_price'],
-        limit: 50,
-        order: 'name asc',
-    }, companyId)) ?? [];
+    // Tüm şirketlerde ara — NG(2), ADESE(3), POTENTIAL(4)
+    const sirketIds = [2, 3, 4];
+    const seenIds = new Set<number>();
+    let allTemplates: any[] = [];
+    for (const cid of sirketIds) {
+        const rows = (await odooService.execute('product.template', 'search_read', [domain], {
+            fields: ['id', 'name', 'list_price'],
+            limit: 50,
+            order: 'name asc',
+        }, cid)) ?? [];
+        for (const r of rows) {
+            if (!seenIds.has(r.id)) { seenIds.add(r.id); allTemplates.push({ ...r, _cid: cid }); }
+        }
+    }
+    const templates = allTemplates;
     const results = [];
     for (const tmpl of templates) {
         const variants = (await odooService.execute('product.product', 'search_read', [
@@ -330,7 +340,7 @@ async function searchUrunByNameCatalog(term, companyId, options) {
             fields: ['id', 'display_name', 'name', 'lst_price', 'list_price'],
             limit: RESULT_LIMIT - results.length,
             order: 'display_name asc',
-        }, companyId)) ?? [];
+        }, tmpl._cid ?? companyId)) ?? [];
         for (const v of variants) {
             results.push(mapVariantToTransferUrun({
                 ...v,

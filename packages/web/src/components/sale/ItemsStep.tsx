@@ -47,6 +47,49 @@ function money(v?: string | number | null) {
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(n)
 }
 
+const STOK_CAM_KATEGORI_IDS = [35, 36, 37]
+
+function parseStokCamSph(urunAdi: string): number | null {
+  const m = urunAdi.match(/(-?\d{4})\s+(-?0?\d{3,4})/)
+  if (!m) return null
+  return parseInt(m[1], 10) / 100
+}
+
+function parseStokCamCyl(urunAdi: string): number | null {
+  const m = urunAdi.match(/(-?\d{4})\s+(-?0?\d{3,4})/)
+  if (!m) return null
+  return parseInt(m[2], 10) / 100
+}
+
+function transpozHesapla(sph: number, cyl: number, aks: number): { sph: number; cyl: number; aks: number } {
+  const yeniSph = Math.round((sph + cyl) * 100) / 100
+  const yeniCyl = Math.round(-cyl * 100) / 100
+  const yeniAks = aks > 90 ? aks - 90 : aks + 90
+  return { sph: yeniSph, cyl: yeniCyl, aks: yeniAks }
+}
+
+function receteOneriFiltrele(
+  urunler: any[],
+  rx: any,
+  taraf: 'r' | 'l'
+): { tam: any[]; transpoze: any[] } {
+  const sph = parseFloat(String(rx?.[`far_${taraf}_sph`] ?? '0'))
+  const cyl = parseFloat(String(rx?.[`far_${taraf}_cyl`] ?? '0'))
+  const aks = parseInt(String(rx?.[`far_${taraf}_aks`] ?? '0'))
+  if (isNaN(sph) && isNaN(cyl)) return { tam: [], transpoze: [] }
+  const tr = transpozHesapla(sph, cyl, aks)
+  const tam: any[] = []
+  const transpoze: any[] = []
+  for (const u of urunler) {
+    const uSph = parseStokCamSph(u.ad)
+    const uCyl = parseStokCamCyl(u.ad)
+    if (uSph === null || uCyl === null) continue
+    if (uSph === sph && uCyl === Math.abs(cyl)) tam.push(u)
+    else if (uSph === tr.sph && uCyl === Math.abs(tr.cyl)) transpoze.push(u)
+  }
+  return { tam, transpoze }
+}
+
 function buildSearchUrl(
   q: string,
   yontem: string,
@@ -58,6 +101,7 @@ function buildSearchUrl(
     q,
     yontem,
     lokasyon,
+    katalog: 'true',
   })
   if (kategoriId != null) params.set('kategoriId', String(kategoriId))
   if (kategoriIds?.length) params.set('kategoriIds', kategoriIds.join(','))
@@ -100,6 +144,8 @@ export default function ItemsStep({
   const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount')
   const [discountInput, setDiscountInput] = useState('0')
   const [prescriptionType, setPrescriptionType] = useState<string>('')
+  const [oneriTabu, setOneriTabu] = useState<'oneri' | 'tumü'>('oneri')
+  const [oneriTaraf, setOneriTaraf] = useState<'r' | 'l'>('r')
 
   const [error, setError] = useState<string | null>(null)
   const [editingItem, setEditingItem] = useState<any | null>(null)
@@ -774,9 +820,8 @@ export default function ItemsStep({
             {step === 3 && pickedType ? (
               <div style={{ marginTop: '14px' }}>
                 <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '10px', fontWeight: 700 }}>
-                  Adım 3 — Ürün ara ({pickedType.title}
-                  {pickedKategoriLabel ? ` · ${pickedKategoriLabel}` : ''}) · {getAktifLokasyon()}
-                  {pickedKategoriId != null ? ` · kategori #${pickedKategoriId}` : ''}
+                  Ürün ara — {pickedType.title}
+                  {pickedKategoriLabel ? ` · ${pickedKategoriLabel}` : ''}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                   {ARAMA_YONTEMLERI.map((y) => (
@@ -799,6 +844,54 @@ export default function ItemsStep({
                     </button>
                   ))}
                 </div>
+                {pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId) && customerPrescription ? (() => {
+                  const rx = customerPrescription as any
+                  const { tam: tamR, transpoze: transpR } = receteOneriFiltrele(searchResults, rx, 'r')
+                  const { tam: tamL, transpoze: transpL } = receteOneriFiltrele(searchResults, rx, 'l')
+                  const onerilen = oneriTaraf === 'r'
+                    ? [...tamR.map(u => ({ ...u, _eslesme: 'tam' })), ...transpR.map(u => ({ ...u, _eslesme: 'transpoze' }))]
+                    : [...tamL.map(u => ({ ...u, _eslesme: 'tam' })), ...transpL.map(u => ({ ...u, _eslesme: 'transpoze' }))]
+                  const sphR = rx?.far_r_sph ?? '—'
+                  const cylR = rx?.far_r_cyl ?? '—'
+                  const sphL = rx?.far_l_sph ?? '—'
+                  const cylL = rx?.far_l_cyl ?? '—'
+                  return (
+                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        ✦ Reçeteye göre öneri
+                        {onerilen.length > 0 && <span style={{ background: '#dbeafe', color: '#1d4ed8', fontSize: 11, padding: '2px 8px', borderRadius: 999 }}>{onerilen.length} eşleşme</span>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                        <button type="button" onClick={() => setOneriTaraf('r')} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #bfdbfe', background: oneriTaraf === 'r' ? '#1d4ed8' : 'white', color: oneriTaraf === 'r' ? 'white' : '#1d4ed8', cursor: 'pointer', fontWeight: 700 }}>
+                          Sağ göz · {sphR} / {cylR}
+                        </button>
+                        <button type="button" onClick={() => setOneriTaraf('l')} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #bfdbfe', background: oneriTaraf === 'l' ? '#1d4ed8' : 'white', color: oneriTaraf === 'l' ? 'white' : '#1d4ed8', cursor: 'pointer', fontWeight: 700 }}>
+                          Sol göz · {sphL} / {cylL}
+                        </button>
+                      </div>
+                      {onerilen.length === 0 ? (
+                        <div style={{ fontSize: 12, color: '#6b7280' }}>Reçeteye uygun stok bulunamadı — aşağıdan arama yapın.</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {onerilen.map((u: any) => (
+                            <div key={String(u.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', border: `1px solid ${u._eslesme === 'tam' ? '#1d4ed8' : '#93c5fd'}`, borderRadius: 8, padding: '8px 10px' }}>
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{u.ad}</div>
+                                <div style={{ fontSize: 11, color: u._eslesme === 'tam' ? '#1d4ed8' : '#6b7280', marginTop: 2 }}>
+                                  {u._eslesme === 'tam' ? '✓ Tam eşleşme' : '↔ Transpoze eşleşme'}
+                                </div>
+                              </div>
+                              <button type="button" onClick={() => pickSearchResult(u)} style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', background: '#1d4ed8', color: 'white', cursor: 'pointer', fontWeight: 700 }}>
+                                Seç
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })() : null}
+
                 <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
                   <input
                     value={q}
@@ -833,24 +926,8 @@ export default function ItemsStep({
                 <div style={{ marginTop: '10px', maxHeight: '320px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {productsLoading ? <div style={{ fontSize: '13px', color: '#6b7280' }}>Aranıyor...</div> : null}
                   {!productsLoading && q.trim().length >= 1 && searchResults.length === 0 ? (
-                    <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                    <div style={{ fontSize: 13, color: '#6b7280', padding: '8px 0' }}>
                       Sonuç bulunamadı.
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // Müşteri adını parent'tan almak için prop gerekirdiği için
-                          // şimdilik URL'e ürün adını geçiyoruz
-                          const params = new URLSearchParams({
-                            musteriAdi: (window as any).__aktifMusteriAdi || '',
-                            urunAdi: q,
-                            tip: 'STANDART',
-                          })
-                          window.open(`/admin/depo?sekme=siparisler&${params.toString()}`, '_blank')
-                        }}
-                        style={{ marginLeft: '10px', padding: '4px 10px', backgroundColor: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '6px', fontSize: '12px', fontWeight: 700, color: '#92400e', cursor: 'pointer' }}
-                      >
-                        🛒 Sipariş Oluştur
-                      </button>
                     </div>
                   ) : null}
                   {searchResults.map((u) => (

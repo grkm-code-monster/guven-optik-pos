@@ -168,6 +168,7 @@ function openAccountRemaining(payments: any[]) {
 export default function SaleDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [detayTab, setDetayTab] = useState<'siparis' | 'recete' | 'islemler'>('siparis')
 
   const [sale, setSale] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -276,7 +277,7 @@ export default function SaleDetailPage() {
     setError(null)
     try {
       await voidSale(sale.id, { voidReason: voidReason.trim() })
-      navigate('/')
+      navigate('/sales')
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Satış iptal edilemedi')
     } finally {
@@ -334,7 +335,7 @@ export default function SaleDetailPage() {
     return (
       <div style={pageWrap}>
         <div style={{ color: danger }}>{error ?? 'Satış bulunamadı.'}</div>
-        <button type="button" onClick={() => navigate('/')} style={{ marginTop: 12, fontWeight: 800 }}>
+        <button type="button" onClick={() => navigate('/sales')} style={{ marginTop: 12, fontWeight: 800 }}>
           ← Geri
         </button>
       </div>
@@ -354,7 +355,7 @@ export default function SaleDetailPage() {
       >
         <button
           type="button"
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/sales')}
           style={{
             border: 'none',
             background: 'none',
@@ -418,6 +419,26 @@ export default function SaleDetailPage() {
       ) : null}
       {error ? <div style={{ color: danger, fontSize: 13, fontWeight: 600 }}>{error}</div> : null}
 
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
+        {(['siparis', 'recete', 'islemler'] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setDetayTab(t)}
+            style={{
+              padding: '10px 18px', fontSize: 13, border: 'none', cursor: 'pointer',
+              borderBottom: detayTab === t ? '2px solid #C8102E' : '2px solid transparent',
+              background: 'transparent',
+              color: detayTab === t ? '#C8102E' : '#6b7280',
+              fontWeight: detayTab === t ? 800 : 500,
+            }}
+          >
+            {t === 'siparis' ? '🧾 Sipariş Detayı' : t === 'recete' ? '👁 Reçete & Ölçümler' : '⚙️ İşlemler'}
+          </button>
+        ))}
+      </div>
+
+      {detayTab === 'siparis' && <>
       <div style={{ ...cardStyle, borderLeft: '4px solid #8B0000' }}>
         <div style={{ fontWeight: 900, marginBottom: 14, fontSize: 16 }}>Kalemler</div>
         <div>
@@ -576,7 +597,81 @@ export default function SaleDetailPage() {
           </div>
         )}
       </div>
+      </>}
 
+      {detayTab === 'recete' && <>
+        <div style={{ ...cardStyle }}>
+          <div style={{ fontWeight: 900, marginBottom: 16, fontSize: 16 }}>Reçete & Ölçümler</div>
+          {items.filter((it: any) => it.prescription).length === 0 ? (
+            <div style={{ color: '#9ca3af', fontSize: 14, padding: '16px 0' }}>Bu satışta reçete kaydı yok.</div>
+          ) : (
+            items.filter((it: any) => it.prescription).map((it: any) => {
+              const p = it.prescription
+              return (
+                <div key={it.id} style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10, color: '#1a1a2e' }}>{it.name}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 12 }}>
+                    {p.prescriptionType && <div><span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700 }}>Reçete Tipi</span><div style={{ fontWeight: 700 }}>{p.prescriptionType}</div></div>}
+                    {p.doctorName && <div><span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700 }}>Doktor</span><div style={{ fontWeight: 700 }}>{p.doctorName}</div></div>}
+                    {p.prescriptionDate && <div><span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700 }}>Reçete Tarihi</span><div style={{ fontWeight: 700 }}>{fmtDate(p.prescriptionDate)}</div></div>}
+                    {p.eReceteCode && <div><span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700 }}>e-Reçete Kodu</span><div style={{ fontWeight: 700 }}>{p.eReceteCode}</div></div>}
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f9fafb' }}>
+                        <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: 11 }}></th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#6b7280', fontSize: 11 }}>SPH</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#6b7280', fontSize: 11 }}>CYL</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#6b7280', fontSize: 11 }}>AKS</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#6b7280', fontSize: 11 }}>ADD</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#6b7280', fontSize: 11 }}>PD</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={{ borderTop: '1px solid #e5e7eb' }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 700, color: '#374151' }}>Sağ (R)</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.r_sph ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.r_cyl ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.r_aks ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.r_add ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.r_pd ?? '—'}</td>
+                      </tr>
+                      <tr style={{ borderTop: '1px solid #e5e7eb' }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 700, color: '#374151' }}>Sol (L)</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.l_sph ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.l_cyl ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.l_aks ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.l_add ?? '—'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{p.l_pd ?? '—'}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  {it.frames && it.frames.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700, marginBottom: 6 }}>ÇERÇEVE ÖLÇÜLERİ</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                        {it.frames.map((f: any) => (
+                          <div key={f.id}>
+                            {f.brand && <div><span style={{ fontSize: 11, color: '#9ca3af' }}>Marka</span><div style={{ fontWeight: 700, fontSize: 13 }}>{f.brand}</div></div>}
+                            {f.model && <div><span style={{ fontSize: 11, color: '#9ca3af' }}>Model</span><div style={{ fontWeight: 700, fontSize: 13 }}>{f.model}</div></div>}
+                            {f.h && <div><span style={{ fontSize: 11, color: '#9ca3af' }}>H</span><div style={{ fontWeight: 700, fontSize: 13 }}>{f.h}</div></div>}
+                            {f.cap && <div><span style={{ fontSize: 11, color: '#9ca3af' }}>Cap</span><div style={{ fontWeight: 700, fontSize: 13 }}>{f.cap}</div></div>}
+                            {f.vertex && <div><span style={{ fontSize: 11, color: '#9ca3af' }}>Vertex</span><div style={{ fontWeight: 700, fontSize: 13 }}>{f.vertex}</div></div>}
+                            {f.pantos && <div><span style={{ fontSize: 11, color: '#9ca3af' }}>Pantos</span><div style={{ fontWeight: 700, fontSize: 13 }}>{f.pantos}</div></div>}
+                            {f.frameAngle && <div><span style={{ fontSize: 11, color: '#9ca3af' }}>Çerçeve Açısı</span><div style={{ fontWeight: 700, fontSize: 13 }}>{f.frameAngle}</div></div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </div>
+      </>}
+
+      {detayTab === 'islemler' && <>
       <div style={cardStyle}>
         <div style={{ fontWeight: 900, marginBottom: 12, fontSize: 16 }}>Durum Değiştir</div>
         <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>
@@ -747,6 +842,7 @@ export default function SaleDetailPage() {
           </button>
         </div>
       ) : null}
+      </>}
 
       {payModalOpen ? (
         <div

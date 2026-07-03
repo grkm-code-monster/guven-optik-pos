@@ -1230,6 +1230,7 @@ function SiparisUrunGirisiTab({ onGeri }: { onGeri: () => void }) {
   const [yukleniyor, setYukleniyor] = useState(false)
   const [loading, setLoading] = useState(false)
   const [mesaj, setMesaj] = useState<{ tip: 'ok' | 'err'; text: string } | null>(null)
+  const [faturaKalemSayfa, setFaturaKalemSayfa] = useState(0)
 
   useEffect(() => {
     void (async () => {
@@ -1349,15 +1350,74 @@ function SiparisUrunGirisiTab({ onGeri }: { onGeri: () => void }) {
             </div>
 
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 4 }}>Bekleyen Fatura (opsiyonel)</label>
-              <select value={seciliFaturaId} onChange={(e) => setSeciliFaturaId(e.target.value)} style={{ ...inp, marginBottom: 0 }}>
-                <option value="">— Fatura seçilmedi —</option>
-                {bekleyenFaturalar.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.tedarikciAdi} · {f.irsaliyeNo || f.odooPickingName || f.id.slice(0, 8)}
-                  </option>
-                ))}
-              </select>
+              <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 8 }}>Bekleyen Fatura (opsiyonel)</label>
+              {bekleyenFaturalar.length === 0 && (
+                <div style={{ fontSize: 12, color: '#9ca3af', padding: '8px 0' }}>Bekleyen fatura yok</div>
+              )}
+              {bekleyenFaturalar.length > 0 && (() => {
+                const sayfaBasi = 5
+                const toplamSayfa = Math.ceil(bekleyenFaturalar.length / sayfaBasi)
+                const gosterilen = bekleyenFaturalar.slice(faturaKalemSayfa * sayfaBasi, (faturaKalemSayfa + 1) * sayfaBasi)
+                return (
+                  <div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {gosterilen.map((f) => {
+                        const kalemler: any[] = (() => { try { return JSON.parse(f.kalemler || '[]') } catch { return [] } })()
+                        const seciliBu = seciliFaturaId === f.id
+                        const gosterilecekKalemler = kalemler.slice(0, 5)
+                        const fazla = kalemler.length - 5
+                        return (
+                          <div
+                            key={f.id}
+                            onClick={() => setSeciliFaturaId(seciliBu ? '' : f.id)}
+                            style={{
+                              border: `2px solid ${seciliBu ? '#059669' : '#e5e7eb'}`,
+                              borderRadius: 8, padding: '10px 12px', cursor: 'pointer',
+                              backgroundColor: seciliBu ? '#f0fdf4' : 'white',
+                            }}
+                          >
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{f.tedarikciAdi}</div>
+                            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                              {f.irsaliyeNo || f.odooPickingName || f.id.slice(0, 8)}
+                              {f.subeAdi ? ` · ${f.subeAdi}` : ''}
+                            </div>
+                            {kalemler.length > 0 && (
+                              <div style={{ marginTop: 6, borderTop: '1px solid #f3f4f6', paddingTop: 6 }}>
+                                {gosterilecekKalemler.map((k: any, i: number) => (
+                                  <div key={i} style={{ fontSize: 11, color: '#374151', display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                                    <span>{k.urunAdi || k.name || '—'}</span>
+                                    <span style={{ color: '#6b7280' }}>{k.miktar ?? k.qty ?? ''} {k.birim || ''}</span>
+                                  </div>
+                                ))}
+                                {fazla > 0 && (
+                                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>+{fazla} kalem daha</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {toplamSayfa > 1 && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setFaturaKalemSayfa(p => Math.max(0, p - 1)) }}
+                          disabled={faturaKalemSayfa === 0}
+                          style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: 'white', cursor: faturaKalemSayfa === 0 ? 'not-allowed' : 'pointer', color: faturaKalemSayfa === 0 ? '#d1d5db' : '#374151' }}
+                        >← Önceki</button>
+                        <span style={{ fontSize: 11, color: '#6b7280' }}>{faturaKalemSayfa + 1} / {toplamSayfa}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setFaturaKalemSayfa(p => Math.min(toplamSayfa - 1, p + 1)) }}
+                          disabled={faturaKalemSayfa === toplamSayfa - 1}
+                          style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: 'white', cursor: faturaKalemSayfa === toplamSayfa - 1 ? 'not-allowed' : 'pointer', color: faturaKalemSayfa === toplamSayfa - 1 ? '#d1d5db' : '#374151' }}
+                        >Sonraki →</button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
 
             <button type="button" onClick={() => void stokaAl()} disabled={loading} style={{ ...btnPrimary, backgroundColor: '#059669' }}>

@@ -15,6 +15,10 @@ function handleCustomerError(err: unknown, res: Response): boolean {
     res.status(409).json({ error: 'CUSTOMER_PHONE_EXISTS', message: 'Bu telefon numarası zaten kayıtlı.' });
     return true;
   }
+  if (code === 'CUSTOMER_TC_EXISTS') {
+    res.status(409).json({ error: 'CUSTOMER_TC_EXISTS', message: 'Bu TC kimlik numarası zaten kayıtlı.' });
+    return true;
+  }
   if (code === 'CUSTOMER_NOT_FOUND') {
     res.status(404).json({ error: 'CUSTOMER_NOT_FOUND', message: 'Müşteri bulunamadı.' });
     return true;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { adminApi } from './AdminLayout'
 
-type TabId = 'komisyon' | 'personeller' | 'subeler'
+type TabId = 'komisyon' | 'personeller' | 'subeler' | 'sirket-tanimlari'
 
 const INSTALLMENTS = [1, 2, 3, 6, 9, 12] as const
 const ROLE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -136,12 +136,20 @@ export default function TanimlamalarPage() {
         >
           <span style={{ fontFamily: 'system-ui, sans-serif' }}>Şubeler</span>
         </button>
+        <button
+          type="button"
+          style={{ ...tabBtn(tab === 'sirket-tanimlari'), flexShrink: 0, whiteSpace: 'nowrap' }}
+          onClick={() => setTab('sirket-tanimlari')}
+        >
+          <span style={{ fontFamily: 'system-ui, sans-serif' }}>Şirket Tanımları</span>
+        </button>
       </div>
 
       <div style={{ backgroundColor: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20 }}>
         {tab === 'komisyon' ? <KomisyonTab /> : null}
         {tab === 'personeller' ? <PersonellerTab /> : null}
         {tab === 'subeler' ? <SubelerTab /> : null}
+        {tab === 'sirket-tanimlari' ? <SirketTanimlariTab /> : null}
       </div>
     </div>
   )
@@ -1318,4 +1326,242 @@ const btnStyle: React.CSSProperties = {
   border: 'none',
   fontWeight: 800,
   cursor: 'pointer',
+}
+
+type SirketId = 'ng' | 'adese' | 'potential'
+
+const SIRKET_TANIMLARI: Array<{ id: SirketId; label: string; tamAd: string; vkn: string; subeler: string[] }> = [
+  { id: 'ng', label: 'NG', tamAd: 'Nejla Gümüşkesen Optik', vkn: '23819441406', subeler: ['GVN2', 'GVN10', 'ANADEPO'] },
+  { id: 'adese', label: 'ADESE', tamAd: 'Adese Optik Ltd. Şti.', vkn: '', subeler: ['GVN1', 'GVN3', 'GVN6', 'GVN7', 'GVN8', 'GVN9'] },
+  { id: 'potential', label: 'POTENTIAL', tamAd: 'Potential Ophthalmic Dış Tic. Ltd. Şti.', vkn: '', subeler: ['GVN5'] },
+]
+
+const PDKS_403_SUBELER = ['GVN6', 'GVN7', 'GVN8']
+
+function EntegrasyonKarti({
+  icon, baslik, durum, detay, onTest, onDuzenle,
+}: {
+  icon: string; baslik: string; durum: 'aktif' | 'pasif' | 'bekliyor' | 'hata'
+  detay: string; onTest?: () => void; onDuzenle?: () => void
+}) {
+  const badgeMap = {
+    aktif: { bg: '#dcfce7', color: '#166534', label: 'Aktif' },
+    pasif: { bg: '#f3f4f6', color: '#6b7280', label: 'Pasif' },
+    bekliyor: { bg: '#fef9c3', color: '#854d0e', label: 'Credentials bekleniyor' },
+    hata: { bg: '#fee2e2', color: '#991b1b', label: 'Hata' },
+  }
+  const b = badgeMap[durum]
+  return (
+    <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: '#1a1a2e', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>{icon}</span>{baslik}
+        </div>
+        <span style={{ background: b.bg, color: b.color, fontSize: 11, padding: '3px 9px', borderRadius: 999, fontWeight: 700 }}>{b.label}</span>
+      </div>
+      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>{detay}</div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {onTest && <button type="button" onClick={onTest} style={{ ...btnStyle, fontSize: 12, padding: '4px 10px', background: '#f3f4f6', color: '#374151' }}>Test et</button>}
+        {onDuzenle && <button type="button" onClick={onDuzenle} style={{ ...btnStyle, fontSize: 12, padding: '4px 10px', background: '#f3f4f6', color: '#374151' }}>{durum === 'pasif' || durum === 'bekliyor' ? 'Ayarla' : 'Düzenle'}</button>}
+      </div>
+    </div>
+  )
+}
+
+function SubeBlok({ sube, sirketId }: { sube: string; sirketId: SirketId }) {
+  const [acik, setAcik] = useState(false)
+  const pdks403 = PDKS_403_SUBELER.includes(sube)
+  const ngSubeler = ['GVN2', 'GVN10']
+  const pdksAktif = sirketId === 'ng' && ngSubeler.includes(sube)
+  const utsAktif = sirketId === 'ng' && ngSubeler.includes(sube)
+
+  const pdksDurum = pdks403 ? 'hata' : pdksAktif ? 'aktif' : 'pasif'
+  const pdksDetay = pdks403 ? 'Patron PDKS: 403 hatası — destek bekleniyor' : pdksAktif ? 'Mekan ID tanımlı' : 'Mekan ID girilmedi'
+
+  const ozet = [
+    `PDKS ${pdksAktif ? '✓' : pdks403 ? '⚠' : '—'}`,
+    `UTS ${utsAktif ? '✓' : '—'}`,
+    'WhatsApp —',
+    'Worldline —',
+  ].join(' · ')
+
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: 8 }}>
+      <div
+        onClick={() => setAcik(a => !a)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f9fafb', cursor: 'pointer' }}
+      >
+        <div>
+          <span style={{ fontSize: 14, fontWeight: 800, color: '#1a1a2e' }}>{sube}</span>
+          <span style={{ fontSize: 12, color: pdks403 ? '#991b1b' : '#6b7280', marginLeft: 10 }}>{ozet}</span>
+        </div>
+        <span style={{ fontSize: 12, color: '#9ca3af', transform: acik ? 'rotate(180deg)' : 'rotate(0)', display: 'inline-block', transition: 'transform .2s' }}>▼</span>
+      </div>
+      {acik && (
+        <div style={{ padding: '12px 14px', borderTop: '1px solid #e5e7eb' }}>
+          <SubeEntegrasyon baslik="Patron PDKS" durum={pdksDurum} alanAdi="Mekan ID" alanDeger={pdksAktif ? '(kayıtlı)' : ''} />
+          <SubeEntegrasyon baslik="UTS token" durum={utsAktif ? 'aktif' : 'pasif'} alanAdi="Token" alanDeger={utsAktif ? '••••••••••' : ''} />
+          <SubeEntegrasyon baslik="WhatsApp" durum="pasif" alanAdi="Telefon no" alanDeger="" />
+          <SubeEntegrasyon baslik="Worldline terminal" durum="pasif" alanAdi="Terminal ID" alanDeger="" sonMu />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SubeEntegrasyon({ baslik, durum, alanAdi, alanDeger, sonMu }: {
+  baslik: string; durum: 'aktif' | 'pasif' | 'hata'; alanAdi: string; alanDeger: string; sonMu?: boolean
+}) {
+  const badgeMap = {
+    aktif: { bg: '#dcfce7', color: '#166534', label: 'Aktif' },
+    pasif: { bg: '#f3f4f6', color: '#6b7280', label: 'Pasif' },
+    hata: { bg: '#fee2e2', color: '#991b1b', label: 'Hata' },
+  }
+  const b = badgeMap[durum]
+  return (
+    <div style={{ borderBottom: sonMu ? 'none' : '1px solid #f3f4f6', paddingBottom: 10, marginBottom: sonMu ? 0 : 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{baslik}</span>
+        <span style={{ background: b.bg, color: b.color, fontSize: 11, padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>{b.label}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, color: '#6b7280', minWidth: 80 }}>{alanAdi}</span>
+        <span style={{ fontSize: 12, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '3px 8px', flex: 1, color: alanDeger ? '#1a1a2e' : '#9ca3af' }}>
+          {alanDeger || '—'}
+        </span>
+        <button type="button" style={{ ...btnStyle, fontSize: 12, padding: '4px 10px', background: '#f3f4f6', color: '#374151' }}>
+          {durum === 'aktif' ? 'Düzenle' : 'Ayarla'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SirketTanimlariTab() {
+  const [aktifSirket, setAktifSirket] = useState<SirketId>('ng')
+  const [iysModal, setIysModal] = useState(false)
+  const [iysForm, setIysForm] = useState({ iys_iys_code: '', iys_brand_code: '', iys_username: '', iys_password: '' })
+  const [iysYukleniyor, setIysYukleniyor] = useState(false)
+  const [iysKaydediliyor, setIysKaydediliyor] = useState(false)
+  const [iysAyarlar, setIysAyarlar] = useState<Record<string, string>>({})
+
+  const sirket = SIRKET_TANIMLARI.find(s => s.id === aktifSirket)!
+
+  async function iysAyarlariniYukle(sirketId: string) {
+    setIysYukleniyor(true)
+    try {
+      const res = await adminApi.get(`/admin/sirket-ayar/${sirketId}`)
+      const data = res.data?.data ?? {}
+      setIysAyarlar(data)
+      setIysForm({
+        iys_iys_code: data.iys_iys_code ?? '',
+        iys_brand_code: data.iys_brand_code ?? '',
+        iys_username: data.iys_username ?? '',
+        iys_password: '',
+      })
+    } catch { setIysAyarlar({}) } finally { setIysYukleniyor(false) }
+  }
+
+  async function iysKaydet() {
+    setIysKaydediliyor(true)
+    try {
+      await adminApi.post(`/admin/sirket-ayar/${aktifSirket}`, { ayarlar: iysForm })
+      await iysAyarlariniYukle(aktifSirket)
+      setIysModal(false)
+    } catch { alert('Kayıt başarısız') } finally { setIysKaydediliyor(false) }
+  }
+
+  const iysAktif = !!(iysAyarlar.iys_iys_code && iysAyarlar.iys_brand_code && iysAyarlar.iys_username)
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', marginBottom: 20 }}>
+        {SIRKET_TANIMLARI.map(s => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setAktifSirket(s.id)}
+            style={{
+              padding: '8px 16px', fontSize: 13, border: 'none', borderBottom: aktifSirket === s.id ? '2px solid #1a1a2e' : '2px solid transparent',
+              background: 'transparent', color: aktifSirket === s.id ? '#1a1a2e' : '#6b7280', fontWeight: aktifSirket === s.id ? 800 : 500, cursor: 'pointer',
+            }}
+          >{s.label}</button>
+        ))}
+        <button type="button" style={{ padding: '8px 16px', fontSize: 13, border: 'none', borderBottom: '2px solid transparent', background: 'transparent', color: '#9ca3af', cursor: 'pointer' }}>
+          + Yeni şirket
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 900, color: '#1a1a2e' }}>{sirket.label} — {sirket.tamAd}</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+          VKN: {sirket.vkn || '(girilecek)'} · Şubeler: {sirket.subeler.join(', ')}
+        </div>
+      </div>
+
+      <SectionTitle>Şirket bazlı entegrasyonlar</SectionTitle>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+        <EntegrasyonKarti
+          icon="🧾" baslik="Uyumsoft"
+          durum={aktifSirket === 'ng' ? 'aktif' : 'bekliyor'}
+          detay={aktifSirket === 'ng' ? 'NejlaGumuskesen_WebServis' : 'Credentials bekleniyor'}
+          onTest={aktifSirket === 'ng' ? () => alert('Test ediliyor...') : undefined}
+          onDuzenle={() => alert('Düzenle')}
+        />
+        <EntegrasyonKarti
+          icon="🏢" baslik="Odoo"
+          durum={aktifSirket === 'ng' ? 'aktif' : 'pasif'}
+          detay={aktifSirket === 'ng' ? 'localhost:8069 · odoo_ng' : '—'}
+          onTest={aktifSirket === 'ng' ? () => alert('Test ediliyor...') : undefined}
+          onDuzenle={() => alert('Düzenle')}
+        />
+        <EntegrasyonKarti
+          icon="📨" baslik="İYS / KVKK"
+          durum={iysAktif ? 'aktif' : 'pasif'}
+          detay={iysAktif ? `İYS Kodu: ${iysAyarlar.iys_iys_code} · Marka: ${iysAyarlar.iys_brand_code}` : 'Henüz ayarlanmadı'}
+          onDuzenle={() => { void iysAyarlariniYukle(aktifSirket); setIysModal(true) }}
+        />
+        {iysModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: 'white', borderRadius: 16, padding: 24, width: 420, maxWidth: '90vw' }}>
+              <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 16 }}>İYS / KVKK Ayarları — {sirket.label}</div>
+              {iysYukleniyor ? <div style={{ color: '#9ca3af', fontSize: 13 }}>Yükleniyor...</div> : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[
+                    { key: 'iys_iys_code', label: 'İYS Kodu (iysCode)', placeholder: 'örn: 000001' },
+                    { key: 'iys_brand_code', label: 'Marka Kodu (brandCode)', placeholder: 'örn: 000100' },
+                    { key: 'iys_username', label: 'Kullanıcı Adı', placeholder: 'İYS API kullanıcı adı' },
+                    { key: 'iys_password', label: 'Şifre', placeholder: iysAyarlar.iys_password ? '••••••••' : 'İYS API şifresi', tip: 'password' },
+                  ].map(({ key, label, placeholder, tip }) => (
+                    <div key={key}>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>{label}</label>
+                      <input
+                        type={tip ?? 'text'}
+                        value={(iysForm as any)[key]}
+                        onChange={e => setIysForm(f => ({ ...f, [key]: e.target.value }))}
+                        placeholder={placeholder}
+                        style={{ width: '100%', padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' as const }}
+                      />
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 11, color: '#6b7280', background: '#f9fafb', borderRadius: 8, padding: '8px 12px' }}>
+                    Sandbox: api.sandbox.iys.org.tr · Canlı: api.iys.org.tr
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button type="button" onClick={() => setIysModal(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', background: '#f3f4f6', cursor: 'pointer', fontWeight: 700 }}>İptal</button>
+                <button type="button" onClick={() => void iysKaydet()} disabled={iysKaydediliyor} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: '#1a1a2e', color: 'white', cursor: 'pointer', fontWeight: 700 }}>{iysKaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <SectionTitle>Şube bazlı entegrasyonlar</SectionTitle>
+      {sirket.subeler.map(sube => (
+        <SubeBlok key={sube} sube={sube} sirketId={aktifSirket} />
+      ))}
+    </div>
+  )
 }

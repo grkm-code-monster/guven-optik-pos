@@ -45,24 +45,55 @@ export default function Sidebar() {
         >
           ⊞ Kontrol Paneli
         </NavLink>
-        <NavLink
-          to="/sales/new"
-          style={({ isActive }) => ({
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '10px 12px',
-            borderRadius: '8px',
-            marginBottom: '4px',
-            backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
-            color: 'white',
-            textDecoration: 'none',
-            fontSize: '14px',
-            fontWeight: '500',
-          })}
-        >
-          ＋ Yeni Satış
-        </NavLink>
+        <div style={{ marginBottom: 4 }}>
+          <NavLink
+            to="/sales"
+            end
+            style={({ isActive }) => ({
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '10px 12px',
+              borderRadius: '8px 8px 0 0',
+              backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.07)',
+              color: 'white',
+              textDecoration: 'none',
+              fontSize: '14px',
+              fontWeight: '700',
+            })}
+          >
+            🧾 Satışlar
+          </NavLink>
+          <NavLink
+            to="/sales/new"
+            style={({ isActive }) => ({
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '8px 12px 8px 28px',
+              borderRadius: '0 0 8px 8px',
+              backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.04)',
+              color: 'rgba(255,255,255,0.85)',
+              textDecoration: 'none',
+              fontSize: '13px',
+              fontWeight: '500',
+            })}
+          >
+            ＋ Yeni Satış
+          </NavLink>
+          <NavLink
+            to="/musteriler"
+            style={({ isActive }) => ({
+              display: 'flex', alignItems: 'center', gap: '10px',
+              padding: '8px 12px 8px 28px', borderRadius: '8px', marginBottom: '4px',
+              backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.04)',
+              color: 'rgba(255,255,255,0.85)', textDecoration: 'none',
+              fontSize: '13px', fontWeight: '500',
+            })}
+          >
+            👥 Müşteriler
+          </NavLink>
+        </div>
         <NavLink
           to="/transferler"
           style={({ isActive }) => ({

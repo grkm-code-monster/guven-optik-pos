@@ -3,11 +3,11 @@ import {
   addPrescription,
   createCustomer,
   getCustomerById,
-  getReceteGecmisi,
+  getCustomerPrescriptions,
   searchCustomers,
   updateCustomer,
 } from '../../api/customers.api'
-import { formatDaimiPrescriptionSummary, nearRxFromFarAndAdd } from '../../utils/prescriptionSummary'
+import { nearRxFromFarAndAdd } from '../../utils/prescriptionSummary'
 
 function rangeOptions(min: number, max: number, step: number, digits: number) {
   const out: Array<{ value: string; label: string }> = [{ value: '', label: 'Değer Yok' }]
@@ -71,6 +71,9 @@ export default function CustomerStep({
   const [appliedPrescription, setAppliedPrescription] = useState<any | null>(null)
 
   const [modalOpen, setModalOpen] = useState(false)
+  const [kvkOnayDurumu, setKvkOnayDurumu] = useState<'bekliyor' | 'onaylandi' | 'reddedildi' | null>(null)
+  const [kvkOnayTarihi, setKvkOnayTarihi] = useState<string | null>(null)
+  const [kvkYukleniyor, setKvkYukleniyor] = useState(false)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [identityNo, setIdentityNo] = useState('')
@@ -82,6 +85,7 @@ export default function CustomerStep({
   const [editInfoOpen, setEditInfoOpen] = useState(false)
   const [rxModalOpen, setRxModalOpen] = useState(false)
   const [lensRxModalOpen, setLensRxModalOpen] = useState(false)
+  const [receteTab, setReceteTab] = useState<'gozluk' | 'lens'>('gozluk')
 
   // Daimi (Far)
   const [far_r_pd, setFar_r_pd] = useState('')
@@ -131,7 +135,9 @@ export default function CustomerStep({
   const [eRx_diagnosis, setERx_diagnosis] = useState('')
 
   async function refreshPrescriptionCard(customerId: string) {
-    const list = await getReceteGecmisi(customerId)
+    const list = [...(await getCustomerPrescriptions(customerId))].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
     setReceteHistory(list)
     if (list.length > 0) {
       applyRecete(list[0])
@@ -227,9 +233,9 @@ export default function CustomerStep({
       return
     }
     setReceteLoading(true)
-    getReceteGecmisi(selectedCustomer.id)
+    getCustomerPrescriptions(selectedCustomer.id)
       .then((list) => {
-        setReceteHistory(list)
+        setReceteHistory([...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
       })
       .catch(() => {
         setReceteHistory([])
@@ -450,43 +456,80 @@ export default function CustomerStep({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {receteHistory.map((rx) => {
                   const active = appliedPrescription?.id === rx.id
-                  const ozet = rx.summary ?? formatDaimiPrescriptionSummary(rx)
+                  const isLens = rx.source === 'LENS'
+                  const borderColor = active ? '#C8102E' : isLens ? '#2563eb' : '#e5e7eb'
+                  const bgColor = active ? '#fdf2f4' : isLens ? '#eff6ff' : 'white'
+                  const tipRenk = isLens ? '#1d4ed8' : '#C8102E'
+                  const tipLabel = isLens ? '👁 Kontakt Lens' : '👓 Gözlük'
+
+                  // Gözlük özeti
+                  const gozlukOzet = !isLens ? (() => {
+                    const r = [rx.far_r_sph, rx.far_r_cyl, rx.far_r_aks].filter(Boolean).join('/')
+                    const l = [rx.far_l_sph, rx.far_l_cyl, rx.far_l_aks].filter(Boolean).join('/')
+                    const yakin_r = [rx.near_r_sph, rx.near_r_cyl, rx.near_r_aks].filter(Boolean).join('/')
+                    const yakin_l = [rx.near_l_sph, rx.near_l_cyl, rx.near_l_aks].filter(Boolean).join('/')
+                    return { r, l, yakin_r, yakin_l, add_r: rx.far_r_add, add_l: rx.far_l_add, pd_r: rx.far_r_pd, pd_l: rx.far_l_pd }
+                  })() : null
+
+                  // Lens özeti
+                  const lensOzet = isLens ? (() => {
+                    return {
+                      r: [rx.lens_r_sph, rx.lens_r_cyl, rx.lens_r_aks].filter(Boolean).join('/'),
+                      l: [rx.lens_l_sph, rx.lens_l_cyl, rx.lens_l_aks].filter(Boolean).join('/'),
+                      bc_r: rx.lens_r_bc, bc_l: rx.lens_l_bc,
+                      add_r: rx.lens_r_add, add_l: rx.lens_l_add,
+                      note_r: rx.lens_r_note, note_l: rx.lens_l_note,
+                    }
+                  })() : null
+
                   return (
                     <div
                       key={rx.id}
                       style={{
-                        border: active ? '2px solid #C8102E' : '1px solid #e5e7eb',
+                        border: `2px solid ${borderColor}`,
                         borderRadius: 10,
                         padding: '10px 12px',
-                        backgroundColor: active ? '#fdf2f4' : 'white',
+                        backgroundColor: bgColor,
                       }}
                     >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          gap: 8,
-                          alignItems: 'flex-start',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', lineHeight: 1.45 }}>{ozet}</div>
-                          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Tarih: {receteTarih(rx)}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontSize: 11, fontWeight: 800, color: tipRenk, background: isLens ? '#dbeafe' : '#fdf2f4', padding: '2px 8px', borderRadius: 999 }}>{tipLabel}</span>
+                            <span style={{ fontSize: 11, color: '#6b7280' }}>{receteTarih(rx)}</span>
+                            {rx.eRx_no && <span style={{ fontSize: 11, color: '#6b7280' }}>· e-Reçete: {rx.eRx_no}</span>}
+                          </div>
+                          {gozlukOzet && (
+                            <div style={{ fontSize: 12, color: '#1e3a5f' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px' }}>
+                                {gozlukOzet.r && <div><span style={{ color: '#9ca3af' }}>Uzak R:</span> {gozlukOzet.r}{gozlukOzet.add_r ? ` ADD:${gozlukOzet.add_r}` : ''}{gozlukOzet.pd_r ? ` PD:${gozlukOzet.pd_r}` : ''}</div>}
+                                {gozlukOzet.l && <div><span style={{ color: '#9ca3af' }}>Uzak L:</span> {gozlukOzet.l}{gozlukOzet.add_l ? ` ADD:${gozlukOzet.add_l}` : ''}{gozlukOzet.pd_l ? ` PD:${gozlukOzet.pd_l}` : ''}</div>}
+                                {gozlukOzet.yakin_r && <div><span style={{ color: '#9ca3af' }}>Yakın R:</span> {gozlukOzet.yakin_r}</div>}
+                                {gozlukOzet.yakin_l && <div><span style={{ color: '#9ca3af' }}>Yakın L:</span> {gozlukOzet.yakin_l}</div>}
+                              </div>
+                              {rx.eRx_doctor && <div style={{ marginTop: 4, color: '#6b7280' }}>Dr: {rx.eRx_doctor}{rx.eRx_hospital ? ` · ${rx.eRx_hospital}` : ''}</div>}
+                            </div>
+                          )}
+                          {lensOzet && (
+                            <div style={{ fontSize: 12, color: '#1e3a5f' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px' }}>
+                                {lensOzet.r && <div><span style={{ color: '#9ca3af' }}>R:</span> {lensOzet.r}{lensOzet.bc_r ? ` BC:${lensOzet.bc_r}` : ''}{lensOzet.add_r ? ` ADD:${lensOzet.add_r}` : ''}</div>}
+                                {lensOzet.l && <div><span style={{ color: '#9ca3af' }}>L:</span> {lensOzet.l}{lensOzet.bc_l ? ` BC:${lensOzet.bc_l}` : ''}{lensOzet.add_l ? ` ADD:${lensOzet.add_l}` : ''}</div>}
+                                {lensOzet.note_r && <div style={{ gridColumn: 'span 2', color: '#6b7280' }}>Not: {lensOzet.note_r}</div>}
+                              </div>
+                              {rx.eRx_doctor && <div style={{ marginTop: 4, color: '#6b7280' }}>Dr: {rx.eRx_doctor}{rx.eRx_hospital ? ` · ${rx.eRx_hospital}` : ''}</div>}
+                            </div>
+                          )}
                         </div>
                         <button
                           type="button"
                           onClick={() => applyRecete(rx)}
                           style={{
-                            padding: '6px 10px',
-                            borderRadius: 8,
-                            border: '1px solid #C8102E',
-                            backgroundColor: 'white',
-                            color: '#C8102E',
-                            fontSize: 11,
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0,
+                            padding: '6px 10px', borderRadius: 8,
+                            border: `1px solid ${tipRenk}`,
+                            backgroundColor: 'white', color: tipRenk,
+                            fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                            whiteSpace: 'nowrap', flexShrink: 0,
                           }}
                         >
                           Bu reçeteyi kullan
@@ -620,7 +663,56 @@ export default function CustomerStep({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
               <Field label="Ad Soyad*" value={name} onChange={setName} />
-              <Field label="Telefon*" value={phone} onChange={setPhone} />
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>Telefon*</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    value={phone}
+                    onChange={(e) => { setPhone(e.target.value); setKvkOnayDurumu(null); setKvkOnayTarihi(null) }}
+                    style={{ flex: 1, padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' as const }}
+                    placeholder="05xx xxx xx xx"
+                  />
+                  <button
+                    type="button"
+                    disabled={phone.trim().length < 10 || kvkYukleniyor}
+                    onClick={async () => {
+                      if (!phone.trim()) return
+                      setKvkYukleniyor(true)
+                      try {
+                        await new Promise(r => setTimeout(r, 800))
+                        setKvkOnayDurumu('bekliyor')
+                        setKvkOnayTarihi(null)
+                      } catch {
+                        setKvkOnayDurumu(null)
+                      } finally {
+                        setKvkYukleniyor(false)
+                      }
+                    }}
+                    style={{
+                      padding: '10px 12px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                      background: kvkOnayDurumu === 'onaylandi' ? '#dcfce7' : kvkOnayDurumu === 'reddedildi' ? '#fee2e2' : '#f3f4f6',
+                      color: kvkOnayDurumu === 'onaylandi' ? '#166534' : kvkOnayDurumu === 'reddedildi' ? '#991b1b' : '#374151',
+                    }}
+                  >
+                    {kvkYukleniyor ? '...' : kvkOnayDurumu === 'onaylandi' ? '✓ KVK Onaylı' : kvkOnayDurumu === 'reddedildi' ? '✗ KVK Reddedildi' : 'KVK Sorgula'}
+                  </button>
+                </div>
+                {kvkOnayDurumu === 'bekliyor' && (
+                  <div style={{ marginTop: 6, padding: '8px 12px', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 6, fontSize: 12 }}>
+                    <div style={{ fontWeight: 700, color: '#854d0e', marginBottom: 4 }}>KVK onayı bekleniyor</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" onClick={() => { setKvkOnayDurumu('onaylandi'); setKvkOnayTarihi(new Date().toLocaleString('tr-TR')) }} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#166534', color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>✓ Onay Verildi</button>
+                      <button type="button" onClick={() => { setKvkOnayDurumu('reddedildi'); setKvkOnayTarihi(new Date().toLocaleString('tr-TR')) }} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#991b1b', color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>✗ Reddedildi</button>
+                    </div>
+                  </div>
+                )}
+                {kvkOnayDurumu === 'onaylandi' && kvkOnayTarihi && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#166534' }}>✓ Onay tarihi: {kvkOnayTarihi}</div>
+                )}
+                {kvkOnayDurumu === 'reddedildi' && kvkOnayTarihi && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#991b1b' }}>✗ Reddedildi: {kvkOnayTarihi} — İzinsiz ticari ileti gönderilemez</div>
+                )}
+              </div>
               <Field label="TC Kimlik" value={identityNo} onChange={setIdentityNo} />
               <Field label="Doğum Tarihi" type="date" value={birthDate} onChange={setBirthDate} />
               <Field label="E-posta" value={email} onChange={setEmail} />
@@ -636,6 +728,32 @@ export default function CustomerStep({
 
             {hasPresciption ? (
               <div style={{ marginTop: '14px' }}>
+                <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
+                  <button
+                    type="button"
+                    onClick={() => setReceteTab('gozluk')}
+                    style={{
+                      padding: '8px 16px', fontSize: 13, border: 'none', cursor: 'pointer',
+                      borderBottom: receteTab === 'gozluk' ? '2px solid #C8102E' : '2px solid transparent',
+                      background: 'transparent',
+                      color: receteTab === 'gozluk' ? '#C8102E' : '#6b7280',
+                      fontWeight: receteTab === 'gozluk' ? 800 : 500,
+                    }}
+                  >👓 Gözlük Reçetesi</button>
+                  <button
+                    type="button"
+                    onClick={() => setReceteTab('lens')}
+                    style={{
+                      padding: '8px 16px', fontSize: 13, border: 'none', cursor: 'pointer',
+                      borderBottom: receteTab === 'lens' ? '2px solid #C8102E' : '2px solid transparent',
+                      background: 'transparent',
+                      color: receteTab === 'lens' ? '#C8102E' : '#6b7280',
+                      fontWeight: receteTab === 'lens' ? 800 : 500,
+                    }}
+                  >👁 Kontakt Lens</button>
+                </div>
+
+                {receteTab === 'gozluk' && <>
                 <SectionTitle title="DAİMİ GÖZ NUMARALARI" />
                 <RxRow
                   title="Daimi"
@@ -666,6 +784,9 @@ export default function CustomerStep({
                   l={{ pd: [near_l_pd, setNear_l_pd], sph: [near_l_sph, setNear_l_sph], cyl: [near_l_cyl, setNear_l_cyl], aks: [near_l_aks, setNear_l_aks], dx: [near_l_diagnosis, setNear_l_diagnosis] }}
                 />
 
+                </>}
+
+                {receteTab === 'lens' && <>
                 <SectionTitle title="LENS NUMARALARI" />
                 <LensRow
                   onCopySame={() => copyRtoL('lens')}
@@ -697,6 +818,7 @@ export default function CustomerStep({
                     <Field label="Tanı*" value={eRx_diagnosis} onChange={setERx_diagnosis} />
                   </div>
                 </div>
+                </>}
               </div>
             ) : null}
 
@@ -769,7 +891,56 @@ export default function CustomerStep({
             <div style={{ fontWeight: 800, fontSize: '16px', marginBottom: '12px' }}>Bilgileri Güncelle</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
               <Field label="Ad Soyad*" value={name} onChange={setName} />
-              <Field label="Telefon*" value={phone} onChange={setPhone} />
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>Telefon*</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    value={phone}
+                    onChange={(e) => { setPhone(e.target.value); setKvkOnayDurumu(null); setKvkOnayTarihi(null) }}
+                    style={{ flex: 1, padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' as const }}
+                    placeholder="05xx xxx xx xx"
+                  />
+                  <button
+                    type="button"
+                    disabled={phone.trim().length < 10 || kvkYukleniyor}
+                    onClick={async () => {
+                      if (!phone.trim()) return
+                      setKvkYukleniyor(true)
+                      try {
+                        await new Promise(r => setTimeout(r, 800))
+                        setKvkOnayDurumu('bekliyor')
+                        setKvkOnayTarihi(null)
+                      } catch {
+                        setKvkOnayDurumu(null)
+                      } finally {
+                        setKvkYukleniyor(false)
+                      }
+                    }}
+                    style={{
+                      padding: '10px 12px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                      background: kvkOnayDurumu === 'onaylandi' ? '#dcfce7' : kvkOnayDurumu === 'reddedildi' ? '#fee2e2' : '#f3f4f6',
+                      color: kvkOnayDurumu === 'onaylandi' ? '#166534' : kvkOnayDurumu === 'reddedildi' ? '#991b1b' : '#374151',
+                    }}
+                  >
+                    {kvkYukleniyor ? '...' : kvkOnayDurumu === 'onaylandi' ? '✓ KVK Onaylı' : kvkOnayDurumu === 'reddedildi' ? '✗ KVK Reddedildi' : 'KVK Sorgula'}
+                  </button>
+                </div>
+                {kvkOnayDurumu === 'bekliyor' && (
+                  <div style={{ marginTop: 6, padding: '8px 12px', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 6, fontSize: 12 }}>
+                    <div style={{ fontWeight: 700, color: '#854d0e', marginBottom: 4 }}>KVK onayı bekleniyor</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" onClick={() => { setKvkOnayDurumu('onaylandi'); setKvkOnayTarihi(new Date().toLocaleString('tr-TR')) }} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#166534', color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>✓ Onay Verildi</button>
+                      <button type="button" onClick={() => { setKvkOnayDurumu('reddedildi'); setKvkOnayTarihi(new Date().toLocaleString('tr-TR')) }} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#991b1b', color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>✗ Reddedildi</button>
+                    </div>
+                  </div>
+                )}
+                {kvkOnayDurumu === 'onaylandi' && kvkOnayTarihi && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#166534' }}>✓ Onay tarihi: {kvkOnayTarihi}</div>
+                )}
+                {kvkOnayDurumu === 'reddedildi' && kvkOnayTarihi && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#991b1b' }}>✗ Reddedildi: {kvkOnayTarihi} — İzinsiz ticari ileti gönderilemez</div>
+                )}
+              </div>
               <Field label="TC Kimlik" value={identityNo} onChange={setIdentityNo} />
               <Field label="Doğum Tarihi" type="date" value={birthDate} onChange={setBirthDate} />
               <Field label="E-posta" value={email} onChange={setEmail} />

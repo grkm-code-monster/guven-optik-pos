@@ -703,6 +703,7 @@ function PersonelDashboard({ user }: { user: User }) {
   const [customFrom, setCustomFrom] = useState(todayYMD())
   const [customTo, setCustomTo] = useState(todayYMD())
   const [personelGorevler, setPersonelGorevler] = useState({ teslimHazir: 0, loading: true })
+  const [draftSatisSayisi, setDraftSatisSayisi] = useState(0)
   const [primData, setPrimData] = useState<{ id: string; primTutari?: number; primKural?: { ad?: string } }[]>([])
   const [belgeler, setBelgeler] = useState<PersonelBelgeRow[]>([])
   const [benimPersonelId, setBenimPersonelId] = useState<string | null>(null)
@@ -734,6 +735,10 @@ function PersonelDashboard({ user }: { user: User }) {
         ).length
         setPersonelGorevler({ teslimHazir, loading: false })
         setPrimData(primRes.data?.data ?? [])
+        try {
+          const draftRes = await apiClient.get('/sales?status=DRAFT')
+          setDraftSatisSayisi((draftRes.data ?? []).length)
+        } catch { setDraftSatisSayisi(0) }
       } catch (e) {
         console.error('Personel görevler fetch error', e)
         setPersonelGorevler((prev) => ({ ...prev, loading: false }))
@@ -819,6 +824,19 @@ function PersonelDashboard({ user }: { user: User }) {
           <div style={{ ...CARD_STYLE, marginBottom: 16, borderLeft: `4px solid ${BLUE}` }}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>Bugün ne yapmalıyım?</div>
             <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>Laboratuvara gönderilmedi — yakında</div>
+            {draftSatisSayisi > 0 ? (
+              <div
+                onClick={() => window.location.href = '/sales?status=DRAFT'}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 12px', borderRadius: 8, marginBottom: 8,
+                  background: '#fef9c3', border: '1px solid #fde68a', cursor: 'pointer',
+                }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#854d0e' }}>⚠ Yarım kalan satış</span>
+                <span style={{ fontSize: 13, fontWeight: 900, color: '#854d0e', background: '#fde68a', borderRadius: 999, padding: '2px 10px' }}>{draftSatisSayisi}</span>
+              </div>
+            ) : null}
             <GorevSatiri
               label="Teslim için hazır, müşteri aranmadı"
               count={personelGorevler.teslimHazir}
@@ -1002,6 +1020,7 @@ function MudurDashboard({ user }: { user: User }) {
     teslimHazir: 0,
     acikGaranti: 0,
     vadesiGecenAcikHesap: 0,
+    draftSatis: 0,
     loading: true,
   })
   const [gorevli, setGorevli] = useState<{
@@ -1072,11 +1091,18 @@ function MudurDashboard({ user }: { user: User }) {
           (c: { remainingDebt: number }) => c.remainingDebt > 0,
         ).length
 
+        let draftSatis = 0
+        try {
+          const draftRes = await apiClient.get('/sales?status=DRAFT')
+          draftSatis = (draftRes.data ?? []).length
+        } catch { draftSatis = 0 }
+
         setGorevler({
           labBekleyen,
           teslimHazir,
           acikGaranti,
           vadesiGecenAcikHesap,
+          draftSatis,
           loading: false,
         })
         void gorevliYenile()
@@ -1251,6 +1277,17 @@ function MudurDashboard({ user }: { user: User }) {
               loading={gorevler.loading}
               urgent
             />
+            <div
+              onClick={() => gorevler.draftSatis > 0 ? window.location.href = '/sales?status=DRAFT' : undefined}
+              style={{ cursor: gorevler.draftSatis > 0 ? 'pointer' : 'default' }}
+            >
+              <GorevSatiri
+                label="Yarım kalan satış"
+                count={gorevler.draftSatis}
+                loading={gorevler.loading}
+                urgent={gorevler.draftSatis > 0}
+              />
+            </div>
           </div>
           <div style={{ ...CARD_STYLE, marginBottom: 12, borderLeft: `4px solid ${AMBER}` }}>
             <div style={{ fontWeight: 800, color: AMBER, marginBottom: 8 }}>Bugün takip et</div>

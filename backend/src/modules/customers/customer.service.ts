@@ -9,11 +9,13 @@ function codeError(code: string, message: string) {
 }
 
 export async function searchCustomers(q: string) {
-  const customers = await prisma.customer.findMany({
+  // Önce POS DB'den ara
+  const posCustomers = await prisma.customer.findMany({
     where: {
       OR: [
         { phone: { contains: q, mode: 'insensitive' } },
         { name: { contains: q, mode: 'insensitive' } },
+        { identityNo: { contains: q, mode: 'insensitive' } },
       ],
     },
     take: 20,
@@ -27,11 +29,38 @@ export async function searchCustomers(q: string) {
     },
   });
 
-  return customers.map((c) => ({
+  const posResult = posCustomers.map((c) => ({
     ...c,
     lastSaleAt: c.sales[0]?.createdAt ?? null,
     sales: undefined,
+    _kaynak: 'pos' as const,
   }));
+
+  // Odoo'dan da ara
+  let odooResult: any[] = []
+  try {
+    const { searchPartners } = await import('../odoo/odoo.service')
+    const partners = await searchPartners(q)
+    const posPhones = new Set(posResult.map(c => c.phone))
+    odooResult = (partners ?? [])
+      .filter((p: any) => p.phone && !posPhones.has(p.phone))
+      .map((p: any) => ({
+        id: `odoo-${p.id}`,
+        name: p.name,
+        phone: p.phone ?? '',
+        note: null,
+        identityNo: null,
+        birthDate: null,
+        ePostaEmail: p.email ?? null,
+        odooPartnerId: p.id,
+        lastSaleAt: null,
+        _kaynak: 'odoo' as const,
+      }))
+  } catch {
+    odooResult = []
+  }
+
+  return [...posResult, ...odooResult]
 }
 
 export async function createCustomer(input: any) {
@@ -40,6 +69,13 @@ export async function createCustomer(input: any) {
   });
   if (existing) {
     throw codeError('CUSTOMER_PHONE_EXISTS', 'Bu telefon numarası zaten kayıtlı.');
+  }
+
+  if (input.identityNo?.trim()) {
+    const tcExists = await prisma.customer.findFirst({ where: { identityNo: input.identityNo.trim() } });
+    if (tcExists) {
+      throw Object.assign(new Error('Bu TC kimlik numarası zaten kayıtlı.'), { code: 'CUSTOMER_TC_EXISTS' });
+    }
   }
 
   const customer = await prisma.customer.create({

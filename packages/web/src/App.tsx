@@ -29,6 +29,8 @@ import StokYonetimiPage from './pages/admin/StokYonetimiPage'
 import EtiketTasarimciPage from './pages/admin/EtiketTasarimciPage'
 import UtsYonetimiPage from './pages/admin/UtsYonetimiPage'
 import BelgeYuklePage from './pages/BelgeYuklePage'
+import SatislarPage from './pages/SatislarPage'
+import MusterilerPage from './pages/MusterilerPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -82,6 +84,8 @@ export default function App() {
           }
         >
           <Route index element={<DashboardPage />} />
+          <Route path="musteriler" element={<MusterilerPage />} />
+          <Route path="sales" element={<SatislarPage />} />
           <Route path="sales/new" element={<NewSalePage />} />
           <Route path="sales/:id" element={<SaleDetailPage />} />
           <Route path="reports" element={<ReportsPage />} />

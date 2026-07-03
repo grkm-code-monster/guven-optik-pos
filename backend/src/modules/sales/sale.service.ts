@@ -862,7 +862,7 @@ export async function voidSale(saleId: string, userId: string, role: Role, input
 }
 
 export async function getSales(branchId: string, filters?: any) {
-  const where: any = { branchId };
+  const where: any = filters?.customerId ? {} : { branchId };
   if (filters?.status) where.status = filters.status;
   if (filters?.customerId) where.customerId = filters.customerId;
   if (filters?.dateFrom || filters?.dateTo) {

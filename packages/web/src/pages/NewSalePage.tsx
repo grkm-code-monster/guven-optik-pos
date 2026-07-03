@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import { useAuthStore } from '../store/auth.store'
 import { confirmSale, createSale, getSaleById } from '../api/sales.api'
@@ -31,6 +32,8 @@ type Step = 1 | 2 | 3 | 4 | 5 | 5.5 | 6
 
 export default function NewSalePage() {
   const storedShiftId = useAuthStore((s) => s.shiftId)
+  const [searchParams] = useSearchParams()
+  const resumeSaleId = searchParams.get('saleId')
 
   const [step, setStep] = useState<Step>(1)
   const [error, setError] = useState<string | null>(null)
@@ -71,6 +74,21 @@ export default function NewSalePage() {
       .catch((e: any) => console.error('NewSale shift fetch error', e))
       .finally(() => setShiftLoading(false))
   }, [storedShiftId])
+
+  useEffect(() => {
+    if (!resumeSaleId) return
+    getSaleById(resumeSaleId)
+      .then((s) => {
+        setSale(s)
+        if (s.customer) {
+          setSelectedCustomer(s.customer)
+          ;(window as any).__aktifMusteriAdi = s.customer.name ?? ''
+        }
+        getLatestPrescription(s.customerId).then(setLatestPrescription).catch(() => null)
+        setStep(2)
+      })
+      .catch((e: any) => console.error('Resume sale error', e))
+  }, [resumeSaleId])
 
   useEffect(() => {
     if (currentStep !== 3 && currentStep !== 4 && currentStep !== 5 && currentStep !== 5.5 && currentStep !== 6) return

@@ -4,3 +4,5 @@ dist/
 !.env.example
 *.local
 .DS_Store
+.curl-response.json
+.tmp-*.mjs

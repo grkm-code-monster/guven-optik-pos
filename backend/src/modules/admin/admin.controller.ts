@@ -7061,5 +7061,47 @@ router.post('/uts/toplu-gonder', async (req, res, next) => {
   }
 });
 
+router.get('/sirket-ayar/:sirketId', async (req, res) => {
+  try {
+    const { PrismaClient } = await import('@prisma/client')
+    const prisma = new PrismaClient()
+    const ayarlar = await prisma.sirketAyar.findMany({
+      where: { sirketId: req.params.sirketId },
+    })
+    await prisma.$disconnect()
+    const map: Record<string, string> = {}
+    for (const a of ayarlar) {
+      if (a.anahtar.includes('password') || a.anahtar.includes('sifre')) {
+        map[a.anahtar] = '••••••••'
+      } else {
+        map[a.anahtar] = a.deger
+      }
+    }
+    return res.json({ data: map })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
+router.post('/sirket-ayar/:sirketId', async (req, res) => {
+  try {
+    const { PrismaClient } = await import('@prisma/client')
+    const prisma = new PrismaClient()
+    const { ayarlar } = req.body
+    for (const [anahtar, deger] of Object.entries(ayarlar as Record<string, string>)) {
+      if (!deger || deger === '••••••••') continue
+      await prisma.sirketAyar.upsert({
+        where: { sirketId_anahtar: { sirketId: req.params.sirketId, anahtar } },
+        create: { sirketId: req.params.sirketId, anahtar, deger: String(deger) },
+        update: { deger: String(deger) },
+      })
+    }
+    await prisma.$disconnect()
+    return res.json({ success: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
 export default router;
 
