@@ -84,6 +84,7 @@ export const AddSaleItemInput = z.object({
   taxRate: z.number().min(0).max(100).optional(),
   linkedItemId: z.string().uuid().optional(),
   linkType: z.nativeEnum(LinkType).optional(),
+  pairWithItemId: z.string().uuid().optional(),
   prescription: PrescriptionInput.optional(),
   frames: z.array(FrameInput).optional(),
 });
@@ -105,8 +106,12 @@ export type PaymentInputType = z.infer<typeof PaymentInput>;
 export const ConfirmSaleInput = z.object({
   payments: z.array(PaymentInput).min(1),
   thirdPartyAmount: z.number().min(0).default(0), // SGK + Vakıf + Hediye çeki toplamı
+  sgkAmount: z.number().min(0).default(0),
+  vakifAmount: z.number().min(0).default(0),
   kasaIndirimTutar: z.number().min(0).default(0),
   lensOrderMeasurements: z.array(z.any()).optional(),
+  pricingInvoiceNote: z.string().optional(),
+  faturaKesilsin: z.boolean().default(true),
 });
 export type ConfirmSaleInputType = z.infer<typeof ConfirmSaleInput>;
 

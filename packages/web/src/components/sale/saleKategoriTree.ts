@@ -8,11 +8,15 @@ export function isKategoriLeaf(node: KategoriNode): node is KategoriLeaf {
   return 'kategoriId' in node
 }
 
+/** Odoo product.category — Bakım / hizmet (KAYNAK, TAMİR vb.) */
+export const BAKIM_KATEGORI_ID = 63
+
 /** Ürün tipi seçilince doğrudan arama (alt kategori ekranı yok) */
 export const DIREKT_KATEGORI_ID: Partial<Record<ItemType, number>> = {
   FRAME: 6,
   SUN: 7,
   ACCESSORY: 8,
+  MAINTENANCE: BAKIM_KATEGORI_ID,
 }
 
 /** Tek tıkta tüm alt kategorileri birlikte ara */

@@ -11,6 +11,16 @@ export async function createCustomer(input: any): Promise<Customer> {
   return res.data
 }
 
+export async function resolveOdooCustomer(data: {
+  odooPartnerId: number
+  name: string
+  phone: string
+  email?: string | null
+}): Promise<Customer> {
+  const res = await apiClient.post('/customers/resolve-odoo', data)
+  return res.data
+}
+
 export async function updateCustomer(id: string, input: any): Promise<Customer> {
   const res = await apiClient.put(`/customers/${id}`, input)
   return res.data

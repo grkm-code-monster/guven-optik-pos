@@ -163,6 +163,9 @@ function KomisyonTab() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [showAddBank, setShowAddBank] = useState(false)
+  const [newBankName, setNewBankName] = useState('')
+  const [addingBank, setAddingBank] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -240,11 +243,111 @@ function KomisyonTab() {
     }
   }
 
+  async function addBank() {
+    const name = newBankName.trim()
+    if (!name) {
+      setError('Banka adı girin.')
+      return
+    }
+    setAddingBank(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await adminApi.post('/admin/banks', { name })
+      const created = res.data as { id?: string; name?: string }
+      setNewBankName('')
+      setShowAddBank(false)
+      setSuccess(`"${created?.name ?? name}" bankası eklendi.`)
+      await load()
+      if (created?.id) setSelectedBankId(created.id)
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'Banka eklenemedi')
+    } finally {
+      setAddingBank(false)
+    }
+  }
+
   return (
     <div>
       {loading ? <p style={{ color: '#6b7280' }}>Yükleniyor...</p> : null}
       {error ? <p style={{ color: '#ef4444', fontSize: 13 }}>{error}</p> : null}
       {success ? <p style={{ color: '#16a34a', fontSize: 13 }}>{success}</p> : null}
+
+      {!loading ? (
+        <div style={{ marginBottom: 20 }}>
+          {!showAddBank ? (
+            <button
+              type="button"
+              onClick={() => setShowAddBank(true)}
+              style={{
+                padding: '10px 16px',
+                borderRadius: 8,
+                border: '1px solid #e5e7eb',
+                backgroundColor: '#f9fafb',
+                fontWeight: 800,
+                cursor: 'pointer',
+                fontSize: 14,
+              }}
+            >
+              + Banka Ekle
+            </button>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', maxWidth: 480 }}>
+              <input
+                type="text"
+                placeholder="Banka adı (örn. Akbank)"
+                value={newBankName}
+                onChange={(e) => setNewBankName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void addBank()
+                }}
+                style={{
+                  flex: '1 1 200px',
+                  padding: '10px 12px',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 8,
+                  fontSize: 14,
+                }}
+              />
+              <button
+                type="button"
+                disabled={addingBank}
+                onClick={() => void addBank()}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: 8,
+                  border: 'none',
+                  backgroundColor: '#1a1a2e',
+                  color: 'white',
+                  fontWeight: 800,
+                  cursor: addingBank ? 'wait' : 'pointer',
+                  opacity: addingBank ? 0.7 : 1,
+                }}
+              >
+                {addingBank ? 'Ekleniyor...' : 'Kaydet'}
+              </button>
+              <button
+                type="button"
+                disabled={addingBank}
+                onClick={() => {
+                  setShowAddBank(false)
+                  setNewBankName('')
+                }}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: 8,
+                  border: '1px solid #e5e7eb',
+                  backgroundColor: 'white',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                İptal
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {!loading && banks.length > 0 ? (
         <>
@@ -326,7 +429,9 @@ function KomisyonTab() {
         </>
       ) : null}
 
-      {!loading && banks.length === 0 ? <p style={{ color: '#6b7280' }}>Kayıtlı banka bulunamadı.</p> : null}
+      {!loading && banks.length === 0 ? (
+        <p style={{ color: '#6b7280' }}>Kayıtlı banka bulunamadı. Yukarıdan yeni banka ekleyin.</p>
+      ) : null}
     </div>
   )
 }
@@ -1444,6 +1549,21 @@ function SirketTanimlariTab() {
   const [iysYukleniyor, setIysYukleniyor] = useState(false)
   const [iysKaydediliyor, setIysKaydediliyor] = useState(false)
   const [iysAyarlar, setIysAyarlar] = useState<Record<string, string>>({})
+  const [uyumsoftModal, setUyumsoftModal] = useState(false)
+  const [uyumsoftForm, setUyumsoftForm] = useState({
+    uyumsoft_username: '',
+    uyumsoft_password: '',
+    uyumsoft_gonderen_birim: '',
+    sirket_unvan: '',
+    sirket_adres: '',
+    sirket_il: '',
+    sirket_ilce: '',
+    sirket_telefon: '',
+    sirket_eposta: '',
+  })
+  const [uyumsoftYukleniyor, setUyumsoftYukleniyor] = useState(false)
+  const [uyumsoftKaydediliyor, setUyumsoftKaydediliyor] = useState(false)
+  const [uyumsoftAyarlar, setUyumsoftAyarlar] = useState<Record<string, string>>({})
 
   const sirket = SIRKET_TANIMLARI.find(s => s.id === aktifSirket)!
 
@@ -1471,7 +1591,47 @@ function SirketTanimlariTab() {
     } catch { alert('Kayıt başarısız') } finally { setIysKaydediliyor(false) }
   }
 
+  async function uyumsoftAyarlariniYukle(sirketId: string) {
+    setUyumsoftYukleniyor(true)
+    try {
+      const res = await adminApi.get(`/admin/sirket-ayar/${sirketId}`)
+      const data = res.data?.data ?? {}
+      setUyumsoftAyarlar(data)
+      setUyumsoftForm({
+        uyumsoft_username: data.uyumsoft_username ?? '',
+        uyumsoft_password: '',
+        uyumsoft_gonderen_birim: data.uyumsoft_gonderen_birim ?? '',
+        sirket_unvan: data.sirket_unvan ?? '',
+        sirket_adres: data.sirket_adres ?? '',
+        sirket_il: data.sirket_il ?? '',
+        sirket_ilce: data.sirket_ilce ?? '',
+        sirket_telefon: data.sirket_telefon ?? '',
+        sirket_eposta: data.sirket_eposta ?? '',
+      })
+    } catch { setUyumsoftAyarlar({}) } finally { setUyumsoftYukleniyor(false) }
+  }
+
+  async function uyumsoftKaydet() {
+    setUyumsoftKaydediliyor(true)
+    try {
+      await adminApi.post(`/admin/sirket-ayar/${aktifSirket}`, { ayarlar: uyumsoftForm })
+      await uyumsoftAyarlariniYukle(aktifSirket)
+      setUyumsoftModal(false)
+    } catch { alert('Kayıt başarısız') } finally { setUyumsoftKaydediliyor(false) }
+  }
+
+  useEffect(() => {
+    void uyumsoftAyarlariniYukle(aktifSirket)
+  }, [aktifSirket])
+
   const iysAktif = !!(iysAyarlar.iys_iys_code && iysAyarlar.iys_brand_code && iysAyarlar.iys_username)
+  const uyumsoftDbKayitli = !!(uyumsoftAyarlar.uyumsoft_username)
+  const uyumsoftAktif = uyumsoftDbKayitli || aktifSirket === 'ng'
+  const uyumsoftDetay = uyumsoftDbKayitli
+    ? `${uyumsoftAyarlar.uyumsoft_username}${uyumsoftAyarlar.uyumsoft_gonderen_birim ? ` · ${uyumsoftAyarlar.uyumsoft_gonderen_birim}` : ''}${uyumsoftAyarlar.sirket_unvan ? ` · ${uyumsoftAyarlar.sirket_unvan}` : ''}`
+    : aktifSirket === 'ng'
+      ? 'Varsayılan (.env)'
+      : 'Credentials bekleniyor'
 
   return (
     <div>
@@ -1503,10 +1663,10 @@ function SirketTanimlariTab() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
         <EntegrasyonKarti
           icon="🧾" baslik="Uyumsoft"
-          durum={aktifSirket === 'ng' ? 'aktif' : 'bekliyor'}
-          detay={aktifSirket === 'ng' ? 'NejlaGumuskesen_WebServis' : 'Credentials bekleniyor'}
-          onTest={aktifSirket === 'ng' ? () => alert('Test ediliyor...') : undefined}
-          onDuzenle={() => alert('Düzenle')}
+          durum={uyumsoftAktif ? 'aktif' : 'bekliyor'}
+          detay={uyumsoftDetay}
+          onTest={uyumsoftAktif ? () => alert('Test ediliyor...') : undefined}
+          onDuzenle={() => { void uyumsoftAyarlariniYukle(aktifSirket); setUyumsoftModal(true) }}
         />
         <EntegrasyonKarti
           icon="🏢" baslik="Odoo"
@@ -1521,6 +1681,77 @@ function SirketTanimlariTab() {
           detay={iysAktif ? `İYS Kodu: ${iysAyarlar.iys_iys_code} · Marka: ${iysAyarlar.iys_brand_code}` : 'Henüz ayarlanmadı'}
           onDuzenle={() => { void iysAyarlariniYukle(aktifSirket); setIysModal(true) }}
         />
+        {uyumsoftModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: 'white', borderRadius: 16, padding: 24, width: 480, maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 16 }}>Uyumsoft Ayarları — {sirket.label}</div>
+              {uyumsoftYukleniyor ? <div style={{ color: '#9ca3af', fontSize: 13 }}>Yükleniyor...</div> : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.04em', marginTop: 4 }}>WEB SERVİS</div>
+                  {[
+                    { key: 'uyumsoft_username', label: 'Kullanıcı Adı', placeholder: 'Uyumsoft web servis kullanıcı adı' },
+                    { key: 'uyumsoft_password', label: 'Şifre', placeholder: uyumsoftAyarlar.uyumsoft_password ? '••••••••' : 'Uyumsoft web servis şifresi', tip: 'password' },
+                    { key: 'uyumsoft_gonderen_birim', label: 'Gönderen Birim', placeholder: 'örn: urn:mail:defaultgb@guvenoptik.com' },
+                  ].map(({ key, label, placeholder, tip }) => (
+                    <div key={key}>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>{label}</label>
+                      <input
+                        type={tip ?? 'text'}
+                        value={(uyumsoftForm as Record<string, string>)[key]}
+                        onChange={e => setUyumsoftForm(f => ({ ...f, [key]: e.target.value }))}
+                        placeholder={placeholder}
+                        style={{ width: '100%', padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' as const }}
+                      />
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.04em', marginTop: 8, paddingTop: 8, borderTop: '1px solid #e5e7eb' }}>ŞİRKET BİLGİLERİ (FATURA GÖNDERİCİ)</div>
+                  {[
+                    { key: 'sirket_unvan', label: 'Unvan', placeholder: 'Resmi şirket unvanı' },
+                    { key: 'sirket_il', label: 'İl', placeholder: 'örn: İZMİR' },
+                    { key: 'sirket_ilce', label: 'İlçe', placeholder: 'örn: Konak' },
+                    { key: 'sirket_telefon', label: 'Telefon', placeholder: '0212 000 00 00' },
+                    { key: 'sirket_eposta', label: 'E-posta', placeholder: 'info@sirket.com' },
+                  ].map(({ key, label, placeholder }) => (
+                    <div key={key}>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>{label}</label>
+                      <input
+                        type="text"
+                        value={(uyumsoftForm as Record<string, string>)[key]}
+                        onChange={e => setUyumsoftForm(f => ({ ...f, [key]: e.target.value }))}
+                        placeholder={placeholder}
+                        style={{ width: '100%', padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' as const }}
+                      />
+                    </div>
+                  ))}
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>Adres</label>
+                    <textarea
+                      value={uyumsoftForm.sirket_adres}
+                      onChange={e => setUyumsoftForm(f => ({ ...f, sirket_adres: e.target.value }))}
+                      placeholder="Açık adres"
+                      rows={3}
+                      style={{ width: '100%', padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' as const, resize: 'vertical', fontFamily: 'inherit' }}
+                    />
+                  </div>
+                  {aktifSirket === 'ng' && !uyumsoftDbKayitli ? (
+                    <div style={{ fontSize: 11, color: '#6b7280', background: '#f9fafb', borderRadius: 8, padding: '8px 12px' }}>
+                      Kayıt yoksa sistem mevcut .env değerlerini kullanmaya devam eder.
+                    </div>
+                  ) : null}
+                  {!uyumsoftAyarlar.sirket_unvan ? (
+                    <div style={{ fontSize: 11, color: '#6b7280', background: '#f9fafb', borderRadius: 8, padding: '8px 12px' }}>
+                      Şirket bilgileri boş bırakılırsa fatura gönderici alanları mevcut varsayılan değerlerle üretilir.
+                    </div>
+                  ) : null}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button type="button" onClick={() => setUyumsoftModal(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', background: '#f3f4f6', cursor: 'pointer', fontWeight: 700 }}>İptal</button>
+                <button type="button" onClick={() => void uyumsoftKaydet()} disabled={uyumsoftKaydediliyor} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: '#1a1a2e', color: 'white', cursor: 'pointer', fontWeight: 700 }}>{uyumsoftKaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}</button>
+              </div>
+            </div>
+          </div>
+        )}
         {iysModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ background: 'white', borderRadius: 16, padding: 24, width: 420, maxWidth: '90vw' }}>

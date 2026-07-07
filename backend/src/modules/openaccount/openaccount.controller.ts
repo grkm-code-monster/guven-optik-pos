@@ -72,17 +72,33 @@ async function syncPaymentToOdoo(
         : 'TRANSFER';
   const journalId = JOURNAL_MAP[journalKey] ?? 17;
 
-  const invoices = await execute(
-    'account.move',
-    'search_read',
-    [
+  const invoiceFields = ['id', 'state', 'name'];
+  const [orderData] = await execute('sale.order', 'read', [[odooOrderId]], {
+    fields: ['name', 'invoice_ids'],
+  });
+  const orderName = orderData?.name ?? '';
+  const invoiceIds: number[] = orderData?.invoice_ids ?? [];
+
+  console.log('[Odoo] Açık hesap fatura aranıyor:', orderName, 'invoice_ids:', invoiceIds);
+
+  let invoices: Array<{ id: number; state: string; name: string }> = [];
+  if (invoiceIds.length > 0) {
+    invoices = await execute('account.move', 'read', [invoiceIds], { fields: invoiceFields });
+  } else if (orderName) {
+    invoices = await execute(
+      'account.move',
+      'search_read',
       [
-        ['invoice_origin', 'like', `S${String(odooOrderId).padStart(5, '0')}`],
-        ['move_type', '=', 'out_invoice'],
+        [
+          ['invoice_origin', '=', orderName],
+          ['move_type', '=', 'out_invoice'],
+        ],
       ],
-    ],
-    { fields: ['id', 'state'], limit: 1 },
-  );
+      { fields: invoiceFields, limit: 1 },
+    );
+  }
+
+  console.log('[Odoo] Açık hesap bulunan faturalar:', JSON.stringify(invoices), 'invoice found:', invoices.length > 0);
 
   if (!invoices?.length) return;
 

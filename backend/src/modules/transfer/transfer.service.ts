@@ -26,11 +26,74 @@ function parseVariantDisplayName(displayName) {
     }
     return { ad: dn, varyant: '' };
 }
-function mapVariantToTransferUrun(v) {
-    const { ad, varyant } = parseVariantDisplayName(v.display_name);
+function ptavValueLabel(ptav) {
+    const name = String(ptav?.name ?? '').trim();
+    if (name)
+        return name;
+    const full = m2oName(ptav?.product_attribute_value_id);
+    if (full.includes(':'))
+        return full.split(':').slice(1).join(':').trim();
+    return full;
+}
+function buildVaryantFromPtav(ptavIds, ptavMap) {
+    if (!ptavIds?.length || !ptavMap?.size)
+        return '';
+    const parts = [];
+    for (const id of ptavIds) {
+        const ptav = ptavMap.get(id);
+        if (!ptav)
+            continue;
+        const label = ptavValueLabel(ptav);
+        if (label)
+            parts.push(label);
+    }
+    return parts.join(' / ');
+}
+async function fetchPtavMap(ptavIds, companyId) {
+    const uniqueIds = [...new Set((ptavIds ?? []).filter((id) => Number.isFinite(id) && id > 0))];
+    if (!uniqueIds.length)
+        return new Map();
+    try {
+        const ptavs = (await odooService.execute('product.template.attribute.value', 'read', [uniqueIds], {
+            fields: ['id', 'name', 'attribute_id', 'product_attribute_value_id'],
+        }, companyId)) ?? [];
+        const map = new Map();
+        for (const p of ptavs) {
+            map.set(p.id, p);
+        }
+        return map;
+    }
+    catch (err) {
+        logOdooError('PTAV read', err);
+        return new Map();
+    }
+}
+async function fetchPtavMapForVariants(variants, defaultCompanyId) {
+    const idsByCompany = new Map();
+    for (const entry of variants) {
+        const cid = entry._cid ?? defaultCompanyId;
+        for (const id of entry.product_template_attribute_value_ids ?? []) {
+            if (!idsByCompany.has(cid))
+                idsByCompany.set(cid, new Set());
+            idsByCompany.get(cid).add(id);
+        }
+    }
+    const ptavMap = new Map();
+    for (const [cid, idSet] of idsByCompany) {
+        const sub = await fetchPtavMap([...idSet], cid);
+        for (const [k, v] of sub)
+            ptavMap.set(k, v);
+    }
+    return ptavMap;
+}
+function mapVariantToTransferUrun(v, ptavMap) {
+    const parsed = parseVariantDisplayName(v.display_name ?? v.name ?? '');
+    let varyant = buildVaryantFromPtav(v.product_template_attribute_value_ids, ptavMap);
+    if (!varyant)
+        varyant = parsed.varyant;
     return {
         id: v.id,
-        ad,
+        ad: parsed.ad,
         varyant,
         fiyat: v.lst_price ?? null,
         lotNo: null,
@@ -39,6 +102,10 @@ function mapVariantToTransferUrun(v) {
         stok: null,
         kaynakFatura: null,
     };
+}
+async function mapVariantsBatchToTransferUrun(variants, defaultCompanyId) {
+    const ptavMap = await fetchPtavMapForVariants(variants, defaultCompanyId);
+    return variants.map((v) => mapVariantToTransferUrun(v, ptavMap));
 }
 function odooErrMessage(err) {
     if (err instanceof Error)
@@ -295,6 +362,15 @@ export function resolveSearchKategoriId(options) {
     }
     return resolveKategoriId(options?.kategori);
 }
+/** Odoo BAKIM kategorisi — hizmet (service) tipi ürünler yalnızca burada aranır */
+const BAKIM_KATEGORI_ID = 63;
+function catalogProductTypes(options) {
+    const kategoriId = resolveSearchKategoriId(options);
+    if (kategoriId === BAKIM_KATEGORI_ID) {
+        return ['product', 'consu', 'service'];
+    }
+    return ['product', 'consu'];
+}
 function applyKategoriToDomain(domain, options) {
     const kategoriId = resolveSearchKategoriId(options);
     const ids = options?.kategoriIds;
@@ -311,12 +387,18 @@ function applyKategoriToDomain(domain, options) {
 }
 async function searchUrunByNameCatalog(term, companyId, options) {
     const RESULT_LIMIT = 100;
-    const domain = applyKategoriToDomain([
-        ['type', 'in', ['product', 'consu']],
+    const kategoriId = resolveSearchKategoriId(options);
+    const baseDomain = [
+        ['type', 'in', catalogProductTypes(options)],
         ['active', '=', true],
         ['sale_ok', '=', true],
-        '|', ['name', 'ilike', term], ['default_code', 'ilike', term],
-    ], options);
+    ];
+    const domain = applyKategoriToDomain(
+        term && String(term).trim()
+            ? [...baseDomain, '|', ['name', 'ilike', term], ['default_code', 'ilike', term]]
+            : baseDomain,
+        options,
+    );
     // Tüm şirketlerde ara — NG(2), ADESE(3), POTENTIAL(4)
     const sirketIds = [2, 3, 4];
     const seenIds = new Set<number>();
@@ -332,37 +414,39 @@ async function searchUrunByNameCatalog(term, companyId, options) {
         }
     }
     const templates = allTemplates;
-    const results = [];
+    const collected = [];
     for (const tmpl of templates) {
         const variants = (await odooService.execute('product.product', 'search_read', [
             [['product_tmpl_id', '=', tmpl.id], ['active', '=', true]],
         ], {
-            fields: ['id', 'display_name', 'name', 'lst_price', 'list_price'],
-            limit: RESULT_LIMIT - results.length,
+            fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids'],
+            limit: RESULT_LIMIT - collected.length,
             order: 'display_name asc',
         }, tmpl._cid ?? companyId)) ?? [];
         for (const v of variants) {
-            results.push(mapVariantToTransferUrun({
+            collected.push({
                 ...v,
                 display_name: v.display_name ?? v.name ?? tmpl.name,
                 lst_price: v.lst_price ?? v.list_price ?? tmpl.list_price,
-            }));
-            if (results.length >= RESULT_LIMIT)
-                return results;
+                _cid: tmpl._cid ?? companyId,
+            });
+            if (collected.length >= RESULT_LIMIT)
+                return mapVariantsBatchToTransferUrun(collected, companyId);
         }
     }
-    if (results.length)
-        return results;
+    if (collected.length)
+        return mapVariantsBatchToTransferUrun(collected, companyId);
     const variantDomain = applyKategoriToDomain([
         ['active', '=', true],
         '|', ['name', 'ilike', term], ['display_name', 'ilike', term],
     ], options);
     const directVariants = (await odooService.execute('product.product', 'search_read', [variantDomain], {
-        fields: ['id', 'display_name', 'name', 'lst_price', 'list_price'],
+        fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids'],
         limit: RESULT_LIMIT,
         order: 'display_name asc',
     }, companyId)) ?? [];
-    return directVariants.map(mapVariantToTransferUrun);
+    const withCompany = directVariants.map((v) => ({ ...v, _cid: companyId }));
+    return mapVariantsBatchToTransferUrun(withCompany, companyId);
 }
 async function mapProductsKatalog(productIds, lotRows, companyId) {
     const sonuclar = [];
@@ -393,7 +477,8 @@ async function mapProductsKatalog(productIds, lotRows, companyId) {
 export async function searchUrun(q, yontem, lokasyon, options) {
     const term = q.trim();
     const katalog = options?.katalog === true;
-    const minLen = yontem === 'ad' ? 1 : 3;
+    const bakimKatalog = katalog && resolveSearchKategoriId(options) === BAKIM_KATEGORI_ID;
+    const minLen = yontem === 'ad' ? (bakimKatalog ? 0 : 1) : 3;
     if (term.length < minLen)
         return [];
     return withOdoo('urun-ara', async () => {

@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import { adminApi } from '../pages/admin/AdminLayout'
 
 export interface WarrantyClaim {
   id: string
@@ -32,6 +33,7 @@ export interface WarrantyMessage {
 }
 
 export const getWarrantyStats = () => apiClient.get('/warranty/stats').then(r => r.data)
+export const getWarrantyStatsAdmin = () => adminApi.get('/warranty/stats').then(r => r.data)
 export const getWarrantyClaims = (params?: any) => apiClient.get('/warranty', { params }).then(r => r.data)
 export const getWarrantyClaim = (id: string) => apiClient.get(`/warranty/${id}`).then(r => r.data)
 export const createWarrantyClaim = (data: any) => apiClient.post('/warranty', data).then(r => r.data)

@@ -1,9 +1,20 @@
 import * as xmlrpc from 'xmlrpc';
 
-const ODOO_URL = process.env.ODOO_URL ?? 'http://localhost:8069';
-const ODOO_DB = process.env.ODOO_DB ?? 'guvenoptik';
-const ODOO_USER = process.env.ODOO_USER ?? 'admin';
-const ODOO_PASS = process.env.ODOO_PASS ?? process.env.ODOO_PASSWORD ?? 'admin123';
+const ODOO_URL = process.env.ODOO_URL || (() => {
+  throw new Error('ODOO_URL ortam değişkeni tanımlı değil — .env dosyasını kontrol edin');
+})();
+
+const ODOO_DB = process.env.ODOO_DB || (() => {
+  throw new Error('ODOO_DB ortam değişkeni tanımlı değil — .env dosyasını kontrol edin');
+})();
+
+const ODOO_USER = process.env.ODOO_USER || (() => {
+  throw new Error('ODOO_USER ortam değişkeni tanımlı değil — .env dosyasını kontrol edin');
+})();
+
+const ODOO_PASS = (process.env.ODOO_PASS ?? process.env.ODOO_PASSWORD) || (() => {
+  throw new Error('ODOO_PASS veya ODOO_PASSWORD ortam değişkeni tanımlı değil — .env dosyasını kontrol edin');
+})();
 
 const common = xmlrpc.createClient({ url: `${ODOO_URL}/xmlrpc/2/common` });
 const models = xmlrpc.createClient({ url: `${ODOO_URL}/xmlrpc/2/object` });
@@ -104,13 +115,13 @@ export const ODOO_CATEGORY_MAP: Record<string, number> = {
   'OPTICAL_FRAME_RX': 6,
   'OPTICAL_FRAME_READY': 6,
   // Güneş
-  'SUNGLASSES_RX': 5,
-  'SUNGLASSES_READY': 5,
+  'SUNGLASSES_RX': 7,
+  'SUNGLASSES_READY': 7,
   // Cam
   'LENS_RX': 4,
   // Lens
-  'CONTACT_LENS_RX': 7,
-  'CONTACT_LENS_READY': 7,
+  'CONTACT_LENS_RX': 5,
+  'CONTACT_LENS_READY': 5,
 };
 
 export async function getProductsByCategory(odooCategoryId: number, limit = 100) {
@@ -231,4 +242,19 @@ export async function syncPrescriptionToOdoo(
     if ((rx as any)[f]) vals[f] = (rx as any)[f];
   }
   return execute('guven.prescription', 'create', [vals]);
+}
+
+export async function appendPartnerNote(odooPartnerId: number, noteText: string) {
+  try {
+    const [partner] = await execute('res.partner', 'read', [[odooPartnerId]], {
+      fields: ['comment'],
+    });
+    const existing = partner?.comment ?? '';
+    const dateStr = new Date().toLocaleDateString('tr-TR');
+    const newLine = `[${dateStr}] ${noteText}`;
+    const updated = existing ? `${existing}\n${newLine}` : newLine;
+    await execute('res.partner', 'write', [[odooPartnerId], { comment: updated }]);
+  } catch (e) {
+    console.error('appendPartnerNote failed', e);
+  }
 }

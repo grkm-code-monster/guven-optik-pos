@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import { syncCustomerToOdoo } from '../odoo/odoo.service';
 
@@ -61,6 +62,30 @@ export async function searchCustomers(q: string) {
   }
 
   return [...posResult, ...odooResult]
+}
+
+export async function resolveOdooCustomer(
+  odooPartnerId: number,
+  fallback: { name: string; phone: string; email?: string | null },
+) {
+  const existing = await prisma.customer.findFirst({ where: { odooPartnerId } });
+  if (existing) return existing;
+
+  try {
+    return await prisma.customer.create({
+      data: {
+        name: fallback.name,
+        phone: fallback.phone,
+        odooPartnerId,
+      },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      const again = await prisma.customer.findFirst({ where: { odooPartnerId } });
+      if (again) return again;
+    }
+    throw err;
+  }
 }
 
 export async function createCustomer(input: any) {

@@ -1,5 +1,5 @@
 import { prisma } from '../../database/prisma';
-import { execute } from '../odoo/odoo.service';
+import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 import { LOKASYON_ID_MAP } from '../odoo/odooLocations';
 
 const ODOO_LOCATION_TO_CODE = Object.fromEntries(
@@ -409,4 +409,203 @@ export async function getUrunLotlari(tmplId: number, lokasyon: string) {
       barkod: meta.barkod,
     };
   });
+}
+
+const ODOO_ALL_COMPANIES_KWARGS = {
+  context: { allowed_company_ids: [...ODOO_ALL_COMPANY_IDS] },
+};
+
+function aggregateLocMapFromQuants(
+  quants: Array<{ location_id?: unknown; quantity?: number; reserved_quantity?: number }>,
+): Map<number, { qty: number; reserved: number }> {
+  const locMap = new Map<number, { qty: number; reserved: number }>();
+  for (const row of quants) {
+    const locId = m2oId(row.location_id);
+    if (!locId) continue;
+    const prev = locMap.get(locId) ?? { qty: 0, reserved: 0 };
+    prev.qty += Number(row.quantity) || 0;
+    prev.reserved += Number(row.reserved_quantity) || 0;
+    locMap.set(locId, prev);
+  }
+  return locMap;
+}
+
+function buildLokasyonStokList(locMap: Map<number, { qty: number; reserved: number }>): StokKontrolLokasyon[] {
+  const branchCodes = Object.keys(LOKASYON_ID_MAP);
+  const lokasyonlar: StokKontrolLokasyon[] = branchCodes.map((kod) => {
+    const locId = LOKASYON_ID_MAP[kod];
+    const data = locMap.get(locId) ?? { qty: 0, reserved: 0 };
+    return { kod, miktar: data.qty, reserved: data.reserved };
+  });
+  for (const [locId, data] of locMap) {
+    if (ODOO_LOCATION_TO_CODE[locId]) continue;
+    lokasyonlar.push({
+      kod: `#${locId}`,
+      miktar: data.qty,
+      reserved: data.reserved,
+    });
+  }
+  return lokasyonlar;
+}
+
+export type StokKontrolLokasyon = {
+  kod: string;
+  miktar: number;
+  reserved: number;
+};
+
+export type StokKontrolUrun = {
+  productId: number;
+  urunAdi: string;
+  kategori: string;
+  satisFiyati: number;
+  kdvOrani: number;
+  toplamStok: number;
+  lokasyonlar: StokKontrolLokasyon[];
+};
+
+type StokKontrolFiltre = {
+  q?: string;
+  kategoriId?: number;
+  fiyatMin?: number;
+  fiyatMax?: number;
+  stokDurumu?: 'var' | 'sifir';
+  lokasyon?: string;
+  kdv?: number;
+};
+
+export async function listStokKontrol(filtre: StokKontrolFiltre): Promise<StokKontrolUrun[]> {
+  const q = filtre.q?.trim();
+  const hasFilter = Boolean(
+    q || filtre.kategoriId || filtre.fiyatMin != null || filtre.fiyatMax != null
+    || filtre.stokDurumu || filtre.lokasyon || filtre.kdv,
+  );
+  if (!hasFilter) return [];
+
+  const productDomain: unknown[] = [
+    ['type', 'in', ['product', 'consu']],
+    ['active', '=', true],
+  ];
+  if (q) {
+    productDomain.push('|', ['name', 'ilike', q], ['default_code', 'ilike', q]);
+  }
+  if (filtre.kategoriId) {
+    productDomain.push(['categ_id', 'child_of', filtre.kategoriId]);
+  }
+  if (filtre.fiyatMin != null) productDomain.push(['lst_price', '>=', filtre.fiyatMin]);
+  if (filtre.fiyatMax != null) productDomain.push(['lst_price', '<=', filtre.fiyatMax]);
+
+  const products = (await execute('product.product', 'search_read', [productDomain], {
+    fields: ['id', 'display_name', 'name', 'categ_id', 'lst_price', 'taxes_id'],
+    limit: 100,
+    order: 'display_name asc',
+    ...ODOO_ALL_COMPANIES_KWARGS,
+  })) ?? [];
+
+  if (!products.length) return [];
+
+  const allTaxIds = [...new Set(
+    products.flatMap((p: { taxes_id?: number[] }) => (Array.isArray(p.taxes_id) ? p.taxes_id : [])),
+  )] as number[];
+  const taxRateMap = await getTaxRateMap(allTaxIds);
+
+  const productIds = products.map((p: { id: number }) => p.id);
+  const quants = (await execute('stock.quant', 'search_read', [[
+    ['product_id', 'in', productIds],
+    ['location_id.usage', '=', 'internal'],
+  ]], {
+    fields: ['product_id', 'location_id', 'quantity', 'reserved_quantity'],
+    limit: 10000,
+    ...ODOO_ALL_COMPANIES_KWARGS,
+  })) ?? [];
+
+  const agg = new Map<number, Map<number, { qty: number; reserved: number }>>();
+  for (const row of quants) {
+    const pid = m2oId(row.product_id);
+    const locId = m2oId(row.location_id);
+    if (!pid || !locId) continue;
+    if (!agg.has(pid)) agg.set(pid, new Map());
+    const locMap = agg.get(pid)!;
+    const prev = locMap.get(locId) ?? { qty: 0, reserved: 0 };
+    prev.qty += Number(row.quantity) || 0;
+    prev.reserved += Number(row.reserved_quantity) || 0;
+    locMap.set(locId, prev);
+  }
+
+  let rows: StokKontrolUrun[] = products.map((p: any) => {
+    const locMap = agg.get(p.id) ?? new Map();
+    const lokasyonlar = buildLokasyonStokList(locMap);
+    const taxId = Array.isArray(p.taxes_id) && p.taxes_id.length ? p.taxes_id[0] : null;
+    const kdvOrani = taxId ? (taxRateMap.get(taxId) ?? 0) : 0;
+    let toplamStok = lokasyonlar.reduce((s, l) => s + l.miktar, 0);
+    if (filtre.lokasyon) {
+      toplamStok = lokasyonlar.find((l) => l.kod === filtre.lokasyon)?.miktar ?? 0;
+    }
+    return {
+      productId: p.id,
+      urunAdi: p.display_name ?? p.name ?? '',
+      kategori: m2oName(p.categ_id),
+      satisFiyati: Number(p.lst_price) || 0,
+      kdvOrani,
+      toplamStok,
+      lokasyonlar,
+    };
+  });
+
+  if (filtre.kdv === 10 || filtre.kdv === 20) {
+    rows = rows.filter((r) => Math.round(r.kdvOrani) === filtre.kdv);
+  }
+  if (filtre.stokDurumu === 'var') rows = rows.filter((r) => r.toplamStok > 0);
+  if (filtre.stokDurumu === 'sifir') rows = rows.filter((r) => r.toplamStok <= 0);
+
+  return rows;
+}
+
+export type UrunStokSube = {
+  kod: string;
+  miktar: number;
+  reserved: number;
+  kullanilabilir: number;
+};
+
+export type UrunStokTumSubeler = {
+  productId: number;
+  urunAdi: string;
+  lokasyonlar: UrunStokSube[];
+  toplamStok: number;
+};
+
+export async function getUrunStokTumSubeler(productId: number): Promise<UrunStokTumSubeler | null> {
+  if (!Number.isFinite(productId) || productId <= 0) return null;
+
+  const products = (await execute('product.product', 'read', [[productId]], {
+    fields: ['id', 'display_name', 'name'],
+    ...ODOO_ALL_COMPANIES_KWARGS,
+  })) ?? [];
+  if (!products.length) return null;
+
+  const quants = (await execute('stock.quant', 'search_read', [[
+    ['product_id', '=', productId],
+    ['location_id.usage', '=', 'internal'],
+  ]], {
+    fields: ['location_id', 'quantity', 'reserved_quantity'],
+    limit: 10000,
+    ...ODOO_ALL_COMPANIES_KWARGS,
+  })) ?? [];
+
+  const locMap = aggregateLocMapFromQuants(quants);
+  const lokasyonlar = buildLokasyonStokList(locMap).map((l) => ({
+    kod: l.kod,
+    miktar: l.miktar,
+    reserved: l.reserved,
+    kullanilabilir: Math.max(0, l.miktar - l.reserved),
+  }));
+  const toplamStok = lokasyonlar.reduce((s, l) => s + l.miktar, 0);
+
+  return {
+    productId,
+    urunAdi: products[0].display_name ?? products[0].name ?? '',
+    lokasyonlar,
+    toplamStok,
+  };
 }

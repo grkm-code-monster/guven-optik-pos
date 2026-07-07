@@ -270,6 +270,8 @@ model Sale {
   odooSaleOrderId    Int?
   odooSynced         Boolean    @default(false)
   odooSyncError      String?
+  odooCancelled      Boolean    @default(false)
+  odooCancelError    String?
   eFaturaId          String?
   eFaturaDurum       String?    // GONDERILDI, BEKLIYOR, HATA
   createdAt          DateTime   @default(now())
@@ -315,12 +317,14 @@ model SaleItem {
 
   linkedItemId String?
   linkType     LinkType?
+  pairedItemId String?
 
   prescription Prescription?
   frames       Frame[]
 
   status ItemStatus @default(PENDING)
   deliveryDate  DateTime?
+  lensOrderMeasurement Json?
 
   sale    Sale    @relation(fields: [saleId], references: [id])
   product Product @relation(fields: [productId], references: [id])
@@ -441,6 +445,8 @@ enum PaymentType {
   CARD
   TRANSFER
   OPEN_ACCOUNT
+  SGK
+  VAKIF
 }
 
 model Bank {
@@ -960,6 +966,14 @@ enum WarrantyResult {
   POINTS_LOADED
   OUT_OF_WARRANTY_FEE
   OUT_OF_WARRANTY_REJECTED
+  REFUNDED
+  RESTOCKED
+}
+
+enum TransferStatus {
+  NOT_REQUIRED
+  PENDING
+  COMPLETED
 }
 
 enum WarrantyType {
@@ -1015,6 +1029,16 @@ model WarrantyClaim {
   cargoTrackingNo   String?
   adminApprovedAt   DateTime?
   adminApprovedBy   String?
+
+  transferSourceBranchId String?
+  transferStatus         TransferStatus? @default(NOT_REQUIRED)
+  odooPickingId          String?
+
+  managerApprovedAt      DateTime?
+  managerApprovedBy      String?
+
+  refundAmount           Decimal?  @db.Decimal(10, 2)
+  refundMethod           String?
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

@@ -4,6 +4,7 @@ import { addItem, deleteItem, getSaleById, updateItem } from '../../api/sales.ap
 import { apiClient } from '../../api/client'
 import { getAktifLokasyon } from '../../utils/aktifLokasyon'
 import {
+  BAKIM_KATEGORI_ID,
   DIREKT_KATEGORI_ID,
   getKategoriTreeRoot,
   hasKategoriTree,
@@ -26,6 +27,7 @@ const typeCards: Array<{ type: ItemType; title: string; icon: string }> = [
   { type: 'CONTACT', title: 'Lens', icon: '🔍' },
   { type: 'SOLUTION', title: 'Solüsyon', icon: '💧' },
   { type: 'ACCESSORY', title: 'Aksesuar', icon: '✨' },
+  { type: 'MAINTENANCE', title: 'Bakım', icon: '🔧' },
 ]
 
 const lensTypeCard = { type: 'LENS' as const, title: 'Cam', icon: '👁' }
@@ -47,7 +49,8 @@ function money(v?: string | number | null) {
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(n)
 }
 
-const STOK_CAM_KATEGORI_IDS = [35, 36, 37]
+const STOK_CAM_KATEGORI_IDS = [35, 36, 37, 39, 40, 41]
+const KONTAKT_LENS_KATEGORI_IDS = [46, 47, 48, 49, 50]
 
 function parseStokCamSph(urunAdi: string): number | null {
   const m = urunAdi.match(/(-?\d{4})\s+(-?0?\d{3,4})/)
@@ -68,14 +71,38 @@ function transpozHesapla(sph: number, cyl: number, aks: number): { sph: number; 
   return { sph: yeniSph, cyl: yeniCyl, aks: yeniAks }
 }
 
+type OneriTarafKey = 'uzak_r' | 'uzak_l' | 'yakin_r' | 'yakin_l'
+
+function receteTarafDolu(rx: any, numaraTipi: 'uzak' | 'yakin', taraf: 'r' | 'l'): boolean {
+  const prefix = numaraTipi === 'uzak' ? 'far' : 'near'
+  const sph = rx?.[`${prefix}_${taraf}_sph`]
+  const cyl = rx?.[`${prefix}_${taraf}_cyl`]
+  return (sph != null && sph !== '') || (cyl != null && cyl !== '')
+}
+
+function receteUzakVar(rx: any): boolean {
+  return receteTarafDolu(rx, 'uzak', 'r') || receteTarafDolu(rx, 'uzak', 'l')
+}
+
+function receteYakinVar(rx: any): boolean {
+  return receteTarafDolu(rx, 'yakin', 'r') || receteTarafDolu(rx, 'yakin', 'l')
+}
+
+function parseOneriTaraf(key: OneriTarafKey): { numaraTipi: 'uzak' | 'yakin'; taraf: 'r' | 'l' } {
+  const [numaraTipi, taraf] = key.split('_') as ['uzak' | 'yakin', 'r' | 'l']
+  return { numaraTipi, taraf }
+}
+
 function receteOneriFiltrele(
   urunler: any[],
   rx: any,
-  taraf: 'r' | 'l'
+  taraf: 'r' | 'l',
+  numaraTipi: 'uzak' | 'yakin',
 ): { tam: any[]; transpoze: any[] } {
-  const sph = parseFloat(String(rx?.[`far_${taraf}_sph`] ?? '0'))
-  const cyl = parseFloat(String(rx?.[`far_${taraf}_cyl`] ?? '0'))
-  const aks = parseInt(String(rx?.[`far_${taraf}_aks`] ?? '0'))
+  const prefix = numaraTipi === 'uzak' ? 'far' : 'near'
+  const sph = parseFloat(String(rx?.[`${prefix}_${taraf}_sph`] ?? '0'))
+  const cyl = parseFloat(String(rx?.[`${prefix}_${taraf}_cyl`] ?? '0'))
+  const aks = parseInt(String(rx?.[`${prefix}_${taraf}_aks`] ?? '0'))
   if (isNaN(sph) && isNaN(cyl)) return { tam: [], transpoze: [] }
   const tr = transpozHesapla(sph, cyl, aks)
   const tam: any[] = []
@@ -88,6 +115,72 @@ function receteOneriFiltrele(
     else if (uSph === tr.sph && uCyl === Math.abs(tr.cyl)) transpoze.push(u)
   }
   return { tam, transpoze }
+}
+
+function rxLensNum(v: unknown): number | null {
+  if (v == null || v === '') return null
+  const n = parseFloat(String(v).replace(',', '.').replace(/^\+/, ''))
+  return Number.isFinite(n) ? n : null
+}
+
+function lensNumVariants(n: number): string[] {
+  const abs = Math.abs(n)
+  const out = new Set<string>()
+  out.add(String(n))
+  out.add(`${n < 0 ? '-' : ''}${abs.toFixed(2)}`)
+  out.add(`${n < 0 ? '-' : ''}${abs.toFixed(1)}`)
+  if (n > 0) out.add(`+${abs.toFixed(2)}`)
+  const enc = Math.round(abs * 100)
+  out.add(`${n < 0 ? '-' : ''}${String(enc).padStart(4, '0')}`)
+  return [...out]
+}
+
+function textContainsLensNum(text: string, n: number | null): boolean {
+  if (n == null) return true
+  const hay = text.toLowerCase()
+  return lensNumVariants(n).some((v) => {
+    const s = v.toLowerCase()
+    return hay.includes(s) || hay.includes(s.replace(/^\+/, ''))
+  })
+}
+
+function kontaktLensReceteVar(rx: any): boolean {
+  const rSph = rx?.lens_r_sph
+  const lSph = rx?.lens_l_sph
+  return (rSph != null && rSph !== '') || (lSph != null && lSph !== '')
+}
+
+function lensRxDisplay(v: unknown): string {
+  if (v == null || v === '') return '—'
+  return String(v)
+}
+
+function lensRxOzet(rx: any, taraf: 'r' | 'l'): string {
+  return [
+    lensRxDisplay(rx?.[`lens_${taraf}_sph`]),
+    lensRxDisplay(rx?.[`lens_${taraf}_cyl`]),
+    lensRxDisplay(rx?.[`lens_${taraf}_bc`]),
+    lensRxDisplay(rx?.[`lens_${taraf}_dia`]),
+  ].join('/')
+}
+
+function lensReceteOneriFiltrele(urunler: any[], rx: any, taraf: 'r' | 'l'): any[] {
+  const sph = rxLensNum(rx?.[`lens_${taraf}_sph`])
+  const cyl = rxLensNum(rx?.[`lens_${taraf}_cyl`])
+  const bc = rxLensNum(rx?.[`lens_${taraf}_bc`])
+  const dia = rxLensNum(rx?.[`lens_${taraf}_dia`])
+  if (sph == null && cyl == null) return []
+
+  const tam: any[] = []
+  for (const u of urunler) {
+    const text = [u.ad, u.varyant].filter(Boolean).join(' ')
+    if (!textContainsLensNum(text, sph)) continue
+    if (cyl != null && cyl !== 0 && !textContainsLensNum(text, Math.abs(cyl))) continue
+    if (bc != null && !textContainsLensNum(text, bc)) continue
+    if (dia != null && !textContainsLensNum(text, dia)) continue
+    tam.push(u)
+  }
+  return tam
 }
 
 function buildSearchUrl(
@@ -145,12 +238,18 @@ export default function ItemsStep({
   const [discountInput, setDiscountInput] = useState('0')
   const [prescriptionType, setPrescriptionType] = useState<string>('')
   const [oneriTabu, setOneriTabu] = useState<'oneri' | 'tumü'>('oneri')
-  const [oneriTaraf, setOneriTaraf] = useState<'r' | 'l'>('r')
+  const [oneriTaraf, setOneriTaraf] = useState<OneriTarafKey>('uzak_r')
+  const [kontaktOneriTaraf, setKontaktOneriTaraf] = useState<'r' | 'l'>('r')
 
   const [error, setError] = useState<string | null>(null)
   const [editingItem, setEditingItem] = useState<any | null>(null)
   const [pendingLinkedItemId, setPendingLinkedItemId] = useState<string | null>(null)
   const [frameAkis, setFrameAkis] = useState<'secim' | 'urunAra' | 'sadeceCerceve' | 'kendiCercevesi' | null>(null)
+  const [pairPrompt, setPairPrompt] = useState<{
+    candidateId: string
+    candidateName: string
+    payload: Record<string, unknown>
+  } | null>(null)
 
   useEffect(() => {
     apiClient
@@ -168,7 +267,7 @@ export default function ItemsStep({
   useEffect(() => {
     if (!modalOpen || step !== 3) return
     const term = q.trim()
-    if (term.length < 1) {
+    if (term.length < 1 && pickedKategoriId !== BAKIM_KATEGORI_ID) {
       setSearchResults([])
       return
     }
@@ -328,6 +427,7 @@ export default function ItemsStep({
     setEditingItem(null)
     setPendingLinkedItemId(null)
     setFrameAkis(null)
+    setPairPrompt(null)
   }
 
   function open() {
@@ -443,76 +543,123 @@ export default function ItemsStep({
     return /^-?\d+(\.\d+)?$/.test(s) ? s : String(n)
   }
 
+  function itemDisplayName(it: any): string {
+    return (
+      it.odooProductName ||
+      (it.product?.name !== '__ODOO_PLACEHOLDER__' ? it.product?.name : null) ||
+      'Cam'
+    )
+  }
+
+  function findUnpairedCustomerFrameCandidate(): { id: string; name: string } | null {
+    const candidates = items.filter(
+      (it) =>
+        String(it.status).toUpperCase() !== 'VOID' &&
+        it.linkType === 'CUSTOMER_FRAME' &&
+        !it.pairedItemId,
+    )
+    if (!candidates.length) return null
+    const last = candidates[candidates.length - 1]
+    return { id: last.id, name: itemDisplayName(last) }
+  }
+
+  function buildSavePayload(): Record<string, unknown> | null {
+    if (!pickedProduct) return null
+    const variantId = String(pickedProduct.odooVariantId).replace(/^odoo_/, '')
+    const discountAmount =
+      discountType === 'percent'
+        ? (Number(unitPrice) * Number(qty) * Number(discountInput)) / 100
+        : Number(discountInput)
+    const payload: Record<string, unknown> = {
+      productId: `odoo_${variantId}`,
+      odooProductId: variantId,
+      odooProductName: pickedProduct.name,
+      lotNo: pickedProduct.lotNo || null,
+      qty: Math.max(1, Number(qty || 1)),
+      unitPrice: toDecimalString(unitPrice || pickedProduct.price),
+      discount: String(discountAmount),
+      taxId: selectedTaxId,
+      taxRate: selectedTaxId ? (taxes.find((t) => t.id === selectedTaxId)?.amount ?? null) : null,
+    }
+    if (pickedKategoriId != null) {
+      payload.odooCategoryId = pickedKategoriId
+    }
+    if (pickedType?.type === 'LENS') {
+      if (pendingLinkedItemId && pendingLinkedItemId !== 'KENDI_CERCEVE') {
+        payload.linkType = 'FRAME_LENS'
+        payload.linkedItemId = pendingLinkedItemId
+      } else if (pendingLinkedItemId === 'KENDI_CERCEVE') {
+        payload.linkType = 'CUSTOMER_FRAME'
+        payload.linkedItemId = undefined
+      } else {
+        payload.linkType = editingItem?.linkType ?? 'CUSTOMER_FRAME'
+        payload.linkedItemId = editingItem?.linkedItemId ?? undefined
+      }
+      if (prescriptionType) {
+        const backendType = prescriptionType.startsWith('SINGLE_') ? 'SINGLE' : prescriptionType
+        const rx = customerPrescription as any
+
+        const toStr = (v: any) => {
+          if (v == null || v === '') return undefined
+          return String(v).replace(/^\+/, '')
+        }
+
+        payload.prescription = {
+          prescriptionType: backendType,
+          prescriptionSource: 'MANUAL',
+          r_sph: toStr(rx?.far_r_sph ?? rx?.r_sph),
+          r_cyl: toStr(rx?.far_r_cyl ?? rx?.r_cyl),
+          r_aks: rx?.far_r_aks ?? rx?.r_aks ? parseInt(String(rx?.far_r_aks ?? rx?.r_aks)) : undefined,
+          r_add: toStr(rx?.far_r_add ?? rx?.r_add),
+          r_pd: toStr(rx?.far_r_pd ?? rx?.r_pd),
+          l_sph: toStr(rx?.far_l_sph ?? rx?.l_sph),
+          l_cyl: toStr(rx?.far_l_cyl ?? rx?.l_cyl),
+          l_aks: rx?.far_l_aks ?? rx?.l_aks ? parseInt(String(rx?.far_l_aks ?? rx?.l_aks)) : undefined,
+          l_add: toStr(rx?.far_l_add ?? rx?.l_add),
+          l_pd: toStr(rx?.far_l_pd ?? rx?.l_pd),
+        }
+      }
+    }
+    return payload
+  }
+
+  async function commitSave(payload: Record<string, unknown>, pairWithItemId?: string) {
+    if (pairWithItemId) {
+      payload.pairWithItemId = pairWithItemId
+    }
+    if (editingItem?.id) {
+      await updateItem(saleId, editingItem.id, payload as any)
+    } else {
+      await addItem(saleId, payload as any)
+    }
+    const updated = await getSaleById(saleId)
+    onSaleUpdated(updated)
+    setPendingLinkedItemId(null)
+    setPairPrompt(null)
+    close()
+  }
+
   async function save() {
     if (!pickedProduct) return
     setError(null)
     try {
-      const variantId = String(pickedProduct.odooVariantId).replace(/^odoo_/, '')
-      const discountAmount =
-        discountType === 'percent'
-          ? (Number(unitPrice) * Number(qty) * Number(discountInput)) / 100
-          : Number(discountInput)
-      const payload: Record<string, unknown> = {
-        productId: `odoo_${variantId}`,
-        odooProductId: variantId,
-        odooProductName: pickedProduct.name,
-        lotNo: pickedProduct.lotNo || null,
-        qty: Math.max(1, Number(qty || 1)),
-        unitPrice: toDecimalString(unitPrice || pickedProduct.price),
-        discount: String(discountAmount),
-        taxId: selectedTaxId,
-        taxRate: selectedTaxId ? (taxes.find((t) => t.id === selectedTaxId)?.amount ?? null) : null,
-      }
-      if (pickedKategoriId != null) {
-        payload.odooCategoryId = pickedKategoriId
-      }
-      if (pickedType?.type === 'LENS') {
-        if (pendingLinkedItemId && pendingLinkedItemId !== 'KENDI_CERCEVE') {
-          payload.linkType = 'FRAME_LENS'
-          payload.linkedItemId = pendingLinkedItemId
-        } else if (pendingLinkedItemId === 'KENDI_CERCEVE') {
-          payload.linkType = 'CUSTOMER_FRAME'
-          payload.linkedItemId = undefined
-        } else {
-          payload.linkType = editingItem?.linkType ?? 'CUSTOMER_FRAME'
-          payload.linkedItemId = editingItem?.linkedItemId ?? undefined
-        }
-        if (prescriptionType) {
-          const backendType = prescriptionType.startsWith('SINGLE_') ? 'SINGLE' : prescriptionType
-          const rx = customerPrescription as any
+      const payload = buildSavePayload()
+      if (!payload) return
 
-          const toStr = (v: any) => {
-            if (v == null || v === '') return undefined
-            // Artı işaretini kaldır, backend decimalString bekliyor
-            return String(v).replace(/^\+/, '')
-          }
+      const isNewCustomerFrame =
+        !editingItem?.id &&
+        pickedType?.type === 'LENS' &&
+        payload.linkType === 'CUSTOMER_FRAME'
 
-          payload.prescription = {
-            prescriptionType: backendType,
-            prescriptionSource: 'MANUAL',
-            r_sph: toStr(rx?.far_r_sph ?? rx?.r_sph),
-            r_cyl: toStr(rx?.far_r_cyl ?? rx?.r_cyl),
-            r_aks: rx?.far_r_aks ?? rx?.r_aks ? parseInt(String(rx?.far_r_aks ?? rx?.r_aks)) : undefined,
-            r_add: toStr(rx?.far_r_add ?? rx?.r_add),
-            r_pd: toStr(rx?.far_r_pd ?? rx?.r_pd),
-            l_sph: toStr(rx?.far_l_sph ?? rx?.l_sph),
-            l_cyl: toStr(rx?.far_l_cyl ?? rx?.l_cyl),
-            l_aks: rx?.far_l_aks ?? rx?.l_aks ? parseInt(String(rx?.far_l_aks ?? rx?.l_aks)) : undefined,
-            l_add: toStr(rx?.far_l_add ?? rx?.l_add),
-            l_pd: toStr(rx?.far_l_pd ?? rx?.l_pd),
-          }
+      if (isNewCustomerFrame) {
+        const candidate = findUnpairedCustomerFrameCandidate()
+        if (candidate) {
+          setPairPrompt({ candidateId: candidate.id, candidateName: candidate.name, payload })
+          return
         }
       }
 
-      if (editingItem?.id) {
-        await updateItem(saleId, editingItem.id, payload as any)
-      } else {
-        await addItem(saleId, payload as any)
-      }
-      const updated = await getSaleById(saleId)
-      onSaleUpdated(updated)
-      setPendingLinkedItemId(null)
-      close()
+      await commitSave(payload)
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Kalem eklenemedi')
     }
@@ -846,28 +993,65 @@ export default function ItemsStep({
                 </div>
                 {pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId) && customerPrescription ? (() => {
                   const rx = customerPrescription as any
-                  const { tam: tamR, transpoze: transpR } = receteOneriFiltrele(searchResults, rx, 'r')
-                  const { tam: tamL, transpoze: transpL } = receteOneriFiltrele(searchResults, rx, 'l')
-                  const onerilen = oneriTaraf === 'r'
-                    ? [...tamR.map(u => ({ ...u, _eslesme: 'tam' })), ...transpR.map(u => ({ ...u, _eslesme: 'transpoze' }))]
-                    : [...tamL.map(u => ({ ...u, _eslesme: 'tam' })), ...transpL.map(u => ({ ...u, _eslesme: 'transpoze' }))]
-                  const sphR = rx?.far_r_sph ?? '—'
-                  const cylR = rx?.far_r_cyl ?? '—'
-                  const sphL = rx?.far_l_sph ?? '—'
-                  const cylL = rx?.far_l_cyl ?? '—'
+                  const uzakVar = receteUzakVar(rx)
+                  const yakinVar = receteYakinVar(rx)
+                  const tabDefs: Array<{ key: OneriTarafKey; label: string; sph: string; cyl: string }> = []
+                  if (uzakVar && yakinVar) {
+                    tabDefs.push(
+                      { key: 'uzak_r', label: 'Uzak Sağ', sph: rx?.far_r_sph ?? '—', cyl: rx?.far_r_cyl ?? '—' },
+                      { key: 'uzak_l', label: 'Uzak Sol', sph: rx?.far_l_sph ?? '—', cyl: rx?.far_l_cyl ?? '—' },
+                      { key: 'yakin_r', label: 'Yakın Sağ', sph: rx?.near_r_sph ?? '—', cyl: rx?.near_r_cyl ?? '—' },
+                      { key: 'yakin_l', label: 'Yakın Sol', sph: rx?.near_l_sph ?? '—', cyl: rx?.near_l_cyl ?? '—' },
+                    )
+                  } else if (uzakVar) {
+                    tabDefs.push(
+                      { key: 'uzak_r', label: 'Uzak Sağ', sph: rx?.far_r_sph ?? '—', cyl: rx?.far_r_cyl ?? '—' },
+                      { key: 'uzak_l', label: 'Uzak Sol', sph: rx?.far_l_sph ?? '—', cyl: rx?.far_l_cyl ?? '—' },
+                    )
+                  } else if (yakinVar) {
+                    tabDefs.push(
+                      { key: 'yakin_r', label: 'Yakın Sağ', sph: rx?.near_r_sph ?? '—', cyl: rx?.near_r_cyl ?? '—' },
+                      { key: 'yakin_l', label: 'Yakın Sol', sph: rx?.near_l_sph ?? '—', cyl: rx?.near_l_cyl ?? '—' },
+                    )
+                  } else {
+                    tabDefs.push(
+                      { key: 'uzak_r', label: 'Uzak Sağ', sph: rx?.far_r_sph ?? '—', cyl: rx?.far_r_cyl ?? '—' },
+                      { key: 'uzak_l', label: 'Uzak Sol', sph: rx?.far_l_sph ?? '—', cyl: rx?.far_l_cyl ?? '—' },
+                    )
+                  }
+                  const activeKey = tabDefs.some((t) => t.key === oneriTaraf) ? oneriTaraf : tabDefs[0].key
+                  const { numaraTipi, taraf } = parseOneriTaraf(activeKey)
+                  const { tam, transpoze } = receteOneriFiltrele(searchResults, rx, taraf, numaraTipi)
+                  const onerilen = [
+                    ...tam.map((u) => ({ ...u, _eslesme: 'tam' as const })),
+                    ...transpoze.map((u) => ({ ...u, _eslesme: 'transpoze' as const })),
+                  ]
                   return (
                     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
                       <div style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                         ✦ Reçeteye göre öneri
                         {onerilen.length > 0 && <span style={{ background: '#dbeafe', color: '#1d4ed8', fontSize: 11, padding: '2px 8px', borderRadius: 999 }}>{onerilen.length} eşleşme</span>}
                       </div>
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                        <button type="button" onClick={() => setOneriTaraf('r')} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #bfdbfe', background: oneriTaraf === 'r' ? '#1d4ed8' : 'white', color: oneriTaraf === 'r' ? 'white' : '#1d4ed8', cursor: 'pointer', fontWeight: 700 }}>
-                          Sağ göz · {sphR} / {cylR}
-                        </button>
-                        <button type="button" onClick={() => setOneriTaraf('l')} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #bfdbfe', background: oneriTaraf === 'l' ? '#1d4ed8' : 'white', color: oneriTaraf === 'l' ? 'white' : '#1d4ed8', cursor: 'pointer', fontWeight: 700 }}>
-                          Sol göz · {sphL} / {cylL}
-                        </button>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                        {tabDefs.map((tab) => (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setOneriTaraf(tab.key)}
+                            style={{
+                              fontSize: 12,
+                              padding: '4px 10px',
+                              borderRadius: 6,
+                              border: '1px solid #bfdbfe',
+                              background: activeKey === tab.key ? '#1d4ed8' : 'white',
+                              color: activeKey === tab.key ? 'white' : '#1d4ed8',
+                              cursor: 'pointer',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {tab.label} · {tab.sph} / {tab.cyl}
+                          </button>
+                        ))}
                       </div>
                       {onerilen.length === 0 ? (
                         <div style={{ fontSize: 12, color: '#6b7280' }}>Reçeteye uygun stok bulunamadı — aşağıdan arama yapın.</div>
@@ -882,6 +1066,105 @@ export default function ItemsStep({
                                 </div>
                               </div>
                               <button type="button" onClick={() => pickSearchResult(u)} style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', background: '#1d4ed8', color: 'white', cursor: 'pointer', fontWeight: 700 }}>
+                                Seç
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })() : null}
+
+                {pickedKategoriId != null && KONTAKT_LENS_KATEGORI_IDS.includes(pickedKategoriId) && customerPrescription && kontaktLensReceteVar(customerPrescription) ? (() => {
+                  const rx = customerPrescription as any
+                  const activeTaraf = kontaktOneriTaraf
+                  const onerilen = lensReceteOneriFiltrele(searchResults, rx, activeTaraf).map((u) => ({
+                    ...u,
+                    _eslesme: 'tam' as const,
+                  }))
+                  return (
+                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        ✦ Reçeteye göre öneri
+                        {onerilen.length > 0 && (
+                          <span style={{ background: '#dbeafe', color: '#1d4ed8', fontSize: 11, padding: '2px 8px', borderRadius: 999 }}>
+                            {onerilen.length} eşleşme
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={() => setKontaktOneriTaraf('r')}
+                          style={{
+                            fontSize: 12,
+                            padding: '4px 10px',
+                            borderRadius: 6,
+                            border: '1px solid #bfdbfe',
+                            background: activeTaraf === 'r' ? '#1d4ed8' : 'white',
+                            color: activeTaraf === 'r' ? 'white' : '#1d4ed8',
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                          }}
+                        >
+                          Sağ göz · {lensRxOzet(rx, 'r')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setKontaktOneriTaraf('l')}
+                          style={{
+                            fontSize: 12,
+                            padding: '4px 10px',
+                            borderRadius: 6,
+                            border: '1px solid #bfdbfe',
+                            background: activeTaraf === 'l' ? '#1d4ed8' : 'white',
+                            color: activeTaraf === 'l' ? 'white' : '#1d4ed8',
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                          }}
+                        >
+                          Sol göz · {lensRxOzet(rx, 'l')}
+                        </button>
+                      </div>
+                      {onerilen.length === 0 ? (
+                        <div style={{ fontSize: 12, color: '#6b7280' }}>Reçeteye uygun stok bulunamadı — aşağıdan arama yapın.</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {onerilen.map((u: any) => (
+                            <div
+                              key={String(u.id)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                background: 'white',
+                                border: '1px solid #1d4ed8',
+                                borderRadius: 8,
+                                padding: '8px 10px',
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{u.ad}</div>
+                                {u.varyant ? (
+                                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{u.varyant}</div>
+                                ) : null}
+                                <div style={{ fontSize: 11, color: '#1d4ed8', marginTop: 2 }}>✓ Reçeteye uygun</div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => pickSearchResult(u)}
+                                style={{
+                                  fontSize: 12,
+                                  padding: '5px 12px',
+                                  borderRadius: 6,
+                                  border: 'none',
+                                  background: '#1d4ed8',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  fontWeight: 700,
+                                }}
+                              >
                                 Seç
                               </button>
                             </div>
@@ -1058,6 +1341,43 @@ export default function ItemsStep({
                 </div>
               </div>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {pairPrompt ? (
+        <div style={{ ...overlayStyle, zIndex: 60 }}>
+          <div style={{ ...modalStyle, maxWidth: 440 }}>
+            <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 8 }}>Cam eşleştirme</div>
+            <div style={{ fontSize: 14, color: '#374151', marginBottom: 20, lineHeight: 1.5 }}>
+              Bu cam, <strong>{pairPrompt.candidateName}</strong> ile aynı gözlüğe mi ait?
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  void commitSave(pairPrompt.payload, pairPrompt.candidateId).catch((e: any) => {
+                    setError(e?.response?.data?.message ?? 'Kalem eklenemedi')
+                    setPairPrompt(null)
+                  })
+                }}
+                style={{ ...primaryBtnStyle, width: '100%', textAlign: 'center' }}
+              >
+                Evet, eşle
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void commitSave(pairPrompt.payload).catch((e: any) => {
+                    setError(e?.response?.data?.message ?? 'Kalem eklenemedi')
+                    setPairPrompt(null)
+                  })
+                }}
+                style={{ ...ghostBtnStyle, width: '100%' }}
+              >
+                Hayır, ayrı gözlük / tek cam
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

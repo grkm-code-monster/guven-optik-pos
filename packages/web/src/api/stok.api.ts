@@ -93,3 +93,48 @@ export async function getOdooKategoriler() {
     complete_name: string
   }>
 }
+
+export type StokKontrolLokasyon = {
+  kod: string
+  miktar: number
+  reserved: number
+}
+
+export type StokKontrolUrun = {
+  productId: number
+  urunAdi: string
+  kategori: string
+  satisFiyati: number
+  kdvOrani: number
+  toplamStok: number
+  lokasyonlar: StokKontrolLokasyon[]
+}
+
+export type StokKontrolParams = {
+  q?: string
+  kategoriId?: number
+  fiyatMin?: number
+  fiyatMax?: number
+  stokDurumu?: 'var' | 'sifir'
+  lokasyon?: string
+  kdv?: number
+}
+
+export async function getStokKontrol(params: StokKontrolParams) {
+  const res = await adminApi.get('/admin/stok-kontrol', { params })
+  return (res.data?.data ?? []) as StokKontrolUrun[]
+}
+
+export type TransferKalem = {
+  kaynak: number
+  hedef: number
+  productId: number
+  lotId?: number | null
+  miktar: number
+  urunAdi: string
+}
+
+export async function olusturTransferTalebi(kalemler: TransferKalem[]) {
+  const res = await adminApi.post('/admin/transfer-olustur', { kalemler })
+  return res.data as { success: boolean; transferler?: unknown[]; error?: string }
+}

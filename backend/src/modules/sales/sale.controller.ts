@@ -10,6 +10,8 @@ import {
   VoidSaleInput,
 } from './sale.types';
 import * as saleService from './sale.service';
+import { subeToSirketAyarId } from '../efatura/uyumsoft-efatura.service';
+import { getOutboxInvoicePdf } from '../uyumsoft/uyumsoft.service';
 
 const router = Router();
 router.use(authenticate);
@@ -192,6 +194,59 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     return res.status(200).json(sales);
   } catch (err) {
     if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+router.get('/:id/fatura-pdf', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const sale = await prisma.sale.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!sale) {
+      return res.status(404).json({ error: 'SALE_NOT_FOUND', message: 'Satış bulunamadı.' });
+    }
+    if (sale.eFaturaDurum !== 'GONDERILDI' || !sale.eFaturaId) {
+      return res.status(400).json({
+        error: 'FATURA_NOT_READY',
+        message: 'Fatura henüz hazır değil.',
+      });
+    }
+
+    const fatura = await prisma.fatura.findUnique({ where: { id: sale.eFaturaId } });
+    if (!fatura?.uuid) {
+      return res.status(400).json({
+        error: 'FATURA_NOT_READY',
+        message: 'Fatura henüz hazır değil.',
+      });
+    }
+
+    const branch = await prisma.branch.findUnique({
+      where: { id: sale.branchId },
+      select: { code: true },
+    });
+    const branchCode = branch?.code ?? 'GVN1';
+    const sirketId = subeToSirketAyarId(branchCode);
+    const base64 = await getOutboxInvoicePdf(sirketId, fatura.uuid);
+    const pdfBuffer = Buffer.from(base64, 'base64');
+
+    if (!pdfBuffer.length) {
+      return res.status(502).json({
+        error: 'FATURA_PDF_EMPTY',
+        message: 'Fatura PDF içeriği alınamadı.',
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="fatura-${fatura.faturaNo || fatura.uuid}.pdf"`,
+    );
+    return res.send(pdfBuffer);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('PDF')) {
+      return res.status(502).json({ error: 'FATURA_PDF_ERROR', message: err.message });
+    }
     next(err);
   }
 });

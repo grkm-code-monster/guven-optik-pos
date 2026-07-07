@@ -4,6 +4,7 @@ import { useAuthStore } from '../../store/auth.store'
 import { getAktifLokasyon } from '../../utils/aktifLokasyon'
 import type { LensOrderMeasurementPayload } from '../../utils/saleMeasurements'
 import { buildOzelSiparisReceteFields } from '../../utils/ozelSiparisRecete'
+import { BAKIM_KATEGORI_ID } from './saleKategoriTree'
 
 type StokDurum = 'YUKLENIYOR' | 'MEVCUT' | 'BASKA_LOKASYON' | 'YOK'
 
@@ -21,6 +22,14 @@ const LOKASYON_ID_MAP: Record<string, number> = {
   'GVN1': 53, 'GVN3': 54, 'GVN4': 55, 'GVN6': 56,
   'GVN8': 57, 'GVN9': 58, 'GVN2': 59, 'GVN10': 60,
   'ANADEPO': 61, 'GVN5': 62,
+}
+
+function isBakimHizmetItem(item: { odooCategoryId?: number | null }): boolean {
+  return item.odooCategoryId === BAKIM_KATEGORI_ID
+}
+
+function stokKontrolKalemleri(items: any[]): any[] {
+  return items.filter((item) => !isBakimHizmetItem(item))
 }
 
 export default function StokTeminStep({
@@ -49,7 +58,7 @@ export default function StokTeminStep({
 
   async function stokKontrolEt() {
     setYukleniyor(true)
-    const items: any[] = sale?.items ?? []
+    const items = stokKontrolKalemleri(sale?.items ?? [])
     const sonuclar: UrunStokBilgi[] = []
 
     for (const item of items) {
@@ -62,44 +71,30 @@ export default function StokTeminStep({
       let mevcutLokasyon: string | null = null
       let mevcutLokasyonId: number | null = null
 
-      try {
-        // Aktif lokasyonda stok var mı?
-        const aktifLokId = LOKASYON_ID_MAP[aktifLokasyon]
-        if (aktifLokId) {
-          const res = await apiClient.get(`/admin/lokasyon-stok?lokasyonId=${aktifLokId}&q=${encodeURIComponent(urunAdi)}`)
-          const stoklar = res.data?.data ?? []
-          // Aynı ürünü bul — başka müşteriye ayrılmamış stok
-          const uygun = stoklar.find((s: any) =>
-            s.productName?.toLowerCase().includes(urunAdi.toLowerCase()) ||
-            (odooProductId && String(s.productId) === String(odooProductId))
-          )
-          if (uygun && uygun.quantity > (uygun.reservedQty ?? 0)) {
+      if (odooProductId) {
+        try {
+          const res = await apiClient.get('/admin/stok-kontrol-urun', {
+            params: { productId: odooProductId },
+          })
+          const lokasyonlar: Array<{ kod: string; kullanilabilir: number }> = res.data?.data?.lokasyonlar ?? []
+          const stoklu = lokasyonlar.filter((l) => l.kullanilabilir > 0)
+
+          const aktif = stoklu.find((l) => l.kod === aktifLokasyon)
+          if (aktif) {
             stokDurum = 'MEVCUT'
             mevcutLokasyon = aktifLokasyon
-            mevcutLokasyonId = aktifLokId
-          }
-        }
-
-        // Aktif lokasyonda yoksa diğer lokasyonlara bak
-        if (stokDurum === 'YOK') {
-          const digerLokasyonlar = Object.entries(LOKASYON_ID_MAP).filter(([key]) => key !== aktifLokasyon)
-          for (const [lokKey, lokId] of digerLokasyonlar) {
-            const res = await apiClient.get(`/admin/lokasyon-stok?lokasyonId=${lokId}&q=${encodeURIComponent(urunAdi)}`)
-            const stoklar = res.data?.data ?? []
-            const uygun = stoklar.find((s: any) =>
-              s.productName?.toLowerCase().includes(urunAdi.toLowerCase()) ||
-              (odooProductId && String(s.productId) === String(odooProductId))
-            )
-            if (uygun && uygun.quantity > (uygun.reservedQty ?? 0)) {
+            mevcutLokasyonId = LOKASYON_ID_MAP[aktifLokasyon] ?? null
+          } else {
+            const baska = stoklu.find((l) => l.kod !== aktifLokasyon)
+            if (baska) {
               stokDurum = 'BASKA_LOKASYON'
-              mevcutLokasyon = lokKey
-              mevcutLokasyonId = lokId
-              break
+              mevcutLokasyon = baska.kod
+              mevcutLokasyonId = LOKASYON_ID_MAP[baska.kod] ?? null
             }
           }
+        } catch {
+          stokDurum = 'YOK'
         }
-      } catch {
-        stokDurum = 'YOK'
       }
 
       sonuclar.push({
@@ -183,7 +178,13 @@ export default function StokTeminStep({
     }
   }
 
-  const hepsiHazir = stokBilgileri.length > 0 && stokBilgileri.every(s => s.stokDurum === 'MEVCUT')
+  const tumKalemler: any[] = sale?.items ?? []
+  const fizikselKalemSayisi = stokKontrolKalemleri(tumKalemler).length
+  const sadeceBakimHizmet = tumKalemler.length > 0 && fizikselKalemSayisi === 0
+  const hepsiHazir =
+    stokBilgileri.length === 0
+      ? sadeceBakimHizmet
+      : stokBilgileri.every((s) => s.stokDurum === 'MEVCUT')
 
   return (
     <div style={{ padding: '24px 0' }}>
@@ -255,20 +256,24 @@ export default function StokTeminStep({
           {stokBilgileri.length === 0 && (
             <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: 30,
               backgroundColor: '#f9fafb', borderRadius: 12 }}>
-              Satışta ürün bulunamadı.
+              {sadeceBakimHizmet
+                ? 'Bakım/hizmet kalemleri stok kontrolü gerektirmez. Satışa devam edebilirsiniz.'
+                : 'Satışta ürün bulunamadı.'}
             </div>
           )}
         </div>
       )}
 
-      {!yukleniyor && stokBilgileri.length > 0 && (
+      {!yukleniyor && (stokBilgileri.length > 0 || sadeceBakimHizmet) && (
         <div style={{
           backgroundColor: hepsiHazir ? '#f0fdf4' : '#fffbeb',
           border: `1px solid ${hepsiHazir ? '#86efac' : '#fde68a'}`,
           borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 13,
         }}>
           {hepsiHazir
-            ? '✅ Tüm ürünler hazır. Satışa devam edebilirsiniz.'
+            ? sadeceBakimHizmet
+              ? '✅ Bakım/hizmet kalemleri için ek işlem gerekmiyor. Satışa devam edebilirsiniz.'
+              : '✅ Tüm ürünler hazır. Satışa devam edebilirsiniz.'
             : '⚠️ Bazı ürünler için işlem gerekiyor. Tüm işlemleri tamamlayıp devam edebilirsiniz.'}
         </div>
       )}

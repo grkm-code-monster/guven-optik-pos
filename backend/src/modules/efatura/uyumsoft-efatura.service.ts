@@ -66,6 +66,14 @@ function sirketForSube(sube: string): 'ADESE' | 'NG' | 'POTENTIAL' {
   return 'ADESE';
 }
 
+export function sirketKoduToAyarId(sirket: 'ADESE' | 'NG' | 'POTENTIAL'): string {
+  return sirket.toLowerCase();
+}
+
+export function subeToSirketAyarId(sube: string): string {
+  return sirketKoduToAyarId(sirketForSube(sube));
+}
+
 function supplierIdScheme(vknOrTckn: string): 'VKN' | 'TCKN' {
   return vknOrTckn.replace(/\D/g, '').length === 11 ? 'TCKN' : 'VKN';
 }
@@ -93,7 +101,7 @@ function buildSupplierInfo(
   };
 }
 
-function getSupplierInfo(sube: string, branch?: Branch | null): SupplierInfo {
+function getSupplierInfoFallback(sube: string, branch?: Branch | null): SupplierInfo {
   const sirket = sirketForSube(sube);
   const branchVkn = branch?.vkn?.trim() || '';
 
@@ -138,17 +146,63 @@ function getSupplierInfo(sube: string, branch?: Branch | null): SupplierInfo {
   );
 }
 
-export async function mukellefiyetSorgula(vkn: string): Promise<{
+const SIRKET_BILGI_ANAHTARLARI = [
+  'sirket_unvan',
+  'sirket_adres',
+  'sirket_il',
+  'sirket_ilce',
+  'sirket_telefon',
+  'sirket_eposta',
+] as const;
+
+async function loadSirketBilgileri(sirketId: string): Promise<Record<string, string>> {
+  const rows = await prisma.sirketAyar.findMany({
+    where: {
+      sirketId,
+      anahtar: { in: [...SIRKET_BILGI_ANAHTARLARI] },
+    },
+  });
+  const map: Record<string, string> = {};
+  for (const row of rows) {
+    const val = row.deger?.trim();
+    if (val) map[row.anahtar] = val;
+  }
+  return map;
+}
+
+function applySirketBilgileri(base: SupplierInfo, ayarlar: Record<string, string>): SupplierInfo {
+  return {
+    ...base,
+    unvan: ayarlar.sirket_unvan || base.unvan,
+    adres: ayarlar.sirket_adres || base.adres,
+    il: ayarlar.sirket_il || base.il,
+    ilce: ayarlar.sirket_ilce || base.ilce,
+    telefon: ayarlar.sirket_telefon || base.telefon,
+    email: ayarlar.sirket_eposta || base.email,
+  };
+}
+
+export async function getSupplierInfo(sube: string, branch?: Branch | null): Promise<SupplierInfo> {
+  const base = getSupplierInfoFallback(sube, branch);
+  const ayarlar = await loadSirketBilgileri(subeToSirketAyarId(sube));
+  return applySirketBilgileri(base, ayarlar);
+}
+
+export async function mukellefiyetSorgula(
+  vkn: string,
+  sirketId?: string,
+): Promise<{
   eFaturaMukellef: boolean;
   alias?: string;
 }> {
+  const resolvedSirketId = sirketId ?? 'ng';
   try {
-    const eFaturaMukellef = await isEInvoiceUser(vkn);
+    const eFaturaMukellef = await isEInvoiceUser(vkn, resolvedSirketId);
     if (!eFaturaMukellef) {
       return { eFaturaMukellef: false };
     }
 
-    const aliasResult = await getUserAliasses(vkn);
+    const aliasResult = await getUserAliasses(vkn, resolvedSirketId);
     const rows = (aliasResult as { GetUserAliassesResult?: { UserAliasses?: unknown } })
       ?.GetUserAliassesResult?.UserAliasses;
     const aliasList = Array.isArray(rows) ? rows : rows ? [rows] : [];
@@ -240,7 +294,7 @@ export function buildUBLXML(
   supplier?: SupplierInfo,
 ): string {
   const uuid = randomUUID().toUpperCase();
-  const satici = supplier ?? getSupplierInfo(data.sube);
+  const satici = supplier ?? getSupplierInfoFallback(data.sube);
 
   type KdvGrup = { matrah: number; kdvTutar: number; oran: number };
   const kdvGruplari = new Map<number, KdvGrup>();
@@ -422,15 +476,16 @@ export async function eFaturaGonder(
   profileId?: string;
   hata?: string;
 }> {
-  const { eFaturaMukellef, alias } = await mukellefiyetSorgula(data.aliciVkn);
+  const sirketId = subeToSirketAyarId(data.sube);
+  const { eFaturaMukellef, alias } = await mukellefiyetSorgula(data.aliciVkn, sirketId);
   const profileId = eFaturaMukellef ? 'TEMELFATURA' : 'EARSIVFATURA';
-  const supplier = getSupplierInfo(data.sube, branch);
+  const supplier = await getSupplierInfo(data.sube, branch);
   const xmlContent = buildUBLXML(data, profileId, supplier);
   const ettn =
     xmlContent.match(/<cbc:UUID>([^<]+)<\/cbc:UUID>/)?.[1] ?? randomUUID().toUpperCase();
 
   try {
-    const res = await sendInvoice({
+    const res = await sendInvoice(sirketId, {
       faturaNo: data.faturaNo,
       ettn,
       faturaTarihi: data.faturaTarihi,
@@ -732,24 +787,28 @@ export async function processFaturaKuyruk(): Promise<{ islenen: number }> {
         where: { id: kayit.id },
         data: { durum: 'GONDERILDI', gonderilenAt: new Date() },
       });
-      await faturaKaydet({
-        faturaNo: sonuc.faturaNo,
-        uuid: sonuc.uuid,
-        satisId: kayit.satisId ?? undefined,
-        transferId: kayit.transferId ?? undefined,
-        sube: faturaData.sube,
-        aliciVkn: faturaData.aliciVkn,
-        aliciAdi: faturaData.aliciAdi,
-        tutar: faturaData.kalemler.reduce(
-          (s, k) => s + k.miktar * k.birimFiyat * (1 + k.kdvOrani / 100),
-          0,
-        ),
-        profileId: sonuc.profileId,
-      });
+      const tutar = faturaData.kalemler.reduce(
+        (s, k) => s + k.miktar * k.birimFiyat * (1 + k.kdvOrani / 100),
+        0,
+      );
+      let fatura = await prisma.fatura.findUnique({ where: { faturaNo: sonuc.faturaNo } });
+      if (!fatura) {
+        fatura = await faturaKaydet({
+          faturaNo: sonuc.faturaNo,
+          uuid: sonuc.uuid,
+          satisId: kayit.satisId ?? undefined,
+          transferId: kayit.transferId ?? undefined,
+          sube: faturaData.sube,
+          aliciVkn: faturaData.aliciVkn,
+          aliciAdi: faturaData.aliciAdi,
+          tutar,
+          profileId: sonuc.profileId,
+        });
+      }
       if (kayit.satisId) {
         await prisma.sale.update({
           where: { id: kayit.satisId },
-          data: { eFaturaDurum: 'GONDERILDI' },
+          data: { eFaturaId: fatura.id, eFaturaDurum: 'GONDERILDI' },
         });
       }
     } else {

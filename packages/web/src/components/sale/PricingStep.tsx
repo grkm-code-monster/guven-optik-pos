@@ -126,6 +126,7 @@ export default function PricingStep({
   useEffect(() => {
     setFoundationConfirmed(false)
     setFoundationAmount('')
+    setSgkConfirmedSnapshot(null)
   }, [mode])
 
   const overview = useMemo((): PricingOverview => {
@@ -321,7 +322,9 @@ export default function PricingStep({
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
             <button
               type="button"
-              onClick={openSgkModal}
+              onClick={() => {
+                if (!sgkConfirmedSnapshot) openSgkModal()
+              }}
               style={{
                 padding: '10px 14px',
                 borderRadius: '10px',
@@ -334,7 +337,18 @@ export default function PricingStep({
               }}
             >
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
-                <input type="checkbox" readOnly checked={!!sgkConfirmedSnapshot} aria-hidden />
+                <input
+                  type="checkbox"
+                  checked={!!sgkConfirmedSnapshot}
+                  onChange={() => {
+                    if (sgkConfirmedSnapshot) {
+                      setSgkConfirmedSnapshot(null)
+                    } else {
+                      openSgkModal()
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
                 SGK Hakkı Var — kapsam seç
               </label>
             </button>

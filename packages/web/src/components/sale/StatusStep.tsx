@@ -21,7 +21,15 @@ const DURUM_RENK: Record<string, { bg: string; color: string }> = {
   PENDING: { bg: '#f3f4f6', color: '#374151' },
 }
 
-export default function StatusStep({ sale, onNewSale }: { sale: Sale | null; onNewSale: () => void }) {
+export default function StatusStep({
+  sale,
+  onNewSale,
+  onRefresh,
+}: {
+  sale: Sale | null
+  onNewSale: () => void
+  onRefresh: () => Promise<void>
+}) {
   const hasLensOrder = useMemo(() => {
     return (sale?.items ?? []).some((i: any) =>
       i.linkType === 'FRAME_LENS' || i.linkType === 'CUSTOMER_FRAME'
@@ -37,6 +45,8 @@ export default function StatusStep({ sale, onNewSale }: { sale: Sale | null; onN
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pdfLoading, setPdfLoading] = useState(false)
+  const [resmiFaturaLoading, setResmiFaturaLoading] = useState(false)
+  const [refreshLoading, setRefreshLoading] = useState(false)
   const [satisSatirNotu, setSatisSatirNotu] = useState('')
   const pdfRef = useRef<HTMLDivElement>(null)
 
@@ -80,6 +90,47 @@ export default function StatusStep({ sale, onNewSale }: { sale: Sale | null; onN
     }
   }
 
+  async function resmiFaturaIndir() {
+    if (!sale || sale.eFaturaDurum !== 'GONDERILDI') return
+    setResmiFaturaLoading(true)
+    setError(null)
+    try {
+      const res = await apiClient.get(`/sales/${sale.id}/fatura-pdf`, { responseType: 'blob' })
+      const blob = new Blob([res.data], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e: any) {
+      const data = e?.response?.data
+      if (data instanceof Blob) {
+        try {
+          const text = await data.text()
+          const parsed = JSON.parse(text) as { message?: string }
+          setError(parsed.message ?? 'Resmi fatura PDF alınamadı')
+        } catch {
+          setError('Resmi fatura PDF alınamadı')
+        }
+      } else {
+        setError(e?.response?.data?.message ?? 'Resmi fatura PDF alınamadı')
+      }
+    } finally {
+      setResmiFaturaLoading(false)
+    }
+  }
+
+  async function durumuYenile() {
+    if (!sale) return
+    setRefreshLoading(true)
+    setError(null)
+    try {
+      await onRefresh()
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'Satış durumu yenilenemedi')
+    } finally {
+      setRefreshLoading(false)
+    }
+  }
+
   if (!sale) return <div style={{ padding: 16 }}>Yükleniyor...</div>
 
   const items = (sale.items ?? []).filter((i) => String(i.status).toUpperCase() !== 'VOID')
@@ -100,6 +151,30 @@ export default function StatusStep({ sale, onNewSale }: { sale: Sale | null; onN
         <div style={{ fontSize: 22, fontWeight: 900, color: '#111' }}>Satış Tamamlandı!</div>
         <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>Satış No: <span style={{ fontWeight: 800 }}>{sale.id}</span></div>
         <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>Müşteri: <span style={{ fontWeight: 800 }}>{customerName || '—'}</span></div>
+        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {sale.eFaturaDurum ? (
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              e-Fatura: <strong>{sale.eFaturaDurum}</strong>
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void durumuYenile()}
+            disabled={refreshLoading}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 8,
+              border: '1px solid #e5e7eb',
+              backgroundColor: '#f9fafb',
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: refreshLoading ? 'wait' : 'pointer',
+              opacity: refreshLoading ? 0.7 : 1,
+            }}
+          >
+            {refreshLoading ? 'Yenileniyor...' : '🔄 Durumu Yenile'}
+          </button>
+        </div>
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -130,6 +205,16 @@ export default function StatusStep({ sale, onNewSale }: { sale: Sale | null; onN
         <button type="button" onClick={() => void pdfIndir()} disabled={pdfLoading} style={{ padding: '12px 16px', borderRadius: 10, border: '1px solid #374151', backgroundColor: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
           {pdfLoading ? '...' : '📄 PDF'}
         </button>
+        {sale.eFaturaDurum === 'GONDERILDI' ? (
+          <button
+            type="button"
+            onClick={() => void resmiFaturaIndir()}
+            disabled={resmiFaturaLoading}
+            style={{ padding: '12px 16px', borderRadius: 10, border: '1px solid #1a1a2e', backgroundColor: 'white', fontWeight: 700, fontSize: 13, cursor: resmiFaturaLoading ? 'wait' : 'pointer' }}
+          >
+            {resmiFaturaLoading ? '...' : '🧾 Resmi Fatura'}
+          </button>
+        ) : null}
         <button type="button" onClick={onNewSale} style={{ padding: '12px 16px', borderRadius: 10, border: '1px solid #e5e7eb', backgroundColor: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
           Yeni Satış
         </button>

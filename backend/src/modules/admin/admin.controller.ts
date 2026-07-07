@@ -387,6 +387,7 @@ router.use((req: Request, res: Response, next: NextFunction) => {
     req.path === '/branches' ||
     req.path === '/stock' ||
     req.path === '/lokasyon-stok' ||
+    req.path === '/stok-kontrol-urun' ||
     req.path === '/ozel-siparis-ekle'
   ) {
     return authorize(...POS_ROLES)(req, res, next);
@@ -3100,6 +3101,22 @@ router.get('/lokasyon-stok', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[lokasyon-stok hata]', err?.message);
     return res.json({ data: [] });
+  }
+});
+
+router.get('/stok-kontrol-urun', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const productId = Number(req.query.productId);
+    if (!Number.isFinite(productId) || productId <= 0) {
+      return res.status(400).json({ success: false, error: 'productId zorunlu' });
+    }
+    const data = await stokYonetimi.getUrunStokTumSubeler(productId);
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Ürün bulunamadı' });
+    }
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -6549,6 +6566,24 @@ async function kullaniciSubeKodu(branchId: string): Promise<string | undefined> 
   const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { code: true } });
   return branch?.code;
 }
+
+router.get('/stok-kontrol', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { q, kategoriId, fiyatMin, fiyatMax, stokDurumu, lokasyon, kdv } = req.query;
+    const data = await stokYonetimi.listStokKontrol({
+      q: q ? String(q) : undefined,
+      kategoriId: kategoriId ? Number(kategoriId) : undefined,
+      fiyatMin: fiyatMin != null && fiyatMin !== '' ? Number(fiyatMin) : undefined,
+      fiyatMax: fiyatMax != null && fiyatMax !== '' ? Number(fiyatMax) : undefined,
+      stokDurumu: stokDurumu === 'var' || stokDurumu === 'sifir' ? stokDurumu : undefined,
+      lokasyon: lokasyon ? String(lokasyon) : undefined,
+      kdv: kdv ? Number(kdv) : undefined,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/stok-urunleri', async (req: Request, res: Response, next: NextFunction) => {
   try {

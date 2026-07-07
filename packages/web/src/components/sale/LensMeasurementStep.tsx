@@ -94,24 +94,19 @@ export default function LensMeasurementStep({
     <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
       <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 12 }}>5. Ölçümler</div>
 
-      {/* Kalem listesi */}
+      {/* Grup listesi */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-        {lenses.map((lensItem, i) => {
-          const draft = drafts[i]
+        {drafts.map((draft, i) => {
           const isDone = draft && (draft.rph || draft.lph || draft.corridor)
-          const urunAdi = lensItem.odooProductName || lensItem.product?.name || 'Cam'
-          const rxTipi = lensItem.prescription?.prescriptionType ?? ''
-          const rxTipiLabel: Record<string, string> = {
-            SINGLE_FAR: 'Daimi',
-            SINGLE_NEAR: 'Yakın',
-            PROGRESSIVE: 'Progresif',
-            BIFOCAL: 'Bifokal',
-            SUNGLASSES: 'Düzeltmesiz',
-            SINGLE: 'Tek Odaklı',
-          }
+          const groupLenses = draft.saleItemIds
+            .map((id) => lenses.find((l) => l.id === id))
+            .filter(Boolean) as typeof lenses
+          const urunOzet = groupLenses
+            .map((l) => l.odooProductName || l.product?.name || 'Cam')
+            .join(' · ')
           return (
             <div
-              key={lensItem.id}
+              key={draft.groupLabel ? `${draft.groupLabel}-${i}` : draft.saleItemId}
               style={{
                 border: `1px solid ${isDone ? '#10b981' : '#e5e7eb'}`,
                 borderRadius: 10,
@@ -123,9 +118,12 @@ export default function LensMeasurementStep({
               }}
             >
               <div>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>{urunAdi}</div>
-                {rxTipi ? (
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{rxTipiLabel[rxTipi] ?? rxTipi}</div>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{draft.groupLabel ?? urunOzet}</div>
+                {draft.groupLabel ? (
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{urunOzet}</div>
+                ) : null}
+                {groupLenses.length > 1 ? (
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{groupLenses.length} cam kalemi</div>
                 ) : null}
                 {isDone ? <div style={{ fontSize: 11, color: '#10b981', marginTop: 2 }}>✓ Ölçüm girildi</div> : null}
               </div>
@@ -171,7 +169,8 @@ export default function LensMeasurementStep({
             const patchActive = (p: Partial<LensMeasurementDraft>) => {
               setDrafts(updateDraftAt(drafts, i, p))
             }
-            const urunAdi = activeLens?.odooProductName || activeLens?.product?.name || 'Cam'
+            const urunAdi = draft.groupLabel
+              ?? (activeLens?.odooProductName || activeLens?.product?.name || 'Cam')
             const frameSelVal = draft.ownFrame ? '__OWN__' : draft.frameItemId ?? ''
             const ft = (id: LensOrderFrameTypeApi, label: string) => (
               <button

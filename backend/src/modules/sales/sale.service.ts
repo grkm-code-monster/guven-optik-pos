@@ -1,6 +1,7 @@
 import {
   CashMovementType,
   ItemStatus,
+  LinkType,
   PaymentType,
   Prisma,
   ProductCategory,
@@ -10,7 +11,8 @@ import {
   ShiftStatus,
 } from '@prisma/client';
 import { prisma } from '../../database/prisma';
-import { execute } from '../odoo/odoo.service';
+import { appendPartnerNote, execute } from '../odoo/odoo.service';
+import { createBildirimler } from '../bildirim/bildirim.service';
 import { calculateCommission } from '../payments/commission.service';
 import { tetikleSatisEFatura } from '../efatura/uyumsoft-efatura.service';
 import type { AddSaleItemInputType, ConfirmSaleInputType, CreateSaleInputType, VoidSaleInputType } from './sale.types';
@@ -71,6 +73,7 @@ async function resolveProductForInput(input: AddSaleItemInputType) {
       };
     }
     const placeholder = await getOdooPlaceholderProduct();
+    // Geçici: Odoo BAKIM (kategori 63) hizmet kalemleri READY/ACCESSORY placeholder üzerinden referanslanır
     return {
       product: placeholder,
       resolvedProductId: placeholder.id,
@@ -276,6 +279,28 @@ export async function addSaleItem(saleId: string, input: AddSaleItemInputType) {
           }),
         ),
       );
+    }
+
+    if (input.pairWithItemId) {
+      const partner = await tx.saleItem.findFirst({
+        where: {
+          id: input.pairWithItemId,
+          saleId,
+          linkType: LinkType.CUSTOMER_FRAME,
+          pairedItemId: null,
+        },
+      });
+      if (!partner) {
+        throw codeError('PAIR_ITEM_NOT_FOUND', 'Eşleştirilecek cam kalemi bulunamadı veya zaten eşleşmiş.');
+      }
+      await tx.saleItem.update({
+        where: { id: saleItem.id },
+        data: { pairedItemId: partner.id },
+      });
+      await tx.saleItem.update({
+        where: { id: partner.id },
+        data: { pairedItemId: saleItem.id },
+      });
     }
 
     await recalcSaleTotals(tx, saleId);
@@ -513,10 +538,47 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     }
   }
 
+  if (input.sgkAmount > 0) {
+    paymentsToCreate.push({
+      saleId,
+      paymentType: PaymentType.SGK,
+      bankId: null,
+      posDeviceId: null,
+      installment: null,
+      grossAmount: new Prisma.Decimal(input.sgkAmount),
+      commissionRate: null,
+      commissionAmount: null,
+      netAmount: new Prisma.Decimal(input.sgkAmount),
+    });
+  }
+  if (input.vakifAmount > 0) {
+    paymentsToCreate.push({
+      saleId,
+      paymentType: PaymentType.VAKIF,
+      bankId: null,
+      posDeviceId: null,
+      installment: null,
+      grossAmount: new Prisma.Decimal(input.vakifAmount),
+      commissionRate: null,
+      commissionAmount: null,
+      netAmount: new Prisma.Decimal(input.vakifAmount),
+    });
+  }
+
   const totalPayments = paymentsToCreate.reduce(
     (acc, p) => acc.plus(p.netAmount),
     new Prisma.Decimal(0),
   );
+
+  if (!totalPayments.equals(sale.netTotal)) {
+    console.warn('[confirmSale] Payment toplamı sale.netTotal ile eşleşmiyor', {
+      saleId,
+      saleNetTotal: sale.netTotal.toString(),
+      paymentSum: totalPayments.toString(),
+      sgkAmount: input.sgkAmount,
+      vakifAmount: input.vakifAmount,
+    });
+  }
 
   const thirdParty = new Prisma.Decimal(input.thirdPartyAmount ?? 0);
   const expectedTotal = sale.netTotal.minus(thirdParty);
@@ -528,7 +590,11 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     }
     const updatedSale = await tx.sale.update({
       where: { id: saleId },
-      data: { status: SaleStatus.PAID },
+      data: {
+        status: SaleStatus.PAID,
+        sgkAmount: input.sgkAmount > 0 ? new Prisma.Decimal(input.sgkAmount) : undefined,
+        prescriptionAmount: input.vakifAmount > 0 ? new Prisma.Decimal(input.vakifAmount) : undefined,
+      },
     });
     const payments = await tx.payment.findMany({ where: { saleId } });
     return { sale: updatedSale, payments };
@@ -554,6 +620,14 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
         where: { id: customer.id },
         data: { odooPartnerId },
       });
+    }
+
+    if (odooPartnerId && input.pricingInvoiceNote?.trim()) {
+      try {
+        await appendPartnerNote(odooPartnerId, input.pricingInvoiceNote.trim());
+      } catch (e) {
+        console.error('[Odoo] appendPartnerNote hatası:', e);
+      }
     }
 
     // 3. Satış kalemlerini al
@@ -594,6 +668,16 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     };
 
     // 5. order_line oluştur
+    for (const item of saleItems) {
+      const m = (input.lensOrderMeasurements ?? []).find((x: any) => x.saleItemId === item.id);
+      if (m) {
+        await prisma.saleItem.update({
+          where: { id: item.id },
+          data: { lensOrderMeasurement: m },
+        });
+      }
+    }
+
     const orderLines = saleItems
       .filter((item) => item.odooProductId)
       .map((item) => [
@@ -687,21 +771,33 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
 
       await new Promise((r) => setTimeout(r, 2000));
 
-      console.log('[Odoo] Fatura aranıyor:', `S${String(odooOrderId).padStart(5, '0')}`);
+      const invoiceFields = ['id', 'state', 'name'];
+      const [orderData] = await execute('sale.order', 'read', [[odooOrderId]], {
+        fields: ['name', 'invoice_ids'],
+      });
+      const orderName = orderData?.name ?? '';
+      let invoiceIds: number[] = orderData?.invoice_ids ?? [];
 
-      const invoices = await execute(
-        'account.move',
-        'search_read',
-        [
+      console.log('[Odoo] Fatura aranıyor:', orderName, 'invoice_ids:', invoiceIds);
+
+      let invoices: Array<{ id: number; state: string; name: string }> = [];
+      if (invoiceIds.length > 0) {
+        invoices = await execute('account.move', 'read', [invoiceIds], { fields: invoiceFields });
+      } else if (orderName) {
+        invoices = await execute(
+          'account.move',
+          'search_read',
           [
-            ['invoice_origin', 'like', `S${String(odooOrderId).padStart(5, '0')}`],
-            ['move_type', '=', 'out_invoice'],
+            [
+              ['invoice_origin', '=', orderName],
+              ['move_type', '=', 'out_invoice'],
+            ],
           ],
-        ],
-        { fields: ['id', 'state', 'name'], limit: 1 },
-      );
+          { fields: invoiceFields, limit: 1 },
+        );
+      }
 
-      console.log('[Odoo] Bulunan faturalar:', JSON.stringify(invoices));
+      console.log('[Odoo] Bulunan faturalar:', JSON.stringify(invoices), 'invoice found:', invoices.length > 0);
 
       if (invoices && invoices.length > 0) {
         const invoiceId = invoices[0].id;
@@ -825,9 +921,11 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
       .catch(() => {});
   }
 
-  tetikleSatisEFatura(saleId).catch((err) => {
-    console.error('[e-Fatura] Satış onay tetikleme hatası:', err);
-  });
+  if (input.faturaKesilsin !== false) {
+    tetikleSatisEFatura(saleId).catch((err) => {
+      console.error('[e-Fatura] Satış onay tetikleme hatası:', err);
+    });
+  }
 
   return result;
 }
@@ -841,6 +939,52 @@ export async function voidSale(saleId: string, userId: string, role: Role, input
   if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
   if (sale.status === SaleStatus.VOID) throw codeError('SALE_ALREADY_VOID', 'Satış zaten iptal.');
 
+  let odooCancelled = false;
+  let odooCancelError: string | null = null;
+
+  if (sale.odooSaleOrderId) {
+    try {
+      const [orderData] = await execute('sale.order', 'read', [[sale.odooSaleOrderId]], {
+        fields: ['invoice_ids', 'invoice_status'],
+      });
+      const hasInvoice = (orderData?.invoice_ids ?? []).length > 0;
+
+      if (!hasInvoice) {
+        try {
+          await execute('sale.order', 'action_cancel', [[sale.odooSaleOrderId]], {
+            context: { disable_cancel_warning: true },
+          });
+          odooCancelled = true;
+        } catch (e) {
+          odooCancelled = false;
+          odooCancelError = String(e);
+        }
+      } else {
+        odooCancelled = false;
+        odooCancelError = 'Fatura zaten kesilmiş — Odoo iptali için resmi iade süreci gerekiyor';
+
+        const alicilar = await prisma.user.findMany({
+          where: { role: { in: [Role.ADMIN, Role.ACCOUNTANT] }, isActive: true },
+          select: { id: true },
+        });
+        if (alicilar.length) {
+          await createBildirimler(
+            alicilar.map((u) => u.id),
+            {
+              baslik: 'Satış iptal edildi — Odoo\'da manuel işlem gerekli',
+              mesaj: `Satış #${saleId} POS'ta iptal edildi ancak Odoo'da zaten fatura/ödeme kaydı var. Lütfen resmi iade faturası (credit note) sürecini Odoo/Uyumsoft üzerinden başlatın.`,
+              link: `/admin/satislar/${saleId}`,
+              tip: 'GENEL',
+            },
+          );
+        }
+      }
+    } catch (e) {
+      odooCancelled = false;
+      odooCancelError = String(e);
+    }
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const s = await tx.sale.update({
       where: { id: saleId },
@@ -849,6 +993,8 @@ export async function voidSale(saleId: string, userId: string, role: Role, input
         voidReason: input.voidReason,
         voidUserId: userId,
         voidAt: new Date(),
+        odooCancelled,
+        odooCancelError,
       },
     });
     await tx.saleItem.updateMany({

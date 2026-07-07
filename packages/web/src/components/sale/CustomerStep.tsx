@@ -3,6 +3,7 @@ import {
   addPrescription,
   createCustomer,
   getCustomerById,
+  resolveOdooCustomer,
   getCustomerPrescriptions,
   searchCustomers,
   updateCustomer,
@@ -389,8 +390,26 @@ export default function CustomerStep({
           <button
             key={c.id}
             type="button"
-            onClick={() => {
-              setSelectedCustomer(c)
+            onClick={async () => {
+              if (c._kaynak === 'odoo') {
+                setLoading(true)
+                try {
+                  const real = await resolveOdooCustomer({
+                    odooPartnerId: c.odooPartnerId,
+                    name: c.name,
+                    phone: c.phone,
+                    email: c.ePostaEmail,
+                  })
+                  setSelectedCustomer(real)
+                } catch (e: any) {
+                  setError(e?.response?.data?.message ?? 'Müşteri aktarılamadı')
+                  setLoading(false)
+                  return
+                }
+                setLoading(false)
+              } else {
+                setSelectedCustomer(c)
+              }
               setQ('')
               setResults([])
               setError(null)

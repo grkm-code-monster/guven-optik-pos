@@ -1,5 +1,5 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 03.07.2026
+Son güncelleme: 07.07.2026
 
 ## Son commitler (güncellendi)
 - [03.07.2026 — commit 540f859] — Satışlar listesi, Müşteriler sayfası, DRAFT satışa devam, reçete 2 sekme (Gözlük/Lens), stok cam SPH+CYL öneri + transpoze, Şirket Tanımları sayfası, İYS modal + SirketAyar DB, Patron login fix (adminApi), PDKS şube mekan ID eşleşmesi, iade flow altyapısı (WarrantyClaim 6 yeni alan), Odoo müşteri arama birleşik, kampanya tabloları oluşturuldu, DB reset sonrası şubeler + personeller yeniden kuruldu
@@ -75,17 +75,19 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [x] Odoo departman yapısından otomatik şube eşleştirme
 - [x] Varyant import: Excel yapıştır, önizle, duplicate koruması
 - [x] Mevcut varyantlar Odoo'dan çekiliyor (model/renk/ölçü PTAV parse)
+- [x] Uyumsoft SendInvoice — e-fatura gönderme
+- [x] Satış onayında otomatik fatura tetikleme
+- [x] Kontakt lens stok önerisi
+- [x] Uyumsoft multi-şirket credential ALTYAPISI kuruldu (SirketAyar tablosu üzerinden şirket bazlı kullanıcı/şifre/gönderen birim + unvan/adres yönetimi, admin panelinden düzenlenebilir). AÇIK KALAN: ADESE ve POTENTIAL için GERÇEK Uyumsoft hesap bilgileri henüz girilmedi (admin panelinden Tanımlamalar → Şirket Tanımları → Uyumsoft kartından girilecek).
+- [x] PDF çıktısı jsPDF ile — TAMAMLANDI (Satış Belgesi + Resmi Fatura Uyumsoft'tan canlı çekilen PDF mevcut)
 
 ## Kısa vadeli — açık
-- [ ] Uyumsoft SendInvoice — e-fatura gönderme
 - [ ] Uyumsoft e-arşiv gönderme
-- [ ] Satış onayında otomatik fatura tetikleme
 - [ ] Her şube için Odoo lokasyon ID bağlantısı (Tanımlamalar'dan)
 - [ ] Her şube için PDKS place ID bağlantısı (Tanımlamalar'dan)
 - [ ] GVN6, GVN7, GVN8, GVN10 için PDKS konum eklenmesi lazım
   (Patron PDKS panel → Konumlar → + Yeni Ekle)
   Bu şubeler için şu an PDKS giriş/çıkış takibi yapılamıyor
-- [ ] Uyumsoft multi-şirket token yönetimi
 - [ ] Bölge müdürü kasa tablosu (şu an placeholder)
 - [ ] Mevcut personelleri Odoo ile eşleştir (link-employee endpoint ile)
 - [ ] report.service.ts buildPersonelHedefMap — string match yerine userId FK kullanacak şekilde güncelle (sonraki sprint)
@@ -97,7 +99,6 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Puantaj raporu IK modülüne entegrasyon
 - [ ] Ürün yapılandırma — Barkod yazdırma
 - [ ] Depo ürün girişi akışı (stok miktarı tanımlama)
-- [ ] PDF çıktısı jsPDF ile
 - [ ] Açık hesap vade tarihi
 - [ ] PersonelDashboard: laboratuvara gönderilmedi gerçek veri (warranty userId filtresi eklenince)
 - [ ] Karlılık analizi + drill-down
@@ -105,6 +106,7 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Ürün maliyet girişi ekranı
 
 ## Garanti & İade — sonraki adımlar
+- [x] Garanti & İade admin ekranı — TAMAMLANDI (rol bazlı onay akışı, transfer, depo yöneticisi onayı, ödeme iadesi/stoka alma dahil tüm akış kuruldu)
 - [ ] Şube adları satış sırasında branchId yerine name olarak kaydedilmeli
 - [ ] Tedarikçi bilgisi lot/seri'den otomatik çekilmeli (Odoo entegrasyonu)
 - [ ] Ürün girişi → garanti no otomatik not düşülmeli
@@ -115,12 +117,30 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - [ ] Ürün etiket tasarımları ve basımları
 - [ ] Ürün kartlarına barkod/UTS/lot tanımlama akışı
 - [ ] Doğum tarihi Odoo formunda görünmüyor (view inheritance sorunu)
+- [ ] Açık hesap / kısmi ödeme eşleştirme mantığı — müşteri birden fazla satış + kısmi ödeme yaptığında, sonraki büyük ödemenin hangi satış(lar)a düştüğü netleşmeli (aciliyeti yok)
+- [ ] Onaylı (PAID) satışta kalem/fiyat/müşteri düzenleme — muhasebe etkisi olan hassas bir konu, henüz tasarlanmadı
+- [ ] Komisyon Oranları'na gerçek bankalar (Akbank, Garanti vb.) eklenmesi gerekiyor (admin panelinden, kullanıcı tarafından)
 
 ## Büyük maddeler
 - [ ] Ingenico Worldline POS entegrasyonu
 - [ ] Uyumsoft entegrasyonu
 - [ ] Finans yönetimi & muhasebe modülleri (gider girişi)
 - [ ] Bilanço/KDV/komisyon → finans modülü tamamlanınca gerçek veriye bağlanacak
+
+## Bu oturumda tamamlanan büyük işler (07.07.2026)
+- SGK/Vakıf artık gerçek Payment kaydı oluşturuyor, Odoo'ya doğru journal'dan (SGK:20, Vakıf:21) account.payment olarak gidiyor
+- Odoo fatura arama hatası düzeltildi (confirmSale VE açık hesap kapatma — ikisinde de aynı bug vardı, ikisi de düzeltildi)
+- e-Fatura kuyruk → Sale senkron hatası düzeltildi (fatura numarası çakışması nedeniyle sessizce başarısız oluyordu)
+- Resmi Fatura PDF'i Uyumsoft'tan canlı çekilebiliyor (StatusStep + SaleDetailPage → Belgeler sekmesi)
+- Lens ölçüm bilgisi artık kalıcı kaydediliyor (SaleItem.lensOrderMeasurement JSON alanı)
+- Ölçüm ekranı gruplama — sağ+sol cam eşleştirilip tek "gözlük" formu olarak gösterilebiliyor (SaleItem.pairedItemId)
+- Bakım kategorisi eklendi (hizmet ürünleri — KAYNAK, TAMİR vb.), stok kontrolünden muaf
+- Stok Kontrol sekmesi (filtre + çoklu seçim + transfer talebi)
+- Güneş Gözlüğü / Kontakt Lens Odoo kategori ID karışıklığı düzeltildi
+- İptal (VOID) işlemi Odoo'yu güvenli şekilde temizliyor — faturasızsa gerçek iptal, faturalıysa Admin/Muhasebe bildirimi
+- Satışta "Fatura Kesme" seçeneği (Yeni Nesil ÖKÇ için, varsayılan açık)
+- Komisyon Oranları'na "Banka Ekle" formu
+- Güvenlik: kod içindeki yedek şifreler (Uyumsoft/Odoo/PDKS) temizlendi, sadece .env kullanılıyor
 
 ## Teknik notlar
 - Backend: localhost:3000 (NestJS/Express, Prisma, PostgreSQL optikpos port 5432)
@@ -138,16 +158,14 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 - PDKS mekan ID'leri: GVN1=5732, GVN2=5727, GVN3=5733, GVN5=5735, GVN6=5781, GVN7=5779, GVN8=8026, GVN9=5734, ANADEPO=8027, GVN10=eksik
 
 ### Bekleyen İşler (Öncelik Sırası)
-1. Garanti & İade admin ekranı — iade talepleri listesi, tedarikçi bazlı gruplandırma, onay akışı
-2. Kullanıcı ve personel kurulumu — tüm şubeler için user oluşturma
-3. İYS entegrasyonu — credentials gelince aktif edilecek (iys.org.tr API)
-4. ADESE/POTENTIAL Uyumsoft — credentials bekleniyor
-5. GVN6/7/8 Patron PDKS — 403 hatası, destek bekleniyor
-6. GVN10 PDKS mekan ID — eksik
-7. Worldline POS terminal — haber bekleniyor
-8. WhatsApp Business API — henüz entegre değil
-9. Kontakt lens stok önerisi
-10. Tedarikçi ürün adı kaydı (satış kaleminde)
+1. Kullanıcı ve personel kurulumu — tüm şubeler için user oluşturma
+2. İYS entegrasyonu — credentials gelince aktif edilecek (iys.org.tr API)
+3. ADESE/POTENTIAL Uyumsoft — credentials bekleniyor
+4. GVN6/7/8 Patron PDKS — 403 hatası, destek bekleniyor
+5. GVN10 PDKS mekan ID — eksik
+6. Worldline POS terminal — haber bekleniyor
+7. WhatsApp Business API — henüz entegre değil
+8. Tedarikçi ürün adı kaydı (satış kaleminde)
 
 ### Önemli Teknik Notlar
 - PatronPage artık adminApi kullanıyor (apiClient değil) — login sorunu çözüldü

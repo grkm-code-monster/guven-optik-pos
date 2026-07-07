@@ -19,6 +19,7 @@ export async function addItem(
     discount?: string
     linkedItemId?: string
     linkType?: string
+    pairWithItemId?: string
     prescription?: any
     frames?: any[]
   }
@@ -56,7 +57,16 @@ export async function deleteItem(saleId: string, itemId: string): Promise<any> {
 
 export async function confirmSale(
   saleId: string,
-  input: { payments: any[]; thirdPartyAmount?: number; kasaIndirimTutar?: number; lensOrderMeasurements?: any[] },
+  input: {
+    payments: any[]
+    thirdPartyAmount?: number
+    sgkAmount?: number
+    vakifAmount?: number
+    kasaIndirimTutar?: number
+    pricingInvoiceNote?: string
+    lensOrderMeasurements?: any[]
+    faturaKesilsin?: boolean
+  },
 ): Promise<Sale> {
   const res = await apiClient.post(`/sales/${saleId}/confirm`, input)
   return res.data

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import { useAuthStore } from '../store/auth.store'
 import { confirmSale, createSale, getSaleById } from '../api/sales.api'
@@ -71,7 +71,10 @@ export default function NewSalePage() {
     setShiftLoading(true)
     getCurrentShift()
       .then((shift) => setShiftId(shift?.id ?? null))
-      .catch((e: any) => console.error('NewSale shift fetch error', e))
+      .catch((e: any) => {
+        console.error('NewSale shift fetch error', e)
+        setError(e?.response?.data?.message ?? 'Vardiya bilgisi alınamadı')
+      })
       .finally(() => setShiftLoading(false))
   }, [storedShiftId])
 
@@ -106,8 +109,9 @@ export default function NewSalePage() {
         shiftId: shiftId,
       })
       setSale(result)
-    } catch (e) {
+    } catch (e: any) {
       console.error('Sale create error:', e)
+      setError(e?.response?.data?.message ?? 'Satış oluşturulamadı')
     }
   }
 
@@ -167,7 +171,12 @@ export default function NewSalePage() {
       await confirmSale(sale.id, {
         ...pendingPayments,
         thirdPartyAmount: pricingOverview?.thirdPartyCoverageTRY ?? 0,
+        sgkAmount:
+          pricingOverview?.mode === 'SGK' ? (pricingOverview?.thirdPartyCoverageTRY ?? 0) : 0,
+        vakifAmount:
+          pricingOverview?.mode === 'VAKIF' ? (pricingOverview?.thirdPartyCoverageTRY ?? 0) : 0,
         kasaIndirimTutar: pricingOverview?.kasaIndirimTutar ?? 0,
+        pricingInvoiceNote: pricingOverview?.pricingInvoiceNote ?? undefined,
         lensOrderMeasurements: lensMeasurementDrafts.length > 0
           ? draftsToLensOrderMeasurements(lensMeasurementDrafts)
           : undefined,
@@ -178,7 +187,13 @@ export default function NewSalePage() {
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Satış onaylanamadı')
     }
-  }, [sale?.id, pendingPayments, pricingOverview?.thirdPartyCoverageTRY, pricingOverview?.kasaIndirimTutar, lensMeasurementDrafts])
+  }, [sale?.id, pendingPayments, pricingOverview?.mode, pricingOverview?.thirdPartyCoverageTRY, pricingOverview?.kasaIndirimTutar, pricingOverview?.pricingInvoiceNote, lensMeasurementDrafts])
+
+  const handleRefreshSale = useCallback(async () => {
+    if (!sale?.id) return
+    const refreshed = await getSaleById(sale.id)
+    setSale(refreshed)
+  }, [sale?.id])
 
   const canGoToStep = (target: Step): boolean => {
     if (target === 1) return true
@@ -244,7 +259,35 @@ export default function NewSalePage() {
           <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px' }}>
             <div style={{ fontWeight: 800, marginBottom: '8px' }}>Kalemler</div>
             <div style={{ fontSize: '13px', color: '#6b7280' }}>
-              {selectedCustomer ? 'Satış oluşturuluyor...' : 'Önce müşteri seçin.'}
+              {selectedCustomer ? (
+                !shiftId && !shiftLoading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <span style={{ color: '#b45309', fontWeight: 700 }}>
+                      Açık vardiya bulunamadı. Lütfen önce vardiya açın.
+                    </span>
+                    <Link
+                      to="/shift/open"
+                      style={{
+                        display: 'inline-block',
+                        width: 'fit-content',
+                        padding: '10px 14px',
+                        borderRadius: '10px',
+                        backgroundColor: '#C8102E',
+                        color: 'white',
+                        fontWeight: 800,
+                        fontSize: '13px',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      Vardiya Aç →
+                    </Link>
+                  </div>
+                ) : (
+                  'Satış oluşturuluyor...'
+                )
+              ) : (
+                'Önce müşteri seçin.'
+              )}
             </div>
           </div>
         ) : null}
@@ -339,6 +382,7 @@ export default function NewSalePage() {
         {currentStep === 6 && saleConfirmed && sale ? (
           <StatusStep
             sale={sale}
+            onRefresh={handleRefreshSale}
             onNewSale={() => {
               window.location.href = '/sales/new'
             }}

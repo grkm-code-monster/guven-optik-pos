@@ -1,78 +1,119 @@
 import * as soap from 'soap';
+import { prisma } from '../../database/prisma';
 
 const WSDL_URL = 'http://efatura.uyumsoft.com.tr/Services/BasicIntegration?wsdl';
-const USERNAME = process.env.UYUMSOFT_USERNAME ?? 'NejlaGumuskesen_WebServis';
-const PASSWORD = process.env.UYUMSOFT_PASSWORD ?? '36uOz3Jn';
-const GONDEREN_BIRIM = process.env.UYUMSOFT_GONDEREN_BIRIM ??
-  'urn:mail:defaultgb@guvenoptik.com';
 
-const USER_INFO = {
-  attributes: {
-    Username: USERNAME,
-    Password: PASSWORD,
-  },
-};
+export const DEFAULT_SIRKET_ID = 'ng';
 
-let client: soap.Client | null = null;
+export interface UyumsoftCredentials {
+  username: string;
+  password: string;
+  gonderenBirim: string;
+}
 
-async function getClient(): Promise<soap.Client> {
-  if (client) return client;
-  client = await soap.createClientAsync(WSDL_URL, {
+export async function getCredentialsForSirket(sirketId: string): Promise<UyumsoftCredentials> {
+  const rows = await prisma.sirketAyar.findMany({
+    where: {
+      sirketId,
+      anahtar: { in: ['uyumsoft_username', 'uyumsoft_password', 'uyumsoft_gonderen_birim'] },
+    },
+  });
+  const map = Object.fromEntries(rows.map((r) => [r.anahtar, r.deger]));
+  return {
+    username: map.uyumsoft_username || process.env.UYUMSOFT_USERNAME || (() => {
+      throw new Error('UYUMSOFT_USERNAME tanımlı değil');
+    })(),
+    password: map.uyumsoft_password || process.env.UYUMSOFT_PASSWORD || (() => {
+      throw new Error('UYUMSOFT_PASSWORD tanımlı değil');
+    })(),
+    gonderenBirim: map.uyumsoft_gonderen_birim || process.env.UYUMSOFT_GONDEREN_BIRIM || (() => {
+      throw new Error('UYUMSOFT_GONDEREN_BIRIM tanımlı değil');
+    })(),
+  };
+}
+
+function buildUserInfo(creds: Pick<UyumsoftCredentials, 'username' | 'password'>) {
+  return {
+    attributes: {
+      Username: creds.username,
+      Password: creds.password,
+    },
+  };
+}
+
+const clients = new Map<string, soap.Client>();
+
+export async function getClient(sirketId: string = DEFAULT_SIRKET_ID): Promise<soap.Client> {
+  const existing = clients.get(sirketId);
+  if (existing) return existing;
+
+  const creds = await getCredentialsForSirket(sirketId);
+  const client = await soap.createClientAsync(WSDL_URL, {
     wsdl_headers: {
       Authorization: 'Basic ' + Buffer.from(
-        `${USERNAME}:${PASSWORD}`,
+        `${creds.username}:${creds.password}`,
       ).toString('base64'),
     },
   });
   client.setSecurity(
-    new soap.BasicAuthSecurity(USERNAME, PASSWORD),
+    new soap.BasicAuthSecurity(creds.username, creds.password),
   );
+  clients.set(sirketId, client);
   return client;
 }
 
-export async function testConnection(): Promise<unknown> {
-  const c = await getClient();
+export async function testConnection(sirketId: string = DEFAULT_SIRKET_ID): Promise<unknown> {
+  const creds = await getCredentialsForSirket(sirketId);
+  const c = await getClient(sirketId);
   const [result] = await c.TestConnectionAsync({
-    userInfo: USER_INFO,
+    userInfo: buildUserInfo(creds),
   });
   return result;
 }
 
-export async function getSystemDate(): Promise<string> {
-  const c = await getClient();
+export async function getSystemDate(sirketId: string = DEFAULT_SIRKET_ID): Promise<string> {
+  const creds = await getCredentialsForSirket(sirketId);
+  const c = await getClient(sirketId);
   const [result] = await c.GetSystemDateAsync({
-    userInfo: USER_INFO,
+    userInfo: buildUserInfo(creds),
   });
   return result?.GetSystemDateResult ?? '';
 }
 
 export async function isEInvoiceUser(
   vknTckn: string,
+  sirketId: string = DEFAULT_SIRKET_ID,
 ): Promise<boolean> {
-  const c = await getClient();
+  const creds = await getCredentialsForSirket(sirketId);
+  const c = await getClient(sirketId);
   const [result] = await c.IsEInvoiceUserAsync({
-    userInfo: USER_INFO,
+    userInfo: buildUserInfo(creds),
     vknTckn,
   });
   return result?.IsEInvoiceUserResult === true;
 }
 
-export async function getUserAliasses(vknTckn: string): Promise<unknown> {
-  const c = await getClient();
+export async function getUserAliasses(
+  vknTckn: string,
+  sirketId: string = DEFAULT_SIRKET_ID,
+): Promise<unknown> {
+  const creds = await getCredentialsForSirket(sirketId);
+  const c = await getClient(sirketId);
   const [result] = await c.GetUserAliassesAsync({
-    userInfo: USER_INFO,
+    userInfo: buildUserInfo(creds),
     vknTckn,
   });
   return result;
 }
 
-export async function getAccessToken(): Promise<string> {
-  const c = await getClient();
+export async function getAccessToken(sirketId: string = DEFAULT_SIRKET_ID): Promise<string> {
+  const creds = await getCredentialsForSirket(sirketId);
+  const c = await getClient(sirketId);
   const [result] = await c.GetAccessTokenAsync({
-    userInfo: USER_INFO,
+    userInfo: buildUserInfo(creds),
     request: {
-      UserName: USERNAME,
-      Password: PASSWORD,
+      UserName: creds.username,
+      Password: creds.password,
     },
   });
   return result?.GetAccessTokenResult?.Token ?? '';
@@ -196,12 +237,16 @@ function buildInvoiceInfoPayload(request: SendInvoiceRequest): Record<string, un
 }
 
 export async function sendInvoice(
+  sirketId: string,
   request: SendInvoiceRequest,
 ): Promise<SendInvoiceResult | undefined> {
-  const c = await getClient();
+  const creds = await getCredentialsForSirket(sirketId);
+  const c = await getClient(sirketId);
+
+  console.log(`[Uyumsoft] SendInvoice sirketId=${sirketId} username=${creds.username}`);
 
   const payload = {
-    userInfo: USER_INFO,
+    userInfo: buildUserInfo(creds),
     invoices: {
       InvoiceInfo: [buildInvoiceInfoPayload(request)],
     },
@@ -452,7 +497,9 @@ function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDe
   };
 }
 
-export async function getInboxInvoiceList(query: {
+export async function getInboxInvoiceList(
+  sirketId: string,
+  query: {
   createStartDate?: Date;
   createEndDate?: Date;
   pageIndex?: number;
@@ -465,14 +512,15 @@ export async function getInboxInvoiceList(query: {
   pageIndex: number;
   pageSize: number;
 }> {
-  const c = await getClient();
+  const creds = await getCredentialsForSirket(sirketId);
+  const c = await getClient(sirketId);
   const start = query.createStartDate ?? new Date(Date.now() - 30 * 86400000);
   const end = query.createEndDate ?? new Date();
   const pageIndex = query.pageIndex ?? 0;
   const pageSize = query.pageSize ?? 50;
 
   const [result] = await c.GetInboxInvoiceListAsync({
-    userInfo: USER_INFO,
+    userInfo: buildUserInfo(creds),
     query: {
       attributes: {
         OnlyNewestInvoices: query.onlyNewest ?? false,
@@ -510,10 +558,14 @@ export async function getInboxInvoiceList(query: {
   };
 }
 
-export async function getInboxInvoice(documentId: string): Promise<InboxInvoiceDetail | null> {
-  const c = await getClient();
+export async function getInboxInvoice(
+  sirketId: string,
+  documentId: string,
+): Promise<InboxInvoiceDetail | null> {
+  const creds = await getCredentialsForSirket(sirketId);
+  const c = await getClient(sirketId);
   const [result] = await c.GetInboxInvoiceAsync({
-    userInfo: USER_INFO,
+    userInfo: buildUserInfo(creds),
     invoiceId: documentId,
   });
 
@@ -527,4 +579,31 @@ export async function getInboxInvoice(documentId: string): Promise<InboxInvoiceD
   return parseInboxInvoiceDetail(value);
 }
 
-export { getClient, USER_INFO, GONDEREN_BIRIM };
+export async function getOutboxInvoicePdf(sirketId: string, invoiceId: string): Promise<string> {
+  const creds = await getCredentialsForSirket(sirketId);
+  const client = await getClient(sirketId);
+  const [result] = await client.GetOutboxInvoicePdfAsync({
+    userInfo: buildUserInfo(creds),
+    invoiceId,
+  });
+
+  const parsed = result?.GetOutboxInvoicePdfResult as Record<string, unknown> | undefined;
+  if (parsed?.IsSucceded === false || parsed?.IsSucceded === 'false') {
+    const msg = String(parsed.Message || parsed.ErrorMessage || 'PDF alınamadı');
+    throw new Error(msg);
+  }
+
+  const value = parsed?.Value as Record<string, unknown> | undefined;
+  const data = value?.Data ?? (value?.attributes as Record<string, unknown> | undefined)?.Data;
+  if (data == null || data === '') {
+    throw new Error('PDF alınamadı — Uyumsoft yanıtı boş');
+  }
+
+  if (Buffer.isBuffer(data)) {
+    return data.toString('base64');
+  }
+  if (typeof data === 'object' && data !== null && '_' in (data as Record<string, unknown>)) {
+    return String((data as Record<string, unknown>)._);
+  }
+  return String(data);
+}

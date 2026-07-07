@@ -54,6 +54,24 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
+router.post('/resolve-odoo', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { odooPartnerId, name, phone, email } = req.body;
+    if (!odooPartnerId || !name) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'odooPartnerId ve name zorunlu.' });
+    }
+    const customer = await customerService.resolveOdooCustomer(Number(odooPartnerId), {
+      name,
+      phone: phone ?? '',
+      email,
+    });
+    return res.status(200).json(customer);
+  } catch (err) {
+    if (handleCustomerError(err, res)) return;
+    next(err);
+  }
+});
+
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const customer = await customerService.getCustomerById(req.params.id);

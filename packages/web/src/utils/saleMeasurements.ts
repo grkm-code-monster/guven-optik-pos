@@ -92,6 +92,9 @@ export type ConfirmSaleClientPayload = PendingSaleConfirmBody & {
 
 export type LensMeasurementDraft = {
   saleItemId: string
+  /** Grup içindeki tüm cam kalemleri (tek kalemde yalnızca saleItemId) */
+  saleItemIds: string[]
+  groupLabel?: string
   frameItemId: string | null
   ownFrame: boolean
   ownFrameNote: string
@@ -176,9 +179,95 @@ export function framePairingLabel(frame: SaleItem, idx: number): string {
   return `Çerçeve ${idx + 1} (${itemLabel(frame)})`
 }
 
-function emptyDraft(saleItemId: string, frameId: string | null, ownFrame: boolean): LensMeasurementDraft {
+const RX_GROUP_LABEL: Record<string, string> = {
+  SINGLE: 'Daimi Gözlük',
+  SINGLE_FAR: 'Daimi Gözlük',
+  SINGLE_NEAR: 'Yakın Gözlük',
+  PROGRESSIVE: 'Progresif Gözlük',
+  BIFOCAL: 'Bifokal Gözlük',
+  SUNGLASSES: 'Düzeltmesiz Gözlük',
+}
+
+function rxGroupBaseLabel(lens: SaleItem): string {
+  const pt = lens.prescription?.prescriptionType ?? 'SINGLE'
+  return RX_GROUP_LABEL[pt] ?? 'Gözlük'
+}
+
+export type MeasurementGroup = {
+  groupId: string
+  label: string
+  saleItemIds: string[]
+  lenses: SaleItem[]
+}
+
+/** Ölçüm formu için cam kalemlerini grupla (pairedItemId veya aynı linkedItemId) */
+export function buildMeasurementGroups(items: SaleItem[] | undefined): MeasurementGroup[] {
+  const lenses = getLensMeasurementSaleItems(items)
+  const assigned = new Set<string>()
+  const rawGroups: SaleItem[][] = []
+
+  for (const lens of lenses) {
+    if (assigned.has(lens.id)) continue
+    if (lens.pairedItemId) {
+      const partner = lenses.find((l) => l.id === lens.pairedItemId)
+      if (partner && !assigned.has(partner.id)) {
+        rawGroups.push([lens, partner])
+        assigned.add(lens.id)
+        assigned.add(partner.id)
+        continue
+      }
+    }
+  }
+
+  const byFrame = new Map<string, SaleItem[]>()
+  for (const lens of lenses) {
+    if (assigned.has(lens.id)) continue
+    if (lens.linkedItemId) {
+      const arr = byFrame.get(lens.linkedItemId) ?? []
+      arr.push(lens)
+      byFrame.set(lens.linkedItemId, arr)
+    }
+  }
+  for (const arr of byFrame.values()) {
+    if (arr.length > 1) {
+      rawGroups.push(arr)
+      for (const l of arr) assigned.add(l.id)
+    }
+  }
+
+  for (const lens of lenses) {
+    if (!assigned.has(lens.id)) {
+      rawGroups.push([lens])
+      assigned.add(lens.id)
+    }
+  }
+
+  const typeCounters = new Map<string, number>()
+  return rawGroups.map((groupLenses) => {
+    const base = rxGroupBaseLabel(groupLenses[0])
+    const n = (typeCounters.get(base) ?? 0) + 1
+    typeCounters.set(base, n)
+    const ids = groupLenses.map((l) => l.id)
+    return {
+      groupId: ids.join('|'),
+      label: `${base} ${n}`,
+      saleItemIds: ids,
+      lenses: groupLenses,
+    }
+  })
+}
+
+function emptyDraft(
+  saleItemId: string,
+  saleItemIds: string[],
+  frameId: string | null,
+  ownFrame: boolean,
+  groupLabel?: string,
+): LensMeasurementDraft {
   return {
     saleItemId,
+    saleItemIds,
+    groupLabel,
     frameItemId: frameId,
     ownFrame,
     ownFrameNote: '',
@@ -233,26 +322,29 @@ function emptyDraft(saleItemId: string, frameId: string | null, ownFrame: boolea
 }
 
 export function buildInitialMeasurementDrafts(sale: Sale): LensMeasurementDraft[] {
-  const lenses = getLensMeasurementSaleItems(sale.items)
+  const groups = buildMeasurementGroups(sale.items)
   const frames = getMountFrameItems(sale.items)
 
-  return lenses.map((lens) => {
-    const linkedFrame = frames.find((f) => f.id === lens.linkedItemId)
-    const isCustomerFrame = lens.linkType === 'CUSTOMER_FRAME'
+  return groups.map((group) => {
+    const primary = group.lenses[0]
+    const linkedFrame = primary.linkedItemId
+      ? frames.find((f) => f.id === primary.linkedItemId)
+      : undefined
+    const isCustomerFrame = primary.linkType === 'CUSTOMER_FRAME'
 
     if (linkedFrame) {
-      return emptyDraft(lens.id, linkedFrame.id, false)
+      return emptyDraft(primary.id, group.saleItemIds, linkedFrame.id, false, group.label)
     }
     if (isCustomerFrame) {
-      return emptyDraft(lens.id, null, true)
+      return emptyDraft(primary.id, group.saleItemIds, null, true, group.label)
     }
-    if (lenses.length === 1 && frames.length === 1) {
-      return emptyDraft(lens.id, frames[0].id, false)
+    if (group.lenses.length === 1 && frames.length === 1) {
+      return emptyDraft(primary.id, group.saleItemIds, frames[0].id, false, group.label)
     }
-    if (lenses.length === 1 && frames.length === 0) {
-      return emptyDraft(lens.id, null, true)
+    if (group.lenses.length === 1 && frames.length === 0) {
+      return emptyDraft(primary.id, group.saleItemIds, null, true, group.label)
     }
-    return emptyDraft(lens.id, null, false)
+    return emptyDraft(primary.id, group.saleItemIds, null, false, group.label)
   })
 }
 
@@ -343,55 +435,84 @@ export function allMeasurementDraftsComplete(drafts: LensMeasurementDraft[]): bo
   return drafts.length > 0 && drafts.every(isMeasurementDraftComplete)
 }
 
-export function draftsToLensOrderMeasurements(drafts: LensMeasurementDraft[]): LensOrderMeasurementPayload[] {
-  return drafts.map((d) => {
-    const base: LensOrderMeasurementPayload = {
-      saleItemId: d.saleItemId,
-      frameItemId: d.ownFrame ? null : d.frameItemId,
-      ownFrame: d.ownFrame,
-      ownFrameNote: d.ownFrame && d.ownFrameNote.trim() ? d.ownFrameNote.trim() : null,
-      rightEyeActive: d.rightEyeActive,
-      leftEyeActive: d.leftEyeActive,
-      frameType: d.frameType as LensOrderFrameTypeApi,
-      rph: d.rightEyeActive ? Number(String(d.rph).replace(',', '.')).toFixed(2) : undefined,
-      lph: d.leftEyeActive ? Number(String(d.lph).replace(',', '.')).toFixed(2) : undefined,
-      corridor: Number(String(d.corridor).replace(',', '.')).toFixed(2),
-      rightDia: d.rightEyeActive ? Number(String(d.rightDia).replace(',', '.')).toFixed(2) : undefined,
-      leftDia: d.leftEyeActive ? Number(String(d.leftDia).replace(',', '.')).toFixed(2) : undefined,
-      vertex: Number(String(d.vertex).replace(',', '.')).toFixed(2),
-      pantoscopic: Number(String(d.pantoscopic).replace(',', '.')).toFixed(2),
-      frameBow: Number(String(d.frameBow).replace(',', '.')).toFixed(2),
-      templateA: d.frameDimsEnabled ? parseOptDec(d.templateA) : undefined,
-      templateB: d.frameDimsEnabled ? parseOptDec(d.templateB) : undefined,
-      dbl: d.frameDimsEnabled ? parseOptDec(d.dbl) : undefined,
-      ed: d.frameDimsEnabled ? parseOptDec(d.ed) : undefined,
-      customBaseRight: d.customBaseEnabled ? parseIntOpt(d.customBaseRight) ?? null : null,
-      customBaseLeft: d.customBaseEnabled ? parseIntOpt(d.customBaseLeft) ?? null : null,
-      engraving: d.engravingEnabled && d.engraving.trim() ? d.engraving.trim().slice(0, 3) : null,
-      shiftRIn: d.shiftSectionEnabled ? shiftOut(d.shiftRIn, d.shiftRInVal) : undefined,
-      shiftROut: d.shiftSectionEnabled ? shiftOut(d.shiftROut, d.shiftROutVal) : undefined,
-      shiftRUp: d.shiftSectionEnabled ? shiftOut(d.shiftRUp, d.shiftRUpVal) : undefined,
-      shiftRDown: d.shiftSectionEnabled ? shiftOut(d.shiftRDown, d.shiftRDownVal) : undefined,
-      shiftLIn: d.shiftSectionEnabled ? shiftOut(d.shiftLIn, d.shiftLInVal) : undefined,
-      shiftLOut: d.shiftSectionEnabled ? shiftOut(d.shiftLOut, d.shiftLOutVal) : undefined,
-      shiftLUp: d.shiftSectionEnabled ? shiftOut(d.shiftLUp, d.shiftLUpVal) : undefined,
-      shiftLDown: d.shiftSectionEnabled ? shiftOut(d.shiftLDown, d.shiftLDownVal) : undefined,
+function fmtDecField(s: string): string | undefined {
+  const t = String(s).trim().replace(',', '.')
+  if (!t || !Number.isFinite(Number(t))) return undefined
+  return Number(t).toFixed(2)
+}
+
+function draftToPayload(
+  d: LensMeasurementDraft,
+  saleItemId: string,
+  eyeMode: 'both' | 'right' | 'left',
+): LensOrderMeasurementPayload {
+  const rightOn = eyeMode === 'both' ? d.rightEyeActive : eyeMode === 'right'
+  const leftOn = eyeMode === 'both' ? d.leftEyeActive : eyeMode === 'left'
+
+  const base: LensOrderMeasurementPayload = {
+    saleItemId,
+    frameItemId: d.ownFrame ? null : d.frameItemId,
+    ownFrame: d.ownFrame,
+    ownFrameNote: d.ownFrame && d.ownFrameNote.trim() ? d.ownFrameNote.trim() : null,
+    rightEyeActive: rightOn,
+    leftEyeActive: leftOn,
+    frameType: d.frameType as LensOrderFrameTypeApi,
+    rph: rightOn ? fmtDecField(d.rph) : undefined,
+    lph: leftOn ? fmtDecField(d.lph) : undefined,
+    corridor: fmtDecField(d.corridor),
+    rightDia: rightOn ? fmtDecField(d.rightDia) : undefined,
+    leftDia: leftOn ? fmtDecField(d.leftDia) : undefined,
+    vertex: fmtDecField(d.vertex),
+    pantoscopic: fmtDecField(d.pantoscopic),
+    frameBow: fmtDecField(d.frameBow),
+    templateA: d.frameDimsEnabled ? parseOptDec(d.templateA) : undefined,
+    templateB: d.frameDimsEnabled ? parseOptDec(d.templateB) : undefined,
+    dbl: d.frameDimsEnabled ? parseOptDec(d.dbl) : undefined,
+    ed: d.frameDimsEnabled ? parseOptDec(d.ed) : undefined,
+    customBaseRight: d.customBaseEnabled && rightOn ? parseIntOpt(d.customBaseRight) ?? null : null,
+    customBaseLeft: d.customBaseEnabled && leftOn ? parseIntOpt(d.customBaseLeft) ?? null : null,
+    engraving: d.engravingEnabled && d.engraving.trim() ? d.engraving.trim().slice(0, 3) : null,
+    shiftRIn: d.shiftSectionEnabled && rightOn ? shiftOut(d.shiftRIn, d.shiftRInVal) : undefined,
+    shiftROut: d.shiftSectionEnabled && rightOn ? shiftOut(d.shiftROut, d.shiftROutVal) : undefined,
+    shiftRUp: d.shiftSectionEnabled && rightOn ? shiftOut(d.shiftRUp, d.shiftRUpVal) : undefined,
+    shiftRDown: d.shiftSectionEnabled && rightOn ? shiftOut(d.shiftRDown, d.shiftRDownVal) : undefined,
+    shiftLIn: d.shiftSectionEnabled && leftOn ? shiftOut(d.shiftLIn, d.shiftLInVal) : undefined,
+    shiftLOut: d.shiftSectionEnabled && leftOn ? shiftOut(d.shiftLOut, d.shiftLOutVal) : undefined,
+    shiftLUp: d.shiftSectionEnabled && leftOn ? shiftOut(d.shiftLUp, d.shiftLUpVal) : undefined,
+    shiftLDown: d.shiftSectionEnabled && leftOn ? shiftOut(d.shiftLDown, d.shiftLDownVal) : undefined,
+  }
+  if (d.prismEnabled) {
+    return {
+      ...base,
+      prismR1Val: rightOn ? parseOptDec(d.prismR1Val) : undefined,
+      prismR1Aks: rightOn ? parseIntOpt(d.prismR1Aks) ?? null : null,
+      prismR2Val: rightOn ? parseOptDec(d.prismR2Val) : undefined,
+      prismR2Aks: rightOn ? parseIntOpt(d.prismR2Aks) ?? null : null,
+      prismL1Val: leftOn ? parseOptDec(d.prismL1Val) : undefined,
+      prismL1Aks: leftOn ? parseIntOpt(d.prismL1Aks) ?? null : null,
+      prismL2Val: leftOn ? parseOptDec(d.prismL2Val) : undefined,
+      prismL2Aks: leftOn ? parseIntOpt(d.prismL2Aks) ?? null : null,
     }
-    if (d.prismEnabled) {
-      return {
-        ...base,
-        prismR1Val: parseOptDec(d.prismR1Val),
-        prismR1Aks: parseIntOpt(d.prismR1Aks) ?? null,
-        prismR2Val: parseOptDec(d.prismR2Val),
-        prismR2Aks: parseIntOpt(d.prismR2Aks) ?? null,
-        prismL1Val: parseOptDec(d.prismL1Val),
-        prismL1Aks: parseIntOpt(d.prismL1Aks) ?? null,
-        prismL2Val: parseOptDec(d.prismL2Val),
-        prismL2Aks: parseIntOpt(d.prismL2Aks) ?? null,
+  }
+  return base
+}
+
+export function draftsToLensOrderMeasurements(drafts: LensMeasurementDraft[]): LensOrderMeasurementPayload[] {
+  const out: LensOrderMeasurementPayload[] = []
+  for (const d of drafts) {
+    const ids = d.saleItemIds?.length ? d.saleItemIds : [d.saleItemId]
+    if (ids.length === 1) {
+      out.push(draftToPayload(d, ids[0], 'both'))
+    } else if (ids.length === 2) {
+      out.push(draftToPayload(d, ids[0], 'right'))
+      out.push(draftToPayload(d, ids[1], 'left'))
+    } else {
+      for (const id of ids) {
+        out.push(draftToPayload(d, id, 'both'))
       }
     }
-    return base
-  })
+  }
+  return out
 }
 
 export function updateDraft(

@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import {
+  DEFAULT_SIRKET_ID,
   getInboxInvoice,
   getInboxInvoiceList,
   tipFromVkn,
@@ -174,7 +175,7 @@ export async function cekGelenFaturalar(opts?: {
   const bitis = opts?.bitis ? new Date(opts.bitis) : new Date();
   const pageSize = opts?.pageSize ?? 30;
 
-  const liste = await getInboxInvoiceList({
+  const liste = await getInboxInvoiceList(DEFAULT_SIRKET_ID, {
     createStartDate: baslangic,
     createEndDate: bitis,
     pageSize,
@@ -191,7 +192,7 @@ export async function cekGelenFaturalar(opts?: {
       where: { uyumsoftEttn: item.documentId },
     });
 
-    const detay = await getInboxInvoice(item.documentId);
+    const detay = await getInboxInvoice(DEFAULT_SIRKET_ID, item.documentId);
     if (!detay) continue;
 
     const ozet = detaydanOzet(detay);
@@ -410,7 +411,7 @@ export async function urunGirisineAktar(
   const supplierEksik = !detay?.supplier;
   const linesEksik = !detay?.lines?.length || detay.lines.some((l) => l.malzemeHizmet === undefined);
   if ((!detay || supplierEksik || linesEksik) && kayit.uyumsoftEttn) {
-    const fresh = await getInboxInvoice(kayit.uyumsoftEttn);
+    const fresh = await getInboxInvoice(DEFAULT_SIRKET_ID, kayit.uyumsoftEttn);
     if (fresh) {
       detay = detaydanOzet(fresh);
       await prisma.bekleyenFatura.update({

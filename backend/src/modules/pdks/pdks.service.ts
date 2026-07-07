@@ -1,8 +1,14 @@
 import axios from 'axios';
 
 const BASE_URL = 'https://app.patronpdks.com/api/v4';
-const TOKEN = process.env.PDKS_TOKEN ?? 'Nd95w3E276KuZ0dp8DxpQSRmBKXN9cVXq30W7FZe';
-const ORG_ID = process.env.PDKS_ORG_ID ?? '2796';
+
+const TOKEN = process.env.PDKS_TOKEN || (() => {
+  throw new Error('PDKS_TOKEN ortam değişkeni tanımlı değil — .env dosyasını kontrol edin');
+})();
+
+const ORG_ID = process.env.PDKS_ORG_ID || (() => {
+  throw new Error('PDKS_ORG_ID ortam değişkeni tanımlı değil — .env dosyasını kontrol edin');
+})();
 const PDKS_REQUEST_TIMEOUT_MS = 5000;
 
 const pdksApi = axios.create({

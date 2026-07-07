@@ -42,6 +42,7 @@ export type PendingPaymentPayload = {
     installment?: number
     bankName?: string
   }>
+  faturaKesilsin?: boolean
 }
 
 export default function PaymentStep({
@@ -76,6 +77,7 @@ export default function PaymentStep({
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [faturaKesilsin, setFaturaKesilsin] = useState(true)
 
   const totalPayments = useMemo(() => rows.reduce((acc, r) => acc + Number(r.grossAmount || 0), 0), [rows])
   const remaining = useMemo(() => Math.max(0, netTotal - totalPayments), [netTotal, totalPayments])
@@ -152,6 +154,7 @@ export default function PaymentStep({
         installment: r.installment,
         bankName: r.bankName,
       })),
+      faturaKesilsin,
     }
   }
 
@@ -365,6 +368,30 @@ export default function PaymentStep({
 
         {error ? <div style={{ color: '#ef4444', fontSize: '13px', marginTop: '10px' }}>{error}</div> : null}
       </div>
+
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '10px',
+          marginTop: '14px',
+          padding: '12px',
+          border: '1px solid #e5e7eb',
+          borderRadius: '10px',
+          cursor: 'pointer',
+          backgroundColor: '#f9fafb',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={faturaKesilsin}
+          onChange={(e) => setFaturaKesilsin(e.target.checked)}
+          style={{ marginTop: '2px', width: '16px', height: '16px', cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: '14px', fontWeight: 700, color: '#111827' }}>
+          ✅ Resmi e-Fatura Kesilsin
+        </span>
+      </label>
 
       <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
         <button

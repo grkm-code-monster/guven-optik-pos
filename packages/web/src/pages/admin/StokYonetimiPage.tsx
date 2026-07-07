@@ -10,6 +10,14 @@ import {
 import EtiketSablonSecici from '../../components/etiket/EtiketSablonSecici'
 import { otomatikSablonSec, uretCokluEtiketZpl } from '../../components/etiket/etiket-sablon-helpers'
 import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
+import StokKontrolTab from './StokKontrolTab'
+
+const TABS = [
+  { id: 'yonetim', label: '🏷️ Stok Yönetimi' },
+  { id: 'kontrol', label: '📊 Stok Kontrol' },
+] as const
+
+type TabId = (typeof TABS)[number]['id']
 
 const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVN2', 'GVN10', 'ANADEPO', 'GVN5']
 
@@ -48,6 +56,7 @@ function fmtFiyat(n: number) {
 }
 
 export default function StokYonetimiPage() {
+  const [activeTab, setActiveTab] = useState<TabId>('yonetim')
   const [kategoriler, setKategoriler] = useState<Array<{ id: number; complete_name: string }>>([])
   const [urunler, setUrunler] = useState<StokUrun[]>([])
   const [total, setTotal] = useState(0)
@@ -230,8 +239,38 @@ export default function StokYonetimiPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900 }}>Stok Yönetimi</h1>
-        <button type="button" onClick={() => void yukle()} style={btnPrimary}>Yenile</button>
+        {activeTab === 'yonetim' ? (
+          <button type="button" onClick={() => void yukle()} style={btnPrimary}>Yenile</button>
+        ) : null}
       </div>
+
+      <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #e5e7eb', marginBottom: 24 }}>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setActiveTab(t.id)}
+            style={{
+              padding: '10px 18px',
+              fontSize: 13,
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === t.id ? '2px solid #1a1a2e' : '2px solid transparent',
+              marginBottom: -2,
+              fontWeight: activeTab === t.id ? 900 : 600,
+              cursor: 'pointer',
+              color: activeTab === t.id ? '#1a1a2e' : '#6b7280',
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'kontrol' ? <StokKontrolTab /> : null}
+
+      {activeTab === 'yonetim' ? (
+        <>
 
       {mesaj ? (
         <div style={{
@@ -534,6 +573,8 @@ export default function StokYonetimiPage() {
             </div>
           </div>
         </div>
+      ) : null}
+        </>
       ) : null}
     </div>
   )

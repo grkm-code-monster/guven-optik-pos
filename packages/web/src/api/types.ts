@@ -41,6 +41,8 @@ export interface Sale {
   user?: { name: string }
   items?: SaleItem[]
   payments?: Payment[]
+  eFaturaId?: string | null
+  eFaturaDurum?: string | null
 }
 
 export interface SaleItem {
@@ -57,8 +59,10 @@ export interface SaleItem {
   status: string
   linkType?: string | null
   linkedItemId?: string | null
+  pairedItemId?: string | null
   prescription?: Prescription
   frames?: Frame[]
+  lensOrderMeasurement?: Record<string, unknown> | null
   product?: Product
 }
 
