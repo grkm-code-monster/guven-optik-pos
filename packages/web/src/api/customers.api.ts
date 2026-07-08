@@ -51,3 +51,62 @@ export async function getReceteGecmisi(customerId: string): Promise<any[]> {
   return res.data
 }
 
+export type LegacyCustomerSearchHit = {
+  id: string
+  ad?: string | null
+  soyad?: string | null
+  name: string
+  telefon?: string | null
+  kaynakSube?: string | null
+  siberCariHesapId: number
+  saleCount: number
+  lastSaleAt?: string | null
+  prescriptionCount: number
+  lastPrescriptionAt?: string | null
+  _kaynak: 'legacy'
+}
+
+export type LegacyCustomerDetail = {
+  id: string
+  name: string
+  telefon?: string | null
+  ad?: string | null
+  soyad?: string | null
+  tcKimlikNo?: string | null
+  adres?: string | null
+  kaynakSube?: string | null
+  sales: Array<{
+    id: string
+    tarih?: string | null
+    toplamTutar?: string | number | null
+    subeKodu?: string | null
+    items: Array<{ id: string; urunAdi?: string | null; miktar?: string | number | null; fiyat?: string | number | null }>
+  }>
+  prescriptions: Array<{
+    id: string
+    tarih?: string | null
+    r_sph?: string | number | null
+    r_cyl?: string | number | null
+    l_sph?: string | number | null
+    l_cyl?: string | number | null
+  }>
+}
+
+export async function searchLegacyCustomers(q: string): Promise<LegacyCustomerSearchHit[]> {
+  const res = await apiClient.get('/customers/legacy-search', { params: { q } })
+  return res.data
+}
+
+export async function getLegacyCustomerDetail(id: string): Promise<LegacyCustomerDetail> {
+  const res = await apiClient.get(`/customers/legacy/${id}`)
+  return res.data
+}
+
+export async function promoteLegacyCustomer(
+  id: string,
+  body?: { force?: boolean; mevcutMusteriId?: string },
+): Promise<{ possibleDuplicate: boolean; customer?: Customer; mevcutMusteri?: { id: string; name: string; phone: string; identityNo?: string | null } }> {
+  const res = await apiClient.post(`/customers/legacy/${id}/promote`, body ?? {})
+  return res.data
+}
+

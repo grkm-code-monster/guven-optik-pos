@@ -1,0 +1,25 @@
+=== FAZ 2B Full Legacy Import ===
+Başlangıç: 2026-07-07T16:50:37+03:00
+Log: /Users/guvenoptikgorkem/optik-pos/backend/logs/full-legacy-import-20260707-165037.log
+Batch size: 5000, hedef: 145300 müşteri
+
+----------------------------------------
+Parti 1 | offset=0 limit=5000 | 16:50:37
+----------------------------------------
+[batch 1] offset=0 limit=5000 musteri: 5000 satır
+[batch 1] satis: 634 satır, 164 müşteri
+[batch 1] recete: 176 satır, 134 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch1_musteri.csv (365141 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch1_satis.csv (81051 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch1_recete.csv (11862 bytes)
+[batch 1] CSV yüklendi: 5000 müşteri, 634 satış kalemi, 176 reçete
+[batch 1] Import tamamlandı: {
+  customersCreated: 4500,
+  customersSkipped: 500,
+  salesCreated: 210,
+  salesSkipped: 27,
+  itemsCreated: 569,
+  prescriptionsCreated: 158,
+  prescriptionsSkipped: 18
+}
+Parti 1 tamamlandı.

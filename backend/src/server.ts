@@ -3,6 +3,7 @@ import { createApp } from './app';
 import { runSyncEngine } from './utils/syncEngine';
 import { startEfaturaCron } from './modules/efatura/efatura.cron';
 import { startOzelSiparisCron } from './modules/ozel-siparis/ozel-siparis.cron';
+import { startReportCron } from './modules/reports/report.cron';
 
 const port = Number(process.env.PORT) || 3000;
 const app = createApp();
@@ -16,3 +17,4 @@ console.log('Sync engine started');
 
 startEfaturaCron();
 startOzelSiparisCron();
+startReportCron();

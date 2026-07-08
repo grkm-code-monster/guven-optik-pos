@@ -1,7 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { authenticate } from '../../middleware/authenticate';
-import { CreateCustomerInput, CreateCustomerPrescriptionInput, CustomerSearchInput, UpdateCustomerInput } from './customer.types';
+import { CreateCustomerInput, CreateCustomerPrescriptionInput, CustomerSearchInput, LegacyPromoteInput, UpdateCustomerInput } from './customer.types';
 import * as customerService from './customer.service';
+import * as legacyService from './legacy.service';
 
 const router = Router();
 
@@ -21,6 +22,14 @@ function handleCustomerError(err: unknown, res: Response): boolean {
   }
   if (code === 'CUSTOMER_NOT_FOUND') {
     res.status(404).json({ error: 'CUSTOMER_NOT_FOUND', message: 'Müşteri bulunamadı.' });
+    return true;
+  }
+  if (code === 'LEGACY_CUSTOMER_NOT_FOUND') {
+    res.status(404).json({ error: 'LEGACY_CUSTOMER_NOT_FOUND', message: 'Arşiv müşterisi bulunamadı.' });
+    return true;
+  }
+  if (code === 'LEGACY_PHONE_MISSING') {
+    res.status(400).json({ error: 'LEGACY_PHONE_MISSING', message: 'Arşiv kaydında telefon bilgisi yok.' });
     return true;
   }
   return false;
@@ -66,6 +75,44 @@ router.post('/resolve-odoo', async (req: Request, res: Response, next: NextFunct
       email,
     });
     return res.status(200).json(customer);
+  } catch (err) {
+    if (handleCustomerError(err, res)) return;
+    next(err);
+  }
+});
+
+router.get('/legacy-search', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = CustomerSearchInput.safeParse({ q: req.query.q });
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz sorgu parametresi.' });
+    }
+    const result = await legacyService.searchLegacyCustomers(parsed.data.q);
+    return res.status(200).json(result);
+  } catch (err) {
+    if (handleCustomerError(err, res)) return;
+    next(err);
+  }
+});
+
+router.get('/legacy/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const detail = await legacyService.getLegacyCustomerDetail(req.params.id);
+    return res.status(200).json(detail);
+  } catch (err) {
+    if (handleCustomerError(err, res)) return;
+    next(err);
+  }
+});
+
+router.post('/legacy/:id/promote', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = LegacyPromoteInput.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz istek gövdesi.' });
+    }
+    const result = await legacyService.promoteLegacyCustomer(req.params.id, parsed.data);
+    return res.status(200).json(result);
   } catch (err) {
     if (handleCustomerError(err, res)) return;
     next(err);

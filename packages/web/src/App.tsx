@@ -23,6 +23,7 @@ import MuhasebePage from './pages/admin/MuhasebePage'
 import IKPage from './pages/admin/IKPage'
 import FinansPage from './pages/admin/FinansPage'
 import PatronPage from './pages/admin/PatronPage'
+import RaporMatrisPage from './pages/admin/RaporMatrisPage'
 import GarantiYonetimPage from './pages/admin/GarantiYonetimPage'
 import UrunYapilandirmaPage from './pages/admin/UrunYapilandirmaPage'
 import StokYonetimiPage from './pages/admin/StokYonetimiPage'
@@ -31,6 +32,7 @@ import UtsYonetimiPage from './pages/admin/UtsYonetimiPage'
 import BelgeYuklePage from './pages/BelgeYuklePage'
 import SatislarPage from './pages/SatislarPage'
 import MusterilerPage from './pages/MusterilerPage'
+import RaporlarimPage from './pages/RaporlarimPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -66,6 +68,7 @@ export default function App() {
           <Route path="ik" element={<IKPage />} />
           <Route path="finans" element={<FinansPage />} />
           <Route path="patron" element={<PatronPage />} />
+          <Route path="rapor-matris" element={<RaporMatrisPage />} />
         </Route>
         <Route
           path="/shift/open"
@@ -89,6 +92,7 @@ export default function App() {
           <Route path="sales/new" element={<NewSalePage />} />
           <Route path="sales/:id" element={<SaleDetailPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="raporlarim" element={<RaporlarimPage />} />
           <Route path="transferler" element={<TransferlerPage />} />
           <Route path="masraflar" element={<MasraflarPage />} />
           <Route path="acik-hesap" element={<AcikHesapPage />} />

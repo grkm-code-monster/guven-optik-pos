@@ -9,6 +9,7 @@ import {
   updateCustomer,
 } from '../../api/customers.api'
 import { nearRxFromFarAndAdd } from '../../utils/prescriptionSummary'
+import { LegacyArchiveSearchResults } from './LegacyArchivePanel'
 
 function rangeOptions(min: number, max: number, step: number, digits: number) {
   const out: Array<{ value: string; label: string }> = [{ value: '', label: 'Değer Yok' }]
@@ -429,9 +430,21 @@ export default function CustomerStep({
           </button>
         ))}
         {canSearch && !loading && results.length === 0 ? (
-          <div style={{ fontSize: '13px', color: '#6b7280' }}>Sonuç yok.</div>
+          <div style={{ fontSize: '13px', color: '#6b7280' }}>Güncel kayıtlarda sonuç yok.</div>
         ) : null}
       </div>
+
+      <LegacyArchiveSearchResults
+        query={q}
+        enabled={canSearch && !loading && results.length === 0 && !selectedCustomer}
+        onPromoted={(customer) => {
+          setSelectedCustomer(customer)
+          setQ('')
+          setResults([])
+          setError(null)
+        }}
+        onError={setError}
+      />
 
       <div style={{ marginTop: '12px', display: 'flex', gap: '10px' }}>
         <button

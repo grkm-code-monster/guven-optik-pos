@@ -1,0 +1,166 @@
+=== FAZ 2B Full Legacy Import ===
+Başlangıç: 2026-07-07T16:51:00+03:00
+Log: /Users/guvenoptikgorkem/optik-pos/backend/logs/full-legacy-import-20260707-165100.log
+Batch size: 5000, hedef: 145300 müşteri
+
+----------------------------------------
+Parti 1 | offset=0 limit=5000 | 16:51:00
+----------------------------------------
+[batch 1] offset=0 limit=5000 musteri: 5000 satır
+[batch 1] satis: 634 satır, 164 müşteri
+[batch 1] recete: 176 satır, 134 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch1_musteri.csv (365141 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch1_satis.csv (81051 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch1_recete.csv (11862 bytes)
+[batch 1] CSV yüklendi: 5000 müşteri, 634 satış kalemi, 176 reçete
+[batch 1] Import tamamlandı: {
+  customersCreated: 0,
+  customersSkipped: 5000,
+  salesCreated: 0,
+  salesSkipped: 237,
+  itemsCreated: 0,
+  prescriptionsCreated: 0,
+  prescriptionsSkipped: 176
+}
+Parti 1 tamamlandı.
+----------------------------------------
+Parti 2 | offset=5000 limit=5000 | 16:51:04
+----------------------------------------
+[batch 2] offset=5000 limit=5000 musteri: 5000 satır
+[batch 2] satis: 655 satır, 166 müşteri
+[batch 2] recete: 201 satır, 141 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch2_musteri.csv (372952 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch2_satis.csv (83592 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch2_recete.csv (13221 bytes)
+[batch 2] CSV yüklendi: 5000 müşteri, 655 satış kalemi, 201 reçete
+[batch 2] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 255,
+  salesSkipped: 0,
+  itemsCreated: 655,
+  prescriptionsCreated: 201,
+  prescriptionsSkipped: 0
+}
+Parti 2 tamamlandı.
+----------------------------------------
+Parti 3 | offset=10000 limit=5000 | 16:51:10
+----------------------------------------
+[batch 3] offset=10000 limit=5000 musteri: 5000 satır
+[batch 3] satis: 682 satır, 167 müşteri
+[batch 3] recete: 215 satır, 145 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch3_musteri.csv (360386 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch3_satis.csv (86907 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch3_recete.csv (13521 bytes)
+[batch 3] CSV yüklendi: 5000 müşteri, 682 satış kalemi, 215 reçete
+[batch 3] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 285,
+  salesSkipped: 0,
+  itemsCreated: 682,
+  prescriptionsCreated: 215,
+  prescriptionsSkipped: 0
+}
+Parti 3 tamamlandı.
+----------------------------------------
+Parti 4 | offset=15000 limit=5000 | 16:51:16
+----------------------------------------
+[batch 4] offset=15000 limit=5000 musteri: 5000 satır
+[batch 4] satis: 620 satır, 166 müşteri
+[batch 4] recete: 160 satır, 131 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch4_musteri.csv (360287 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch4_satis.csv (79188 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch4_recete.csv (10406 bytes)
+[batch 4] CSV yüklendi: 5000 müşteri, 620 satış kalemi, 160 reçete
+[batch 4] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 233,
+  salesSkipped: 0,
+  itemsCreated: 620,
+  prescriptionsCreated: 160,
+  prescriptionsSkipped: 0
+}
+Parti 4 tamamlandı.
+----------------------------------------
+Parti 5 | offset=20000 limit=5000 | 16:51:22
+----------------------------------------
+[batch 5] offset=20000 limit=5000 musteri: 5000 satır
+[batch 5] satis: 826 satır, 196 müşteri
+[batch 5] recete: 238 satır, 168 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch5_musteri.csv (372296 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch5_satis.csv (105308 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch5_recete.csv (15759 bytes)
+[batch 5] CSV yüklendi: 5000 müşteri, 826 satış kalemi, 238 reçete
+[batch 5] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 341,
+  salesSkipped: 0,
+  itemsCreated: 826,
+  prescriptionsCreated: 238,
+  prescriptionsSkipped: 0
+}
+Parti 5 tamamlandı.
+
+>>> İLERLEME: 5 parti tamamlandı (~25000 müşteri hedefe doğru), geçen süre: 26s
+
+----------------------------------------
+Parti 6 | offset=25000 limit=5000 | 16:51:28
+----------------------------------------
+[batch 6] offset=25000 limit=5000 musteri: 5000 satır
+[batch 6] satis: 991 satır, 204 müşteri
+[batch 6] recete: 245 satır, 170 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch6_musteri.csv (385370 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch6_satis.csv (126622 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch6_recete.csv (16167 bytes)
+[batch 6] CSV yüklendi: 5000 müşteri, 991 satış kalemi, 245 reçete
+[batch 6] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 452,
+  salesSkipped: 0,
+  itemsCreated: 991,
+  prescriptionsCreated: 245,
+  prescriptionsSkipped: 0
+}
+Parti 6 tamamlandı.
+----------------------------------------
+Parti 7 | offset=30000 limit=5000 | 16:51:34
+----------------------------------------
+[batch 7] offset=30000 limit=5000 musteri: 5000 satır
+[batch 7] satis: 787 satır, 210 müşteri
+[batch 7] recete: 252 satır, 176 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch7_musteri.csv (397320 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch7_satis.csv (100272 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch7_recete.csv (15777 bytes)
+[batch 7] CSV yüklendi: 5000 müşteri, 787 satış kalemi, 252 reçete
+prisma:error 
+Invalid `prisma.legacyPrescription.create()` invocation:
+
+
+Error occurred during query execution:
+ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "22003", message: "numeric field overflow", severity: "ERROR", detail: Some("A field with precision 5, scale 2 must round to an absolute value less than 10^3."), column: None, hint: None }), transient: false })
+PrismaClientUnknownRequestError: 
+Invalid `prisma.legacyPrescription.create()` invocation:
+
+
+Error occurred during query execution:
+ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "22003", message: "numeric field overflow", severity: "ERROR", detail: Some("A field with precision 5, scale 2 must round to an absolute value less than 10^3."), column: None, hint: None }), transient: false })
+    at $n.handleRequestError (/Users/guvenoptikgorkem/optik-pos/backend/node_modules/@prisma/client/runtime/library.js:121:7505)
+    at $n.handleAndLogRequestError (/Users/guvenoptikgorkem/optik-pos/backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/guvenoptikgorkem/optik-pos/backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/guvenoptikgorkem/optik-pos/backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async prisma_1.prisma.$transaction.timeout (/Users/guvenoptikgorkem/optik-pos/backend/scripts/import-legacy-batch.ts:259:9)
+    at async Proxy._transactionWithCallback (/Users/guvenoptikgorkem/optik-pos/backend/node_modules/@prisma/client/runtime/library.js:130:8000)
+    at async main (/Users/guvenoptikgorkem/optik-pos/backend/scripts/import-legacy-batch.ts:139:3) {
+  clientVersion: '5.22.0'
+}
+HATA: Import başarısız — offset=30000 batch=7
+
+=== ÖZET ===
+Bitiş: 2026-07-07T16:51:38+03:00
+Toplam süre: 38s (0 dk)
+Başarılı parti sayısı: 6
+DURDU: offset=30000 (batch 7)

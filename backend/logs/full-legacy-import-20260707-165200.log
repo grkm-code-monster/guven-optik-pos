@@ -1,0 +1,509 @@
+=== FAZ 2B Full Legacy Import ===
+Başlangıç: 2026-07-07T16:52:00+03:00
+Log: /Users/guvenoptikgorkem/optik-pos/backend/logs/full-legacy-import-20260707-165200.log
+Batch size: 5000, hedef: 145300 müşteri
+
+----------------------------------------
+Parti 7 | offset=30000 limit=5000 | 16:52:00
+----------------------------------------
+[batch 7] offset=30000 limit=5000 musteri: 5000 satır
+[batch 7] satis: 787 satır, 210 müşteri
+[batch 7] recete: 252 satır, 176 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch7_musteri.csv (397320 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch7_satis.csv (100272 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch7_recete.csv (15777 bytes)
+[batch 7] CSV yüklendi: 5000 müşteri, 787 satış kalemi, 252 reçete
+[batch 7] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 331,
+  salesSkipped: 0,
+  itemsCreated: 787,
+  prescriptionsCreated: 252,
+  prescriptionsSkipped: 0
+}
+Parti 7 tamamlandı.
+----------------------------------------
+Parti 8 | offset=35000 limit=5000 | 16:52:06
+----------------------------------------
+[batch 8] offset=35000 limit=5000 musteri: 5000 satır
+[batch 8] satis: 999 satır, 255 müşteri
+[batch 8] recete: 297 satır, 194 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch8_musteri.csv (385315 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch8_satis.csv (128032 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch8_recete.csv (18553 bytes)
+[batch 8] CSV yüklendi: 5000 müşteri, 999 satış kalemi, 297 reçete
+[batch 8] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 433,
+  salesSkipped: 0,
+  itemsCreated: 999,
+  prescriptionsCreated: 297,
+  prescriptionsSkipped: 0
+}
+Parti 8 tamamlandı.
+----------------------------------------
+Parti 9 | offset=40000 limit=5000 | 16:52:12
+----------------------------------------
+[batch 9] offset=40000 limit=5000 musteri: 5000 satır
+[batch 9] satis: 1360 satır, 351 müşteri
+[batch 9] recete: 445 satır, 298 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch9_musteri.csv (389131 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch9_satis.csv (173619 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch9_recete.csv (27657 bytes)
+[batch 9] CSV yüklendi: 5000 müşteri, 1360 satış kalemi, 445 reçete
+[batch 9] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 570,
+  salesSkipped: 0,
+  itemsCreated: 1360,
+  prescriptionsCreated: 445,
+  prescriptionsSkipped: 0
+}
+Parti 9 tamamlandı.
+----------------------------------------
+Parti 10 | offset=45000 limit=5000 | 16:52:18
+----------------------------------------
+[batch 10] offset=45000 limit=5000 musteri: 5000 satır
+[batch 10] satis: 2459 satır, 626 müşteri
+[batch 10] recete: 827 satır, 498 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch10_musteri.csv (361103 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch10_satis.csv (312405 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch10_recete.csv (48874 bytes)
+[batch 10] CSV yüklendi: 5000 müşteri, 2459 satış kalemi, 827 reçete
+[batch 10] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 1207,
+  salesSkipped: 0,
+  itemsCreated: 2459,
+  prescriptionsCreated: 827,
+  prescriptionsSkipped: 0
+}
+Parti 10 tamamlandı.
+
+>>> İLERLEME: 10 parti tamamlandı (~50000 müşteri hedefe doğru), geçen süre: 23s
+
+----------------------------------------
+Parti 11 | offset=50000 limit=5000 | 16:52:25
+----------------------------------------
+[batch 11] offset=50000 limit=5000 musteri: 5000 satır
+[batch 11] satis: 302 satır, 61 müşteri
+[batch 11] recete: 91 satır, 51 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch11_musteri.csv (339355 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch11_satis.csv (38276 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch11_recete.csv (5710 bytes)
+[batch 11] CSV yüklendi: 5000 müşteri, 302 satış kalemi, 91 reçete
+[batch 11] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 121,
+  salesSkipped: 0,
+  itemsCreated: 302,
+  prescriptionsCreated: 91,
+  prescriptionsSkipped: 0
+}
+Parti 11 tamamlandı.
+----------------------------------------
+Parti 12 | offset=55000 limit=5000 | 16:52:31
+----------------------------------------
+[batch 12] offset=55000 limit=5000 musteri: 5000 satır
+[batch 12] satis: 373 satır, 101 müşteri
+[batch 12] recete: 105 satır, 77 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch12_musteri.csv (317046 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch12_satis.csv (47491 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch12_recete.csv (6886 bytes)
+[batch 12] CSV yüklendi: 5000 müşteri, 373 satış kalemi, 105 reçete
+[batch 12] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 156,
+  salesSkipped: 0,
+  itemsCreated: 373,
+  prescriptionsCreated: 105,
+  prescriptionsSkipped: 0
+}
+Parti 12 tamamlandı.
+----------------------------------------
+Parti 13 | offset=60000 limit=5000 | 16:52:37
+----------------------------------------
+[batch 13] offset=60000 limit=5000 musteri: 5000 satır
+[batch 13] satis: 1602 satır, 403 müşteri
+[batch 13] recete: 482 satır, 351 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch13_musteri.csv (398001 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch13_satis.csv (202018 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch13_recete.csv (29887 bytes)
+[batch 13] CSV yüklendi: 5000 müşteri, 1602 satış kalemi, 482 reçete
+[batch 13] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 620,
+  salesSkipped: 0,
+  itemsCreated: 1602,
+  prescriptionsCreated: 482,
+  prescriptionsSkipped: 0
+}
+Parti 13 tamamlandı.
+----------------------------------------
+Parti 14 | offset=65000 limit=5000 | 16:52:43
+----------------------------------------
+[batch 14] offset=65000 limit=5000 musteri: 5000 satır
+[batch 14] satis: 1614 satır, 400 müşteri
+[batch 14] recete: 513 satır, 338 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch14_musteri.csv (397823 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch14_satis.csv (202866 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch14_recete.csv (31515 bytes)
+[batch 14] CSV yüklendi: 5000 müşteri, 1614 satış kalemi, 513 reçete
+[batch 14] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 662,
+  salesSkipped: 0,
+  itemsCreated: 1614,
+  prescriptionsCreated: 513,
+  prescriptionsSkipped: 0
+}
+Parti 14 tamamlandı.
+----------------------------------------
+Parti 15 | offset=70000 limit=5000 | 16:52:50
+----------------------------------------
+[batch 15] offset=70000 limit=5000 musteri: 5000 satır
+[batch 15] satis: 2046 satır, 477 müşteri
+[batch 15] recete: 638 satır, 403 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch15_musteri.csv (411352 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch15_satis.csv (257465 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch15_recete.csv (38127 bytes)
+[batch 15] CSV yüklendi: 5000 müşteri, 2046 satış kalemi, 638 reçete
+[batch 15] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 903,
+  salesSkipped: 0,
+  itemsCreated: 2046,
+  prescriptionsCreated: 638,
+  prescriptionsSkipped: 0
+}
+Parti 15 tamamlandı.
+
+>>> İLERLEME: 15 parti tamamlandı (~75000 müşteri hedefe doğru), geçen süre: 55s
+
+----------------------------------------
+Parti 16 | offset=75000 limit=5000 | 16:52:57
+----------------------------------------
+[batch 16] offset=75000 limit=5000 musteri: 5000 satır
+[batch 16] satis: 3287 satır, 830 müşteri
+[batch 16] recete: 1158 satır, 703 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch16_musteri.csv (401933 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch16_satis.csv (414267 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch16_recete.csv (68119 bytes)
+[batch 16] CSV yüklendi: 5000 müşteri, 3287 satış kalemi, 1158 reçete
+[batch 16] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 1490,
+  salesSkipped: 0,
+  itemsCreated: 3287,
+  prescriptionsCreated: 1158,
+  prescriptionsSkipped: 0
+}
+Parti 16 tamamlandı.
+----------------------------------------
+Parti 17 | offset=80000 limit=5000 | 16:53:04
+----------------------------------------
+[batch 17] offset=80000 limit=5000 musteri: 5000 satır
+[batch 17] satis: 6496 satır, 1615 müşteri
+[batch 17] recete: 1923 satır, 1423 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch17_musteri.csv (388175 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch17_satis.csv (801616 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch17_recete.csv (113792 bytes)
+[batch 17] CSV yüklendi: 5000 müşteri, 6496 satış kalemi, 1923 reçete
+[batch 17] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 2528,
+  salesSkipped: 0,
+  itemsCreated: 6496,
+  prescriptionsCreated: 1923,
+  prescriptionsSkipped: 0
+}
+Parti 17 tamamlandı.
+----------------------------------------
+Parti 18 | offset=85000 limit=5000 | 16:53:14
+----------------------------------------
+[batch 18] offset=85000 limit=5000 musteri: 5000 satır
+[batch 18] satis: 3666 satır, 1035 müşteri
+[batch 18] recete: 4297 satır, 3897 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch18_musteri.csv (327252 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch18_satis.csv (459611 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch18_recete.csv (250328 bytes)
+[batch 18] CSV yüklendi: 5000 müşteri, 3666 satış kalemi, 4297 reçete
+[batch 18] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 1542,
+  salesSkipped: 0,
+  itemsCreated: 3666,
+  prescriptionsCreated: 4297,
+  prescriptionsSkipped: 0
+}
+Parti 18 tamamlandı.
+----------------------------------------
+Parti 19 | offset=90000 limit=5000 | 16:53:24
+----------------------------------------
+[batch 19] offset=90000 limit=5000 musteri: 5000 satır
+[batch 19] satis: 1352 satır, 325 müşteri
+[batch 19] recete: 4228 satır, 3857 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch19_musteri.csv (310744 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch19_satis.csv (176718 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch19_recete.csv (246060 bytes)
+[batch 19] CSV yüklendi: 5000 müşteri, 1352 satış kalemi, 4228 reçete
+[batch 19] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 638,
+  salesSkipped: 0,
+  itemsCreated: 1352,
+  prescriptionsCreated: 4228,
+  prescriptionsSkipped: 0
+}
+Parti 19 tamamlandı.
+----------------------------------------
+Parti 20 | offset=95000 limit=5000 | 16:53:32
+----------------------------------------
+[batch 20] offset=95000 limit=5000 musteri: 5000 satır
+[batch 20] satis: 1477 satır, 354 müşteri
+[batch 20] recete: 3134 satır, 2743 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch20_musteri.csv (296790 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch20_satis.csv (193520 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch20_recete.csv (184910 bytes)
+[batch 20] CSV yüklendi: 5000 müşteri, 1477 satış kalemi, 3134 reçete
+[batch 20] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 702,
+  salesSkipped: 0,
+  itemsCreated: 1477,
+  prescriptionsCreated: 3134,
+  prescriptionsSkipped: 0
+}
+Parti 20 tamamlandı.
+
+>>> İLERLEME: 20 parti tamamlandı (~100000 müşteri hedefe doğru), geçen süre: 98s
+
+----------------------------------------
+Parti 21 | offset=100000 limit=5000 | 16:53:40
+----------------------------------------
+[batch 21] offset=100000 limit=5000 musteri: 5000 satır
+[batch 21] satis: 1411 satır, 387 müşteri
+[batch 21] recete: 3447 satır, 3073 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch21_musteri.csv (301554 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch21_satis.csv (185193 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch21_recete.csv (204972 bytes)
+[batch 21] CSV yüklendi: 5000 müşteri, 1411 satış kalemi, 3447 reçete
+[batch 21] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 684,
+  salesSkipped: 0,
+  itemsCreated: 1411,
+  prescriptionsCreated: 3447,
+  prescriptionsSkipped: 0
+}
+Parti 21 tamamlandı.
+----------------------------------------
+Parti 22 | offset=105000 limit=5000 | 16:53:48
+----------------------------------------
+[batch 22] offset=105000 limit=5000 musteri: 5000 satır
+[batch 22] satis: 2107 satır, 519 müşteri
+[batch 22] recete: 3966 satır, 3356 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch22_musteri.csv (305349 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch22_satis.csv (275632 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch22_recete.csv (236055 bytes)
+[batch 22] CSV yüklendi: 5000 müşteri, 2107 satış kalemi, 3966 reçete
+[batch 22] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 978,
+  salesSkipped: 0,
+  itemsCreated: 2107,
+  prescriptionsCreated: 3966,
+  prescriptionsSkipped: 0
+}
+Parti 22 tamamlandı.
+----------------------------------------
+Parti 23 | offset=110000 limit=5000 | 16:53:56
+----------------------------------------
+[batch 23] offset=110000 limit=5000 musteri: 5000 satır
+[batch 23] satis: 2301 satır, 595 müşteri
+[batch 23] recete: 3358 satır, 2736 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch23_musteri.csv (303240 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch23_satis.csv (301260 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch23_recete.csv (201235 bytes)
+[batch 23] CSV yüklendi: 5000 müşteri, 2301 satış kalemi, 3358 reçete
+[batch 23] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 1145,
+  salesSkipped: 0,
+  itemsCreated: 2301,
+  prescriptionsCreated: 3358,
+  prescriptionsSkipped: 0
+}
+Parti 23 tamamlandı.
+----------------------------------------
+Parti 24 | offset=115000 limit=5000 | 16:54:05
+----------------------------------------
+[batch 24] offset=115000 limit=5000 musteri: 5000 satır
+[batch 24] satis: 4676 satır, 1031 müşteri
+[batch 24] recete: 4935 satır, 3458 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch24_musteri.csv (315664 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch24_satis.csv (610802 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch24_recete.csv (307554 bytes)
+[batch 24] CSV yüklendi: 5000 müşteri, 4676 satış kalemi, 4935 reçete
+[batch 24] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 2480,
+  salesSkipped: 0,
+  itemsCreated: 4676,
+  prescriptionsCreated: 4935,
+  prescriptionsSkipped: 0
+}
+Parti 24 tamamlandı.
+----------------------------------------
+Parti 25 | offset=120000 limit=5000 | 16:54:15
+----------------------------------------
+[batch 25] offset=120000 limit=5000 musteri: 5000 satır
+[batch 25] satis: 14609 satır, 4352 müşteri
+[batch 25] recete: 4888 satır, 3423 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch25_musteri.csv (343204 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch25_satis.csv (1891620 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch25_recete.csv (291785 bytes)
+[batch 25] CSV yüklendi: 5000 müşteri, 14609 satış kalemi, 4888 reçete
+[batch 25] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 6987,
+  salesSkipped: 0,
+  itemsCreated: 14609,
+  prescriptionsCreated: 4888,
+  prescriptionsSkipped: 0
+}
+Parti 25 tamamlandı.
+
+>>> İLERLEME: 25 parti tamamlandı (~125000 müşteri hedefe doğru), geçen süre: 149s
+
+----------------------------------------
+Parti 26 | offset=125000 limit=5000 | 16:54:31
+----------------------------------------
+[batch 26] offset=125000 limit=5000 musteri: 5000 satır
+[batch 26] satis: 15249 satır, 4974 müşteri
+[batch 26] recete: 4117 satır, 2977 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch26_musteri.csv (456539 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch26_satis.csv (1993237 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch26_recete.csv (248142 bytes)
+[batch 26] CSV yüklendi: 5000 müşteri, 15249 satış kalemi, 4117 reçete
+[batch 26] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 7612,
+  salesSkipped: 0,
+  itemsCreated: 15249,
+  prescriptionsCreated: 4117,
+  prescriptionsSkipped: 0
+}
+Parti 26 tamamlandı.
+----------------------------------------
+Parti 27 | offset=130000 limit=5000 | 16:54:47
+----------------------------------------
+[batch 27] offset=130000 limit=5000 musteri: 5000 satır
+[batch 27] satis: 14024 satır, 4951 müşteri
+[batch 27] recete: 3909 satır, 3151 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch27_musteri.csv (418565 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch27_satis.csv (1863569 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch27_recete.csv (240765 bytes)
+[batch 27] CSV yüklendi: 5000 müşteri, 14024 satış kalemi, 3909 reçete
+[batch 27] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 6832,
+  salesSkipped: 0,
+  itemsCreated: 14024,
+  prescriptionsCreated: 3909,
+  prescriptionsSkipped: 0
+}
+Parti 27 tamamlandı.
+----------------------------------------
+Parti 28 | offset=135000 limit=5000 | 16:55:02
+----------------------------------------
+[batch 28] offset=135000 limit=5000 musteri: 5000 satır
+[batch 28] satis: 12249 satır, 4953 müşteri
+[batch 28] recete: 3102 satır, 2762 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch28_musteri.csv (420136 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch28_satis.csv (1650634 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch28_recete.csv (191658 bytes)
+[batch 28] CSV yüklendi: 5000 müşteri, 12249 satış kalemi, 3102 reçete
+[batch 28] Import tamamlandı: {
+  customersCreated: 5000,
+  customersSkipped: 0,
+  salesCreated: 5938,
+  salesSkipped: 0,
+  itemsCreated: 12249,
+  prescriptionsCreated: 3102,
+  prescriptionsSkipped: 0
+}
+Parti 28 tamamlandı.
+----------------------------------------
+Parti 29 | offset=140000 limit=5000 | 16:55:15
+----------------------------------------
+[batch 29] offset=140000 limit=5000 musteri: 4787 satır
+[batch 29] satis: 10290 satır, 4665 müşteri
+[batch 29] recete: 2669 satır, 2560 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch29_musteri.csv (377934 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch29_satis.csv (1396969 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch29_recete.csv (165247 bytes)
+[batch 29] CSV yüklendi: 4787 müşteri, 10290 satış kalemi, 2669 reçete
+[batch 29] Import tamamlandı: {
+  customersCreated: 4787,
+  customersSkipped: 0,
+  salesCreated: 5051,
+  salesSkipped: 0,
+  itemsCreated: 10290,
+  prescriptionsCreated: 2669,
+  prescriptionsSkipped: 0
+}
+Parti 29 tamamlandı.
+----------------------------------------
+Parti 30 | offset=145000 limit=300 | 16:55:28
+----------------------------------------
+[batch 484] offset=145000 limit=300 musteri: 0 satır
+[batch 484] satis: 0 satır, 0 müşteri
+[batch 484] recete: 0 satır, 0 müşteri
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch484_musteri.csv (102 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch484_satis.csv (165 bytes)
+  /Users/guvenoptikgorkem/Desktop/siber-optik-export/batch484_recete.csv (165 bytes)
+Error: ENOENT: no such file or directory, open '/Users/guvenoptikgorkem/Desktop/siber-optik-export/batch30_musteri.csv'
+    at readFileSync (node:fs:449:20)
+    at loadCsv (/Users/guvenoptikgorkem/optik-pos/backend/scripts/import-legacy-batch.ts:80:27)
+    at main (/Users/guvenoptikgorkem/optik-pos/backend/scripts/import-legacy-batch.ts:130:21)
+    at Object.<anonymous> (/Users/guvenoptikgorkem/optik-pos/backend/scripts/import-legacy-batch.ts:294:1)
+    at Module._compile (node:internal/modules/cjs/loader:1521:14)
+    at Module.m._compile (/Users/guvenoptikgorkem/optik-pos/backend/node_modules/ts-node/src/index.ts:1618:23)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/guvenoptikgorkem/optik-pos/backend/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1266:32)
+    at Function.Module._load (node:internal/modules/cjs/loader:1091:12) {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/Users/guvenoptikgorkem/Desktop/siber-optik-export/batch30_musteri.csv'
+}
+HATA: Import başarısız — offset=145000 batch=30
+
+=== ÖZET ===
+Bitiş: 2026-07-07T16:55:28+03:00
+Toplam süre: 208s (3 dk)
+Başarılı parti sayısı: 23
+DURDU: offset=145000 (batch 30)

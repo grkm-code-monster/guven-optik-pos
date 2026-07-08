@@ -10,6 +10,7 @@ datasource db {
 model User {
   id         String   @id @default(uuid())
   name       String
+  email      String?
   username   String   @unique
   pin        String // bcrypt hash
   role       Role
@@ -130,6 +131,7 @@ model Customer {
   eRx_doctor       String?
   eRx_diagnosis    String?
   odooPartnerId    Int?
+  legacyCustomerId String?
   createdAt        DateTime  @default(now())
   sales            Sale[]
   prescriptions    CustomerPrescription[]
@@ -1225,4 +1227,134 @@ model SirketAyar {
 
   @@unique([sirketId, anahtar])
   @@index([sirketId])
+}
+
+model LegacyCustomer {
+  id               String    @id @default(cuid())
+  siberCariHesapId Int       @unique
+  ad               String?
+  soyad            String?
+  telefon1         String?
+  cepTelefon       String?
+  tcKimlikNo       String?
+  adres            String?
+  email            String?
+  dogumTarihi      DateTime?
+  kaynakSube       String?
+  importedAt       DateTime  @default(now())
+
+  sales         LegacySale[]
+  prescriptions LegacyPrescription[]
+
+  @@index([tcKimlikNo])
+  @@index([telefon1])
+  @@index([cepTelefon])
+  @@index([ad, soyad])
+}
+
+model LegacySale {
+  id               String    @id @default(cuid())
+  siberStokHrkId   Int       @unique
+  legacyCustomerId String
+  tarih            DateTime?
+  toplamTutar      Decimal?  @db.Decimal(10, 2)
+  subeKodu         String?
+  importedAt       DateTime  @default(now())
+
+  customer LegacyCustomer   @relation(fields: [legacyCustomerId], references: [id])
+  items    LegacySaleItem[]
+
+  @@index([legacyCustomerId])
+}
+
+model LegacySaleItem {
+  id           String   @id @default(cuid())
+  legacySaleId String
+  urunAdi      String?
+  miktar       Decimal? @db.Decimal(10, 2)
+  fiyat        Decimal? @db.Decimal(10, 2)
+  importedAt   DateTime @default(now())
+
+  sale LegacySale @relation(fields: [legacySaleId], references: [id])
+
+  @@index([legacySaleId])
+}
+
+model LegacyPrescription {
+  id               String    @id @default(cuid())
+  siberStokHrkId   Int?
+  legacyCustomerId String
+  tarih            DateTime?
+  r_sph            Decimal?  @db.Decimal(5, 2)
+  r_cyl            Decimal?  @db.Decimal(5, 2)
+  r_aks            Int?
+  l_sph            Decimal?  @db.Decimal(5, 2)
+  l_cyl            Decimal?  @db.Decimal(5, 2)
+  l_aks            Int?
+  near_r_sph       Decimal?  @db.Decimal(5, 2)
+  near_r_cyl       Decimal?  @db.Decimal(5, 2)
+  near_l_sph       Decimal?  @db.Decimal(5, 2)
+  near_l_cyl       Decimal?  @db.Decimal(5, 2)
+  importedAt       DateTime  @default(now())
+
+  customer LegacyCustomer @relation(fields: [legacyCustomerId], references: [id])
+
+  @@index([legacyCustomerId])
+}
+
+model ReportTemplate {
+  id          String   @id @default(cuid())
+  ad          String
+  aciklama    String?
+  boyutlar    Json
+  olculer     Json
+  filtreler   Json?
+  olusturanId String
+  aktif       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  erisimler    ReportAccess[]
+  zamanlamalar ReportSchedule[]
+
+  @@index([olusturanId])
+}
+
+model ReportAccess {
+  id               String   @id @default(cuid())
+  reportTemplateId String
+  userId           String?
+  role             Role?
+  createdAt        DateTime @default(now())
+
+  template ReportTemplate @relation(fields: [reportTemplateId], references: [id])
+
+  @@index([reportTemplateId])
+  @@index([userId])
+}
+
+model ReportSchedule {
+  id               String    @id @default(cuid())
+  reportTemplateId String
+  siklik           String
+  saat             String
+  gun              Int?
+  aktif            Boolean   @default(true)
+  sonCalisma       DateTime?
+  createdAt        DateTime  @default(now())
+
+  template ReportTemplate @relation(fields: [reportTemplateId], references: [id])
+
+  @@index([reportTemplateId])
+}
+
+model ReportRequest {
+  id                    String   @id @default(cuid())
+  talepEdenId           String
+  istekMetni            String
+  durum                 String   @default("BEKLIYOR")
+  olusturulanTemplateId String?
+  createdAt             DateTime @default(now())
+
+  @@index([talepEdenId])
 }

@@ -85,13 +85,24 @@ export default function AdminLayout() {
 
   const menu = useMemo(() => {
     const role = adminUser?.role
+    let groups = MENU
     if (role === 'STORE_MANAGER') {
-      return MENU.map((g) => ({
+      groups = MENU.map((g) => ({
         ...g,
         items: g.items.filter((i) => i.to !== '/admin/stok-yonetimi'),
       }))
     }
-    return MENU
+    if (role === 'ADMIN') {
+      groups = [
+        ...groups.slice(0, 1),
+        {
+          title: '📈 RAPOR MOTORU',
+          items: [{ label: 'Rapor Matrisi', icon: '📈', to: '/admin/rapor-matris' }],
+        },
+        ...groups.slice(1),
+      ]
+    }
+    return groups
   }, [adminUser?.role])
 
   useEffect(() => {

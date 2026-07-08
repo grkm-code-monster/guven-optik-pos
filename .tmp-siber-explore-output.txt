@@ -1,0 +1,757 @@
+
+=== TABLOLAR (satır sayısı) ===
+StokHrkDt	440050
+StokMiktar	415850
+KarekodHrk	370552
+StokSeviye	322298
+SayimDt	271213
+CariHrk	255775
+KarekodSube	191447
+SbrKKmik	160745
+StokHrk	148139
+CariHesap	145300
+OptikCari	145203
+Karekod	132108
+UtsAlmaBildirim	129422
+FiyatListDt	124755
+CariFisDt	88587
+OptikStokHrk	86835
+CariFis	82432
+SbrProb	53473
+StokBarkod	41691
+OptikStok	41593
+Stok	41585
+UtsStok	41585
+tmpG	34183
+tmpStokhrk	34183
+tmpOptikhrk	34183
+SayimKarekodfark	33867
+SayimBolumDt	22110
+SbrErrorLog	21847
+UtsBagimsiz	18577
+SayimKarekod	13790
+YetkiGrupDt	7944
+CariGrup	7444
+FaturaDt	5710
+Doviz	3585
+Fatura	2624
+RaporKolon	2524
+StokDagitDt	2035
+RaporTasKolon	1864
+TanimList	1345
+Yetki	1324
+RaporTasFiltre	1280
+StokAltGrup	985
+StokMarkaAnaGrup	871
+tmpGuven	718
+StokResim	692
+StokMarka	680
+UtsMarka	558
+CekSenet	399
+StokDagitHrk	361
+TrigTable	277
+KrediKartSozlesmeTaksit	228
+RaporTas	130
+ArizaliUrun	100
+Rapor	95
+BarkodBas	89
+SeqTable	74
+PersonelHesap	67
+StokAnaGrupHesap	60
+Kullanici	51
+SayimBolum	38
+KarekodList	36
+UtsSablon	34
+EFatura	33
+FiyatListSube	30
+KrediKartHesap	24
+TopluStok	24
+StokBirim	23
+KrediKartSozlesme	18
+DesignBarkod	17
+KrediKartSozlesmeSube	15
+Sayim	11
+BankaHesap	11
+Sube	10
+SubePrm	10
+KrediKartLogo	8
+StokAnaGrup	7
+Terminal	7
+YetkiGrup	6
+SbrStokMiktar	4
+FiyatList	4
+Para	3
+EFaturaItem	2
+Parametre	1
+WebOrtam	1
+StandartMesaj	1
+Sirket	1
+CariAdres	1
+KampanyaDt	1
+Sistem	1
+OptikKurum	1
+KampanyaSube	1
+OptikListe	1
+Kampanya	1
+Atolye	1
+StokHrkResim	0
+BarkodNumara	0
+MuhasebeHesapPlan	0
+EFaturaMukellef	0
+OptikFatura	0
+StokLokasyonHrkDt	0
+CariOnay	0
+SmsOnay	0
+Siparis	0
+aktar2	0
+OptikListeFiyat	0
+StokEKategori	0
+aktar	0
+MuhasebeFisDt	0
+MailDt	0
+CariLisans	0
+StokAltGrupHesap	0
+Gorev	0
+AtolyeHrk	0
+AktarStok	0
+StokKategori	0
+SiparisStokHrkDt	0
+CariResim	0
+xStokHrkDt	0
+MailHrk	0
+CamTipiToptanci	0
+TeklifDt	0
+SipMobile	0
+SmsHrk	0
+StokMalzeme	0
+TabloEkBilgi	0
+tmpOptik	0
+CariUyari	0
+CariBanka	0
+SiparisDt	0
+OptikListeYakinlik	0
+StokLokasyon	0
+MuhasebeFis	0
+Kargo	0
+StokMarkaAltGrup	0
+OptikCamSutKodu	0
+SmsDt	0
+SayimTxt	0
+OptikCamGir	0
+StokLokasyonHrk	0
+CariIskonto	0
+UtsBelge	0
+xStokHrk	0
+MobilTerminal	0
+SayimTxtOzel	0
+CariYetkili	0
+KrediKartSozlesmeMasraf	0
+CariSifre	0
+aktar1	0
+Kota	0
+xCariHrk	0
+GloAlmaUts	0
+AtolyeDt	0
+CariHesapKod	0
+KotaDt	0
+KasaNotu	0
+StokHesap	0
+StokMarkaWebOrtam	0
+CariGorusme	0
+Teklif	0
+tmpYetkiGrupdt	0
+
+=== TOP 15 SÜTUN YAPISI ===
+
+-- StokHrkDt (46 kolon)
+  IdStokHrkDt	int
+  StokHrkId	int
+  StokId	int
+  SirketId	smallint
+  SubeId	smallint
+  Tarih	date
+  StokHrkTipId	smallint
+  GC	smallint
+  CariHesapId	int
+  Miktar	float
+  Fiyat	numeric
+  KdvOran	smallint
+  Notlar	varchar
+  KdvDahil	bit
+  Maliyet	money
+  Iskonto1Oran	float
+  Iskonto1Tutar	money
+  Iskonto2Oran	float
+  Iskonto2Tutar	money
+  Iskonto3Oran	float
+  Iskonto3Tutar	money
+  Iskonto4Oran	float
+  Iskonto4Tutar	money
+  ParaBrm	varchar
+  Kur	float
+  MiktarF	float
+  VadeTar	date
+  PrimOran	float
+  PrimTutar	money
+  MasrafOran	float
+  MasrafTutar	money
+  FaturaId	int
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+  KdvTutar	money
+  IskontoToplam	money
+  NetToplam	money
+  BrutToplam	money
+  SaticiId	int
+  GenelToplam	money
+  FakeId	int
+  Puan	float
+  KampanyaId	int
+  GozetimNo	varchar
+
+-- StokMiktar (10 kolon)
+  StokId	int
+  SubeId	smallint
+  Miktar	float
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+  SayimTar	date
+  SayimMiktar	float
+  Maliyet	money
+
+-- KarekodHrk (18 kolon)
+  IdKarekodHrk	int
+  StokHrkId	int
+  StokHrkDtId	int
+  KarekodId	int
+  SiparisId	int
+  SiparisDtId	int
+  Tekst	varchar
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+  StokId	int
+  UtsBildirimId	varchar
+  UtsBildirimTar	date
+  Adet	int
+  Aciklama	varchar
+  SubeId	smallint
+  GC	smallint
+
+-- StokSeviye (9 kolon)
+  StokId	int
+  SubeId	smallint
+  MinimumSeviye	int
+  OptimumSeviye	int
+  MaksimumSeviye	int
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+
+-- SayimDt (8 kolon)
+  SayimId	int
+  StokId	int
+  SayilanMiktar	float
+  EldekiMiktar	float
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+
+-- CariHrk (36 kolon)
+  IdCariHrk	int
+  SirketId	int
+  SubeId	int
+  CariHesapId	int
+  SaticiId	int
+  VadeTarih	date
+  TutarDvz	money
+  ParaBrm	varchar
+  Kur	float
+  Tutar	money
+  BA	smallint
+  Tarih	date
+  BelgeNo	varchar
+  Notlar	varchar
+  StokHrkId	int
+  Sistem	smallint
+  CariFisId	int
+  CariFisDtId	int
+  KarsiCariHesapId	int
+  NakitKapatir	bit
+  OdemeTarih	date
+  Banka	varchar
+  CekSenetId	int
+  CekDurumId	int
+  TaksitSayisi	int
+  ThkTipId	int
+  MasrafMerkeziId	int
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+  ValorTarih	date
+  CariFisTipId	int
+  KasaYeri	smallint
+  BelgeTar	date
+  FaturaId	int
+
+-- KarekodSube (3 kolon)
+  KarekodId	int
+  SubeId	int
+  Adet	int
+
+-- SbrKKmik (3 kolon)
+  KarekodId	int
+  SubeId	int
+  Mik	int
+
+-- StokHrk (85 kolon)
+  IdStokHrk	int
+  SirketId	smallint
+  SubeId	smallint
+  CariHesapId	int
+  Tarih	date
+  Saat	time
+  FiyatListId	smallint
+  MiktarToplam	float
+  MasrafToplam	money
+  RefStokHrkId	int
+  StokHrkTipId	tinyint
+  GC	smallint
+  Notlar	varchar
+  BelgeNo	varchar
+  TeslimTar	date
+  TeslimAlan	varchar
+  ParaBrm	varchar
+  Kur	float
+  BelgeTar	date
+  BrutToplam	money
+  IskontoToplam	money
+  NetToplam	money
+  KdvToplam	money
+  GenelToplam	money
+  Faturalandi	bit
+  Muhasebelendi	bit
+  FaturaId	int
+  OdemePlanId	smallint
+  Beraber	bit
+  Puan	money
+  Iskonto1Tip	tinyint
+  Iskonto1Oran	float
+  Iskonto1Tutar	money
+  Iskonto2Tip	tinyint
+  Iskonto2Oran	float
+  Iskonto2Tutar	money
+  Iskonto3Tip	tinyint
+  Iskonto3Oran	float
+  Iskonto3Tutar	money
+  Iskonto4Tip	tinyint
+  Iskonto4Oran	float
+  Iskonto4Tutar	money
+  Masraf1Tip	tinyint
+  Masraf1Oran	float
+  Masraf1Tutar	money
+  Masraf2Tip	tinyint
+  Masraf2Oran	float
+  Masraf2Tutar	money
+  Masraf3Tip	tinyint
+  Masraf3Oran	float
+  Masraf3Tutar	money
+  Masraf4Tip	tinyint
+  Masraf4Oran	float
+  Masraf4Tutar	money
+  SaticiId	int
+  KdvDahil	bit
+  TeslimSaat	time
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+  MusteriSiparisNo	varchar
+  SevkCariId	int
+  SevkAdresId	int
+  SipDurumId	int
+  OzelKod	varchar
+  KabulEdildi	bit
+  KabulTarihi	date
+  KabulKullaniciId	int
+  kdvSifir	bit
+  FaturaFisNo	varchar
+  FaturaFis	tinyint
+  EncId	varbinary
+  UtsBildirimId	varchar
+  UtsBildirimTar	date
+  IthalUlke	varchar
+  ImalUlke	varchar
+  BeyannameNo	varchar
+  FaturaCariHesapId	int
+  sGc	int
+  KdvliBrut	money
+  BelgeSeri	varchar
+  BelgeTipi	int
+  KargoId	int
+  SoforId	int
+
+-- CariHesap (87 kolon)
+  IdCariHesap	int
+  CariHesapAd	varchar
+  Ad	varchar
+  Soyad	varchar
+  CariTipId	smallint
+  SubeId	int
+  DogumTar	date
+  OzelKod	varchar
+  ResmiAd	varchar
+  VergiDaire	varchar
+  VergiNo	varchar
+  CariHesapKod	varchar
+  HesapKod	varchar
+  BolgeId	smallint
+  SehirId	smallint
+  SemtId	smallint
+  Adres	varchar
+  Telefon1	varchar
+  Sistem	bit
+  Ulke	varchar
+  Aktif	smallint
+  SaticiId	int
+  RefCariId	int
+  Email	varchar
+  Faks	varchar
+  Ilgili	varchar
+  VadeGun	smallint
+  IskontoOran	float
+  Kredi	money
+  Web	varchar
+  Telefon2	varchar
+  CepTelefon	varchar
+  PostaKod	varchar
+  MusteriKartNo	varchar
+  Aciklama	varchar
+  KayitKullanici	varchar
+  KayitZaman	datetime2
+  DegistirKullanici	varchar
+  DegistirZaman	datetime2
+  FiyatListId	int
+  TcKimlikNo	varchar
+  SehirAd	varchar
+  SemtAd	varchar
+  SicilNo	varchar
+  ParaBrm	varchar
+  SirketId	smallint
+  Meslek	varchar
+  FaturaAdresi	varchar
+  FaturaAdresleAyni	bit
+  GirisTar	date
+  CikisTar	date
+  GarantiSonuTar	date
+  UrunId	int
+  SubeSayisi	int
+  SubeAdlari	varchar
+  Kapali	bit
+  EkKullaniciSayisi	int
+  CariTipAltGrupId	smallint
+  KasaTipId	smallint
+  UtsFirmaNo	varchar
+  MersisNo	varchar
+  BarkodTasarim	varchar
+  OzelKod1	varchar
+  OzelKod2	varchar
+  OzelKod3	varchar
+  OzelKod4	varchar
+  UlkeTelKodu	varchar
+  OdemePlanId	int
+  Uyarimesaj	varchar
+  EFaturaAliasGB	varchar
+  EFaturaAliasPK	varchar
+  EFaturaKullaniyor	smallint
+  IysDurum	bit
+  IysTarih	datetime
+  IysOkunanKod	varchar
+  Kamu	bit
+  IysGonderZaman	datetime
+  IysGonderKod	varchar
+  IysOnayZaman	datetime
+  IysRedZaman	datetime
+  IysOnayOrtam	tinyint
+  KvkkGonderZaman	datetime
+  KvkkGonderKod	varchar
+  KvkkOkunanKod	varchar
+  KvkkOnayZaman	datetime
+  KvkkRedZaman	datetime
+  KvkkOnayOrtam	tinyint
+
+-- OptikCari (14 kolon)
+  CariHesapId	int
+  ResmiKurumId	int
+  LensTarih	date
+  EvlilikTar	date
+  UCerTar	date
+  YCerTar	date
+  UCamTar	date
+  YCamTar	date
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+  EmekliCalisan	char
+  YakinlikId	smallint
+
+-- Karekod (19 kolon)
+  IdKareKod	int
+  StokId	int
+  SubeId	smallint
+  Tekst	varchar
+  GC	smallint
+  Barkod	varchar
+  SeriNo	varchar
+  PartiNo	varchar
+  UretimTarihi	varchar
+  MiadTarihi	varchar
+  Maliyet	money
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+  firstStokHrkDtId	int
+  Havuz	bit
+  Adet	int
+  UTekst	varchar
+
+-- UtsAlmaBildirim (17 kolon)
+  UtsFirmaNo	varchar
+  Barkod	varchar
+  SeriNo	varchar
+  PartiNo	varchar
+  BelgeNo	varchar
+  Tarih	date
+  SubeId	int
+  StokId	int
+  UretimTarihi	varchar
+  SiberAktar	bit
+  GKU	varchar
+  MME	varchar
+  IdAlmaBildirim	int
+  Adet	int
+  Kabul	char
+  BID	varchar
+  TAR	varchar
+
+-- FiyatListDt (13 kolon)
+  IdFiyatListDt	int
+  FiyatListId	smallint
+  StokId	int
+  Fiyat	money
+  ParaBrm	varchar
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+  EskiFiyat	money
+  EskiParaBrm	varchar
+  DegismeTarih	date
+  GorselFiyat	money
+
+-- CariFisDt (34 kolon)
+  IdCariFisDt	int
+  CariFisId	int
+  SirketId	smallint
+  SubeId	smallint
+  VadeTarih	date
+  TutarDvz	money
+  BA	smallint
+  Tarih	date
+  BelgeNo	varchar
+  Notlar	varchar
+  ParaBrm	varchar
+  Kur	float
+  Tutar	money
+  RefCariFisDtId	int
+  KarsiCariHesapId	int
+  OdemeTarih	date
+  Banka	varchar
+  CekSenetDurumId	smallint
+  TaksitSayisi	tinyint
+  ThkTipId	int
+  MasrafMerkeziId	int
+  KayitKullanici	varchar
+  KayitZaman	datetime
+  DegistirKullanici	varchar
+  DegistirZaman	datetime
+  ValorTarih	date
+  CekSenetId	int
+  StokHrkId	int
+  FaturaId	int
+  SaticiId	int
+  Kalan	money
+  CariHesapId	int
+  CariFisTipId	int
+  Muhasebelendi	bit
+
+=== TOP 15 ÖRNEK VERİ (ilk 3 satır, maskeli) ===
+
+-- StokHrkDt
+  satır1: {"IdStokHrkDt": "3", "StokHrkId": "34226", "StokId": "50003", "SirketId": "1", "SubeId": "4", "Tarih": "2019-07-25", "StokHrkTipId": "9", "GC": "1", "CariHesapId": "-101", "Miktar": "14.0", "Fiyat": "98.000000", "KdvOran": "8", "Notlar": null, "KdvDahil": "False", "Maliyet": "32.4000", "Iskonto1Oran": "0.0", "Iskonto1Tutar": "0.0000", "Iskonto2Oran": "0.0", "Iskonto2Tutar": "0.0000", "Iskonto3Oran": "0.0", "Iskonto3Tutar": "0.0000", "Iskonto4Oran": null, "Iskonto4Tutar": "0.0000", "ParaBrm": "TL
+  satır2: {"IdStokHrkDt": "4", "StokHrkId": "34226", "StokId": "50008", "SirketId": "1", "SubeId": "4", "Tarih": "2019-07-25", "StokHrkTipId": "9", "GC": "1", "CariHesapId": "-101", "Miktar": "6.0", "Fiyat": "98.000000", "KdvOran": "8", "Notlar": null, "KdvDahil": "False", "Maliyet": "36.7200", "Iskonto1Oran": "0.0", "Iskonto1Tutar": "0.0000", "Iskonto2Oran": "0.0", "Iskonto2Tutar": "0.0000", "Iskonto3Oran": "0.0", "Iskonto3Tutar": "0.0000", "Iskonto4Oran": null, "Iskonto4Tutar": "0.0000", "ParaBrm": "TL"
+  satır3: {"IdStokHrkDt": "5", "StokHrkId": "34226", "StokId": "50009", "SirketId": "1", "SubeId": "4", "Tarih": "2019-07-25", "StokHrkTipId": "9", "GC": "1", "CariHesapId": "-101", "Miktar": "12.0", "Fiyat": "98.000000", "KdvOran": "8", "Notlar": null, "KdvDahil": "False", "Maliyet": "36.7200", "Iskonto1Oran": "0.0", "Iskonto1Tutar": "0.0000", "Iskonto2Oran": "0.0", "Iskonto2Tutar": "0.0000", "Iskonto3Oran": "0.0", "Iskonto3Tutar": "0.0000", "Iskonto4Oran": null, "Iskonto4Tutar": "0.0000", "ParaBrm": "TL
+
+-- StokMiktar
+  satır1: {"StokId": "-1", "SubeId": "1", "Miktar": "0.0", "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": null, "DegistirZaman": null, "SayimTar": null, "SayimMiktar": null, "Maliyet": "7087.0000"}
+  satır2: {"StokId": "-1", "SubeId": "2", "Miktar": "1.0", "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": null, "DegistirZaman": null, "SayimTar": null, "SayimMiktar": null, "Maliyet": "7087.0000"}
+  satır3: {"StokId": "-1", "SubeId": "3", "Miktar": "0.0", "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": null, "DegistirZaman": null, "SayimTar": null, "SayimMiktar": null, "Maliyet": "7087.0000"}
+
+-- KarekodHrk
+  satır1: {"IdKarekodHrk": "2", "StokHrkId": "34226", "StokHrkDtId": "3", "KarekodId": "2", "SiparisId": null, "SiparisDtId": null, "Tekst": "010869871677032821160100000139-1116112110160100078271", "KayitKullanici": "GÜVEN", "KayitZaman": "2019-07-25 11:37:48.493000", "DegistirKullanici": null, "DegistirZaman": null, "StokId": "50003", "UtsBildirimId": null, "UtsBildirimTar": null, "Adet": "1", "Aciklama": null, "SubeId": "4", "GC": "1"}
+  satır2: {"IdKarekodHrk": "3", "StokHrkId": "34226", "StokHrkDtId": "3", "KarekodId": "3", "SiparisId": null, "SiparisDtId": null, "Tekst": "010869871677032821160100000174-1116112110160100078271", "KayitKullanici": "GÜVEN", "KayitZaman": "2019-07-25 11:38:22.260000", "DegistirKullanici": null, "DegistirZaman": null, "StokId": "50003", "UtsBildirimId": null, "UtsBildirimTar": null, "Adet": "1", "Aciklama": null, "SubeId": "4", "GC": "1"}
+  satır3: {"IdKarekodHrk": "4", "StokHrkId": "34226", "StokHrkDtId": "3", "KarekodId": "4", "SiparisId": null, "SiparisDtId": null, "Tekst": "010869871677032821160100000170-1116112110160100078271", "KayitKullanici": "GÜVEN", "KayitZaman": "2019-07-25 11:38:34.807000", "DegistirKullanici": null, "DegistirZaman": null, "StokId": "50003", "UtsBildirimId": null, "UtsBildirimTar": null, "Adet": "1", "Aciklama": null, "SubeId": "4", "GC": "1"}
+
+-- StokSeviye
+  satır1: {"StokId": "-1", "SubeId": "1", "MinimumSeviye": "1000", "OptimumSeviye": "0", "MaksimumSeviye": "0", "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": "BÜŞRA", "DegistirZaman": "2019-09-10 12:57:29.753000"}
+  satır2: {"StokId": "-1", "SubeId": "2", "MinimumSeviye": "1000", "OptimumSeviye": "0", "MaksimumSeviye": "0", "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": "BÜŞRA", "DegistirZaman": "2019-09-10 12:57:32.397000"}
+  satır3: {"StokId": "-1", "SubeId": "3", "MinimumSeviye": "1000", "OptimumSeviye": "0", "MaksimumSeviye": "0", "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": "BÜŞRA", "DegistirZaman": "2019-09-10 12:57:35.910000"}
+
+-- SayimDt
+  satır1: {"SayimId": "4", "StokId": "-1", "SayilanMiktar": "0.0", "EldekiMiktar": "1965.0", "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": null, "DegistirZaman": null}
+  satır2: {"SayimId": "4", "StokId": "50003", "SayilanMiktar": "0.0", "EldekiMiktar": "1.0", "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": null, "DegistirZaman": null}
+  satır3: {"SayimId": "4", "StokId": "50008", "SayilanMiktar": "0.0", "EldekiMiktar": "1.0", "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": null, "DegistirZaman": null}
+
+-- CariHrk
+  satır1: {"IdCariHrk": "15", "SirketId": "1", "SubeId": "3", "CariHesapId": "1034242", "SaticiId": null, "VadeTarih": null, "TutarDvz": "300.0000", "ParaBrm": "TL", "Kur": "1.0", "Tutar": "300.0000", "BA": "1", "Tarih": "2019-07-29", "BelgeNo": null, "Notlar": null, "StokHrkId": "34349", "Sistem": "0", "CariFisId": "2", "CariFisDtId": null, "KarsiCariHesapId": null, "NakitKapatir": "True", "OdemeTarih": null, "Banka": null, "CekSenetId": null, "CekDurumId": null, "TaksitSayisi": null, "ThkTipId": null, "
+  satır2: {"IdCariHrk": "16", "SirketId": "1", "SubeId": "3", "CariHesapId": "1", "SaticiId": null, "VadeTarih": null, "TutarDvz": "50.0000", "ParaBrm": "TL", "Kur": "1.0", "Tutar": "50.0000", "BA": "1", "Tarih": "2019-07-29", "BelgeNo": null, "Notlar": "Peşin", "StokHrkId": "34349", "Sistem": "2", "CariFisId": "2", "CariFisDtId": "5", "KarsiCariHesapId": "-103", "NakitKapatir": "True", "OdemeTarih": null, "Banka": null, "CekSenetId": null, "CekDurumId": null, "TaksitSayisi": null, "ThkTipId": null, "Masr
+  satır3: {"IdCariHrk": "17", "SirketId": "1", "SubeId": "1", "CariHesapId": "3", "SaticiId": null, "VadeTarih": null, "TutarDvz": "50.0000", "ParaBrm": "TL", "Kur": "1.0", "Tutar": "50.0000", "BA": "-1", "Tarih": "2019-07-29", "BelgeNo": null, "Notlar": "Peşin", "StokHrkId": "34349", "Sistem": "2", "CariFisId": "2", "CariFisDtId": "5", "KarsiCariHesapId": "-103", "NakitKapatir": "True", "OdemeTarih": null, "Banka": null, "CekSenetId": null, "CekDurumId": null, "TaksitSayisi": null, "ThkTipId": null, "Mas
+
+-- KarekodSube
+  satır1: {"KarekodId": "2", "SubeId": "1", "Adet": "0"}
+  satır2: {"KarekodId": "2", "SubeId": "4", "Adet": "0"}
+  satır3: {"KarekodId": "3", "SubeId": "3", "Adet": "0"}
+
+-- SbrKKmik
+  satır1: {"KarekodId": "2", "SubeId": "1", "Mik": "0"}
+  satır2: {"KarekodId": "2", "SubeId": "4", "Mik": "0"}
+  satır3: {"KarekodId": "3", "SubeId": "3", "Mik": "0"}
+
+-- StokHrk
+  satır1: {"IdStokHrk": "2", "SirketId": "1", "SubeId": "1", "CariHesapId": "1000001", "Tarih": "2011-02-27", "Saat": "12:07:39.470000", "FiyatListId": "1", "MiktarToplam": "0.0", "MasrafToplam": "0.0000", "RefStokHrkId": null, "StokHrkTipId": "1", "GC": "-1", "Notlar": "satici:ANIL\rSolusyon:40\rgmodel:87.8\rdiğer:", "BelgeNo": null, "TeslimTar": null, "TeslimAlan": null, "ParaBrm": "TL", "Kur": "1.0", "BelgeTar": null, "BrutToplam": "0.0000", "IskontoToplam": "0.0000", "NetToplam": "0.0000", "KdvToplam"
+  satır2: {"IdStokHrk": "3", "SirketId": "1", "SubeId": "1", "CariHesapId": "1000002", "Tarih": "2012-01-02", "Saat": "12:07:39.470000", "FiyatListId": "1", "MiktarToplam": "0.0", "MasrafToplam": "0.0000", "RefStokHrkId": null, "StokHrkTipId": "1", "GC": "-1", "Notlar": "Gunes:35\rsatici:OSMAN\rgunes:35\rgmodel:35\rgAdet:YAPI KRD.\rdiğer:", "BelgeNo": null, "TeslimTar": null, "TeslimAlan": null, "ParaBrm": "TL", "Kur": "1.0", "BelgeTar": null, "BrutToplam": "0.0000", "IskontoToplam": "0.0000", "NetToplam"
+  satır3: {"IdStokHrk": "4", "SirketId": "1", "SubeId": "1", "CariHesapId": "1000003", "Tarih": "2012-01-02", "Saat": "12:07:39.470000", "FiyatListId": "1", "MiktarToplam": "0.0", "MasrafToplam": "0.0000", "RefStokHrkId": null, "StokHrkTipId": "1", "GC": "-1", "Notlar": "satici:SD\rSolusyon:85\rgmodel:119.05\rdiğer:", "BelgeNo": null, "TeslimTar": null, "TeslimAlan": null, "ParaBrm": "TL", "Kur": "1.0", "BelgeTar": null, "BrutToplam": "0.0000", "IskontoToplam": "0.0000", "NetToplam": "0.0000", "KdvToplam"
+
+-- CariHesap
+  satır1: {"IdCariHesap": "-117", "CariHesapAd": "İNTERNET GENEL SATIŞ", "Ad": null, "Soyad": null, "CariTipId": "1", "SubeId": null, "DogumTar": null, "OzelKod": null, "ResmiAd": "İNTERNET GENEL SATIŞ", "VergiDaire": null, "VergiNo": null, "CariHesapKod": null, "HesapKod": null, "BolgeId": null, "SehirId": null, "SemtId": null, "Adres": null, "Telefon1": null, "Sistem": "True", "Ulke": null, "Aktif": null, "SaticiId": null, "RefCariId": null, "Email": null, "Faks": null, "Ilgili": null, "VadeGun": null, 
+  satır2: {"IdCariHesap": "-116", "CariHesapAd": "SGK Katkı Payı", "Ad": null, "Soyad": null, "CariTipId": "10", "SubeId": null, "DogumTar": null, "OzelKod": null, "ResmiAd": "SGK Katkı Payı", "VergiDaire": null, "VergiNo": null, "CariHesapKod": null, "HesapKod": null, "BolgeId": null, "SehirId": null, "SemtId": null, "Adres": null, "Telefon1": null, "Sistem": "True", "Ulke": null, "Aktif": null, "SaticiId": null, "RefCariId": null, "Email": null, "Faks": null, "Ilgili": null, "VadeGun": null, "IskontoOra
+  satır3: {"IdCariHesap": "-115", "CariHesapAd": "GENEL GİDERLER", "Ad": null, "Soyad": null, "CariTipId": "6", "SubeId": null, "DogumTar": null, "OzelKod": null, "ResmiAd": null, "VergiDaire": null, "VergiNo": null, "CariHesapKod": null, "HesapKod": null, "BolgeId": null, "SehirId": null, "SemtId": null, "Adres": null, "Telefon1": null, "Sistem": null, "Ulke": null, "Aktif": null, "SaticiId": null, "RefCariId": null, "Email": null, "Faks": null, "Ilgili": null, "VadeGun": null, "IskontoOran": null, "Kred
+
+-- OptikCari
+  satır1: {"CariHesapId": "-117", "ResmiKurumId": null, "LensTarih": null, "EvlilikTar": null, "UCerTar": null, "YCerTar": null, "UCamTar": null, "YCamTar": null, "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": null, "DegistirZaman": null, "EmekliCalisan": null, "YakinlikId": null}
+  satır2: {"CariHesapId": "-100", "ResmiKurumId": null, "LensTarih": null, "EvlilikTar": null, "UCerTar": null, "YCerTar": null, "UCamTar": null, "YCamTar": null, "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": null, "DegistirZaman": null, "EmekliCalisan": null, "YakinlikId": null}
+  satır3: {"CariHesapId": "100001", "ResmiKurumId": null, "LensTarih": null, "EvlilikTar": null, "UCerTar": null, "YCerTar": null, "UCamTar": null, "YCamTar": null, "KayitKullanici": null, "KayitZaman": null, "DegistirKullanici": null, "DegistirZaman": null, "EmekliCalisan": null, "YakinlikId": null}
+
+-- Karekod
+  satır1: {"IdKareKod": "2", "StokId": "50003", "SubeId": "4", "Tekst": "010869871677032821160100000139-1116112110160100078271", "GC": "1", "Barkod": "8698716770328", "SeriNo": "160100000139", "PartiNo": "160100078271", "UretimTarihi": "161121", "MiadTarihi": "", "Maliyet": null, "KayitKullanici": "GÜVEN", "KayitZaman": "2019-07-25 11:37:48.400000", "DegistirKullanici": null, "DegistirZaman": null, "firstStokHrkDtId": null, "Havuz": null, "Adet": "0", "UTekst": "0108698716770328211601000001391116112110160
+  satır2: {"IdKareKod": "3", "StokId": "50003", "SubeId": "4", "Tekst": "010869871677032821160100000174-1116112110160100078271", "GC": "1", "Barkod": "8698716770328", "SeriNo": "160100000174", "PartiNo": "160100078271", "UretimTarihi": "161121", "MiadTarihi": "", "Maliyet": null, "KayitKullanici": "GÜVEN", "KayitZaman": "2019-07-25 11:38:22.163000", "DegistirKullanici": null, "DegistirZaman": null, "firstStokHrkDtId": null, "Havuz": null, "Adet": "0", "UTekst": "0108698716770328211601000001741116112110160
+  satır3: {"IdKareKod": "4", "StokId": "50003", "SubeId": "4", "Tekst": "010869871677032821160100000170-1116112110160100078271", "GC": "1", "Barkod": "8698716770328", "SeriNo": "160100000170", "PartiNo": "160100078271", "UretimTarihi": "161121", "MiadTarihi": "", "Maliyet": null, "KayitKullanici": "GÜVEN", "KayitZaman": "2019-07-25 11:38:34.710000", "DegistirKullanici": null, "DegistirZaman": null, "firstStokHrkDtId": null, "Havuz": null, "Adet": "1", "UTekst": "0108698716770328211601000001701116112110160
+
+-- UtsAlmaBildirim
+  satır1: {"UtsFirmaNo": "2667269078096", "Barkod": "8680103006752", "SeriNo": "210002480616", "PartiNo": "1905", "BelgeNo": "724617", "Tarih": "2019-11-27", "SubeId": "1", "StokId": "61567", "UretimTarihi": "190524", "SiberAktar": "True", "GKU": "İŞBİR OPTİK SANAYİ  ANONİM ŞİRKETİ", "MME": "VISIONART - YOK - BRIX 1.56 (GÖZLÜK CAMI) -0.25/0.00", "IdAlmaBildirim": "1", "Adet": "1", "Kabul": "E", "BID": null, "TAR": null}
+  satır2: {"UtsFirmaNo": "2667269078096", "Barkod": "8680103006752", "SeriNo": "210002480617", "PartiNo": "1905", "BelgeNo": "724617", "Tarih": "2019-11-27", "SubeId": "1", "StokId": "61567", "UretimTarihi": "190524", "SiberAktar": "True", "GKU": "İŞBİR OPTİK SANAYİ  ANONİM ŞİRKETİ", "MME": "VISIONART - YOK - BRIX 1.56 (GÖZLÜK CAMI) -0.25/0.00", "IdAlmaBildirim": "2", "Adet": "1", "Kabul": "E", "BID": null, "TAR": null}
+  satır3: {"UtsFirmaNo": "2667269078096", "Barkod": "8680103006752", "SeriNo": "210002480584", "PartiNo": "1905", "BelgeNo": "724617", "Tarih": "2019-11-27", "SubeId": "1", "StokId": "61567", "UretimTarihi": "190524", "SiberAktar": "True", "GKU": "İŞBİR OPTİK SANAYİ  ANONİM ŞİRKETİ", "MME": "VISIONART - YOK - BRIX 1.56 (GÖZLÜK CAMI) -0.25/0.00", "IdAlmaBildirim": "3", "Adet": "1", "Kabul": "E", "BID": null, "TAR": null}
+
+-- FiyatListDt
+  satır1: {"IdFiyatListDt": "4", "FiyatListId": "0", "StokId": "-1", "Fiyat": "7087.0000", "ParaBrm": "TL", "KayitKullanici": "SiberOptik", "KayitZaman": "2017-08-17 17:46:11.200000", "DegistirKullanici": null, "DegistirZaman": null, "EskiFiyat": "435.0000", "EskiParaBrm": "TL", "DegismeTarih": "2022-10-13", "GorselFiyat": null}
+  satır2: {"IdFiyatListDt": "5", "FiyatListId": "1", "StokId": "-1", "Fiyat": "0.0000", "ParaBrm": "TL", "KayitKullanici": "SiberOptik", "KayitZaman": "2017-08-17 17:46:11.200000", "DegistirKullanici": null, "DegistirZaman": null, "EskiFiyat": null, "EskiParaBrm": null, "DegismeTarih": null, "GorselFiyat": null}
+  satır3: {"IdFiyatListDt": "8", "FiyatListId": "0", "StokId": "50003", "Fiyat": "32.4000", "ParaBrm": "TL", "KayitKullanici": "GÜVEN", "KayitZaman": "2019-07-24 10:48:00", "DegistirKullanici": "GÜVEN", "DegistirZaman": "2019-08-10 16:11:31.223000", "EskiFiyat": "98.0000", "EskiParaBrm": null, "DegismeTarih": "2019-08-10", "GorselFiyat": null}
+
+-- CariFisDt
+  satır1: {"IdCariFisDt": "5", "CariFisId": "2", "SirketId": "1", "SubeId": "1", "VadeTarih": null, "TutarDvz": "50.0000", "BA": "-1", "Tarih": "2019-07-29", "BelgeNo": null, "Notlar": "Peşin", "ParaBrm": "TL", "Kur": "1.0", "Tutar": "50.0000", "RefCariFisDtId": null, "KarsiCariHesapId": "-103", "OdemeTarih": null, "Banka": null, "CekSenetDurumId": null, "TaksitSayisi": "1", "ThkTipId": null, "MasrafMerkeziId": null, "KayitKullanici": "SuperUser", "KayitZaman": "2019-08-01 10:18:06.850000", "DegistirKulla
+  satır2: {"IdCariFisDt": "6", "CariFisId": "2", "SirketId": "1", "SubeId": "1", "VadeTarih": "2019-08-31", "TutarDvz": "250.0000", "BA": "-1", "Tarih": "2019-07-29", "BelgeNo": null, "Notlar": null, "ParaBrm": "TL", "Kur": "1.0", "Tutar": "250.0000", "RefCariFisDtId": null, "KarsiCariHesapId": "-108", "OdemeTarih": null, "Banka": null, "CekSenetDurumId": null, "TaksitSayisi": "1", "ThkTipId": null, "MasrafMerkeziId": null, "KayitKullanici": "SuperUser", "KayitZaman": "2019-08-01 10:18:11.507000", "Degist
+  satır3: {"IdCariFisDt": "25", "CariFisId": "32", "SirketId": "1", "SubeId": "2", "VadeTarih": null, "TutarDvz": "350.0000", "BA": "-1", "Tarih": "2019-09-07", "BelgeNo": null, "Notlar": "Peşin", "ParaBrm": "TL", "Kur": "1.0", "Tutar": "350.0000", "RefCariFisDtId": null, "KarsiCariHesapId": "-103", "OdemeTarih": null, "Banka": null, "CekSenetDurumId": null, "TaksitSayisi": "1", "ThkTipId": null, "MasrafMerkeziId": null, "KayitKullanici": "AYSEL", "KayitZaman": "2019-09-07 11:44:07.770000", "DegistirKulla
+
+=== TABLO TAHMİN EŞLEMESİ ===
+StokHrkDt	→ ürün/stok
+StokMiktar	→ ürün/stok
+StokSeviye	→ ürün/stok
+CariHrk	→ müşteri
+StokHrk	→ ürün/stok
+CariHesap	→ müşteri
+OptikCari	→ müşteri, reçete
+CariFisDt	→ müşteri
+OptikStokHrk	→ ürün/stok, reçete
+CariFis	→ müşteri
+StokBarkod	→ ürün/stok
+OptikStok	→ ürün/stok, reçete
+Stok	→ ürün/stok
+UtsStok	→ ürün/stok
+tmpStokhrk	→ ürün/stok
+tmpOptikhrk	→ reçete
+CariGrup	→ müşteri
+FaturaDt	→ satış
+Fatura	→ satış
+StokDagitDt	→ ürün/stok
+StokAltGrup	→ ürün/stok
+StokMarkaAnaGrup	→ ürün/stok
+StokResim	→ ürün/stok
+StokMarka	→ ürün/stok
+UtsMarka	→ ürün/stok
+StokDagitHrk	→ ürün/stok
+KrediKartSozlesmeTaksit	→ reçete
+ArizaliUrun	→ ürün/stok
+BarkodBas	→ ürün/stok
+PersonelHesap	→ müşteri
+StokAnaGrupHesap	→ müşteri, ürün/stok
+EFatura	→ satış
+KrediKartHesap	→ müşteri
+TopluStok	→ ürün/stok
+StokBirim	→ ürün/stok
+DesignBarkod	→ ürün/stok
+BankaHesap	→ müşteri
+StokAnaGrup	→ ürün/stok
+SbrStokMiktar	→ ürün/stok
+EFaturaItem	→ satış
+CariAdres	→ müşteri
+OptikKurum	→ reçete
+OptikListe	→ reçete
+StokHrkResim	→ ürün/stok
+BarkodNumara	→ ürün/stok
+MuhasebeHesapPlan	→ müşteri
+EFaturaMukellef	→ satış
+OptikFatura	→ satış, reçete
+StokLokasyonHrkDt	→ ürün/stok
+CariOnay	→ müşteri
+Siparis	→ satış
+OptikListeFiyat	→ reçete
+StokEKategori	→ ürün/stok
+CariLisans	→ müşteri
+StokAltGrupHesap	→ müşteri, ürün/stok
+AktarStok	→ ürün/stok
+StokKategori	→ ürün/stok
+SiparisStokHrkDt	→ satış, ürün/stok
+CariResim	→ müşteri
+xStokHrkDt	→ ürün/stok
+CamTipiToptanci	→ reçete
+StokMalzeme	→ ürün/stok
+tmpOptik	→ reçete
+CariUyari	→ müşteri
+CariBanka	→ müşteri
+SiparisDt	→ satış
+OptikListeYakinlik	→ reçete
+StokLokasyon	→ ürün/stok
+StokMarkaAltGrup	→ ürün/stok
+OptikCamSutKodu	→ reçete
+OptikCamGir	→ reçete
+StokLokasyonHrk	→ ürün/stok
+CariIskonto	→ müşteri
+xStokHrk	→ ürün/stok
+CariYetkili	→ müşteri
+CariSifre	→ müşteri
+xCariHrk	→ müşteri
+CariHesapKod	→ müşteri
+KasaNotu	→ satış
+StokHesap	→ müşteri, ürün/stok
+StokMarkaWebOrtam	→ ürün/stok
+CariGorusme	→ müşteri

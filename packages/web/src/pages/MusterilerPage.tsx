@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { searchCustomers, updateCustomer, getCustomerById } from '../api/customers.api'
+import { LegacyArchiveHistorySection } from '../components/sale/LegacyArchivePanel'
 
 type Musteri = {
   id: string
@@ -10,6 +11,7 @@ type Musteri = {
   identityNo?: string | null
   birthDate?: string | null
   ePostaEmail?: string | null
+  legacyCustomerId?: string | null
 }
 
 export default function MusterilerPage() {
@@ -183,6 +185,9 @@ export default function MusterilerPage() {
                     <span style={{ fontWeight: 600, color: '#1a1a2e' }}>{v}</span>
                   </div>
                 ) : null)}
+                {secili.legacyCustomerId ? (
+                  <LegacyArchiveHistorySection legacyCustomerId={secili.legacyCustomerId} />
+                ) : null}
               </div>
             )}
           </div>

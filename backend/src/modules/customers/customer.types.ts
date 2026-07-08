@@ -108,3 +108,9 @@ export const CreateCustomerPrescriptionInput = z.object({
 });
 export type CreateCustomerPrescriptionInputType = z.infer<typeof CreateCustomerPrescriptionInput>;
 
+export const LegacyPromoteInput = z.object({
+  force: z.boolean().optional(),
+  mevcutMusteriId: z.string().uuid().optional(),
+});
+export type LegacyPromoteInputType = z.infer<typeof LegacyPromoteInput>;
+

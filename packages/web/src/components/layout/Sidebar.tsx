@@ -113,6 +113,24 @@ export default function Sidebar() {
           ⇄ Transferler
         </NavLink>
         <NavLink
+          to="/raporlarim"
+          style={({ isActive }) => ({
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            marginBottom: '4px',
+            backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
+            color: 'white',
+            textDecoration: 'none',
+            fontSize: '14px',
+            fontWeight: '500',
+          })}
+        >
+          📈 Hazır Raporlarım
+        </NavLink>
+        <NavLink
           to="/reports"
           style={({ isActive }) => ({
             display: 'flex',
@@ -128,7 +146,7 @@ export default function Sidebar() {
             fontWeight: '500',
           })}
         >
-          📊 Raporlar
+          📊 Günlük Kasa Raporu
         </NavLink>
         <NavLink
           to="/masraflar"
