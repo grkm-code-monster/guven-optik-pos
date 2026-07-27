@@ -1,0 +1,2 @@
+ALTER TABLE "User" ADD COLUMN "ekYetkiler" TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE "Personel" ADD COLUMN "ekYetkiler" TEXT[] NOT NULL DEFAULT '{}';
