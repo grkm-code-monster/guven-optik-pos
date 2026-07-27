@@ -5,8 +5,11 @@ import { ChatbotButon } from '../../components/ChatbotPanel'
 import BildirimPanel from '../../components/admin/BildirimPanel'
 import { getToplamBildirimSayac } from '../../api/bildirim.api'
 import { canSeeAdminMenuItem, type AdminUserLite } from '../../constants/ekYetki'
+import { hamburgerButtonStyle, useSidebarResponsive } from '../../hooks/useSidebarResponsive'
 
 export const adminApi = axios.create({ baseURL: '/api' })
+
+const ADMIN_SIDEBAR_WIDTH = 260
 
 adminApi.interceptors.request.use((config) => {
   const token = localStorage.getItem('admin-token')
@@ -73,6 +76,7 @@ export default function AdminLayout() {
   const navigate = useNavigate()
   const [bildirimSayac, setBildirimSayac] = useState(0)
   const [bildirimAcik, setBildirimAcik] = useState(false)
+  const { mobil, sidebarAcik, toggleSidebar, closeSidebar } = useSidebarResponsive('adminSidebarAcik')
 
   const adminUser = (() => {
     try {
@@ -143,28 +147,125 @@ export default function AdminLayout() {
     navigate('/admin/login', { replace: true })
   }
 
+  const linkKapat = () => {
+    if (mobil) closeSidebar()
+  }
+
+  const asideStyle = {
+    width: ADMIN_SIDEBAR_WIDTH,
+    backgroundColor: '#1a1a2e',
+    color: '#fff',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    padding: '20px 0',
+    minHeight: mobil ? '100vh' : '100%',
+    height: mobil ? '100vh' : 'auto',
+    ...(mobil
+      ? {
+          position: 'fixed' as const,
+          top: 0,
+          left: 0,
+          zIndex: 50,
+          transform: sidebarAcik ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 0.2s ease',
+        }
+      : {}),
+  }
+
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#f3f4f6' }}>
-      <aside
-        style={{
-          width: 260,
-          flexShrink: 0,
-          backgroundColor: '#1a1a2e',
-          color: '#fff',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '20px 0',
-        }}
-      >
-        <div style={{ padding: '0 20px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>Yönetim Paneli</div>
+    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#f3f4f6', overflowX: 'hidden' }}>
+      {mobil && sidebarAcik ? (
+        <button
+          type="button"
+          aria-label="Menüyü kapat"
+          onClick={closeSidebar}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 40,
+            border: 'none',
+            background: 'rgba(0,0,0,0.4)',
+            cursor: 'pointer',
+            padding: 0,
+          }}
+        />
+      ) : null}
+
+      {!mobil ? (
+        <div
+          style={{
+            width: sidebarAcik ? ADMIN_SIDEBAR_WIDTH : 0,
+            flexShrink: 0,
+            overflow: 'hidden',
+            transition: 'width 0.2s ease',
+          }}
+        >
+          <aside style={asideStyle}>
+            <AdminSidebarNav
+              menu={menu}
+              linkKapat={linkKapat}
+              logout={logout}
+            />
+          </aside>
+        </div>
+      ) : (
+        <aside style={asideStyle}>
+          <AdminSidebarNav
+            menu={menu}
+            linkKapat={linkKapat}
+            logout={logout}
+          />
+        </aside>
+      )}
+
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <header
+          style={{
+            height: 56,
+            backgroundColor: '#1a1a2e',
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: mobil ? '0 8px' : '0 16px',
+            gap: 8,
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+            <button
+              type="button"
+              aria-label="Menüyü aç/kapat"
+              onClick={toggleSidebar}
+              style={hamburgerButtonStyle({ background: 'rgba(255,255,255,0.1)' })}
+            >
+              ☰
+            </button>
+            <div
+              style={{
+                fontWeight: 900,
+                fontSize: 18,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Yönetim Paneli
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => setBildirimAcik(true)}
             title="Bildirimler"
             style={{
-              position: 'relative', border: 'none', background: 'rgba(255,255,255,0.1)',
-              borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 16,
+              position: 'relative',
+              border: 'none',
+              background: 'rgba(255,255,255,0.1)',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+              fontSize: 16,
+              flexShrink: 0,
             }}
           >
             🔔
@@ -179,64 +280,13 @@ export default function AdminLayout() {
               </span>
             ) : null}
           </button>
-        </div>
-        <nav style={{ flex: 1, overflowY: 'auto' }}>
-          {menu.map((group) => (
-            <div key={group.title} style={{ marginBottom: 16 }}>
-              <div
-                style={{
-                  padding: '8px 20px',
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: '0.06em',
-                  color: 'rgba(255,255,255,0.5)',
-                }}
-              >
-                {group.title}
-              </div>
-              {group.items.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    style={({ isActive }) => ({
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '10px 20px',
-                      fontSize: 14,
-                      fontWeight: isActive ? 800 : 500,
-                      color: isActive ? '#fff' : 'rgba(255,255,255,0.75)',
-                      textDecoration: 'none',
-                      backgroundColor: isActive ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    })}
-                  >
-                    {item.icon ? <span>{item.icon}</span> : null}
-                    {item.label}
-                  </NavLink>
-              ))}
-            </div>
-          ))}
-        </nav>
-        <button
-          type="button"
-          onClick={logout}
-          style={{
-            margin: '12px 20px 0',
-            padding: '12px',
-            borderRadius: 10,
-            border: '1px solid rgba(255,255,255,0.2)',
-            background: 'transparent',
-            color: '#fff',
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          Çıkış
-        </button>
-      </aside>
-      <main style={{ flex: 1, padding: 24, overflow: 'auto' }}>
-        <Outlet />
-      </main>
+        </header>
+
+        <main style={{ flex: 1, padding: mobil ? 12 : 24, overflow: 'auto' }}>
+          <Outlet />
+        </main>
+      </div>
+
       <ChatbotButon />
       <BildirimPanel
         acik={bildirimAcik}
@@ -244,5 +294,74 @@ export default function AdminLayout() {
         onSayacGuncelle={sayacYukle}
       />
     </div>
+  )
+}
+
+function AdminSidebarNav({
+  menu,
+  linkKapat,
+  logout,
+}: {
+  menu: MenuGroup[]
+  linkKapat: () => void
+  logout: () => void
+}) {
+  return (
+    <>
+      <nav style={{ flex: 1, overflowY: 'auto' }}>
+        {menu.map((group) => (
+          <div key={group.title} style={{ marginBottom: 16 }}>
+            <div
+              style={{
+                padding: '8px 20px',
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: '0.06em',
+                color: 'rgba(255,255,255,0.5)',
+              }}
+            >
+              {group.title}
+            </div>
+            {group.items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={linkKapat}
+                style={({ isActive }) => ({
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '10px 20px',
+                  fontSize: 14,
+                  fontWeight: isActive ? 800 : 500,
+                  color: isActive ? '#fff' : 'rgba(255,255,255,0.75)',
+                  textDecoration: 'none',
+                  backgroundColor: isActive ? 'rgba(255,255,255,0.1)' : 'transparent',
+                })}
+              >
+                {item.icon ? <span>{item.icon}</span> : null}
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+        ))}
+      </nav>
+      <button
+        type="button"
+        onClick={logout}
+        style={{
+          margin: '12px 20px 0',
+          padding: '12px',
+          borderRadius: 10,
+          border: '1px solid rgba(255,255,255,0.2)',
+          background: 'transparent',
+          color: '#fff',
+          fontWeight: 700,
+          cursor: 'pointer',
+        }}
+      >
+        Çıkış
+      </button>
+    </>
   )
 }

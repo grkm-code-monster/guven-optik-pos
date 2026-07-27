@@ -2,20 +2,43 @@ import { NavLink } from 'react-router-dom'
 import { useAuthStore } from '../../store/auth.store'
 import { canAccessAtolye } from '../../utils/atolyeAccess'
 
-export default function Sidebar() {
+const SIDEBAR_WIDTH = 240
+
+type Props = {
+  acik: boolean
+  mobil: boolean
+  onKapat: () => void
+}
+
+export default function Sidebar({ acik, mobil, onKapat }: Props) {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const showAtolye = canAccessAtolye(user)
 
+  const linkKapat = () => {
+    if (mobil) onKapat()
+  }
+
   return (
     <div
       style={{
-        width: '240px',
+        width: SIDEBAR_WIDTH,
         backgroundColor: '#C8102E',
-        minHeight: '100vh',
+        minHeight: mobil ? '100vh' : '100%',
+        height: mobil ? '100vh' : 'auto',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
+        ...(mobil
+          ? {
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              zIndex: 50,
+              transform: acik ? 'translateX(0)' : 'translateX(-100%)',
+              transition: 'transform 0.2s ease',
+            }
+          : {}),
       }}
     >
       {/* LOGO */}
@@ -27,10 +50,11 @@ export default function Sidebar() {
       </div>
 
       {/* NAV */}
-      <nav style={{ flex: 1, padding: '16px 12px' }}>
+      <nav style={{ flex: 1, padding: '16px 12px', overflowY: 'auto' }}>
         <NavLink
           to="/"
           end
+          onClick={linkKapat}
           style={({ isActive }) => ({
             display: 'flex',
             alignItems: 'center',
@@ -51,6 +75,7 @@ export default function Sidebar() {
           <NavLink
             to="/sales"
             end
+            onClick={linkKapat}
             style={({ isActive }) => ({
               display: 'flex',
               alignItems: 'center',
@@ -68,6 +93,7 @@ export default function Sidebar() {
           </NavLink>
           <NavLink
             to="/sales/new"
+            onClick={linkKapat}
             style={({ isActive }) => ({
               display: 'flex',
               alignItems: 'center',
@@ -85,6 +111,7 @@ export default function Sidebar() {
           </NavLink>
           <NavLink
             to="/musteriler"
+            onClick={linkKapat}
             style={({ isActive }) => ({
               display: 'flex', alignItems: 'center', gap: '10px',
               padding: '8px 12px 8px 28px', borderRadius: '8px', marginBottom: '4px',
@@ -98,6 +125,7 @@ export default function Sidebar() {
         </div>
         <NavLink
           to="/transferler"
+          onClick={linkKapat}
           style={({ isActive }) => ({
             display: 'flex',
             alignItems: 'center',
@@ -116,6 +144,7 @@ export default function Sidebar() {
         </NavLink>
         <NavLink
           to="/raporlarim"
+          onClick={linkKapat}
           style={({ isActive }) => ({
             display: 'flex',
             alignItems: 'center',
@@ -134,6 +163,7 @@ export default function Sidebar() {
         </NavLink>
         <NavLink
           to="/reports"
+          onClick={linkKapat}
           style={({ isActive }) => ({
             display: 'flex',
             alignItems: 'center',
@@ -152,6 +182,7 @@ export default function Sidebar() {
         </NavLink>
         <NavLink
           to="/masraflar"
+          onClick={linkKapat}
           style={({ isActive }) => ({
             display: 'flex',
             alignItems: 'center',
@@ -170,6 +201,7 @@ export default function Sidebar() {
         </NavLink>
         <NavLink
           to="/acik-hesap"
+          onClick={linkKapat}
           style={({ isActive }) => ({
             display: 'flex',
             alignItems: 'center',
@@ -188,6 +220,7 @@ export default function Sidebar() {
         </NavLink>
         <NavLink
           to="/teslimat"
+          onClick={linkKapat}
           style={({ isActive }) => ({
             display: 'flex',
             alignItems: 'center',
@@ -207,6 +240,7 @@ export default function Sidebar() {
         {showAtolye && (
           <NavLink
             to="/atolye"
+            onClick={linkKapat}
             style={({ isActive }) => ({
               display: 'flex',
               alignItems: 'center',
@@ -226,6 +260,7 @@ export default function Sidebar() {
         )}
         <NavLink
           to="/garanti"
+          onClick={linkKapat}
           style={({ isActive }) => ({
             display: 'flex',
             alignItems: 'center',
@@ -244,6 +279,7 @@ export default function Sidebar() {
         </NavLink>
         <NavLink
           to="/stok-sorgula"
+          onClick={linkKapat}
           style={({ isActive }) => ({
             display: 'flex',
             alignItems: 'center',
@@ -288,3 +324,4 @@ export default function Sidebar() {
   )
 }
 
+export { SIDEBAR_WIDTH as POS_SIDEBAR_WIDTH }
