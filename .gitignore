@@ -6,3 +6,5 @@ dist/
 .DS_Store
 .curl-response.json
 .tmp-*.mjs
+logs/*.log
+logs/*.json

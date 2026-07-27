@@ -2,6 +2,23 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 
 export const MOBILE_BREAKPOINT_PX = 768
 
+export function useIsMobile(breakpointPx: number = MOBILE_BREAKPOINT_PX): boolean {
+  const [mobil, setMobil] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.matchMedia(`(max-width: ${breakpointPx}px)`).matches
+  })
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpointPx}px)`)
+    const onChange = () => setMobil(mq.matches)
+    onChange()
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [breakpointPx])
+
+  return mobil
+}
+
 function readDesktopOpen(storageKey: string): boolean {
   return localStorage.getItem(storageKey) !== 'false'
 }

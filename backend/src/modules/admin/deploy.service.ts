@@ -16,8 +16,23 @@ export type DeployStatus = {
 /** Sabit deploy adımları — kullanıcı girdisi ASLA enjekte edilmez */
 const DEPLOY_STEPS: { id: string; label: string; cwd: string; cmd: string; args: string[] }[] = [
   { id: 'git-pull', label: 'git pull', cwd: '.', cmd: 'git', args: ['pull'] },
-  { id: 'npm-backend', label: 'npm install (backend)', cwd: 'backend', cmd: 'npm', args: ['install'] },
-  { id: 'npm-web', label: 'npm install (web)', cwd: 'packages/web', cmd: 'npm', args: ['install'] },
+  {
+    id: 'npm-backend',
+    label: 'npm install (backend)',
+    cwd: 'backend',
+    cmd: 'npm',
+    // --include=dev: backend PM2 processi NODE_ENV=production ile çalıştığı için,
+    // bu env miras alınınca npm devDependencies'i (ör. typescript) atlıyor ve
+    // sonraki build adımı "tsc: not found" ile başarısız oluyordu.
+    args: ['install', '--include=dev'],
+  },
+  {
+    id: 'npm-web',
+    label: 'npm install (web)',
+    cwd: 'packages/web',
+    cmd: 'npm',
+    args: ['install', '--include=dev'],
+  },
   {
     id: 'prisma-migrate',
     label: 'prisma migrate deploy',

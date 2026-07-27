@@ -20,7 +20,7 @@ import {
   saleNeedsLensMeasurementStep,
   type LensMeasurementDraft,
 } from '../utils/saleMeasurements'
-import { hasReceteData } from '../utils/ozelSiparisRecete'
+import { useIsMobile } from '../hooks/useSidebarResponsive'
 
 function formatMoney(v?: string) {
   if (!v) return '-'
@@ -48,6 +48,7 @@ function isValidStep(value: unknown): value is Step {
 }
 
 export default function NewSalePage() {
+  const mobil = useIsMobile()
   const storedShiftId = useAuthStore((s) => s.shiftId)
   const [searchParams] = useSearchParams()
   const resumeSaleId = searchParams.get('saleId')
@@ -270,7 +271,14 @@ export default function NewSalePage() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '16px' }}>
+    <div
+      style={{
+        display: mobil ? 'flex' : 'grid',
+        flexDirection: mobil ? 'column' : undefined,
+        gridTemplateColumns: mobil ? undefined : '1fr 320px',
+        gap: '16px',
+      }}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '12px' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
