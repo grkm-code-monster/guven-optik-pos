@@ -1,5 +1,5 @@
 # Güven Optik POS — Proje Özeti
-Son güncelleme: 07.07.2026
+Son güncelleme: 13.07.2026
 
 ## Şirket Yapısı
 - **NG** (Nejla Gümüşkesen Optik) — VKN: 23819441406 — Odoo company ID: 2
@@ -12,54 +12,60 @@ Son güncelleme: 07.07.2026
 ## Teknik Altyapı
 - Backend: Node.js + TypeScript + Prisma + PostgreSQL (port 3000)
 - Frontend: React + Vite (port 5173)
-- ERP: Odoo 16 (port 8069) — XML-RPC
+- ERP: Odoo 17 (port 8069) — XML-RPC
 - DB: optikpos (PostgreSQL)
 
 ## PDKS Mekan ID Eşleşmesi
 GVN1=5732, GVN2=5727, GVN3=5733, GVN5=5735, GVN6=5781, GVN7=5779, GVN8=8026, GVN9=5734, ANADEPO=8027, GVN10=eksik
 
 ## Entegrasyonlar
-- Odoo: Aktif (NG)
-- Uyumsoft: Aktif (NG) — e-fatura gönderme + PDF indirme çalışıyor; ADESE/POTENTIAL için altyapı hazır, gerçek credential bekleniyor
-- Patron PDKS: Aktif (GVN2, GVN10) — GVN6/7/8 403 hatası
-- UTS: Aktif (şube bazlı token)
-- İYS/KVKK: Altyapı hazır — credentials bekleniyor
-- WhatsApp Business: Bekliyor
-- Worldline POS: Bekliyor
+| Sistem | Durum |
+|--------|--------|
+| Odoo | Aktif — çok şirketli (NG/ADESE/POTENTIAL) |
+| Uyumsoft e-Fatura | NG: POS satışları gönderiliyor; **şirketler arası transfer faturaları GİTMİYOR** (Not #50) |
+| Uyumsoft e-İrsaliye | Kod hazır; NG yetki eksik (EFT-IST-SRVS12); aynı şirket içi teyit edilmedi |
+| Patron PDKS | GVN2/GVN10 aktif; GVN6/7/8 → 403 |
+| UTS | Manuel bildirim ekranı var; **transfer akışında otomatik bildirim YOK** (Not #49) |
+| İYS/KVKK | Altyapı hazır — credentials bekleniyor |
+| WhatsApp / Worldline | Bekliyor |
 
-## Tamamlanan Modüller
-- POS: Müşteri arama (POS+Odoo), reçete 2 sekme, stok cam SPH+CYL öneri+transpoze, DRAFT devam, KVK mock
-- Satışlar: Liste (PAID varsayılan), detay 3 sekme, DRAFT devam butonu
-- Müşteriler: Arama+düzenleme, TC kimlik, Odoo birleşik, satış görüntüleme
-- Depo: Uyumsoft fatura, bekleyen fatura kartları, sipariş ürün girişi, transfer
-- Admin: Tanımlamalar, Şirket Tanımları (NG/ADESE/POTENTIAL), İYS modal, Kampanyalar
-- Dashboard: DRAFT uyarısı, Görevler sekmesi
-- Garanti: Temel kayıt (GTK-XXXX), lot izlenebilirlik, iade flow DB altyapısı
-- Muhasebe: SGK/Vakıf gerçek ödeme kaydı + Odoo journal entegrasyonu, e-fatura PDF indirme, satış iptalinde Odoo güvenlik kontrolü
-- Satış: Ölçüm kaydı kalıcı, ölçüm ekranı gruplama, Bakım/hizmet ürünleri desteği
-- Belgeler: Satış Belgesi + Resmi Fatura + Reçete + Ölçüm tek ekrandan (SaleDetailPage → Belgeler sekmesi)
+## Tamamlanan Modüller (güncel)
+- **POS:** Müşteri (POS+Odoo), reçete, stok cam öneri, DRAFT devam, confirmSale race koruması, draftMeta
+- **Satış:** Liste/detay, ölçüm kalıcı, VOID Odoo güvenliği, açık hesap FIFO toplu ödeme
+- **Depo:** Uyumsoft gelen fatura, ürün girişi, **Lot Transfer** (`transfer-olustur`), **Excel Toplu Envanter** (3 faz), sayım gerçek Odoo yazımı
+- **Transfer:** Şirket içi picking; şirketler arası `executeSirketlerArasiTransfer` (fatura+picking+rollback); e-İrsaliye kısmen
+- **Stok:** Stok Kontrol, Fiyatı Değişen Ürünler (5 faz), stok-adjustment servisi
+- **Ürün:** Yapılandırma, dynamic varyant (Not #29), 1383 junk varyant temizliği, import sonrası otomatik temizlik
+- **Laboratuvar:** Atölye ekranı, kırılma bildirimi, LabIncident, rapor entegrasyonu
+- **Admin:** Tanımlamalar, Kampanyalar, Garanti/İade (Odoo transfer bağlı), Özel Sipariş şirketler arası
+- **Muhasebe:** SGK/Vakıf ödeme, e-fatura POS satış, PDF indirme
+
+## KRİTİK açık sorunlar (13.07.2026)
+1. **Not #50** — Şirketler arası transfer Odoo faturası Uyumsoft/GİB'e gitmiyor
+2. **Not #49** — Hiçbir transfer yolunda UTS bildirimi yok
+3. **Not #48** — Stok Kontrol transferinde lot/UTS seçimi eksik
+4. **Transfer 4'lüsü** merkezi değil — lot taşıma / e-irsaliye / e-fatura / UTS ayrı köşelerde
+
+## Transfer prensibi (hedef)
+Her transferde birlikte: (1) stok/lot taşıma ✅ (2) e-İrsaliye ⚠️ (3) e-Fatura (şirketler arası) ❌ Uyumsoft (4) UTS ❌
 
 ## Yapılacaklar (Öncelik)
-1. Kullanıcı/personel kurulumu — tüm şubeler
-2. İYS entegrasyonu — credentials gelince
-3. ADESE/POTENTIAL Uyumsoft — credentials bekleniyor
-4. GVN6/7/8 PDKS — 403 hatası, destek bekleniyor
-5. GVN10 PDKS mekan ID — eksik
-6. Worldline — haber bekleniyor
-7. WhatsApp Business API
-8. Tedarikçi ürün adı kaydı
+1. **Not #50** — Şirketler arası e-Fatura → FaturaKuyruk/Uyumsoft
+2. **Not #49** — Transfer UTS bildirimi
+3. **Not #48** — Stok Kontrol lot seçimi (Lot Transfer referans)
+4. Merkezi transfer sonrası aksiyon paketi
+5. e-İrsaliye yetki (NG) + aynı şirket içi teyit
+6. ADESE/POTENTIAL Uyumsoft credentials
+7. GVN6/7/8 PDKS 403, GVN10 mekan ID
+8. Not #44 — Eski Odoo veri aktarımı
+9. PROMAX etiket test, UTS envanter Excel (kullanıcıdan)
 
-## DB Notları (03.07.2026)
-- Migration reset yapıldı — Campaign, SirketAyar tabloları direkt SQL ile oluşturuldu
-- WarrantyClaim: 6 yeni alan (returnBranchId, supplierId, returnDeadline, cargoTrackingNo, adminApprovedAt, adminApprovedBy)
-- Şubeler yeniden oluşturuldu: ANADEPO, GVN1-3, GVN5-10
-- Enum'lar (CampaignType, CampaignScope) direkt SQL ile oluşturuldu
-
-## Önemli Dosyalar
-- backend/src/modules/admin/admin.controller.ts (~5700+ satır)
-- backend/src/modules/odoo/odoo.service.ts
-- backend/src/modules/pdks/pdks.service.ts
-- backend/src/modules/warranty/warranty.service.ts
-- packages/web/src/pages/admin/DepoPage.tsx (~1400 satır)
-- packages/web/src/components/sale/CustomerStep.tsx (~1532 satır)
-- packages/web/src/components/sale/ItemsStep.tsx (~1089 satır)
+## Önemli dosyalar (güncel)
+- `backend/src/modules/admin/sirketler-arasi-transfer.service.ts` — şirketler arası transfer
+- `backend/src/modules/admin/transfer-olustur.service.ts` — Lot Transfer + ortak transfer girişi
+- `backend/src/modules/admin/stock-adjustment.service.ts` — sayım + envanter stok yazımı
+- `backend/src/modules/admin/envanter-import-*.ts` — Excel toplu envanter
+- `backend/src/modules/admin/varyant-import-temizlik.service.ts` — varyant otomatik temizlik
+- `backend/src/modules/efatura/uyumsoft-efatura.service.ts` — e-Fatura (POS; transfer hariç)
+- `packages/web/src/pages/admin/DepoPage.tsx` — Depo (Lot Transfer, Excel Envanter, sayım)
+- `packages/web/src/components/depo/ExcelEnvanterImportTab.tsx` — Excel envanter UI

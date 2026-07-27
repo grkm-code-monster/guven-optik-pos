@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Sale } from '../../api/types'
 import type { PricingOverview } from '../../utils/sgkPricing'
 import { apiClient } from '../../api/client'
@@ -51,6 +51,7 @@ export default function PaymentStep({
   onBack,
   deferConfirm = false,
   pricingOverview = null,
+  initialPayload = null,
 }: {
   sale: Sale | null
   onNext: (payload?: PendingPaymentPayload) => void
@@ -58,6 +59,7 @@ export default function PaymentStep({
   /** true: ödemeyi kaydetmeden sonraki adıma geç (onay adımında confirm) */
   deferConfirm?: boolean
   pricingOverview?: PricingOverview | null
+  initialPayload?: PendingPaymentPayload | null
 }) {
   const netTotal =
     pricingOverview?.customerPaysTRY != null
@@ -78,6 +80,26 @@ export default function PaymentStep({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [faturaKesilsin, setFaturaKesilsin] = useState(true)
+  const initialPayloadApplied = useRef(false)
+
+  useEffect(() => {
+    if (!initialPayload?.payments?.length || initialPayloadApplied.current) return
+    initialPayloadApplied.current = true
+    setRows(
+      initialPayload.payments.map((r) => ({
+        id: crypto.randomUUID(),
+        paymentType: r.paymentType as UiPaymentType,
+        grossAmount: r.grossAmount,
+        bankId: r.bankId,
+        posDeviceId: r.posDeviceId,
+        installment: r.installment,
+        bankName: r.bankName,
+      })),
+    )
+    if (initialPayload.faturaKesilsin !== undefined) {
+      setFaturaKesilsin(initialPayload.faturaKesilsin)
+    }
+  }, [initialPayload])
 
   const totalPayments = useMemo(() => rows.reduce((acc, r) => acc + Number(r.grossAmount || 0), 0), [rows])
   const remaining = useMemo(() => Math.max(0, netTotal - totalPayments), [netTotal, totalPayments])

@@ -12,10 +12,23 @@ import {
 } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import { appendPartnerNote, execute } from '../odoo/odoo.service';
+import { getCompanyIdFromLokasyon, resolveBranchStockLocationId } from '../odoo/odooLocations';
+import { resolveWarehouseIdForCompany, validateSalePickingsFromBranch } from '../odoo/odoo-delivery.util';
+import { ODOO_TAX_CHART_COMPANY_ID, readProductSaleTaxRate, resolvePosLineTax } from '../odoo/odoo-tax.util';
 import { createBildirimler } from '../bildirim/bildirim.service';
 import { calculateCommission } from '../payments/commission.service';
 import { tetikleSatisEFatura } from '../efatura/uyumsoft-efatura.service';
-import type { AddSaleItemInputType, ConfirmSaleInputType, CreateSaleInputType, VoidSaleInputType } from './sale.types';
+import { generateSatisReferansNo } from '../shared/referans-no.util';
+import type {
+  AddSaleItemInputType,
+  ConfirmSaleInputType,
+  CreateSaleInputType,
+  UpdateDraftMetaInputType,
+  VoidSaleInputType,
+} from './sale.types';
+import { isLabEligibleSaleItem, refreshLabCategoryFromOdoo } from './sale-item-lab.util';
+import { calcInclusiveLineAmounts, resolveSaleItemTaxRate } from './sale-tax.util';
+import type { JwtPayload } from '../auth/auth.types';
 
 function codeError(code: string, message: string) {
   const err = new Error(code) as Error & { code: string; message: string };
@@ -105,16 +118,35 @@ async function recalcSaleTotals(
 ) {
   const items = await db.saleItem.findMany({
     where: { saleId, status: { not: ItemStatus.VOID } },
-    select: { unitPrice: true, qty: true, discount: true, taxAmount: true },
+    include: { product: { select: { taxRate: true } } },
   });
 
-  const grossTotal = items.reduce(
-    (acc, it) => acc.plus(it.unitPrice.times(it.qty)),
-    new Prisma.Decimal(0),
-  );
-  const discountTotal = items.reduce((acc, it) => acc.plus(it.discount), new Prisma.Decimal(0));
-  const taxTotal = items.reduce((acc, it) => acc.plus(it.taxAmount), new Prisma.Decimal(0));
-  const netTotal = grossTotal.minus(discountTotal).plus(taxTotal);
+  let taxTotal = new Prisma.Decimal(0);
+  let grossTotal = new Prisma.Decimal(0);
+  let discountTotal = new Prisma.Decimal(0);
+
+  for (const item of items) {
+    const taxRateNum = await resolveSaleItemTaxRate({
+      odooProductId: item.odooProductId,
+      productTaxRate: item.product.taxRate,
+    });
+    const taxRate = new Prisma.Decimal(taxRateNum);
+    const { taxAmount, lineTotal } = calcInclusiveLineAmounts({
+      unitPrice: item.unitPrice,
+      qty: item.qty,
+      discount: item.discount,
+      taxRate,
+    });
+    await db.saleItem.update({
+      where: { id: item.id },
+      data: { taxRate, taxAmount, lineTotal },
+    });
+    grossTotal = grossTotal.plus(item.unitPrice.times(item.qty));
+    discountTotal = discountTotal.plus(item.discount);
+    taxTotal = taxTotal.plus(taxAmount);
+  }
+
+  const netTotal = grossTotal.minus(discountTotal);
 
   return db.sale.update({
     where: { id: saleId },
@@ -148,7 +180,7 @@ export async function addSaleItem(saleId: string, input: AddSaleItemInputType) {
   if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
   if (sale.status !== SaleStatus.DRAFT) throw codeError('SALE_NOT_EDITABLE', 'Satış düzenlenemez.');
 
-  const { product, resolvedProductId, resolvedOdooProductId, resolvedOdooProductName, isOdooPlaceholder } =
+  const { product, resolvedProductId, resolvedOdooProductId, resolvedOdooProductName } =
     await resolveProductForInput(input);
 
   if (isLensCategory(product, input)) {
@@ -162,16 +194,19 @@ export async function addSaleItem(saleId: string, input: AddSaleItemInputType) {
   const unitPrice = new Prisma.Decimal(input.unitPrice);
   const discount = new Prisma.Decimal(input.discount);
   const qty = input.qty;
-  const taxRate =
-    (input as any).taxRate != null
-      ? new Prisma.Decimal((input as any).taxRate)
-      : isOdooPlaceholder
-        ? new Prisma.Decimal(20)
-        : new Prisma.Decimal(product.taxRate.toString());
+  const taxRateNum = await resolveSaleItemTaxRate({
+    inputTaxRate: (input as { taxRate?: number | null }).taxRate,
+    odooProductId: resolvedOdooProductId,
+    productTaxRate: product.taxRate,
+  });
+  const taxRate = new Prisma.Decimal(taxRateNum);
 
-  const base = unitPrice.times(qty);
-  const taxAmount = base.times(taxRate.div(100));
-  const lineTotal = base.minus(discount).plus(taxAmount);
+  const { taxAmount, lineTotal } = calcInclusiveLineAmounts({
+    unitPrice,
+    qty,
+    discount,
+    taxRate,
+  });
 
   const result = await prisma.$transaction(async (tx) => {
     const saleItem = await tx.saleItem.create({
@@ -185,6 +220,7 @@ export async function addSaleItem(saleId: string, input: AddSaleItemInputType) {
         qty,
         unitPrice,
         discount,
+        taxRate,
         taxAmount,
         lineTotal,
         linkedItemId: input.linkedItemId,
@@ -316,7 +352,7 @@ export async function updateSaleItem(saleItemId: string, input: AddSaleItemInput
   if (!saleItem) throw codeError('SALE_ITEM_NOT_FOUND', 'Kalem bulunamadı.');
   if (saleItem.sale.status !== SaleStatus.DRAFT) throw codeError('SALE_NOT_EDITABLE', 'Satış düzenlenemez.');
 
-  const { product, resolvedProductId, resolvedOdooProductId, resolvedOdooProductName, isOdooPlaceholder } =
+  const { product, resolvedProductId, resolvedOdooProductId, resolvedOdooProductName } =
     await resolveProductForInput(input);
 
   if (isLensCategory(product, input)) {
@@ -330,15 +366,18 @@ export async function updateSaleItem(saleItemId: string, input: AddSaleItemInput
   const unitPrice = new Prisma.Decimal(input.unitPrice);
   const discount = new Prisma.Decimal(input.discount);
   const qty = input.qty;
-  const taxRate =
-    (input as any).taxRate != null
-      ? new Prisma.Decimal((input as any).taxRate)
-      : isOdooPlaceholder
-        ? new Prisma.Decimal(20)
-        : new Prisma.Decimal(product.taxRate.toString());
-  const base = unitPrice.times(qty);
-  const taxAmount = base.times(taxRate.div(100));
-  const lineTotal = base.minus(discount).plus(taxAmount);
+  const taxRateNum = await resolveSaleItemTaxRate({
+    inputTaxRate: (input as { taxRate?: number | null }).taxRate,
+    odooProductId: resolvedOdooProductId,
+    productTaxRate: product.taxRate,
+  });
+  const taxRate = new Prisma.Decimal(taxRateNum);
+  const { taxAmount, lineTotal } = calcInclusiveLineAmounts({
+    unitPrice,
+    qty,
+    discount,
+    taxRate,
+  });
 
   const updated = await prisma.$transaction(async (tx) => {
     const upd = await tx.saleItem.update({
@@ -352,6 +391,7 @@ export async function updateSaleItem(saleItemId: string, input: AddSaleItemInput
         qty,
         unitPrice,
         discount,
+        taxRate,
         taxAmount,
         lineTotal,
         linkedItemId: input.linkedItemId,
@@ -454,25 +494,190 @@ export async function removeSaleItem(saleItemId: string) {
   return { ok: true };
 }
 
+const STATUS_ALLOWED_ROLES: Partial<Record<ItemStatus, Role[]>> = {
+  ORDERED: [Role.SALES_STAFF, Role.STORE_MANAGER, Role.WAREHOUSE_MANAGER, Role.ADMIN],
+  IN_LAB: [Role.WORKSHOP_STAFF, Role.WAREHOUSE_MANAGER, Role.STORE_MANAGER, Role.ADMIN],
+  READY: [Role.WORKSHOP_STAFF, Role.WAREHOUSE_MANAGER, Role.STORE_MANAGER, Role.ADMIN],
+  DELIVERED: [Role.SALES_STAFF, Role.STORE_MANAGER, Role.ADMIN],
+  PENDING: [Role.ADMIN, Role.STORE_MANAGER],
+};
+
+function assertStatusTransitionAllowed(
+  role: Role,
+  targetStatus: ItemStatus,
+  canWorkAtolye = false,
+): void {
+  const atolyeStatuses: ItemStatus[] = [ItemStatus.IN_LAB, ItemStatus.READY];
+  if (canWorkAtolye && atolyeStatuses.includes(targetStatus)) {
+    return;
+  }
+
+  const allowed = STATUS_ALLOWED_ROLES[targetStatus];
+  if (!allowed?.includes(role)) {
+    throw codeError('FORBIDDEN_STATUS_TRANSITION', 'Bu durum geçişi için yetkiniz yok.');
+  }
+}
+
 export async function updateSaleItemStatus(
   saleItemId: string,
   status: ItemStatus,
-  deliveryDate?: Date | null,
+  role: Role,
+  canWorkAtolye = false,
+  options?: {
+    deliveryDate?: Date | null;
+    atolyeBranchId?: string;
+    userId?: string;
+  },
 ) {
-  const saleItem = await prisma.saleItem.update({
+  assertStatusTransitionAllowed(role, status, canWorkAtolye);
+
+  const existing = await prisma.saleItem.findUnique({
     where: { id: saleItemId },
-    data: {
-      status,
-      ...(deliveryDate !== undefined ? { deliveryDate } : {}),
-    },
+    include: { product: { select: { category: true } } },
+  });
+  if (!existing) throw codeError('SALE_ITEM_NOT_FOUND', 'Kalem bulunamadı.');
+
+  const data: Prisma.SaleItemUpdateInput = {
+    status,
+    ...(options?.deliveryDate !== undefined ? { deliveryDate: options.deliveryDate } : {}),
+  };
+
+  if (status === ItemStatus.IN_LAB) {
+    const refreshed = await refreshLabCategoryFromOdoo({ ...existing, id: saleItemId });
+    if (!isLabEligibleSaleItem(refreshed)) {
+      throw codeError(
+        'NOT_LAB_ELIGIBLE_ITEM',
+        'Bu ürün laboratuvar sürecine tabi değil. Cam/lens kalemini seçin; çerçeve kalemleri laboratuvara gönderilemez.',
+      );
+    }
+
+    const atolyeBranchId = options?.atolyeBranchId?.trim();
+    if (!atolyeBranchId) {
+      throw codeError('ATOLYE_BRANCH_REQUIRED', 'Laboratuvara gönderim için atölye şubesi seçilmelidir.');
+    }
+
+    const branch = await prisma.branch.findUnique({ where: { id: atolyeBranchId } });
+    if (!branch?.hasAtolye) {
+      throw codeError('ATOLYE_BRANCH_INVALID', 'Seçilen şubenin atölyesi yok.');
+    }
+
+    data.atolyeBranchId = atolyeBranchId;
+    data.sentToLabAt = new Date();
+    data.sentToLabByUserId = options?.userId ?? null;
+  }
+
+  const saleItem = await prisma.$transaction(async (tx) => {
+    const updated = await tx.saleItem.update({
+      where: { id: saleItemId },
+      data,
+    });
+    if (status === ItemStatus.READY) {
+      await tx.sale.update({
+        where: { id: existing.saleId },
+        data: { updatedAt: new Date() },
+      });
+    }
+    return updated;
   });
   return saleItem;
 }
 
+const ATOLYE_PANEL_ROLES: Role[] = [
+  Role.WORKSHOP_STAFF,
+  Role.STORE_MANAGER,
+  Role.ADMIN,
+  Role.WAREHOUSE_MANAGER,
+];
+
+function hasAtolyePanelAccess(user: JwtPayload): boolean {
+  if (user.canWorkAtolye) return true;
+  return ATOLYE_PANEL_ROLES.includes(user.role);
+}
+
+function assertAtolyeKuyrukAccess(user: JwtPayload, branchId: string): void {
+  if (!hasAtolyePanelAccess(user)) {
+    throw codeError('INSUFFICIENT_PERMISSION', 'Bu işlem için yetkiniz yok.');
+  }
+
+  const crossBranchRoles: Role[] = [Role.ADMIN, Role.STORE_MANAGER];
+  if (!crossBranchRoles.includes(user.role) && branchId !== user.branchId) {
+    throw codeError('FORBIDDEN_ATOLYE_BRANCH', 'Bu atölye kuyruğuna erişim yetkiniz yok.');
+  }
+}
+
+export function assertAtolyePanelAccess(user: JwtPayload, branchId: string): void {
+  assertAtolyeKuyrukAccess(user, branchId);
+}
+
+function istanbulDayBounds(now = new Date()): { start: Date; end: Date } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const y = parts.find((p) => p.type === 'year')?.value ?? '1970';
+  const m = parts.find((p) => p.type === 'month')?.value ?? '01';
+  const d = parts.find((p) => p.type === 'day')?.value ?? '01';
+  const start = new Date(`${y}-${m}-${d}T00:00:00+03:00`);
+  const end = new Date(`${y}-${m}-${d}T23:59:59.999+03:00`);
+  return { start, end };
+}
+
+export async function getAtolyeKuyruk(
+  user: JwtPayload,
+  branchId: string,
+  durum: 'IN_LAB' | 'READY',
+) {
+  assertAtolyeKuyrukAccess(user, branchId);
+
+  const where: Prisma.SaleItemWhereInput = {
+    atolyeBranchId: branchId,
+    status: durum,
+    sale: { status: SaleStatus.PAID },
+  };
+
+  if (durum === 'READY') {
+    const { start, end } = istanbulDayBounds();
+    where.OR = [
+      { sentToLabAt: { gte: start, lte: end } },
+      { sale: { updatedAt: { gte: start, lte: end } } },
+    ];
+  }
+
+  return prisma.saleItem.findMany({
+    where,
+    include: {
+      product: { select: { name: true, category: true } },
+      sale: {
+        select: {
+          id: true,
+          createdAt: true,
+          customer: { select: { name: true, phone: true } },
+        },
+      },
+    },
+    orderBy: durum === 'IN_LAB'
+      ? [{ sentToLabAt: 'asc' }, { sale: { createdAt: 'asc' } }]
+      : [{ sale: { updatedAt: 'desc' } }, { sentToLabAt: 'desc' }],
+  });
+}
+
+export async function getAtolyeBranches() {
+  return prisma.branch.findMany({
+    where: { hasAtolye: true, isActive: true },
+    select: { id: true, name: true, code: true },
+    orderBy: { name: 'asc' },
+  });
+}
+
 export async function confirmSale(saleId: string, userId: string, role: Role, input: ConfirmSaleInputType) {
-  const sale = await prisma.sale.findUnique({ where: { id: saleId } });
+  let sale = await prisma.sale.findUnique({ where: { id: saleId } });
   if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
   if (sale.status !== SaleStatus.DRAFT) throw codeError('SALE_NOT_EDITABLE', 'Satış düzenlenemez.');
+
+  await recalcSaleTotals(prisma, saleId);
+  sale = await prisma.sale.findUniqueOrThrow({ where: { id: saleId } });
 
   const now = new Date();
   const paymentsToCreate: Array<{
@@ -584,21 +789,38 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
   const expectedTotal = sale.netTotal.minus(thirdParty);
 
   const result = await prisma.$transaction(async (tx) => {
-    await tx.payment.createMany({ data: paymentsToCreate });
-    if (cashMovementsToCreate.length) {
-      await tx.cashMovement.createMany({ data: cashMovementsToCreate });
-    }
-    const updatedSale = await tx.sale.update({
-      where: { id: saleId },
+    const claim = await tx.sale.updateMany({
+      where: { id: saleId, status: SaleStatus.DRAFT },
       data: {
         status: SaleStatus.PAID,
         sgkAmount: input.sgkAmount > 0 ? new Prisma.Decimal(input.sgkAmount) : undefined,
         prescriptionAmount: input.vakifAmount > 0 ? new Prisma.Decimal(input.vakifAmount) : undefined,
       },
     });
+    if (claim.count === 0) {
+      throw codeError('SALE_ALREADY_PROCESSING', 'Satış zaten işleniyor veya onaylanmış.');
+    }
+
+    await tx.payment.createMany({ data: paymentsToCreate });
+    if (cashMovementsToCreate.length) {
+      await tx.cashMovement.createMany({ data: cashMovementsToCreate });
+    }
+    const updatedSale = await tx.sale.findUniqueOrThrow({ where: { id: saleId } });
     const payments = await tx.payment.findMany({ where: { saleId } });
     return { sale: updatedSale, payments };
   });
+
+  if (!result.sale.referansNo) {
+    const branchRow = await prisma.branch.findUnique({
+      where: { id: sale.branchId },
+      select: { code: true },
+    });
+    const referansNo = await generateSatisReferansNo(branchRow?.code ?? 'GVN1');
+    result.sale = await prisma.sale.update({
+      where: { id: saleId },
+      data: { referansNo },
+    });
+  }
 
   try {
     // 1. Müşteriyi bul
@@ -678,78 +900,99 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
       }
     }
 
-    const orderLines = saleItems
-      .filter((item) => item.odooProductId)
-      .map((item) => [
-        0,
-        0,
-        {
-          ...(typeof (item as any).odooTaxId === 'number' && (item as any).odooTaxId > 0
-            ? { tax_id: [[6, 0, [(item as any).odooTaxId]]] }
-            : {}),
-          product_id: parseInt(item.odooProductId!, 10),
-          product_uom_qty: item.qty,
-          price_unit: Number(item.unitPrice),
-          // KDV Odoo'da hesaplanmasın — fiyat KDV dahil
-          discount:
-            Number(item.unitPrice) * item.qty > 0
-              ? Math.min(100, (Number(item.discount) / (Number(item.unitPrice) * item.qty)) * 100)
-              : 0,
-          name: (() => {
-            const base = item.odooProductName ?? item.product?.name ?? 'Ürün';
-            const m = (input.lensOrderMeasurements ?? []).find((x: any) => x.saleItemId === item.id);
-            if (!m) return base;
-            const parts: string[] = [];
-            if (m.rph) parts.push(`RPH:${m.rph}`);
-            if (m.lph) parts.push(`LPH:${m.lph}`);
-            if (m.corridor) parts.push(`Kor:${m.corridor}`);
-            if (m.rightDia) parts.push(`RDia:${m.rightDia}`);
-            if (m.leftDia) parts.push(`LDia:${m.leftDia}`);
-            if (m.vertex) parts.push(`Vtx:${m.vertex}`);
-            if (m.pantoscopic) parts.push(`Pan:${m.pantoscopic}`);
-            if (m.frameBow) parts.push(`FBow:${m.frameBow}`);
-            if (parts.length === 0) return base;
-            return `${base} | ${parts.join(', ')}`;
-          })(),
-        },
-      ]);
+    const branch = await prisma.branch.findUnique({
+      where: { id: sale.branchId },
+      select: { code: true, odooLocationId: true },
+    });
+    const branchCode = branch?.code ?? 'GVN1';
+    const odooCompanyId = getCompanyIdFromLokasyon(branchCode) ?? ODOO_TAX_CHART_COMPANY_ID;
+    const taxCompanyId = ODOO_TAX_CHART_COMPANY_ID;
 
-    if (orderLines.length === 0) {
+    const orderLines: Array<[0, 0, Record<string, unknown>]> = [];
+    for (const item of saleItems.filter((it) => it.odooProductId)) {
+      const odooProductId = parseInt(item.odooProductId!, 10);
+      const taxRate = await readProductSaleTaxRate(odooProductId, taxCompanyId);
+      const { taxId: odooTaxId, priceUnit } = await resolvePosLineTax({
+        companyId: odooCompanyId,
+        taxRate,
+        unitPriceInclusive: Number(item.unitPrice),
+      });
+      const base = item.odooProductName ?? item.product?.name ?? 'Ürün';
+      const m = (input.lensOrderMeasurements ?? []).find((x: any) => x.saleItemId === item.id);
+      let name = base;
+      if (m) {
+        const parts: string[] = [];
+        if (m.rph) parts.push(`RPH:${m.rph}`);
+        if (m.lph) parts.push(`LPH:${m.lph}`);
+        if (m.corridor) parts.push(`Kor:${m.corridor}`);
+        if (m.rightDia) parts.push(`RDia:${m.rightDia}`);
+        if (m.leftDia) parts.push(`LDia:${m.leftDia}`);
+        if (m.vertex) parts.push(`Vtx:${m.vertex}`);
+        if (m.pantoscopic) parts.push(`Pan:${m.pantoscopic}`);
+        if (m.frameBow) parts.push(`FBow:${m.frameBow}`);
+        if (parts.length > 0) name = `${base} | ${parts.join(', ')}`;
+      }
       orderLines.push([
         0,
         0,
         {
+          ...(odooTaxId ? { tax_id: [[6, 0, [odooTaxId]]] } : {}),
+          product_id: parseInt(item.odooProductId!, 10),
+          product_uom_qty: item.qty,
+          // resolvePosLineTax: dahil vergi varsa fiyat aynı; yoksa matraha çevrilir — toplam değişmez
+          price_unit: priceUnit,
+          discount:
+            Number(item.unitPrice) * item.qty > 0
+              ? Math.min(100, (Number(item.discount) / (Number(item.unitPrice) * item.qty)) * 100)
+              : 0,
+          name,
+        },
+      ]);
+    }
+
+    if (orderLines.length === 0) {
+      const fallback = await resolvePosLineTax({
+        companyId: odooCompanyId,
+        taxRate: 20,
+        unitPriceInclusive: Number(sale.netTotal),
+      });
+      orderLines.push([
+        0,
+        0,
+        {
+          ...(fallback.taxId ? { tax_id: [[6, 0, [fallback.taxId]]] } : {}),
           product_id: 1,
           product_uom_qty: 1,
-          price_unit: Number(sale.netTotal),
+          price_unit: fallback.priceUnit,
           discount: 0,
           name: 'POS Satışı',
         },
       ]);
     }
 
-    // 6. Odoo sale.order oluştur ve onayla
-    const odooOrderId = await execute('sale.order', 'create', [
-      {
-        partner_id: odooPartnerId ?? 1,
-        note: `POS Satış ID: ${saleId}`,
-        order_line: orderLines,
-      },
-    ]);
-    await execute('sale.order', 'action_confirm', [[odooOrderId]]);
+    const warehouseId = await resolveWarehouseIdForCompany(odooCompanyId);
+    const odooOrderVals: Record<string, unknown> = {
+      partner_id: odooPartnerId ?? 1,
+      note: `POS Satış ID: ${saleId}`,
+      order_line: orderLines,
+      company_id: odooCompanyId,
+      ...(warehouseId ? { warehouse_id: warehouseId } : {}),
+    };
 
-    try {
-      const pickings = await execute(
-        'stock.picking',
-        'search_read',
-        [[['sale_id', '=', odooOrderId], ['state', 'not in', ['done', 'cancel']]]],
-        { fields: ['id', 'state'], limit: 10 },
-      );
-      for (const picking of pickings) {
-        await execute('stock.picking', 'button_validate', [[picking.id]]);
-      }
-    } catch (deliveryErr) {
-      console.error('[Odoo] Teslimat hatası:', deliveryErr);
+    const odooOrderId = await execute(
+      'sale.order',
+      'create',
+      [odooOrderVals],
+      {},
+      odooCompanyId,
+    );
+    await execute('sale.order', 'action_confirm', [[odooOrderId]], {}, odooCompanyId);
+
+    let deliveryWarning: string | null = null;
+    const stockLocationId = branch?.odooLocationId ?? resolveBranchStockLocationId(branchCode);
+    const pickingResult = await validateSalePickingsFromBranch(odooOrderId, stockLocationId, odooCompanyId);
+    if (!pickingResult.ok) {
+      deliveryWarning = `Stok teslimatı tamamlanamadı: ${pickingResult.errors.join('; ')}`;
     }
 
     try {
@@ -908,7 +1151,7 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
       data: {
         odooSaleOrderId: odooOrderId,
         odooSynced: true,
-        odooSyncError: null,
+        odooSyncError: deliveryWarning,
       },
     });
   } catch (err) {
@@ -1034,7 +1277,41 @@ export async function getSales(branchId: string, filters?: any) {
   }));
 }
 
+export async function updateDraftMeta(saleId: string, input: UpdateDraftMetaInputType) {
+  const sale = await prisma.sale.findUnique({ where: { id: saleId } });
+  if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
+  if (sale.status !== SaleStatus.DRAFT) {
+    throw codeError('SALE_NOT_EDITABLE', 'Satış düzenlenemez.');
+  }
+
+  const existing =
+    sale.draftMeta && typeof sale.draftMeta === 'object' && !Array.isArray(sale.draftMeta)
+      ? (sale.draftMeta as Record<string, unknown>)
+      : {};
+
+  const draftMeta: Record<string, unknown> = { ...existing };
+  if (input.step !== undefined) draftMeta.step = input.step;
+  if (input.pricing !== undefined) draftMeta.pricing = input.pricing;
+  if (input.payments !== undefined) draftMeta.payments = input.payments;
+  if (input.measurements !== undefined) draftMeta.measurements = input.measurements;
+  draftMeta.updatedAt = new Date().toISOString();
+
+  return prisma.sale.update({
+    where: { id: saleId },
+    data: { draftMeta: draftMeta as Prisma.InputJsonValue },
+  });
+}
+
 export async function getSaleById(saleId: string) {
+  const existing = await prisma.sale.findUnique({
+    where: { id: saleId },
+    select: { status: true },
+  });
+  if (!existing) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
+  if (existing.status === SaleStatus.DRAFT) {
+    await recalcSaleTotals(prisma, saleId);
+  }
+
   const sale = await prisma.sale.findUnique({
     where: { id: saleId },
     include: {

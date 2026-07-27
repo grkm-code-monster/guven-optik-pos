@@ -85,6 +85,18 @@ export default function AcikHesapPage() {
 
   const [saving, setSaving] = useState(false)
 
+  const [bulkModalOpen, setBulkModalOpen] = useState(false)
+  const [bulkToplam, setBulkToplam] = useState('')
+  const [bulkDagitim, setBulkDagitim] = useState<Record<string, string>>({})
+  const [bulkPaymentType, setBulkPaymentType] = useState<'CASH' | 'CARD' | 'HAVALE'>('CASH')
+  const [bulkNote, setBulkNote] = useState('')
+  const [bulkHavaleBankName, setBulkHavaleBankName] = useState('')
+  const [bulkBankId, setBulkBankId] = useState('')
+  const [bulkPosDeviceId, setBulkPosDeviceId] = useState('')
+  const [bulkInstallment, setBulkInstallment] = useState(1)
+  const [bulkLoadingFifo, setBulkLoadingFifo] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
+
   const totals = useMemo(() => {
     const customerCount = summary.length
     const totalRemaining = summary.reduce((acc, r) => acc + Number(r.remainingDebt || 0), 0)
@@ -148,7 +160,7 @@ export default function AcikHesapPage() {
   }, [selectedCustomerId])
 
   useEffect(() => {
-    if (paymentType !== 'CARD') return
+    if (paymentType !== 'CARD' && bulkPaymentType !== 'CARD') return
     apiClient
       .get('/admin/banks')
       .then((res) => {
@@ -164,7 +176,132 @@ export default function AcikHesapPage() {
         setPosDevicesByBankId(map)
       })
       .catch(() => {})
-  }, [paymentType])
+  }, [paymentType, bulkPaymentType])
+
+  async function loadFifoOneri(customerId: string, tutar: number) {
+    setBulkLoadingFifo(true)
+    try {
+      const res = await apiClient.get(`/open-account/customer/${customerId}/fifo-oneri`, {
+        params: { tutar },
+      })
+      const dagitim: Array<{ saleId: string; tutar: number }> = res.data?.data?.dagitim ?? []
+      const next: Record<string, string> = {}
+      for (const s of detail?.sales ?? []) {
+        next[s.saleId] = '0'
+      }
+      for (const row of dagitim) {
+        next[row.saleId] = String(row.tutar)
+      }
+      setBulkDagitim(next)
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? 'FIFO önerisi alınamadı')
+    } finally {
+      setBulkLoadingFifo(false)
+    }
+  }
+
+  function openBulkPaymentModal() {
+    if (!detail || !selectedCustomerId) return
+    setBulkToplam(String(detail.remainingDebt))
+    const init: Record<string, string> = {}
+    for (const s of detail.sales) init[s.saleId] = '0'
+    setBulkDagitim(init)
+    setBulkPaymentType('CASH')
+    setBulkNote('')
+    setBulkHavaleBankName('')
+    setBulkBankId('')
+    setBulkPosDeviceId('')
+    setBulkInstallment(1)
+    setBulkModalOpen(true)
+    void loadFifoOneri(selectedCustomerId, detail.remainingDebt)
+  }
+
+  useEffect(() => {
+    if (!bulkModalOpen || !selectedCustomerId) return
+    const n = Number(String(bulkToplam).replace(',', '.'))
+    if (!Number.isFinite(n) || n <= 0) return
+    const t = setTimeout(() => {
+      void loadFifoOneri(selectedCustomerId, n)
+    }, 400)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkToplam, bulkModalOpen, selectedCustomerId])
+
+  const bulkDagitimToplam = useMemo(() => {
+    return Object.values(bulkDagitim).reduce((acc, v) => {
+      const n = Number(String(v).replace(',', '.'))
+      return acc + (Number.isFinite(n) ? n : 0)
+    }, 0)
+  }, [bulkDagitim])
+
+  const bulkToplamNum = useMemo(() => {
+    const n = Number(String(bulkToplam).replace(',', '.'))
+    return Number.isFinite(n) ? n : 0
+  }, [bulkToplam])
+
+  const bulkTotalsMatch = Math.abs(bulkDagitimToplam - bulkToplamNum) <= 0.01 && bulkToplamNum > 0
+
+  async function submitBulkPayment() {
+    if (!selectedCustomerId || !detail) return
+    if (!bulkTotalsMatch) {
+      setError('Dağıtım toplamı girilen tutarla eşleşmiyor.')
+      return
+    }
+    if (bulkPaymentType === 'CARD' && (!bulkBankId || !bulkPosDeviceId)) {
+      setError('Banka ve POS seçin.')
+      return
+    }
+
+    const dagitim = Object.entries(bulkDagitim)
+      .map(([saleId, tutarStr]) => ({
+        saleId,
+        tutar: Number(String(tutarStr).replace(',', '.')),
+      }))
+      .filter((row) => row.tutar > 0)
+
+    if (dagitim.length === 0) {
+      setError('En az bir satışa tutar girin.')
+      return
+    }
+
+    setBulkSaving(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const body: Record<string, unknown> = {
+        customerId: selectedCustomerId,
+        toplamTutar: bulkToplamNum,
+        paymentType: bulkPaymentType === 'HAVALE' ? 'BANK_TRANSFER' : bulkPaymentType,
+        dagitim,
+        note:
+          bulkPaymentType === 'HAVALE' && bulkHavaleBankName.trim()
+            ? `Havale bankası: ${bulkHavaleBankName.trim()}${bulkNote ? ` — ${bulkNote}` : ''}`
+            : bulkNote?.trim() || null,
+      }
+      if (bulkPaymentType === 'CARD') {
+        body.bankId = bulkBankId
+        body.posDeviceId = bulkPosDeviceId
+        body.installment = bulkInstallment
+      }
+
+      const res = await apiClient.post('/open-account/payment-toplu', body)
+      const odooErrors: Array<{ saleId: string; error: string }> = res.data?.data?.odooErrors ?? []
+      setBulkModalOpen(false)
+      if (odooErrors.length > 0) {
+        setSuccess(
+          `Ödemeler kaydedildi; ${odooErrors.length} satışta Odoo hatası: ${odooErrors.map((e) => e.error).join('; ')}`,
+        )
+      } else {
+        setSuccess('Toplu ödeme kaydedildi.')
+      }
+      await loadSummary()
+      await loadDetail(selectedCustomerId)
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? 'Toplu ödeme kaydedilemedi')
+    } finally {
+      setBulkSaving(false)
+    }
+  }
 
   function selectCustomer(c: { id: string; name: string; phone: string }) {
     setSelectedCustomerId(c.id)
@@ -347,6 +484,25 @@ export default function AcikHesapPage() {
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 12, fontWeight: 800, color: '#6b7280' }}>Toplam kalan</div>
                   <div style={{ fontSize: 28, fontWeight: 900, color: danger }}>{money(detail.remainingDebt)}</div>
+                  {detail.sales.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => openBulkPaymentModal()}
+                      style={{
+                        marginTop: 10,
+                        backgroundColor: '#1e40af',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 10,
+                        padding: '8px 14px',
+                        cursor: 'pointer',
+                        fontWeight: 900,
+                        fontSize: 13,
+                      }}
+                    >
+                      💰 Toplu Ödeme Gir
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -619,6 +775,241 @@ export default function AcikHesapPage() {
                   cursor: 'pointer',
                   fontWeight: 900,
                   opacity: saving ? 0.7 : 1,
+                }}
+              >
+                Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {bulkModalOpen && detail ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            zIndex: 50,
+          }}
+        >
+          <div style={{ ...cardStyle, width: '100%', maxWidth: 760, maxHeight: '90vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 900 }}>💰 Toplu Ödeme Gir</div>
+              <button
+                type="button"
+                onClick={() => setBulkModalOpen(false)}
+                style={{
+                  border: '1px solid #e5e7eb',
+                  backgroundColor: 'white',
+                  borderRadius: 10,
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                }}
+              >
+                Kapat
+              </button>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <label>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>TOPLAM TUTAR</div>
+                <input
+                  value={bulkToplam}
+                  onChange={(e) => setBulkToplam(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 10,
+                    outline: 'none',
+                  }}
+                />
+              </label>
+              {bulkLoadingFifo ? (
+                <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>FIFO önerisi yükleniyor...</div>
+              ) : null}
+            </div>
+
+            <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {(['CASH', 'CARD', 'HAVALE'] as const).map((t) => (
+                <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13 }}>
+                  <input
+                    type="radio"
+                    name="bulkPayType"
+                    checked={bulkPaymentType === t}
+                    onChange={() => setBulkPaymentType(t)}
+                  />
+                  {t === 'CASH' ? 'Nakit' : t === 'CARD' ? 'Kredi Kartı' : 'Havale'}
+                </label>
+              ))}
+            </div>
+
+            <div
+              style={{
+                marginTop: 12,
+                padding: 10,
+                borderRadius: 10,
+                backgroundColor: bulkTotalsMatch ? '#f0fdf4' : '#fef2f2',
+                border: `1px solid ${bulkTotalsMatch ? '#bbf7d0' : '#fecaca'}`,
+                color: bulkTotalsMatch ? '#166534' : danger,
+                fontWeight: 800,
+                fontSize: 13,
+              }}
+            >
+              Dağıtım toplamı: {money(bulkDagitimToplam)} / Girilen tutar: {money(bulkToplamNum)}
+              {bulkTotalsMatch ? ' ✓' : ' — eşleşmiyor'}
+            </div>
+
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1.2fr 1fr 120px',
+                  gap: 8,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: '#6b7280',
+                }}
+              >
+                <div>TARİH</div>
+                <div>KALAN</div>
+                <div>DAĞITILAN</div>
+              </div>
+              {detail.sales.map((s) => (
+                <div
+                  key={s.saleId}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1.2fr 1fr 120px',
+                    gap: 8,
+                    alignItems: 'center',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 10,
+                    padding: 10,
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{fmtDate(s.createdAt)}</div>
+                  <div style={{ fontSize: 12, color: danger, fontWeight: 800 }}>{money(s.remaining)}</div>
+                  <input
+                    value={bulkDagitim[s.saleId] ?? '0'}
+                    onChange={(e) =>
+                      setBulkDagitim((prev) => ({ ...prev, [s.saleId]: e.target.value }))
+                    }
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 8,
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {bulkPaymentType === 'CARD' ? (
+              <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                <label>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>BANKA</div>
+                  <select
+                    value={bulkBankId}
+                    onChange={(e) => {
+                      setBulkBankId(e.target.value)
+                      setBulkPosDeviceId('')
+                    }}
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10 }}
+                  >
+                    <option value="">Seçiniz</option>
+                    {banks.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>POS</div>
+                  <select
+                    value={bulkPosDeviceId}
+                    onChange={(e) => setBulkPosDeviceId(e.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10 }}
+                  >
+                    <option value="">Seçiniz</option>
+                    {(bulkBankId ? posDevicesByBankId.get(bulkBankId) ?? [] : []).map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>TAKSİT</div>
+                  <select
+                    value={bulkInstallment}
+                    onChange={(e) => setBulkInstallment(Number(e.target.value))}
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10 }}
+                  >
+                    {[1, 3, 6, 9, 12].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
+
+            {bulkPaymentType === 'HAVALE' ? (
+              <label style={{ display: 'block', marginTop: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>HAVALE BANKASI</div>
+                <input
+                  value={bulkHavaleBankName}
+                  onChange={(e) => setBulkHavaleBankName(e.target.value)}
+                  placeholder="Hangi bankaya yatırıldı?"
+                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10, outline: 'none' }}
+                />
+              </label>
+            ) : null}
+
+            <label style={{ display: 'block', marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>NOT (opsiyonel)</div>
+              <input
+                value={bulkNote}
+                onChange={(e) => setBulkNote(e.target.value)}
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10, outline: 'none' }}
+              />
+            </label>
+
+            <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setBulkModalOpen(false)}
+                style={{
+                  flex: 1,
+                  border: '1px solid #e5e7eb',
+                  backgroundColor: '#f3f4f6',
+                  borderRadius: 10,
+                  padding: '12px 14px',
+                  cursor: 'pointer',
+                  fontWeight: 900,
+                }}
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={bulkSaving || !bulkTotalsMatch || bulkLoadingFifo}
+                onClick={() => void submitBulkPayment()}
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  backgroundColor: bulkTotalsMatch ? primary : '#9ca3af',
+                  color: 'white',
+                  borderRadius: 10,
+                  padding: '12px 14px',
+                  cursor: bulkTotalsMatch ? 'pointer' : 'not-allowed',
+                  fontWeight: 900,
+                  opacity: bulkSaving ? 0.7 : 1,
                 }}
               >
                 Kaydet

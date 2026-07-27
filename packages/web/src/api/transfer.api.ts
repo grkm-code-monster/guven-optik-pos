@@ -6,7 +6,9 @@ export type TransferUrun = {
   ad: string
   varyant?: string
   fiyat?: number | null
+  lotId?: number | null
   lotNo?: string | null
+  tracking?: string
   utsKodu?: string | null
   utsDurumu?: string
   stok?: number | null
@@ -47,6 +49,17 @@ export async function searchTransferProducts(
   return res.data
 }
 
+export async function searchTransferProductLots(
+  productId: number,
+  lokasyon: string,
+  source: 'pos' | 'admin' = 'pos',
+): Promise<TransferUrun[]> {
+  const res = await transferClient(source).get('/transfer/urun-lotlari', {
+    params: { productId, lokasyon },
+  })
+  return res.data
+}
+
 export async function createTransfer(payload: {
   cikisLokasyon: string
   girisLokasyon: string
@@ -77,5 +90,19 @@ export async function kabulTransfer(payload: { transferId: string; sayimlar: any
 
 export async function sorunTransfer(payload: { transferId: string; not: string }, source: 'pos' | 'admin' = 'pos') {
   const res = await transferClient(source).post('/transfer/sorun', payload)
+  return res.data
+}
+
+export type TransferAksiyonOzet = Record<string, { durum: string; mesaj?: string | null }>
+
+export async function getTransferAksiyonLogs(
+  transferRefs: string[],
+  source: 'pos' | 'admin' = 'pos',
+): Promise<{ logs: unknown[]; ozet: Record<string, TransferAksiyonOzet> }> {
+  const refs = [...new Set(transferRefs.filter(Boolean))]
+  if (!refs.length) return { logs: [], ozet: {} }
+  const res = await transferClient(source).get('/transfer/aksiyon-log', {
+    params: { transferRefs: refs.join(',') },
+  })
   return res.data
 }

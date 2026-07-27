@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login, pdksContinue } from '../api/auth.api'
 import { useAuthStore } from '../store/auth.store'
+import { setAktifLokasyon } from '../utils/aktifLokasyon'
 import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
 
@@ -46,7 +47,15 @@ export default function LoginPage() {
     setError(null)
     try {
       const res = await login(trimmedUsername, p)
-      setAuth(res.token, { id: res.user.id, name: res.user.name, role: res.user.role, branchId: res.user.branchId }, res.shiftId)
+      if (res.user.branchCode) setAktifLokasyon(res.user.branchCode)
+      setAuth(res.token, {
+        id: res.user.id,
+        name: res.user.name,
+        role: res.user.role,
+        branchId: res.user.branchId,
+        branchCode: res.user.branchCode,
+        canWorkAtolye: res.user.canWorkAtolye ?? false,
+      }, res.shiftId)
       if (res.pdksAttendance === 'missing') {
         setPdksModalOpen(true)
         return

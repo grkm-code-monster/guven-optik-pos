@@ -47,6 +47,16 @@ function endOfDayUtc(date: Date) {
   return end;
 }
 
+function serializeReportRows(rows: Record<string, unknown>[]) {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      out[key] = typeof value === 'bigint' ? Number(value) : value;
+    }
+    return out;
+  });
+}
+
 export function getAvailableFields() {
   return {
     dimensions: Object.entries(DIMENSIONS).map(([key, value]) => ({ key, label: value.label })),
@@ -114,5 +124,5 @@ export async function runReportQuery(input: {
   `;
 
   const rows = await prisma.$queryRaw<Record<string, unknown>[]>(query);
-  return rows;
+  return serializeReportRows(rows);
 }

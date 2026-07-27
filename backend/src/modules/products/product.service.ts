@@ -1,5 +1,6 @@
 import { ItemStatus, Prisma, ProductCategory, ProductGroup, ProductType } from '@prisma/client';
 import { prisma } from '../../database/prisma';
+import { generateUrunReferansNo } from '../shared/referans-no.util';
 import type { CreateProductInputType, ProductQueryInputType } from './product.types';
 
 function codeError(code: string, message: string) {
@@ -22,6 +23,7 @@ export async function getProducts(query: ProductQueryInputType) {
       { name: { contains: query.q, mode: 'insensitive' } },
       { brand: { contains: query.q, mode: 'insensitive' } },
       { model: { contains: query.q, mode: 'insensitive' } },
+      { referansNo: { contains: query.q, mode: 'insensitive' } },
     ];
   }
 
@@ -77,6 +79,8 @@ export async function createProduct(input: CreateProductInputType) {
     }
   }
 
+  const referansNo = await generateUrunReferansNo();
+
   return prisma.product.create({
     data: {
       name: input.name,
@@ -89,6 +93,7 @@ export async function createProduct(input: CreateProductInputType) {
       brand: input.brand,
       model: input.model,
       barcode: input.barcode,
+      referansNo,
       isActive: true,
     },
   });

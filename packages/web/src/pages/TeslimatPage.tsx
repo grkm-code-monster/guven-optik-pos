@@ -8,6 +8,8 @@ import {
   type OzelSiparis,
 } from '../api/ozelSiparis.api'
 import { OZEL_SIPARIS_DURUM_RENK, normalizeOzelSiparisDurum } from '../constants/ozelSiparis'
+import { isLensMeasurementSaleItem } from '../utils/saleMeasurements'
+import type { SaleItem as SaleItemType } from '../api/types'
 
 const PRIMARY = '#8B0000'
 const ACCENT = '#c0392b'
@@ -15,12 +17,13 @@ const ACCENT = '#c0392b'
 type PageTab = 'teslimat' | 'kargo-tara' | 'ozel-hazir'
 type StatusFilter = 'ALL' | 'ORDERED' | 'IN_LAB' | 'READY' | 'DELIVERED'
 
-type SaleItem = {
-  id: string
+type SaleItem = SaleItemType & {
   status: string
-  odooProductName?: string | null
-  product?: { name: string; category?: string } | null
+  atolyeBranchId?: string | null
+  sentToLabAt?: string | null
 }
+
+type AtolyeBranch = { id: string; name: string; code: string }
 
 type DeliverySale = {
   id: string
@@ -335,11 +338,15 @@ export default function TeslimatPage() {
 
   const [sales, setSales] = useState<DeliverySale[]>([])
   const [locations, setLocations] = useState<OdooLocation[]>([])
+  const [atolyeBranches, setAtolyeBranches] = useState<AtolyeBranch[]>([])
   const [branchFilter, setBranchFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updatingKey, setUpdatingKey] = useState<string | null>(null)
+  const [labModal, setLabModal] = useState<{ saleId: string; itemId: string; label: string } | null>(null)
+  const [seciliAtolyeId, setSeciliAtolyeId] = useState('')
+  const [labModalSaving, setLabModalSaving] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -367,6 +374,10 @@ export default function TeslimatPage() {
       .get('/admin/branches')
       .then((res) => setLocations(res.data?.data ?? []))
       .catch(() => setLocations([]))
+    apiClient
+      .get('/sales/atolye-branches')
+      .then((res) => setAtolyeBranches(res.data?.data ?? []))
+      .catch(() => setAtolyeBranches([]))
   }, [])
 
   const visibleSales = useMemo(() => {
@@ -392,18 +403,56 @@ export default function TeslimatPage() {
     }
   }, [sales])
 
-  async function updateItemStatus(saleId: string, itemId: string, status: string) {
+  async function updateItemStatus(saleId: string, itemId: string, status: string, atolyeBranchId?: string) {
     const key = `${saleId}-${itemId}`
     setUpdatingKey(key)
     setError(null)
     try {
-      await apiClient.patch(`/sales/${saleId}/items/${itemId}/status`, { status })
+      await apiClient.patch(`/sales/${saleId}/items/${itemId}/status`, {
+        status,
+        ...(atolyeBranchId ? { atolyeBranchId } : {}),
+      })
       await load()
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Durum güncellenemedi')
     } finally {
       setUpdatingKey(null)
     }
+  }
+
+  function labGonderAc(saleId: string, item: SaleItem) {
+    setLabModal({ saleId, itemId: item.id, label: itemLabel(item) })
+    setSeciliAtolyeId(atolyeBranches[0]?.id ?? '')
+    setError(null)
+  }
+
+  async function labGonderOnayla() {
+    if (!labModal || !seciliAtolyeId) {
+      setError('Atölye şubesi seçin.')
+      return
+    }
+    setLabModalSaving(true)
+    setError(null)
+    try {
+      await updateItemStatus(labModal.saleId, labModal.itemId, 'IN_LAB', seciliAtolyeId)
+      setLabModal(null)
+      setSeciliAtolyeId('')
+    } finally {
+      setLabModalSaving(false)
+    }
+  }
+
+  function itemActionClick(saleId: string, item: SaleItem, action: { status: string; label: string }) {
+    if (action.status === 'IN_LAB') {
+      labGonderAc(saleId, item)
+      return
+    }
+    void updateItemStatus(saleId, item.id, action.status)
+  }
+
+  function showItemAction(item: SaleItem, actionStatus: string): boolean {
+    if (actionStatus === 'IN_LAB' && !isLensMeasurementSaleItem(item)) return false
+    return true
   }
 
   return (
@@ -557,14 +606,14 @@ export default function TeslimatPage() {
                           {itemStatusBadge(item.status)}
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          {ITEM_ACTIONS.map((action) => {
+                          {ITEM_ACTIONS.filter((action) => showItemAction(item, action.status)).map((action) => {
                             const active = item.status === action.status
                             return (
                               <button
                                 key={action.status}
                                 type="button"
                                 disabled={updatingKey === `${sale.id}-${item.id}`}
-                                onClick={() => void updateItemStatus(sale.id, item.id, action.status)}
+                                onClick={() => itemActionClick(sale.id, item, action)}
                                 style={{
                                   padding: '6px 10px', borderRadius: 8, fontSize: 11,
                                   fontWeight: active ? 800 : 600,
@@ -587,6 +636,97 @@ export default function TeslimatPage() {
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {labModal ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            zIndex: 100,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: 24,
+              width: '100%',
+              maxWidth: 420,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+            }}
+          >
+            <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 900 }}>Laboratuvara Gönder</h2>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#6b7280' }}>
+              <strong>{labModal.label}</strong> — hangi atölyeye gönderilsin?
+            </p>
+            {atolyeBranches.length === 0 ? (
+              <p style={{ color: '#b45309', fontSize: 13, marginBottom: 16 }}>
+                Tanımlı atölye şubesi bulunamadı. Yönetici panelinden şubeye atölye bayrağı ekleyin.
+              </p>
+            ) : (
+              <select
+                value={seciliAtolyeId}
+                onChange={(e) => setSeciliAtolyeId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  border: '1px solid #e5e7eb',
+                  fontSize: 14,
+                  marginBottom: 16,
+                }}
+              >
+                {atolyeBranches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.code} — {b.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => { setLabModal(null); setSeciliAtolyeId('') }}
+                disabled={labModalSaving}
+                style={{
+                  flex: 1,
+                  padding: '11px',
+                  borderRadius: 8,
+                  border: '1px solid #e5e7eb',
+                  backgroundColor: '#f9fafb',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={() => void labGonderOnayla()}
+                disabled={labModalSaving || !seciliAtolyeId || atolyeBranches.length === 0}
+                style={{
+                  flex: 1,
+                  padding: '11px',
+                  borderRadius: 8,
+                  border: 'none',
+                  backgroundColor: ACCENT,
+                  color: 'white',
+                  fontWeight: 800,
+                  cursor: labModalSaving ? 'wait' : 'pointer',
+                  opacity: !seciliAtolyeId || atolyeBranches.length === 0 ? 0.6 : 1,
+                }}
+              >
+                {labModalSaving ? 'Gönderiliyor...' : 'Gönder'}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   )

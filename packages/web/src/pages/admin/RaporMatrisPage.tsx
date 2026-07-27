@@ -69,9 +69,17 @@ function toIsoEnd(date: string) {
 }
 
 function toggleItem(list: string[], key: string, max: number) {
-  if (list.includes(key)) return list.filter((k) => k !== key)
-  if (list.length >= max) return list
-  return [...list, key]
+  if (list.includes(key)) return { list: list.filter((k) => k !== key), blocked: false }
+  if (list.length >= max) return { list, blocked: true }
+  return { list: [...list, key], blocked: false }
+}
+
+function parseBranchList(payload: unknown): BranchRow[] {
+  if (Array.isArray(payload)) return payload as BranchRow[]
+  if (payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)) {
+    return (payload as { data: BranchRow[] }).data
+  }
+  return []
 }
 
 export default function RaporMatrisPage() {
@@ -110,7 +118,7 @@ export default function RaporMatrisPage() {
     ]).then(([fields, branchRes, userRes, reqList]) => {
       setDimensions(fields.dimensions)
       setMeasures(fields.measures)
-      setBranches(branchRes.data)
+      setBranches(parseBranchList(branchRes.data))
       setUsers(userRes.data.filter((u) => u.role))
       setRequests(reqList)
       const me = adminUserId()
@@ -296,18 +304,29 @@ export default function RaporMatrisPage() {
           <div style={{ display: 'grid', gap: 6, marginBottom: 16 }}>
             {dimensions.map((d) => {
               const active = selectedDimensions.includes(d.key)
+              const atMax = selectedDimensions.length >= 3 && !active
               return (
                 <button
                   key={d.key}
                   type="button"
-                  onClick={() => setSelectedDimensions((prev) => toggleItem(prev, d.key, 3))}
+                  title={atMax ? 'En fazla 3 boyut seçilebilir' : undefined}
+                  onClick={() => {
+                    const { list, blocked } = toggleItem(selectedDimensions, d.key, 3)
+                    if (blocked) {
+                      setError('En fazla 3 boyut seçilebilir. Önce bir boyutu kaldırın.')
+                      return
+                    }
+                    setError(null)
+                    setSelectedDimensions(list)
+                  }}
                   style={{
                     textAlign: 'left',
                     padding: '8px 10px',
                     borderRadius: 8,
                     border: active ? '2px solid #C8102E' : '1px solid #e5e7eb',
                     background: active ? '#fef2f2' : '#fff',
-                    cursor: 'pointer',
+                    cursor: atMax ? 'not-allowed' : 'pointer',
+                    opacity: atMax ? 0.55 : 1,
                     fontWeight: active ? 700 : 500,
                   }}
                 >
@@ -320,18 +339,29 @@ export default function RaporMatrisPage() {
           <div style={{ display: 'grid', gap: 6 }}>
             {measures.map((m) => {
               const active = selectedMeasures.includes(m.key)
+              const atMax = selectedMeasures.length >= 5 && !active
               return (
                 <button
                   key={m.key}
                   type="button"
-                  onClick={() => setSelectedMeasures((prev) => toggleItem(prev, m.key, 5))}
+                  title={atMax ? 'En fazla 5 ölçü seçilebilir' : undefined}
+                  onClick={() => {
+                    const { list, blocked } = toggleItem(selectedMeasures, m.key, 5)
+                    if (blocked) {
+                      setError('En fazla 5 ölçü seçilebilir. Önce bir ölçüyü kaldırın.')
+                      return
+                    }
+                    setError(null)
+                    setSelectedMeasures(list)
+                  }}
                   style={{
                     textAlign: 'left',
                     padding: '8px 10px',
                     borderRadius: 8,
                     border: active ? '2px solid #C8102E' : '1px solid #e5e7eb',
                     background: active ? '#fef2f2' : '#fff',
-                    cursor: 'pointer',
+                    cursor: atMax ? 'not-allowed' : 'pointer',
+                    opacity: atMax ? 0.55 : 1,
                     fontWeight: active ? 700 : 500,
                   }}
                 >
@@ -358,7 +388,7 @@ export default function RaporMatrisPage() {
                 Şube
                 <select value={subeId} onChange={(e) => setSubeId(e.target.value)} style={{ minWidth: 180 }}>
                   <option value="">Tümü</option>
-                  {branches.map((b) => (
+                  {(Array.isArray(branches) ? branches : []).map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
                     </option>

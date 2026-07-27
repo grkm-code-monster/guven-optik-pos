@@ -9,6 +9,9 @@ import {
 } from '@prisma/client'
 import { prisma } from '../../database/prisma'
 import type { JwtPayload } from '../auth/auth.types'
+import { olusturTransfer } from '../admin/transfer-olustur.service'
+import * as odooService from '../odoo/odoo.service'
+import * as odooLocations from '../odoo/odooLocations'
 
 function generateClaimNo(): string {
   const year = new Date().getFullYear()
@@ -385,6 +388,67 @@ function assertSatisfactionReturn(claim: { type: WarrantyType }) {
   }
 }
 
+async function resolveBranchLocationCode(branchId: string, label: string): Promise<string> {
+  const branch = await prisma.branch.findUnique({ where: { id: branchId } })
+  if (!branch) {
+    throw new WarrantyError(400, `${label} bulunamadı.`, 'VALIDATION_ERROR')
+  }
+  const code = branch.code?.trim().toUpperCase()
+  if (!code) {
+    throw new WarrantyError(400, `${label} lokasyon kodu tanımsız.`, 'VALIDATION_ERROR')
+  }
+  return code
+}
+
+async function resolveSourceLotId(
+  cikisLokasyon: string,
+  lotNo: string,
+): Promise<number> {
+  const companyId = odooLocations.getCompanyIdFromLokasyon(cikisLokasyon)
+  if (!companyId) {
+    throw new WarrantyError(400, `Çıkış lokasyonu şirketi tanımsız: ${cikisLokasyon}`, 'VALIDATION_ERROR')
+  }
+  const cikisId = await odooLocations.getLokasyonId(cikisLokasyon)
+  if (!cikisId) {
+    throw new WarrantyError(400, `Çıkış lokasyonu bulunamadı: ${cikisLokasyon}`, 'VALIDATION_ERROR')
+  }
+
+  const lots = (await odooService.execute(
+    'stock.lot',
+    'search_read',
+    [[['name', '=', lotNo.trim()]]],
+    { fields: ['id'], limit: 1 },
+    companyId,
+  )) as { id: number }[] | undefined
+  if (!lots?.length) {
+    throw new WarrantyError(400, `Lot bulunamadı: ${lotNo}`, 'LOT_NOT_FOUND')
+  }
+
+  const quants = (await odooService.execute(
+    'stock.quant',
+    'search_read',
+    [[['location_id', '=', cikisId], ['lot_id', '=', lots[0].id], ['quantity', '>', 0]]],
+    { fields: ['quantity'], limit: 1 },
+    companyId,
+  )) as { quantity: number }[] | undefined
+  if (!quants?.length) {
+    throw new WarrantyError(
+      400,
+      `Kaynak şubede (${cikisLokasyon}) bu lot için stok bulunamadı.`,
+      'INSUFFICIENT_STOCK',
+    )
+  }
+
+  return lots[0].id
+}
+
+async function assertSourceStockAvailable(
+  cikisLokasyon: string,
+  lotNo: string,
+): Promise<void> {
+  await resolveSourceLotId(cikisLokasyon, lotNo)
+}
+
 export async function startClaimTransfer(
   user: JwtPayload,
   id: string,
@@ -392,18 +456,90 @@ export async function startClaimTransfer(
 ) {
   assertRole(user, Role.ADMIN, Role.WAREHOUSE_MANAGER)
 
-  const claim = await getClaimOrThrow(id)
+  const claim = await prisma.warrantyClaim.findUnique({
+    where: { id },
+    include: { saleItem: true },
+  })
+  if (!claim) throw new WarrantyError(404, 'Garanti kaydı bulunamadı.', 'NOT_FOUND')
   assertSatisfactionReturn(claim)
 
   if (!input.transferSourceBranchId?.trim()) {
     throw new WarrantyError(400, 'Kaynak şube seçilmelidir.', 'VALIDATION_ERROR')
   }
 
+  const destBranchId = input.transferSourceBranchId.trim()
+  if (claim.transferStatus === TransferStatus.PENDING || claim.transferStatus === TransferStatus.COMPLETED) {
+    throw new WarrantyError(400, 'Transfer zaten başlatılmış.', 'TRANSFER_ALREADY_STARTED')
+  }
+  if (!claim.branchId) {
+    throw new WarrantyError(400, 'İade alan şube bilgisi eksik.', 'VALIDATION_ERROR')
+  }
+  if (destBranchId === claim.branchId) {
+    throw new WarrantyError(400, 'Hedef şube iade alan şubeden farklı olmalıdır.', 'VALIDATION_ERROR')
+  }
+
+  const productId = claim.saleItem?.odooProductId
+  if (!productId) {
+    throw new WarrantyError(400, 'Satış kaleminde Odoo ürün bilgisi bulunamadı.', 'VALIDATION_ERROR')
+  }
+
+  const lotNo = claim.lotNo?.trim() || claim.saleItem?.lotNo?.trim()
+  if (!lotNo) {
+    throw new WarrantyError(400, 'Lot numarası bulunamadı.', 'VALIDATION_ERROR')
+  }
+
+  const cikisLokasyon = await resolveBranchLocationCode(claim.branchId, 'İade alan şube')
+  const girisLokasyon = await resolveBranchLocationCode(destBranchId, 'Hedef şube')
+
+  await assertSourceStockAvailable(cikisLokasyon, lotNo)
+
+  const cikisId = await odooLocations.getLokasyonId(cikisLokasyon)
+  const girisId = await odooLocations.getLokasyonId(girisLokasyon)
+  if (!cikisId || !girisId) {
+    throw new WarrantyError(400, 'Transfer lokasyonları çözülemedi.', 'VALIDATION_ERROR')
+  }
+
+  const lotId = await resolveSourceLotId(cikisLokasyon, lotNo)
+
+  const transferSonuc = await olusturTransfer({
+    kalemler: [{
+      kaynak: cikisId,
+      hedef: girisId,
+      productId: Number(productId),
+      resolvedProductId: Number(productId),
+      lotId,
+      miktar: 1,
+      urunAdi: claim.productName ?? claim.saleItem?.odooProductName ?? 'Ürün',
+    }],
+    notlar: `Memnuniyet iadesi transferi — ${claim.claimNo}`,
+    hemenKabul: true,
+  })
+
+  if (!transferSonuc.success) {
+    throw new WarrantyError(
+      400,
+      transferSonuc.message ?? 'Odoo transfer başarısız',
+      'TRANSFER_FAILED',
+    )
+  }
+
+  const row = transferSonuc.transferler[0] as {
+    kabulPickingId?: number
+    pickingId?: number
+    pickingName?: string
+    transferRef?: string
+  } | undefined
+  const odooPickingId = row?.kabulPickingId ?? row?.pickingId
+  if (!odooPickingId) {
+    throw new WarrantyError(400, 'Odoo transfer oluşturuldu ancak picking ID alınamadı.', 'TRANSFER_FAILED')
+  }
+
   return prisma.warrantyClaim.update({
     where: { id },
     data: {
-      transferSourceBranchId: input.transferSourceBranchId.trim(),
+      transferSourceBranchId: destBranchId,
       transferStatus: TransferStatus.PENDING,
+      odooPickingId: String(odooPickingId),
       updatedAt: new Date(),
     },
     include: {
@@ -424,11 +560,17 @@ export async function completeClaimTransfer(
   const claim = await getClaimOrThrow(id)
   assertSatisfactionReturn(claim)
 
+  if (claim.transferStatus !== TransferStatus.PENDING) {
+    throw new WarrantyError(400, 'Tamamlanacak bekleyen transfer bulunamadı.', 'TRANSFER_NOT_PENDING')
+  }
+
   return prisma.warrantyClaim.update({
     where: { id },
     data: {
       transferStatus: TransferStatus.COMPLETED,
-      ...(input.odooPickingId !== undefined ? { odooPickingId: input.odooPickingId || null } : {}),
+      ...(input.odooPickingId !== undefined && !claim.odooPickingId
+        ? { odooPickingId: input.odooPickingId || null }
+        : {}),
       updatedAt: new Date(),
     },
     include: {

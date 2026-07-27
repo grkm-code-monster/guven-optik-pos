@@ -1,10 +1,13 @@
-import { useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import type { Sale } from '../../api/types'
 import { apiClient } from '../../api/client'
+import { isLensMeasurementSaleItem } from '../../utils/saleMeasurements'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 
 type ItemStatus = 'DELIVERED' | 'IN_LAB' | 'ORDERED' | 'PENDING'
+
+type AtolyeBranch = { id: string; name: string; code: string }
 
 const DURUM_LABEL: Record<string, string> = {
   DELIVERED: 'Teslim Edildi',
@@ -28,7 +31,7 @@ export default function StatusStep({
 }: {
   sale: Sale | null
   onNewSale: () => void
-  onRefresh: () => Promise<void>
+  onRefresh: () => Promise<{ mesaj?: string; processing?: boolean } | void>
 }) {
   const hasLensOrder = useMemo(() => {
     return (sale?.items ?? []).some((i: any) =>
@@ -44,21 +47,74 @@ export default function StatusStep({
   const [deliveryDate, setDeliveryDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refreshInfo, setRefreshInfo] = useState<string | null>(null)
   const [pdfLoading, setPdfLoading] = useState(false)
   const [resmiFaturaLoading, setResmiFaturaLoading] = useState(false)
   const [refreshLoading, setRefreshLoading] = useState(false)
   const [satisSatirNotu, setSatisSatirNotu] = useState('')
+  const [atolyeBranches, setAtolyeBranches] = useState<AtolyeBranch[]>([])
+  const [seciliAtolyeId, setSeciliAtolyeId] = useState('')
   const pdfRef = useRef<HTMLDivElement>(null)
 
   const customerName = sale?.customer?.name ?? ''
   const itemsToUpdate = useMemo(() => (sale?.items ?? []).filter((i) => String(i.status).toUpperCase() !== 'VOID'), [sale?.items])
+  const labEligibleItems = useMemo(
+    () => itemsToUpdate.filter((it) => isLensMeasurementSaleItem(it)),
+    [itemsToUpdate],
+  )
+
+  useEffect(() => {
+    apiClient
+      .get('/sales/atolye-branches')
+      .then((res) => {
+        const list: AtolyeBranch[] = res.data?.data ?? []
+        setAtolyeBranches(list)
+        if (list.length > 0) {
+          setSeciliAtolyeId((prev) => prev || list[0].id)
+        }
+      })
+      .catch(() => setAtolyeBranches([]))
+  }, [])
+
+  useEffect(() => {
+    if (picked === 'IN_LAB' && atolyeBranches.length > 0 && !seciliAtolyeId) {
+      setSeciliAtolyeId(atolyeBranches[0].id)
+    }
+  }, [picked, atolyeBranches, seciliAtolyeId])
+
+  const canSave =
+    !saving &&
+    !(picked === 'IN_LAB' && (atolyeBranches.length === 0 || !seciliAtolyeId || labEligibleItems.length === 0))
 
   async function save() {
     if (!sale) return
+    if (picked === 'IN_LAB') {
+      if (atolyeBranches.length === 0) {
+        setError('Tanımlı atölye şubesi bulunamadı. Yönetici panelinden şubeye atölye bayrağı ekleyin.')
+        return
+      }
+      if (!seciliAtolyeId) {
+        setError('Laboratuvara gönderim için atölye şubesi seçin.')
+        return
+      }
+      if (labEligibleItems.length === 0) {
+        setError('Laboratuvara gönderilecek cam/lens kalemi bulunamadı (çerçeve kalemleri hariç tutulur).')
+        return
+      }
+    }
     setSaving(true)
     setError(null)
     try {
-      await Promise.all(itemsToUpdate.map((it) => apiClient.patch(`/sales/${sale.id}/items/${it.id}/status`, { status: picked, deliveryDate: deliveryDate || undefined })))
+      const targets = picked === 'IN_LAB' ? labEligibleItems : itemsToUpdate
+      await Promise.all(
+        targets.map((it) =>
+          apiClient.patch(`/sales/${sale.id}/items/${it.id}/status`, {
+            status: picked,
+            deliveryDate: deliveryDate || undefined,
+            ...(picked === 'IN_LAB' ? { atolyeBranchId: seciliAtolyeId } : {}),
+          }),
+        ),
+      )
       onNewSale()
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Durum kaydedilemedi')
@@ -122,10 +178,16 @@ export default function StatusStep({
     if (!sale) return
     setRefreshLoading(true)
     setError(null)
+    setRefreshInfo(null)
     try {
-      await onRefresh()
+      const result = await onRefresh()
+      if (result?.processing && result?.mesaj) {
+        setRefreshInfo(result.mesaj)
+      } else if (result?.mesaj && !result?.processing) {
+        setError(result.mesaj)
+      }
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Satış durumu yenilenemedi')
+      setError(e?.response?.data?.message ?? e?.response?.data?.mesaj ?? 'Satış durumu yenilenemedi')
     } finally {
       setRefreshLoading(false)
     }
@@ -149,7 +211,12 @@ export default function StatusStep({
       <div style={{ textAlign: 'center', padding: '10px 0 4px' }}>
         <div style={{ fontSize: 44 }}>✅</div>
         <div style={{ fontSize: 22, fontWeight: 900, color: '#111' }}>Satış Tamamlandı!</div>
-        <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>Satış No: <span style={{ fontWeight: 800 }}>{sale.id}</span></div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>
+          Satış No:{' '}
+          <span style={{ fontWeight: 800, fontFamily: 'monospace' }}>
+            {sale.referansNo ?? sale.id}
+          </span>
+        </div>
         <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>Müşteri: <span style={{ fontWeight: 800 }}>{customerName || '—'}</span></div>
         <div style={{ marginTop: 10, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {sale.eFaturaDurum ? (
@@ -175,6 +242,9 @@ export default function StatusStep({
             {refreshLoading ? 'Yenileniyor...' : '🔄 Durumu Yenile'}
           </button>
         </div>
+        {refreshInfo ? (
+          <div style={{ color: '#92400e', fontSize: 12, marginTop: 8, fontWeight: 600 }}>{refreshInfo}</div>
+        ) : null}
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -185,6 +255,50 @@ export default function StatusStep({
           ))}
         </div>
       </div>
+
+      {picked === 'IN_LAB' ? (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
+            Atölye Şubesi
+          </div>
+          {atolyeBranches.length === 0 ? (
+            <p style={{ color: '#b45309', fontSize: 13, margin: 0 }}>
+              Tanımlı atölye şubesi bulunamadı. Yönetici panelinden şubeye atölye bayrağı ekleyin.
+            </p>
+          ) : (
+            <>
+              <select
+                value={seciliAtolyeId}
+                onChange={(e) => setSeciliAtolyeId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: '1px solid #e5e7eb',
+                  fontSize: 14,
+                }}
+              >
+                {atolyeBranches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.code} — {b.name}
+                  </option>
+                ))}
+              </select>
+              <p style={{ fontSize: 12, color: '#6b7280', marginTop: 8, marginBottom: 0 }}>
+                Seçilen atölye, laboratuvara gidecek {labEligibleItems.length} cam/lens kalemine uygulanır
+                {itemsToUpdate.length > labEligibleItems.length
+                  ? ` (${itemsToUpdate.length - labEligibleItems.length} çerçeve/diğer kalem bu durumdan etkilenmez).`
+                  : '.'}
+              </p>
+            </>
+          )}
+          {labEligibleItems.length === 0 && atolyeBranches.length > 0 ? (
+            <p style={{ color: '#b45309', fontSize: 13, marginTop: 8, marginBottom: 0 }}>
+              Bu satışta laboratuvara gönderilebilecek cam/lens kalemi yok.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div style={{ marginTop: 14 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Tahmini Teslim Tarihi</div>
@@ -199,7 +313,7 @@ export default function StatusStep({
       {error ? <div style={{ color: '#ef4444', fontSize: 13, marginTop: 10 }}>{error}</div> : null}
 
       <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-        <button type="button" onClick={() => void save()} disabled={saving} style={{ flex: 1, padding: '12px 0', borderRadius: 10, border: 'none', backgroundColor: '#C8102E', color: 'white', fontWeight: 800, fontSize: 15, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+        <button type="button" onClick={() => void save()} disabled={!canSave} style={{ flex: 1, padding: '12px 0', borderRadius: 10, border: 'none', backgroundColor: '#C8102E', color: 'white', fontWeight: 800, fontSize: 15, cursor: !canSave ? 'not-allowed' : 'pointer', opacity: !canSave ? 0.7 : 1 }}>
           {saving ? 'Kaydediliyor...' : 'Kaydet & Bitir'}
         </button>
         <button type="button" onClick={() => void pdfIndir()} disabled={pdfLoading} style={{ padding: '12px 16px', borderRadius: 10, border: '1px solid #374151', backgroundColor: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
@@ -232,7 +346,7 @@ export default function StatusStep({
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 10, color: '#9ca3af', textTransform: 'uppercase' }}>Satış Belgesi</div>
-              <div style={{ fontSize: 11, fontWeight: 600, marginTop: 2 }}>{sale.id?.slice(-12)}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, marginTop: 2 }}>{sale.referansNo ?? sale.id?.slice(-12)}</div>
               <div style={{ fontSize: 11, color: '#6b7280' }}>{new Date(sale.createdAt ?? '').toLocaleDateString('tr-TR')}</div>
             </div>
           </div>

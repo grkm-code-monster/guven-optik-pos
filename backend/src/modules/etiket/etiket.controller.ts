@@ -2,11 +2,22 @@ import { Router, type Request, type Response } from 'express';
 import { authenticate } from '../../middleware/authenticate';
 import { generateZpl, type EtiketInput } from './etiket.service';
 import {
+  generatePplaBatchFromSablon,
+  generatePplaFromSablon,
+} from './etiket-ppla';
+import {
   generateZplBatchFromSablon,
   generateZplFromSablon,
   type CanvasElement,
   type EtiketVeri,
 } from './etiket-zpl';
+
+type EtiketDil = 'zpl' | 'ppla';
+
+function parseEtiketDil(body: Record<string, unknown>): EtiketDil {
+  const dil = body.dil;
+  return dil === 'zpl' ? 'zpl' : 'ppla';
+}
 import * as sablonService from './etiket-sablon.service';
 
 const router = Router();
@@ -20,6 +31,16 @@ router.get('/sablonlar', async (req: Request, res: Response) => {
     return res.json({ data });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message ?? 'Şablonlar yüklenemedi' });
+  }
+});
+
+router.get('/sablon/slug/:slug', async (req: Request, res: Response) => {
+  try {
+    const data = await sablonService.getSablonBySlug(req.params.slug);
+    if (!data) return res.status(404).json({ error: 'Şablon bulunamadı' });
+    return res.json({ data });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message ?? 'Şablon yüklenemedi' });
   }
 });
 
@@ -63,6 +84,7 @@ router.delete('/sablon/:id', async (req: Request, res: Response) => {
 router.post('/zpl', async (req: Request, res: Response) => {
   try {
     const body = req.body ?? {};
+    const dil = parseEtiketDil(body);
 
     // Şablon tabanlı ZPL
     if (body.sablon || body.sablonId) {
@@ -88,9 +110,14 @@ router.post('/zpl', async (req: Request, res: Response) => {
         barkod: row.barkod ?? row.barcode,
         utsKodu: row.utsKodu,
         sonGuncelleme: row.sonGuncelleme,
+        lotNo: row.lotNo,
+        sktTarihi: row.sktTarihi,
       }));
 
-      const zpl = generateZplBatchFromSablon(elemanlar, genislik, yukseklik, veriler);
+      const zpl =
+        dil === 'ppla'
+          ? generatePplaBatchFromSablon(elemanlar, genislik, yukseklik, veriler)
+          : generateZplBatchFromSablon(elemanlar, genislik, yukseklik, veriler);
       return res.json({ zpl, count: veriler.length });
     }
 
@@ -107,7 +134,10 @@ router.post('/zpl', async (req: Request, res: Response) => {
         seriNo: 'SN-123456',
         barkod: 'REF001',
       };
-      const zpl = generateZplFromSablon(elemanlar, genislik, yukseklik, veri);
+      const zpl =
+        dil === 'ppla'
+          ? generatePplaFromSablon(elemanlar, genislik, yukseklik, veri)
+          : generateZplFromSablon(elemanlar, genislik, yukseklik, veri);
       return res.json({ zpl, count: 1 });
     }
 

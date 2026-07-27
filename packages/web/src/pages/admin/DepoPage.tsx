@@ -1,12 +1,25 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import { adminApi } from './AdminLayout'
+import {
+  adimEtiketi,
+  deleteUrunGirisDraft,
+  flushUrunGirisDraft,
+  getUrunGirisDraft,
+  listUrunGirisDraftMeta,
+  onUrunGirisDraftSaved,
+  saveUrunGirisDraftDebounced,
+  type UrunGirisDraftMeta,
+  type UrunGirisDraftPayload,
+} from '../../utils/urunGirisDraft'
+import { consumeUtsUrunGirisBridge } from '../../utils/utsUrunGirisBridge'
 import { StockQueryPanel } from '../StokSorgulaPage'
 import YeniTransfer from '../../components/transfer/YeniTransfer'
 import BekleyenTransferler from '../../components/transfer/BekleyenTransferler'
 import EtiketSablonSecici from '../../components/etiket/EtiketSablonSecici'
-import { otomatikSablonSec, uretCokluEtiketZpl } from '../../components/etiket/etiket-sablon-helpers'
+import { otomatikSablonSec, uretEtiketZplTercihli } from '../../components/etiket/etiket-sablon-helpers'
 import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
 import {
   OZEL_SIPARIS_AKIS,
@@ -15,6 +28,8 @@ import {
   normalizeOzelSiparisDurum,
 } from '../../constants/ozelSiparis'
 import { getOzelSiparisStokGirisDetay, stokaAlOzelSiparis } from '../../api/ozelSiparis.api'
+import ExcelEnvanterImportTab from '../../components/depo/ExcelEnvanterImportTab'
+import { canSeeDepoTab, type AdminUserLite } from '../../constants/ekYetki'
 
 // ── Sabitler ─────────────────────────────────────────────────
 const LOKASYONLAR = [
@@ -36,14 +51,51 @@ const TABS = [
   { id: 'sayim', label: '🔢 Sayım' },
   { id: 'alim', label: '📥 Alım & İade' },
   { id: 'urun-giris', label: '🆕 Ürün Girişi' },
+  { id: 'excel-envanter', label: '📊 Excel Envanter' },
   { id: 'siparisler', label: '🛒 Siparişler' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
 
+function readAdminUser(): AdminUserLite | null {
+  try {
+    const raw = localStorage.getItem('admin-user')
+    return raw ? JSON.parse(raw) as AdminUserLite : null
+  } catch {
+    return null
+  }
+}
+
 // ── Ana Bileşen ───────────────────────────────────────────────
 export default function DepoPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('stok')
+  const [searchParams] = useSearchParams()
+  const adminUser = useMemo(() => readAdminUser(), [])
+  const visibleTabs = useMemo(
+    () => TABS.filter((t) => canSeeDepoTab(adminUser ?? {}, t.id)),
+    [adminUser],
+  )
+  const [activeTab, setActiveTab] = useState<TabId>(() => visibleTabs[0]?.id ?? 'stok')
+
+  useEffect(() => {
+    if (!visibleTabs.some((t) => t.id === activeTab) && visibleTabs[0]) {
+      setActiveTab(visibleTabs[0].id)
+    }
+  }, [activeTab, visibleTabs])
+
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab && visibleTabs.some((t) => t.id === tab)) {
+      setActiveTab(tab as TabId)
+    }
+  }, [searchParams, visibleTabs])
+
+  if (visibleTabs.length === 0) {
+    return (
+      <div style={{ padding: 24, color: '#6b7280' }}>
+        Bu ekrana erişim yetkiniz bulunmuyor.
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -53,7 +105,7 @@ export default function DepoPage() {
 
       {/* Sekmeler */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #e5e7eb', marginBottom: 24 }}>
-        {TABS.map(t => (
+        {visibleTabs.map(t => (
           <button
             key={t.id}
             type="button"
@@ -80,6 +132,7 @@ export default function DepoPage() {
       {activeTab === 'sayim' && <SayimTab />}
       {activeTab === 'alim' && <AlimIadeTab />}
       {activeTab === 'urun-giris' && <UrunGirisTab />}
+      {activeTab === 'excel-envanter' && <ExcelEnvanterImportTab />}
       {activeTab === 'siparisler' && <SiparislerTab />}
     </div>
   )
@@ -124,7 +177,7 @@ function TransferTab() {
       {altSekme === 'lot' ? <LotTransferTab /> : (
         <div style={{ display: 'grid', gap: 20 }}>
           <YeniTransfer source="admin" />
-          <BekleyenTransferler source="admin" useMockFallback={false} />
+          <BekleyenTransferler source="admin" />
         </div>
       )}
     </div>
@@ -132,6 +185,8 @@ function TransferTab() {
 }
 
 function LotTransferTab() {
+  type LotTransferDurum = '' | 'bekliyor' | 'basarili' | 'kismi' | 'basarisiz'
+
   const [aramaQ, setAramaQ] = useState('')
   const [aramaSonuclar, setAramaSonuclar] = useState<Array<{
     lotId: number; lotName: string; barkod: string
@@ -149,7 +204,7 @@ function LotTransferTab() {
     quantity: number
     hedefLok: string
     transferYapiliyor: boolean
-    transferTamam: boolean
+    transferDurum: LotTransferDurum
     transferHata: string
   }>>([])
 
@@ -184,7 +239,7 @@ function LotTransferTab() {
       locationId: sonuc.locationId, locationName: sonuc.locationName,
       quantity: sonuc.quantity,
       hedefLok: topluHedef || LOKASYON_LISTESI.find(l => LOKASYON_ID_MAP[l] !== sonuc.locationId) || 'ANADEPO',
-      transferYapiliyor: false, transferTamam: false, transferHata: '',
+      transferYapiliyor: false, transferDurum: '', transferHata: '',
     }])
     setAramaQ('')
     setAramaSonuclar([])
@@ -195,9 +250,14 @@ function LotTransferTab() {
     setListe(prev => prev.map(l => ({ ...l, hedefLok: topluHedef })))
   }
 
+  function transferSatirIslemGormus(durum: LotTransferDurum) {
+    return durum === 'basarili' || durum === 'bekliyor'
+  }
+
   async function tekTransfer(id: string) {
     const kalem = liste.find(l => l.id === id)
     if (!kalem) return
+    if (transferSatirIslemGormus(kalem.transferDurum)) return
     const hedefId = LOKASYON_ID_MAP[kalem.hedefLok]
     if (!hedefId || hedefId === kalem.locationId) return
 
@@ -210,19 +270,29 @@ function LotTransferTab() {
           miktar: 1, urunAdi: kalem.productName,
         }],
       })
-      if (res.data?.success) {
-        setListe(prev => prev.map(l => l.id === id ? { ...l, transferYapiliyor: false, transferTamam: true } : l))
-      } else throw new Error(res.data?.error)
+      const satirDurum = (res.data?.transferler?.[0]?.durum ?? '') as LotTransferDurum
+      if (res.data?.success && (satirDurum === 'bekliyor' || satirDurum === 'basarili')) {
+        setListe(prev => prev.map(l => l.id === id ? {
+          ...l,
+          transferYapiliyor: false,
+          transferDurum: satirDurum,
+        } : l))
+      } else if (res.data?.partial || satirDurum === 'kismi') {
+        throw new Error(res.data?.message ?? 'Transfer kısmen tamamlandı — muhasebe kontrolü gerekli')
+      } else {
+        throw new Error(res.data?.message ?? res.data?.error ?? 'Transfer başarısız')
+      }
     } catch (e: any) {
       setListe(prev => prev.map(l => l.id === id ? {
         ...l, transferYapiliyor: false,
+        transferDurum: 'basarisiz',
         transferHata: e?.response?.data?.error ?? e?.message ?? 'Hata'
       } : l))
     }
   }
 
   async function tumunuTransferEt() {
-    const bekleyenler = liste.filter(l => !l.transferTamam && !l.transferYapiliyor)
+    const bekleyenler = liste.filter(l => !transferSatirIslemGormus(l.transferDurum) && !l.transferYapiliyor)
     if (!bekleyenler.length) return
     setTumunuYapiliyor(true)
     for (const kalem of bekleyenler) {
@@ -308,7 +378,16 @@ function LotTransferTab() {
               </thead>
               <tbody>
                 {liste.map((l, i) => (
-                  <tr key={l.id} style={{ borderBottom: '1px solid #f3f4f6', backgroundColor: l.transferTamam ? '#f0fdf4' : l.transferHata ? '#fff1f2' : 'white' }}>
+                  <tr key={l.id} style={{
+                    borderBottom: '1px solid #f3f4f6',
+                    backgroundColor: l.transferDurum === 'basarili'
+                      ? '#f0fdf4'
+                      : l.transferDurum === 'bekliyor'
+                        ? '#eff6ff'
+                        : l.transferHata
+                          ? '#fff1f2'
+                          : 'white',
+                  }}>
                     <td style={{ ...td, color: '#9ca3af', fontSize: 11 }}>{i + 1}</td>
                     <td style={{ ...td, fontWeight: 700, fontSize: 13 }}>{l.productName}</td>
                     <td style={{ ...td, fontSize: 12, color: '#6b7280' }}>{l.lotName || '—'}</td>
@@ -319,8 +398,14 @@ function LotTransferTab() {
                       </span>
                     </td>
                     <td style={{ ...td }}>
-                      {l.transferTamam ? (
-                        <span style={{ fontSize: 12, color: '#059669', fontWeight: 700 }}>✓ {l.hedefLok}</span>
+                      {l.transferDurum === 'basarili' || l.transferDurum === 'bekliyor' ? (
+                        <span style={{
+                          fontSize: 12,
+                          color: l.transferDurum === 'basarili' ? '#059669' : '#1d4ed8',
+                          fontWeight: 700,
+                        }}>
+                          {l.transferDurum === 'basarili' ? '✓' : '→'} {l.hedefLok}
+                        </span>
                       ) : (
                         <select value={l.hedefLok}
                           onChange={e => setListe(prev => prev.map(p => p.id === l.id ? { ...p, hedefLok: e.target.value } : p))}
@@ -332,8 +417,12 @@ function LotTransferTab() {
                       )}
                     </td>
                     <td style={{ ...td }}>
-                      {l.transferTamam ? (
+                      {l.transferDurum === 'basarili' ? (
                         <span style={{ fontSize: 11, color: '#059669' }}>✓ Tamamlandı</span>
+                      ) : l.transferDurum === 'bekliyor' ? (
+                        <span style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 700, lineHeight: 1.35 }}>
+                          → Gönderildi — {l.hedefLok} kabul bekliyor
+                        </span>
                       ) : l.transferHata ? (
                         <div>
                           <span style={{ fontSize: 11, color: '#ef4444' }}>✕ Hata</span>
@@ -366,9 +455,9 @@ function LotTransferTab() {
               🗑 Listeyi Temizle
             </button>
             <button type="button" onClick={() => void tumunuTransferEt()}
-              disabled={tumunuYapiliyor || liste.every(l => l.transferTamam)}
+              disabled={tumunuYapiliyor || liste.every(l => transferSatirIslemGormus(l.transferDurum))}
               style={{ ...btnPrimary, backgroundColor: '#059669', fontSize: 13 }}>
-              {tumunuYapiliyor ? '⏳ İşleniyor...' : `✓ Tümünü Transfer Et (${liste.filter(l => !l.transferTamam).length} kalem)`}
+              {tumunuYapiliyor ? '⏳ İşleniyor...' : `✓ Tümünü Transfer Et (${liste.filter(l => !transferSatirIslemGormus(l.transferDurum)).length} kalem)`}
             </button>
           </div>
         </>
@@ -384,7 +473,13 @@ function LotTransferTab() {
 
 
 // ── SAYIM SEKMESİ ─────────────────────────────────────────────
-type SayimSatir = { productId: number; productName: string; systemQty: number; countedQty: string }
+type SayimSatir = {
+  quantId: number
+  productId: number
+  productName: string
+  systemQty: number
+  countedQty: string
+}
 
 function SayimTab() {
   const [lokasyon, setLokasyon] = useState('GVN1')
@@ -392,18 +487,19 @@ function SayimTab() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
   async function loadStok() {
     setLoading(true)
     setError(null)
-    setSuccess(false)
+    setSuccessMsg(null)
     try {
       const res = await adminApi.get(`/admin/stock?locationId=${
         { GVN1: 53, GVN3: 54, GVN4: 55, GVN6: 56, GVN8: 57, GVN9: 58, GVN2: 59, GVN10: 60, ANADEPO: 61, GVN5: 62 }[lokasyon] ?? 53
       }`)
       const data = res.data?.data ?? []
       setRows(data.map((q: any) => ({
+        quantId: Number(q.id) || 0,
         productId: Array.isArray(q.product_id) ? q.product_id[0] : 0,
         productName: Array.isArray(q.product_id) ? q.product_id[1] : '—',
         systemQty: Number(q.quantity) || 0,
@@ -419,18 +515,41 @@ function SayimTab() {
   async function saveSayim() {
     setSaving(true)
     setError(null)
+    setSuccessMsg(null)
     try {
       const farklar = rows.filter(r => Number(r.countedQty) !== r.systemQty)
-      if (farklar.length === 0) { alert('Fark bulunamadı, sayım sisteme uygun.'); setSaving(false); return }
-      // Odoo inventory adjustment — her fark için quant update
-      for (const f of farklar) {
-        await adminApi.post('/admin/stock-adjustment', {
-          productId: f.productId,
-          locationCode: lokasyon,
-          qty: Number(f.countedQty),
-        }).catch(() => {})
+      if (farklar.length === 0) {
+        alert('Fark bulunamadı, sayım sisteme uygun.')
+        return
       }
-      setSuccess(true)
+
+      const basarisiz: string[] = []
+      let basarili = 0
+
+      for (const f of farklar) {
+        try {
+          await adminApi.post('/admin/stock-adjustment', {
+            productId: f.productId,
+            locationCode: lokasyon,
+            qty: Number(f.countedQty),
+            quantId: f.quantId || undefined,
+          })
+          basarili += 1
+        } catch (e: any) {
+          const msg = e?.response?.data?.error ?? e?.message ?? 'Bilinmeyen hata'
+          basarisiz.push(`${f.productName}: ${msg}`)
+        }
+      }
+
+      if (basarili === farklar.length) {
+        setSuccessMsg(`✓ Sayım kaydedildi, ${basarili} ürün güncellendi`)
+        await loadStok()
+      } else if (basarili === 0) {
+        setError(`✗ Sayım kaydedilemedi, tekrar deneyin: ${basarisiz.join('; ')}`)
+      } else {
+        setError(`⚠ ${farklar.length} üründen ${basarisiz.length}'si güncellenemedi: ${basarisiz.join('; ')}`)
+        await loadStok()
+      }
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Sayım kaydedilemedi')
     } finally {
@@ -453,7 +572,7 @@ function SayimTab() {
       </div>
 
       {error && <p style={{ color: '#ef4444', fontSize: 13 }}>{error}</p>}
-      {success && <p style={{ color: '#166534', fontSize: 13, fontWeight: 700 }}>✓ Sayım kaydedildi.</p>}
+      {successMsg && <p style={{ color: '#166534', fontSize: 13, fontWeight: 700 }}>{successMsg}</p>}
 
       {rows.length > 0 && (
         <>
@@ -471,7 +590,7 @@ function SayimTab() {
                 {rows.map((r, i) => {
                   const fark = Number(r.countedQty) - r.systemQty
                   return (
-                    <tr key={r.productId}>
+                    <tr key={r.quantId || `${r.productId}-${i}`}>
                       <td style={td}>{r.productName}</td>
                       <td style={td}>{r.systemQty}</td>
                       <td style={td}>
@@ -625,6 +744,107 @@ function AlimIadeTab() {
       </div>
     </div>
   )
+}
+
+function hasMesajDeger(val: unknown): boolean {
+  if (val == null) return false
+  const s = String(val).trim()
+  return s !== '' && s !== '—'
+}
+
+function formatSphDeger(v: unknown): string {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return String(v)
+  return n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatCylDeger(v: unknown): string {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return String(v)
+  return n.toFixed(2)
+}
+
+function formatGozSatiri(
+  label: string,
+  sph: unknown,
+  cyl: unknown,
+  aks: unknown,
+): string | null {
+  const degerler: string[] = []
+  if (hasMesajDeger(sph)) degerler.push(formatSphDeger(sph))
+  if (hasMesajDeger(cyl)) degerler.push(formatCylDeger(cyl))
+  const aksVar = hasMesajDeger(aks)
+  if (!degerler.length && !aksVar) return null
+  const parts: string[] = []
+  if (degerler.length) parts.push(degerler.join(' '))
+  if (aksVar) parts.push(`AKS: ${aks}`)
+  return `${label} — ${parts.join(', ')}`
+}
+
+function buildSiparisDetayMesaji(detay: Record<string, unknown>): string {
+  const lines: string[] = ['*Sipariş Detayı*']
+
+  if (hasMesajDeger(detay.musteriAdi)) lines.push(`Müşteri: ${detay.musteriAdi}`)
+  if (hasMesajDeger(detay.firmaUrunu)) lines.push(`Firma Ürünü: ${detay.firmaUrunu}`)
+  if (hasMesajDeger(detay.subeAdi)) lines.push(`Şube: ${detay.subeAdi}`)
+  if (detay.createdAt) {
+    lines.push(`Tarih: ${new Date(String(detay.createdAt)).toLocaleDateString('tr-TR')}`)
+  }
+  if (hasMesajDeger(detay.notlar)) lines.push(`Notlar: ${detay.notlar}`)
+
+  if (detay.tip === 'RECETELI') {
+    const recete: string[] = []
+    const sag = formatGozSatiri('Sağ Göz', detay.sagSph, detay.sagCyl, detay.sagAks)
+    const sol = formatGozSatiri('Sol Göz', detay.solSph, detay.solCyl, detay.solAks)
+    if (sag) recete.push(sag)
+    if (sol) recete.push(sol)
+    if (hasMesajDeger(detay.camTipi)) recete.push(`Cam Tipi: ${detay.camTipi}`)
+    if (hasMesajDeger(detay.camIndeksi)) recete.push(`İndeks: ${detay.camIndeksi}`)
+    if (hasMesajDeger(detay.kaplama)) recete.push(`Kaplama: ${detay.kaplama}`)
+    if (hasMesajDeger(detay.cerceveBilgisi)) recete.push(`Çerçeve: ${detay.cerceveBilgisi}`)
+    if (recete.length) {
+      lines.push('', '*Reçete*', ...recete)
+    }
+  }
+
+  const olcumler = detay.olcumBilgisi
+  if (Array.isArray(olcumler) && olcumler.length > 0) {
+    const olcumSatirlari: string[] = []
+    olcumler.forEach((m: Record<string, unknown>, i: number) => {
+      if (olcumler.length > 1) olcumSatirlari.push(`— Ölçüm ${i + 1} —`)
+      if (hasMesajDeger(m.frameType)) olcumSatirlari.push(`Çerçeve Tipi: ${m.frameType}`)
+      const olcumOzet: string[] = []
+      if (hasMesajDeger(m.rph)) olcumOzet.push(`RPH: ${m.rph}`)
+      if (hasMesajDeger(m.lph)) olcumOzet.push(`LPH: ${m.lph}`)
+      if (hasMesajDeger(m.corridor)) olcumOzet.push(`Koridor: ${m.corridor}`)
+      if (olcumOzet.length) olcumSatirlari.push(olcumOzet.join(', '))
+      const capOzet: string[] = []
+      if (hasMesajDeger(m.rightDia)) capOzet.push(`Sağ Çap: ${m.rightDia}`)
+      if (hasMesajDeger(m.leftDia)) capOzet.push(`Sol Çap: ${m.leftDia}`)
+      if (capOzet.length) olcumSatirlari.push(capOzet.join(', '))
+      if (hasMesajDeger(m.vertex)) olcumSatirlari.push(`Vertex: ${m.vertex}`)
+      if (hasMesajDeger(m.pantoscopic)) olcumSatirlari.push(`Pantoskopik: ${m.pantoscopic}`)
+      if (hasMesajDeger(m.frameBow)) olcumSatirlari.push(`Çerçeve Bombesi: ${m.frameBow}`)
+      if (hasMesajDeger(m.engraving)) olcumSatirlari.push(`Engraving: ${m.engraving}`)
+      if (hasMesajDeger(m.prismR1Val) || hasMesajDeger(m.prismL1Val)) {
+        olcumSatirlari.push(
+          `Prizma — R: ${m.prismR1Val ?? '—'}/${m.prismR1Aks ?? '—'}° · L: ${m.prismL1Val ?? '—'}/${m.prismL1Aks ?? '—'}°`,
+        )
+      }
+    })
+    if (olcumSatirlari.length) {
+      lines.push('', '*Ölçümler*', ...olcumSatirlari)
+    }
+  }
+
+  if (hasMesajDeger(detay.tedarikciAdi)) {
+    lines.push('', '*Tedarikçi*', `Tedarikçi: ${detay.tedarikciAdi}`)
+    if (hasMesajDeger(detay.tedarikciSiparisNo)) {
+      lines.push(`Sipariş No: ${detay.tedarikciSiparisNo}`)
+    }
+  }
+
+  return lines.join('\n')
 }
 
 function SiparislerTab() {
@@ -836,7 +1056,18 @@ function SiparislerTab() {
                 >
                   📄 PDF
                 </button>
-                <button style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #25d366', backgroundColor: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#25d366' }}>💬 WhatsApp</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const draft = firmaUrunuDraft[detayPopup.id]
+                    const detayIleDraft = draft !== undefined ? { ...detayPopup, firmaUrunu: draft } : detayPopup
+                    const msg = buildSiparisDetayMesaji(detayIleDraft)
+                    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, 'guven-optik-whatsapp')
+                  }}
+                  style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #25d366', backgroundColor: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#25d366' }}
+                >
+                  💬 WhatsApp
+                </button>
                 <button style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #3b82f6', backgroundColor: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#3b82f6' }}>📧 E-posta</button>
                 <button style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #8b5cf6', backgroundColor: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#8b5cf6' }}>🔌 API</button>
                 <button onClick={() => setDetayPopup(null)} style={{ border: 'none', background: 'none', fontSize: 20, cursor: 'pointer', color: '#6b7280', marginLeft: 4 }}>✕</button>
@@ -1156,6 +1387,22 @@ function SiparislerTab() {
                         ))}
                         <option value="IPTAL">{DURUM_RENK.IPTAL.label}</option>
                       </select>
+                    )}
+                    {!['MUSTERIYE_TESLIM', 'IPTAL'].includes(s.durum) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDurumGuncellePopup(s)
+                          setDurumGuncelle({
+                            durum: normalizeOzelSiparisDurum(s.durum),
+                            tedarikciSiparisNo: s.tedarikciSiparisNo ?? '',
+                            notlar: s.notlar ?? '',
+                          })
+                        }}
+                        style={{ ...btnSmall, fontSize: 11, padding: '5px 10px', whiteSpace: 'nowrap' }}
+                      >
+                        ✏️ Durum
+                      </button>
                     )}
                     {s.durum === 'TESLIM_ALINDI' && (
                       <button type="button" onClick={() => setTeslimPopup(s)}
@@ -1486,11 +1733,105 @@ type FaturaSatiri = {
   bizimUrunAdi: string
   bizimUrunOdooId: number | null
   bizimUrunProductId?: number | null
+  bizimUrunBarkod?: string
+  varyantEtiketi?: string
   miktar: number
   birimFiyat: string
   iskonto: string
   kdvOrani: string
   eslesti: boolean
+}
+
+type EslestirmeAlanlari = Pick<
+  FaturaSatiri,
+  | 'bizimUrunId'
+  | 'bizimUrunAdi'
+  | 'bizimUrunOdooId'
+  | 'bizimUrunProductId'
+  | 'bizimUrunBarkod'
+  | 'varyantEtiketi'
+  | 'eslesti'
+>
+
+function tedarikciUrunAdiAnahtar(ad: string): string {
+  return ad.trim().toLocaleLowerCase('tr')
+}
+
+function eslestirmeImzasi(s: FaturaSatiri): string {
+  return `${s.bizimUrunOdooId ?? ''}|${s.bizimUrunProductId ?? ''}|${s.bizimUrunId ?? ''}`
+}
+
+function eslestirmeAlanlariKaynaktan(kaynak: FaturaSatiri): EslestirmeAlanlari {
+  return {
+    bizimUrunId: kaynak.bizimUrunId,
+    bizimUrunAdi: kaynak.bizimUrunAdi,
+    bizimUrunOdooId: kaynak.bizimUrunOdooId,
+    bizimUrunProductId: kaynak.bizimUrunProductId ?? null,
+    bizimUrunBarkod: kaynak.bizimUrunBarkod,
+    varyantEtiketi: kaynak.varyantEtiketi,
+    eslesti: true,
+  }
+}
+
+function ayniIsimdeEslesmemisSayisi(satirlar: FaturaSatiri[], kaynak: FaturaSatiri): number {
+  const key = tedarikciUrunAdiAnahtar(kaynak.tedarikciUrunAdi)
+  if (!key) return 0
+  return satirlar.filter(
+    (s) => s.id !== kaynak.id && !s.eslesti && tedarikciUrunAdiAnahtar(s.tedarikciUrunAdi) === key,
+  ).length
+}
+
+function eslestenIsimleriOtomatikTamamla(prev: FaturaSatiri[]): {
+  satirlar: FaturaSatiri[]
+  grupSayisi: number
+  satirSayisi: number
+  uyarilar: string[]
+} {
+  const gruplar = new Map<string, FaturaSatiri[]>()
+  for (const s of prev) {
+    const key = tedarikciUrunAdiAnahtar(s.tedarikciUrunAdi)
+    if (!key) continue
+    const liste = gruplar.get(key) ?? []
+    liste.push(s)
+    gruplar.set(key, liste)
+  }
+
+  let grupSayisi = 0
+  let satirSayisi = 0
+  const uyarilar: string[] = []
+  const updates = new Map<string, EslestirmeAlanlari>()
+
+  for (const grup of gruplar.values()) {
+    const eslesmis = grup.filter((s) => s.eslesti && s.bizimUrunOdooId)
+    if (eslesmis.length === 0) continue
+
+    const imzalar = new Set(eslesmis.map(eslestirmeImzasi))
+    const kaynak = eslesmis[0]
+    if (imzalar.size > 1) {
+      uyarilar.push(
+        `"${grup[0].tedarikciUrunAdi.trim()}" için birden fazla farklı eşleşme var; ilki uygulandı.`,
+      )
+    }
+
+    const eslesmemis = grup.filter((s) => !s.eslesti)
+    if (eslesmemis.length === 0) continue
+
+    grupSayisi++
+    satirSayisi += eslesmemis.length
+    const alanlar = eslestirmeAlanlariKaynaktan(kaynak)
+    for (const s of eslesmemis) updates.set(s.id, alanlar)
+  }
+
+  if (updates.size === 0) {
+    return { satirlar: prev, grupSayisi: 0, satirSayisi: 0, uyarilar }
+  }
+
+  return {
+    satirlar: prev.map((s) => (updates.has(s.id) ? { ...s, ...updates.get(s.id)! } : s)),
+    grupSayisi,
+    satirSayisi,
+    uyarilar,
+  }
 }
 
 type UyumsoftHamSatir = {
@@ -1586,6 +1927,8 @@ type LotSatiri = {
   bizimUrunAdi: string
   bizimUrunOdooId: number | null
   bizimUrunProductId?: number | null
+  bizimUrunBarkod?: string
+  varyantEtiketi?: string
   uretici: string
   barkod: string
   utsKodu: string
@@ -1597,6 +1940,115 @@ type LotSatiri = {
   lokasyonTip: 'sube' | 'depo' | 'dis-musteri'
   disMusteriId: number | null
   disMusteriAdi: string
+}
+
+function lotUrunAnahtar(lot: LotSatiri): string {
+  if (lot.bizimUrunOdooId) return `odoo:${lot.bizimUrunOdooId}`
+  const ad = lot.bizimUrunAdi.trim().toLocaleLowerCase('tr')
+  return ad ? `ad:${ad}` : ''
+}
+
+function lotFiyatGirilmis(l: LotSatiri): boolean {
+  return l.satisFiyatiDegisti === 'true'
+}
+
+function ayniUrundeFiyatsizLotSayisi(lotlar: LotSatiri[], kaynak: LotSatiri): number {
+  const key = lotUrunAnahtar(kaynak)
+  if (!key || !lotFiyatGirilmis(kaynak) || !kaynak.satisFiyati.trim()) return 0
+  return lotlar.filter(
+    (l) => l.id !== kaynak.id && lotUrunAnahtar(l) === key && !lotFiyatGirilmis(l),
+  ).length
+}
+
+function fiyatlariOtomatikTamamla(prev: LotSatiri[]): {
+  lotlar: LotSatiri[]
+  grupSayisi: number
+  satirSayisi: number
+  odooGuncellemeler: Array<{ productTmplId: number; listPrice: number }>
+} {
+  const gruplar = new Map<string, LotSatiri[]>()
+  for (const l of prev) {
+    const key = lotUrunAnahtar(l)
+    if (!key) continue
+    const liste = gruplar.get(key) ?? []
+    liste.push(l)
+    gruplar.set(key, liste)
+  }
+
+  let grupSayisi = 0
+  let satirSayisi = 0
+  const updates = new Map<string, string>()
+  const odooGuncellemeler: Array<{ productTmplId: number; listPrice: number }> = []
+  const odooSeen = new Set<number>()
+
+  for (const grup of gruplar.values()) {
+    const kaynak = grup.find((l) => lotFiyatGirilmis(l) && l.satisFiyati.trim() !== '')
+    if (!kaynak) continue
+
+    const fiyatsiz = grup.filter((l) => !lotFiyatGirilmis(l))
+    if (fiyatsiz.length === 0) continue
+
+    grupSayisi++
+    satirSayisi += fiyatsiz.length
+    for (const l of fiyatsiz) updates.set(l.id, kaynak.satisFiyati)
+
+    if (kaynak.bizimUrunOdooId && !odooSeen.has(kaynak.bizimUrunOdooId)) {
+      odooSeen.add(kaynak.bizimUrunOdooId)
+      odooGuncellemeler.push({
+        productTmplId: kaynak.bizimUrunOdooId,
+        listPrice: Number(kaynak.satisFiyati),
+      })
+    }
+  }
+
+  if (updates.size === 0) {
+    return { lotlar: prev, grupSayisi: 0, satirSayisi: 0, odooGuncellemeler: [] }
+  }
+
+  return {
+    lotlar: prev.map((l) =>
+      updates.has(l.id)
+        ? { ...l, satisFiyati: updates.get(l.id)!, satisFiyatiDegisti: 'true' }
+        : l,
+    ),
+    grupSayisi,
+    satirSayisi,
+    odooGuncellemeler,
+  }
+}
+
+function odooAlanStr(value: unknown): string {
+  if (value == null || value === false) return ''
+  if (typeof value === 'string') return value.trim()
+  return ''
+}
+
+function varyantEtiketiOlustur(nitelikler?: Array<{ degerAdi?: unknown }>): string {
+  const parts = (nitelikler ?? [])
+    .map((n) => odooAlanStr(n.degerAdi))
+    .filter(Boolean)
+  return parts.join(' / ')
+}
+
+function varyantNitelikAramaMetni(v: {
+  name?: string
+  defaultCode?: string
+  nitelikler?: Array<{ nitelikAdi: string; degerAdi: string }>
+}): string {
+  return [
+    v.name ?? '',
+    v.defaultCode ?? '',
+    ...(v.nitelikler ?? []).flatMap((n) => [n.nitelikAdi, n.degerAdi]),
+  ].join(' ').toLowerCase()
+}
+
+function varyantFiltreEslesir(
+  v: { name?: string; defaultCode?: string; nitelikler?: Array<{ nitelikAdi: string; degerAdi: string }> },
+  term: string,
+): boolean {
+  const q = term.trim().toLowerCase()
+  if (!q) return true
+  return varyantNitelikAramaMetni(v).includes(q)
 }
 
 function urunAdindanKategori(ad: string): string {
@@ -1826,10 +2278,34 @@ function BekleyenFaturalarTab({ onGeri }: { onGeri: () => void }) {
   )
 }
 
+function gelenFaturaTarihIso(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+type GelenFaturaAralikPreset = '3' | '7' | '30' | '90' | '180' | 'custom'
+
+function gelenFaturaAralikFromPreset(
+  preset: GelenFaturaAralikPreset,
+  customBas: string,
+  customBit: string,
+): { baslangic: string; bitis: string } {
+  const bitis = new Date()
+  if (preset === 'custom') {
+    const fallbackBas = gelenFaturaTarihIso(new Date(Date.now() - 30 * 86400000))
+    return {
+      baslangic: customBas || fallbackBas,
+      bitis: customBit || gelenFaturaTarihIso(bitis),
+    }
+  }
+  const days = preset === '3' ? 3 : preset === '7' ? 7 : preset === '30' ? 30 : preset === '90' ? 90 : 180
+  const baslangic = new Date(Date.now() - days * 86400000)
+  return { baslangic: gelenFaturaTarihIso(baslangic), bitis: gelenFaturaTarihIso(bitis) }
+}
+
 function UrunGirisTab() {
   const [adim, setAdim] = useState<UrunGirisAdim>('giris-tipi')
   const [girisTipi, setGirisTipi] = useState<'FATURAYLA' | 'FATURA_SONRA' | 'IRSALIYELI' | 'FATURASIZ' | null>(null)
-  const [girisNo] = useState(() => {
+  const [girisNo, setGirisNo] = useState(() => {
     const now = new Date()
     return `GRS-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(Math.floor(Math.random()*9000)+1000)}`
   })
@@ -1908,6 +2384,7 @@ function UrunGirisTab() {
     bizimUrunOdooId: null, miktar: 1, birimFiyat: '', iskonto: '0', kdvOrani: '10', eslesti: false
   }])
   const [topluUretici, setTopluUretici] = useState('')
+  const [eslestirmeMesaj, setEslestirmeMesaj] = useState<{ tip: 'ok' | 'warn'; text: string } | null>(null)
 
   // Ürün arama popup
   const [urunPopupAcik, setUrunPopupAcik] = useState(false)
@@ -1918,6 +2395,8 @@ function UrunGirisTab() {
   const [varyantPopup, setVaryantPopup] = useState<{ templateId: number; templateAdi: string } | null>(null)
   const [varyantlar, setVaryantlar] = useState<Array<{ id: number; name: string; defaultCode: string; barcode: string; nitelikler: Array<{ nitelikAdi: string; degerAdi: string }> }>>([])
   const [varyantYukleniyor, setVaryantYukleniyor] = useState(false)
+  const [varyantFiltre, setVaryantFiltre] = useState('')
+  const [varyantUyari, setVaryantUyari] = useState<string | null>(null)
 
   // Yeni Odoo şablonu oluşturma
   const [yeniUrunFormu, setYeniUrunFormu] = useState(false)
@@ -1942,26 +2421,19 @@ function UrunGirisTab() {
 
   // Adım 3
   const [lotlar, setLotlar] = useState<LotSatiri[]>([])
-  const [irsaliyeler, setIrsaliyeler] = useState<Array<{
-    lokasyon: string
-    pickingId: number
-    pickingName: string
-    kalemSayisi: number
-    durum: 'bekliyor' | 'olusturuluyor' | 'tamam' | 'hata'
-    hata?: string
-  }>>([])
+  const odooSatisFiyatiSyncRef = useRef<Map<number, number>>(new Map())
+  const [fiyatMesaj, setFiyatMesaj] = useState<{ tip: 'ok' | 'warn'; text: string } | null>(null)
+  const [utsBelgeNo, setUtsBelgeNo] = useState('')
+  const [utsBridgeBildirimId, setUtsBridgeBildirimId] = useState<string | null>(null)
+  const [utsBridgeBanner, setUtsBridgeBanner] = useState<string | null>(null)
+  const [utsCekLoading, setUtsCekLoading] = useState(false)
+  const [utsCekMesaj, setUtsCekMesaj] = useState<{ tip: 'ok' | 'warn'; text: string } | null>(null)
 
   const [lokasyonSeciciAcik, setLokasyonSeciciAcik] = useState<string | null>(null) // grup lokasyonu
   const [lokasyonSekme, setLokasyonSekme] = useState<'sube' | 'depo' | 'dis-musteri'>('sube')
   const [disMusteriArama, setDisMusteriArama] = useState('')
   const [disMusteriSonuclar, setDisMusteriSonuclar] = useState<Array<{id: number; name: string; vat: string}>>([])
   const [disMusteriAramaLoading, setDisMusteriAramaLoading] = useState(false)
-  const [disMusteriOnayPopup, setDisMusteriOnayPopup] = useState<{
-    lokasyon: string
-    partnerAdi: string
-    partnerId: number
-    kalemler: LotSatiri[]
-  } | null>(null)
 
   const [dovizKuru, setDovizKuru] = useState<{USD: number; EUR: number; tarih: string} | null>(null)
   const [dovizYukleniyor, setDovizYukleniyor] = useState(false)
@@ -1974,6 +2446,7 @@ function UrunGirisTab() {
 
   // Uyumsoft gelen fatura
   const [gelenModalAcik, setGelenModalAcik] = useState(false)
+  const [gelenSirketId, setGelenSirketId] = useState<'ng' | 'adese' | 'potential'>('ng')
   const [gelenFaturalar, setGelenFaturalar] = useState<Array<{
     id: string
     uyumsoftNo: string | null
@@ -1985,7 +2458,47 @@ function UrunGirisTab() {
   }>>([])
   const [gelenYukleniyor, setGelenYukleniyor] = useState(false)
   const [gelenFaturaId, setGelenFaturaId] = useState<string | null>(null)
+  const [gelenAralikPreset, setGelenAralikPreset] = useState<GelenFaturaAralikPreset>('30')
+  const [gelenBaslangic, setGelenBaslangic] = useState(() => gelenFaturaTarihIso(new Date(Date.now() - 30 * 86400000)))
+  const [gelenBitis, setGelenBitis] = useState(() => gelenFaturaTarihIso(new Date()))
+  const [gelenOnlyUnread, setGelenOnlyUnread] = useState(false)
+  const [gelenAramaMetni, setGelenAramaMetni] = useState('')
+  const [gelenFaturaTarihiFiltre, setGelenFaturaTarihiFiltre] = useState('')
+  const [gelenPageIndex, setGelenPageIndex] = useState(0)
+  const [gelenHasMore, setGelenHasMore] = useState(false)
+  const [gelenTotalCount, setGelenTotalCount] = useState(0)
+  const [gelenCekOzet, setGelenCekOzet] = useState<string | null>(null)
   const [branches, setBranches] = useState<Array<{ id: string; code: string; name: string }>>([])
+
+  const gelenFaturalarFiltreli = useMemo(() => {
+    const q = gelenAramaMetni.trim().toLowerCase()
+    const qDigits = q.replace(/\D/g, '')
+    const tarihFiltre = gelenFaturaTarihiFiltre.trim().slice(0, 10)
+
+    return gelenFaturalar.filter((f) => {
+      if (tarihFiltre && (f.faturaTarihi ?? '').slice(0, 10) !== tarihFiltre) return false
+      if (!q) return true
+      const no = (f.uyumsoftNo ?? '').toLowerCase()
+      const adi = (f.tedarikciAdi ?? '').toLowerCase()
+      if (no.includes(q) || adi.includes(q)) return true
+      if (qDigits.length >= 3) {
+        return (f.uyumsoftNo ?? '').replace(/\D/g, '').includes(qDigits)
+      }
+      return false
+    })
+  }, [gelenFaturalar, gelenAramaMetni, gelenFaturaTarihiFiltre])
+
+  function gelenPresetDegistir(preset: GelenFaturaAralikPreset) {
+    setGelenAralikPreset(preset)
+    if (preset !== 'custom') {
+      const aralik = gelenFaturaAralikFromPreset(preset, '', '')
+      setGelenBaslangic(aralik.baslangic)
+      setGelenBitis(aralik.bitis)
+    }
+    setGelenPageIndex(0)
+    setGelenHasMore(false)
+    setGelenCekOzet(null)
+  }
 
   // Uyumsoft sütun eşleştirme (adım 2)
   const [uyumsoftKaynak, setUyumsoftKaynak] = useState(false)
@@ -1993,6 +2506,161 @@ function UrunGirisTab() {
   const [uyumsoftKolonMap, setUyumsoftKolonMap] = useState<UyumsoftKolonMap>({ ...VARSAYILAN_UYUMSOFT_KOLON_MAP })
   const [uyumsoftTedarikciVkn, setUyumsoftTedarikciVkn] = useState<string | null>(null)
   const [uyumsoftKolonKayitli, setUyumsoftKolonKayitli] = useState(false)
+
+  const [taslakListesi, setTaslakListesi] = useState<UrunGirisDraftMeta[]>([])
+  const [taslakUyari, setTaslakUyari] = useState<UrunGirisDraftMeta | null>(null)
+
+  const taslakListesiniYenile = useCallback(() => {
+    setTaslakListesi(listUrunGirisDraftMeta())
+  }, [])
+
+  const collectDraftPayload = useCallback((): UrunGirisDraftPayload => ({
+    adim,
+    girisTipi,
+    girisNo,
+    cariAdi,
+    cariId,
+    faturaNo,
+    irsaliyeNo,
+    faturaReferans,
+    faturaTarihi,
+    fizikiTedarikciAdi,
+    fizikiTedarikciId,
+    secilenSirketId,
+    secilenSirketAdi,
+    faturaToplamKdvHaric,
+    satirlar,
+    lotlar,
+    utsBelgeNo,
+    gelenFaturaId,
+    topluUretici,
+    uyumsoftKaynak,
+    uyumsoftHamSatirlar,
+    uyumsoftKolonMap,
+    uyumsoftTedarikciVkn,
+  }), [
+    adim, girisTipi, girisNo, cariAdi, cariId, faturaNo, irsaliyeNo, faturaReferans, faturaTarihi,
+    fizikiTedarikciAdi, fizikiTedarikciId, secilenSirketId, secilenSirketAdi, faturaToplamKdvHaric,
+    satirlar, lotlar, utsBelgeNo, gelenFaturaId, topluUretici, uyumsoftKaynak, uyumsoftHamSatirlar,
+    uyumsoftKolonMap, uyumsoftTedarikciVkn,
+  ])
+
+  const taslakYukle = useCallback((draftId: string) => {
+    const draft = getUrunGirisDraft(draftId)
+    if (!draft) return
+    const p = draft.payload
+    setGirisNo(p.girisNo)
+    setAdim(p.adim as UrunGirisAdim)
+    setGirisTipi(p.girisTipi)
+    setCariAdi(p.cariAdi)
+    setCariId(p.cariId)
+    setFaturaNo(p.faturaNo)
+    setIrsaliyeNo(p.irsaliyeNo)
+    setFaturaReferans(p.faturaReferans)
+    setFaturaTarihi(p.faturaTarihi)
+    setFizikiTedarikciAdi(p.fizikiTedarikciAdi)
+    setFizikiTedarikciId(p.fizikiTedarikciId)
+    setSecilenSirketId(p.secilenSirketId)
+    setSecilenSirketAdi(p.secilenSirketAdi)
+    setFaturaToplamKdvHaric(p.faturaToplamKdvHaric)
+    setSatirlar(p.satirlar as FaturaSatiri[])
+    setLotlar(p.lotlar as LotSatiri[])
+    setUtsBelgeNo(p.utsBelgeNo)
+    setGelenFaturaId(p.gelenFaturaId)
+    setTopluUretici(p.topluUretici)
+    setUyumsoftKaynak(p.uyumsoftKaynak)
+    setUyumsoftHamSatirlar(p.uyumsoftHamSatirlar as UyumsoftHamSatir[])
+    setUyumsoftKolonMap(p.uyumsoftKolonMap as UyumsoftKolonMap)
+    setUyumsoftTedarikciVkn(p.uyumsoftTedarikciVkn)
+    setSuccess(false)
+    setError(null)
+    setTaslakUyari(null)
+  }, [])
+
+  const taslakSil = useCallback((draftId: string) => {
+    deleteUrunGirisDraft(draftId)
+    taslakListesiniYenile()
+    if (taslakUyari?.id === draftId) setTaslakUyari(null)
+  }, [taslakListesiniYenile, taslakUyari?.id])
+
+  useEffect(() => {
+    taslakListesiniYenile()
+    const drafts = listUrunGirisDraftMeta()
+    if (drafts.length > 0) setTaslakUyari(drafts[0])
+    return onUrunGirisDraftSaved(taslakListesiniYenile)
+  }, [taslakListesiniYenile])
+
+  useEffect(() => {
+    const bridge = consumeUtsUrunGirisBridge()
+    if (!bridge) return
+    setUtsBridgeBildirimId(bridge.utsBildirimId ?? null)
+    setUtsBelgeNo(bridge.belgeNo ?? '')
+    if (bridge.tedarikciAd) setCariAdi(bridge.tedarikciAd)
+    setUtsBridgeBanner(
+      `UTS alma bildiriminden aktarıldı — barkod: ${bridge.barkod}, seri/lot: ${bridge.seriNo || bridge.lotNo || '—'}`,
+    )
+    setGirisTipi('FATURASIZ')
+    setAdim('lotlar')
+    const lotId = `uts-${Date.now()}`
+    const lotNo = bridge.seriNo || bridge.lotNo || bridge.barkod
+    setLotlar([{
+      id: lotId,
+      faturaId: 'uts-bridge',
+      satırNo: 1,
+      tedarikciUrunAdi: `UTS ${bridge.barkod}`,
+      bizimUrunAdi: '',
+      bizimUrunOdooId: null,
+      uretici: '',
+      barkod: bridge.barkod,
+      utsKodu: bridge.barkod,
+      lotNo,
+      birimFiyat: '0',
+      lokasyon: 'ANADEPO',
+      satisFiyati: '',
+      satisFiyatiDegisti: 'false',
+      lokasyonTip: 'depo',
+      disMusteriId: null,
+      disMusteriAdi: '',
+    }])
+    setSatirlar([{
+      id: `uts-satir-${Date.now()}`,
+      tedarikciUrunAdi: `UTS ${bridge.barkod}`,
+      uretici: '',
+      bizimUrunId: null,
+      bizimUrunAdi: '',
+      bizimUrunOdooId: null,
+      miktar: bridge.adet || 1,
+      birimFiyat: '0',
+      iskonto: '0',
+      kdvOrani: '20',
+      eslesti: false,
+    }])
+  }, [])
+
+  useEffect(() => {
+    if (success) return
+    const anlamli =
+      adim !== 'giris-tipi'
+      || Boolean(cariAdi.trim() || faturaNo.trim())
+      || satirlar.some((s) => s.tedarikciUrunAdi.trim() || s.bizimUrunAdi.trim())
+      || lotlar.length > 0
+    if (!anlamli) return
+    saveUrunGirisDraftDebounced(collectDraftPayload())
+  }, [collectDraftPayload, success, adim, cariAdi, faturaNo, satirlar, lotlar.length])
+
+  useEffect(() => {
+    const flush = () => {
+      if (success) return
+      const anlamli =
+        adim !== 'giris-tipi'
+        || Boolean(cariAdi.trim() || faturaNo.trim())
+        || satirlar.some((s) => s.tedarikciUrunAdi.trim() || s.bizimUrunAdi.trim())
+        || lotlar.length > 0
+      if (anlamli) flushUrunGirisDraft(collectDraftPayload())
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [collectDraftPayload, success, adim, cariAdi, faturaNo, satirlar, lotlar.length])
 
   const LOKASYON_ID_MAP: Record<string, number> = {
     'GVN1': 53, 'GVN3': 54, 'GVN4': 55, 'GVN6': 56,
@@ -2109,7 +2777,7 @@ function UrunGirisTab() {
     setFaturaNo(''); setFaturaReferans(''); setFaturaToplamKdvHaric('')
     setFaturaTarihi(new Date().toISOString().slice(0, 10))
     setSatirlar([{ id: `s-${Date.now()}`, tedarikciUrunAdi: '', uretici: '', bizimUrunId: null, bizimUrunAdi: '', bizimUrunOdooId: null, miktar: 1, birimFiyat: '', iskonto: '0', kdvOrani: '10', eslesti: false }])
-    setLotlar([]); setIrsaliyeler([])
+    setLotlar([])
     setSuccess(false); setError(null)
     setEtiketZpl('')
     setEtiketAdetler({})
@@ -2117,7 +2785,7 @@ function UrunGirisTab() {
     setGirisTipi(null)
   }
 
-  function etiketZplUret() {
+  async function etiketZplUret() {
     const items = lotlar.flatMap((lot) => {
       const adet = Math.max(1, etiketAdetler[lot.id] ?? 1)
       const veri = {
@@ -2125,13 +2793,19 @@ function UrunGirisTab() {
         seriNo: lot.lotNo,
         fiyat: lot.satisFiyati || lot.birimFiyat,
         barkod: lot.barkod || undefined,
+        icReferans: lot.varyantEtiketi || lot.bizimUrunBarkod || lot.barkod || undefined,
+        renkVaryant: lot.varyantEtiketi,
         utsKodu: lot.utsKodu || null,
         lotNo: lot.lotNo,
         lokasyon: lot.lokasyon,
       }
       return Array.from({ length: adet }, () => veri)
     })
-    setEtiketZpl(uretCokluEtiketZpl(etiketSablonId, items))
+    const kategori = lotlar[0]
+      ? urunAdindanKategori(lotlar[0].bizimUrunAdi || lotlar[0].tedarikciUrunAdi)
+      : undefined
+    const zpl = await uretEtiketZplTercihli(etiketSablonId, items, kategori)
+    setEtiketZpl(zpl)
   }
 
   async function odooCariBul(vkn?: string, adi?: string): Promise<Tedarikci | null> {
@@ -2211,10 +2885,17 @@ function UrunGirisTab() {
     setUyumsoftCariModalAcik(true)
   }
 
-  async function gelenFaturalariYukle() {
+  async function gelenFaturalariYukle(sirketId: string = gelenSirketId) {
     setGelenYukleniyor(true)
     try {
-      const res = await adminApi.get('/efatura/gelen/listele')
+      const aralik = gelenFaturaAralikFromPreset(gelenAralikPreset, gelenBaslangic, gelenBitis)
+      const res = await adminApi.get('/efatura/gelen/listele', {
+        params: {
+          sirketId,
+          faturaBaslangic: aralik.baslangic,
+          faturaBitis: aralik.bitis,
+        },
+      })
       setGelenFaturalar(res.data?.data ?? [])
     } catch {
       setGelenFaturalar([])
@@ -2223,11 +2904,34 @@ function UrunGirisTab() {
     }
   }
 
-  async function gelenFaturalariCek() {
+  async function gelenFaturalariCek(loadMore = false) {
     setGelenYukleniyor(true)
     try {
-      const res = await adminApi.post('/efatura/gelen/cek', { onlyUnread: true, pageSize: 30 })
-      setGelenFaturalar(res.data?.data ?? [])
+      const aralik = gelenFaturaAralikFromPreset(gelenAralikPreset, gelenBaslangic, gelenBitis)
+      const nextPage = loadMore ? gelenPageIndex + 1 : 0
+      const res = await adminApi.post('/efatura/gelen/cek', {
+        baslangic: aralik.baslangic,
+        bitis: aralik.bitis,
+        onlyUnread: gelenOnlyUnread,
+        pageSize: 50,
+        pageIndex: nextPage,
+        sirketId: gelenSirketId,
+      })
+      const yeniListe = res.data?.data ?? []
+      let ekranAdet = yeniListe.length
+      setGelenFaturalar((prev) => {
+        if (!loadMore) return yeniListe
+        const mevcutIdler = new Set(prev.map((f) => f.id))
+        const birlesik = [...prev, ...yeniListe.filter((f: { id: string }) => !mevcutIdler.has(f.id))]
+        ekranAdet = birlesik.length
+        return birlesik
+      })
+      setGelenPageIndex(res.data?.pageIndex ?? nextPage)
+      setGelenHasMore(!!res.data?.hasMore)
+      setGelenTotalCount(Number(res.data?.totalCount ?? 0))
+      setGelenCekOzet(
+        `Fatura tarihi ${aralik.baslangic}–${aralik.bitis} · Uyumsoft: ${res.data?.totalCount ?? 0} kayıt · bu sayfa ${res.data?.toplam ?? 0} · ekranda ${ekranAdet} · +${res.data?.eklenen ?? 0} yeni · ${res.data?.guncellenen ?? 0} güncellendi${typeof res.data?.aralikDisiSayisi === 'number' && res.data.aralikDisiSayisi > 0 ? ` · ${res.data.aralikDisiSayisi} aralık dışı elendi` : ''}${typeof res.data?.sureMs === 'number' ? ` · ${(res.data.sureMs / 1000).toFixed(1)} sn` : ''}`,
+      )
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: string } }; message?: string }
       setError(err?.response?.data?.error ?? err?.message ?? 'Uyumsoft çekme hatası')
@@ -2538,6 +3242,8 @@ function UrunGirisTab() {
   }
 
   async function templateSec(u: OdooUrun) {
+    setVaryantFiltre('')
+    setVaryantUyari(null)
     setVaryantYukleniyor(true)
     setVaryantPopup({ templateId: u.id, templateAdi: u.name })
     try {
@@ -2546,12 +3252,23 @@ function UrunGirisTab() {
       if (data.length === 1) {
         // Tek varyant: template id koru, varyant id ayrı alanda
         setVaryantPopup(null)
-        urunSec(u, { productVariantId: data[0].id, displayName: data[0].name || u.name })
+        urunSec(u, {
+          productVariantId: data[0].id,
+          displayName: data[0].name || u.name,
+          barcode: data[0].barcode ?? '',
+          nitelikler: data[0].nitelikler ?? [],
+        })
+      } else if (data.length === 0) {
+        setVaryantUyari('Bu şablon için aktif varyant bulunamadı; şablon ile devam ediliyor.')
+        setVaryantPopup(null)
+        urunSec(u)
       } else {
         setVaryantlar(data)
       }
-    } catch {
-      // Varyant çekilemezse template ile devam et
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string }; status?: number } }
+      const detay = err?.response?.data?.error ?? (err?.response?.status ? `HTTP ${err.response.status}` : 'bağlantı hatası')
+      setVaryantUyari(`Varyant bilgisi alınamadı (${detay}); şablon ile devam ediliyor.`)
       setVaryantPopup(null)
       urunSec(u)
     } finally {
@@ -2559,14 +3276,27 @@ function UrunGirisTab() {
     }
   }
 
-  function urunSec(urun: OdooUrun, opts?: { productVariantId?: number | null; displayName?: string }) {
+  function urunSec(
+    urun: OdooUrun,
+    opts?: {
+      productVariantId?: number | null
+      displayName?: string
+      barcode?: unknown
+      nitelikler?: Array<{ nitelikAdi: string; degerAdi: unknown }>
+    },
+  ) {
     if (!aktifSatirId) return
+    const etiket = varyantEtiketiOlustur(opts?.nitelikler)
+    const rawBarkod = opts?.barcode ?? urun.barcode ?? ''
+    const barkod = typeof rawBarkod === 'string' ? rawBarkod.trim() : ''
     setSatirlar(prev => prev.map(s => s.id === aktifSatirId ? {
       ...s,
       bizimUrunId: String(urun.id),
       bizimUrunAdi: opts?.displayName ?? urun.name,
       bizimUrunOdooId: urun.id,
       bizimUrunProductId: opts?.productVariantId ?? null,
+      bizimUrunBarkod: barkod || undefined,
+      varyantEtiketi: etiket || undefined,
       eslesti: true,
     } : s))
     setUrunPopupAcik(false)
@@ -2594,7 +3324,7 @@ function UrunGirisTab() {
       const yeniNitelik = {
         id: yeniId,
         name: yeniNitelikAdi.trim(),
-        create_variant: 'always',
+        create_variant: 'dynamic',
         values: degerler.map((d, i) => ({ id: res?.data?.data?.value_ids?.[i] ?? (yeniId * 100 + i), name: d })),
       }
       setNitelikler(prev => [...prev, yeniNitelik])
@@ -2657,6 +3387,46 @@ function UrunGirisTab() {
     setSatirlar(prev => prev.map(s => ({ ...s, uretici: topluUretici })))
   }
 
+  function eslestenIsimleriTamamla() {
+    const { satirlar: yeniSatirlar, grupSayisi, satirSayisi, uyarilar } = eslestenIsimleriOtomatikTamamla(satirlar)
+    if (satirSayisi === 0) {
+      setEslestirmeMesaj({
+        tip: 'warn',
+        text: 'Otomatik tamamlanacak satır bulunamadı. Önce en az bir satırı elle eşleştirin.',
+      })
+      return
+    }
+    setSatirlar(yeniSatirlar)
+    const ozet = `${grupSayisi} grup, ${satirSayisi} satır otomatik eşleştirildi.`
+    setEslestirmeMesaj({
+      tip: uyarilar.length ? 'warn' : 'ok',
+      text: uyarilar.length ? `${ozet} ${uyarilar.join(' ')}` : ozet,
+    })
+  }
+
+  function ayniIsimEslestirmeyiUygula(kaynakId: string) {
+    const kaynak = satirlar.find((s) => s.id === kaynakId)
+    if (!kaynak?.eslesti) return
+    const key = tedarikciUrunAdiAnahtar(kaynak.tedarikciUrunAdi)
+    if (!key) return
+    const alanlar = eslestirmeAlanlariKaynaktan(kaynak)
+    let uygulanan = 0
+    setSatirlar((prev) => prev.map((s) => {
+      if (s.id === kaynakId) return s
+      if (!s.eslesti && tedarikciUrunAdiAnahtar(s.tedarikciUrunAdi) === key) {
+        uygulanan++
+        return { ...s, ...alanlar }
+      }
+      return s
+    }))
+    if (uygulanan > 0) {
+      setEslestirmeMesaj({
+        tip: 'ok',
+        text: `"${kaynak.tedarikciUrunAdi.trim()}" — ${uygulanan} satıra uygulandı.`,
+      })
+    }
+  }
+
   async function araDisMusteri(q: string) {
     if (!q.trim() || q.length < 2) { setDisMusteriSonuclar([]); return }
     setDisMusteriAramaLoading(true)
@@ -2682,6 +3452,32 @@ function UrunGirisTab() {
     } catch { } finally { setDovizYukleniyor(false) }
   }
 
+  async function odooListPriceGuncelle(productTmplId: number, listPrice: number) {
+    if (!productTmplId || !Number.isFinite(listPrice) || listPrice <= 0) return
+    const onceki = odooSatisFiyatiSyncRef.current.get(productTmplId)
+    if (onceki === listPrice) return
+    try {
+      await adminApi.post('/admin/satis-fiyati-guncelle', { productTmplId, listPrice })
+      odooSatisFiyatiSyncRef.current.set(productTmplId, listPrice)
+    } catch (e) {
+      console.warn('[satis fiyati guncelle hata]', e)
+    }
+  }
+
+  async function odooListPriceTopluGuncelle(
+    guncellemeler: Array<{ productTmplId: number; listPrice: number }>,
+  ) {
+    const uniq = new Map<number, number>()
+    for (const g of guncellemeler) {
+      if (g.productTmplId && Number.isFinite(g.listPrice) && g.listPrice > 0) {
+        uniq.set(g.productTmplId, g.listPrice)
+      }
+    }
+    for (const [productTmplId, listPrice] of uniq) {
+      await odooListPriceGuncelle(productTmplId, listPrice)
+    }
+  }
+
   async function satisFiyatiGuncelle(lotId: string, yeniFiyat: string) {
     const lot = lotlar.find(l => l.id === lotId)
     if (!lot) return
@@ -2690,101 +3486,122 @@ function UrunGirisTab() {
       satisFiyati: yeniFiyat,
       satisFiyatiDegisti: 'true',
     } : l))
-    if (!lot.bizimUrunOdooId) return
-    try {
-      await adminApi.post('/admin/satis-fiyati-guncelle', {
-        productTmplId: lot.bizimUrunOdooId,
-        listPrice: Number(yeniFiyat),
-      })
-    } catch (e) {
-      console.warn('[satis fiyati guncelle hata]', e)
+    if (lot.bizimUrunOdooId && yeniFiyat.trim() !== '') {
+      await odooListPriceGuncelle(lot.bizimUrunOdooId, Number(yeniFiyat))
     }
   }
 
-  async function irsaliyeOlustur(lokasyon: string) {
-    const lokasyonKalemleri = lotlar.filter(l => l.lokasyon === lokasyon)
-    if (!lokasyonKalemleri.length) return
+  async function satisFiyatiTopluUygula(kaynakLotId: string) {
+    const kaynak = lotlar.find((l) => l.id === kaynakLotId)
+    if (!kaynak || !lotFiyatGirilmis(kaynak) || !kaynak.satisFiyati.trim()) return
+    const key = lotUrunAnahtar(kaynak)
+    if (!key) return
 
-    const ilkKalem = lokasyonKalemleri[0]
-    const isDisMusteri = ilkKalem.lokasyonTip === 'dis-musteri'
+    let uygulanan = 0
+    setLotlar((prev) => prev.map((l) => {
+      if (l.id === kaynakLotId) return l
+      if (lotUrunAnahtar(l) === key && !lotFiyatGirilmis(l)) {
+        uygulanan++
+        return { ...l, satisFiyati: kaynak.satisFiyati, satisFiyatiDegisti: 'true' }
+      }
+      return l
+    }))
 
-    // Dış müşteri ise önce onay popup'ı aç
-    if (isDisMusteri) {
-      setDisMusteriOnayPopup({
-        lokasyon,
-        partnerAdi: ilkKalem.disMusteriAdi,
-        partnerId: ilkKalem.disMusteriId!,
-        kalemler: lokasyonKalemleri,
+    if (uygulanan > 0) {
+      if (kaynak.bizimUrunOdooId) {
+        await odooListPriceGuncelle(kaynak.bizimUrunOdooId, Number(kaynak.satisFiyati))
+      }
+      const fiyatStr = Number(kaynak.satisFiyati).toLocaleString('tr-TR')
+      setFiyatMesaj({
+        tip: 'ok',
+        text: `"${kaynak.bizimUrunAdi.trim()}" — ${uygulanan} satıra ₺${fiyatStr} uygulandı.`,
+      })
+    }
+  }
+
+  async function fiyatlariOtomatikTamamlaFn() {
+    const { lotlar: yeniLotlar, grupSayisi, satirSayisi, odooGuncellemeler } = fiyatlariOtomatikTamamla(lotlar)
+    if (satirSayisi === 0) {
+      setFiyatMesaj({
+        tip: 'warn',
+        text: 'Otomatik tamamlanacak satır bulunamadı. Önce en az bir satıra satış fiyatı girin.',
       })
       return
     }
-
-    await irsaliyeOlusturDevam(lokasyon)
+    setLotlar(yeniLotlar)
+    await odooListPriceTopluGuncelle(odooGuncellemeler)
+    setFiyatMesaj({
+      tip: 'ok',
+      text: `${grupSayisi} ürün grubu, ${satirSayisi} satır fiyatlandırıldı.`,
+    })
   }
 
-  async function irsaliyeOlusturDevam(lokasyon: string) {
-    const lokasyonKalemleri = lotlar.filter(l => l.lokasyon === lokasyon)
-    if (!lokasyonKalemleri.length) return
+  function utsReferansSubeKodu(): string {
+    if (secilenSirketId === 3) return 'GVN1'
+    if (secilenSirketId === 4) return 'GVN5'
+    const ilkLok = lotlar[0]?.lokasyon
+    if (ilkLok && ilkLok !== 'ANADEPO' && !ilkLok.startsWith('MUS-')) return ilkLok
+    return 'GVN2'
+  }
 
-    const ilkKalem = lokasyonKalemleri[0]
-    const isDisMusteri = ilkKalem.lokasyonTip === 'dis-musteri'
-
-    setIrsaliyeler(prev => {
-      const existing = prev.find(i => i.lokasyon === lokasyon)
-      if (existing) return prev.map(i => i.lokasyon === lokasyon ? { ...i, durum: 'olusturuluyor' } : i)
-      return [...prev, { lokasyon, pickingId: 0, pickingName: '', kalemSayisi: lokasyonKalemleri.length, durum: 'olusturuluyor' }]
-    })
-
+  async function utsBelgeNoIleCek() {
+    const belgeNo = utsBelgeNo.trim() || faturaNo.trim()
+    if (!belgeNo) {
+      setUtsCekMesaj({ tip: 'warn', text: 'Belge numarası girin veya fatura no dolu olsun.' })
+      return
+    }
+    setUtsCekLoading(true)
+    setUtsCekMesaj(null)
     try {
-      const endpoint = isDisMusteri ? '/admin/dis-musteri-transfer' : '/admin/irsaliye-olustur'
-      const payload = isDisMusteri ? {
-        sirketId: secilenSirketId,
-        faturaNo,
-        faturaTarihi,
-        partnerId: ilkKalem.disMusteriId,
-        partnerAdi: ilkKalem.disMusteriAdi,
-        kalemler: lokasyonKalemleri.map(l => ({
-          bizimUrunOdooId: l.bizimUrunOdooId,
-          bizimUrunAdi: l.bizimUrunAdi,
-          lotNo: l.lotNo,
-          barkod: l.barkod,
-          birimFiyat: l.birimFiyat,
-          satisFiyati: l.satisFiyati,
-        })),
-      } : {
-        sirketId: secilenSirketId,
-        cariId,
-        faturaNo,
-        faturaTarihi,
-        lokasyon,
-        kalemler: lokasyonKalemleri.map(l => ({
-          bizimUrunOdooId: l.bizimUrunOdooId,
-          bizimUrunAdi: l.bizimUrunAdi,
-          lotNo: l.lotNo,
-          barkod: l.barkod,
-          utsKodu: l.utsKodu,
-          birimFiyat: l.birimFiyat,
-        })),
+      const subeKodu = utsReferansSubeKodu()
+      const res = await adminApi.get('/admin/uts/belge-sorgula', {
+        params: {
+          belgeNo,
+          subeKodu,
+          sirketId: secilenSirketId ?? undefined,
+        },
+      })
+      const utsSatirlar: Array<{ uno: string; lno?: string; sno?: string }> = res.data?.data ?? []
+      if (!utsSatirlar.length) {
+        setUtsCekMesaj({
+          tip: 'warn',
+          text: `"${belgeNo}" için UTS'de bekleyen kayıt bulunamadı. Elle girmeye devam edebilirsiniz.`,
+        })
+        return
       }
-
-      const res = await adminApi.post(endpoint, payload)
-
-      if (res.data?.success) {
-        setIrsaliyeler(prev => prev.map(i => i.lokasyon === lokasyon ? {
-          ...i,
-          durum: 'tamam',
-          pickingId: res.data.pickingId,
-          pickingName: res.data.invoiceName
-            ? `${res.data.pickingName} + ${res.data.invoiceName}`
-            : res.data.pickingName,
-        } : i))
-      } else {
-        throw new Error(res.data?.error ?? 'Bilinmeyen hata')
+      const byUno = new Map<string, Array<{ uno: string; lno?: string; sno?: string }>>()
+      for (const s of utsSatirlar) {
+        const k = s.uno.trim()
+        const arr = byUno.get(k) ?? []
+        arr.push(s)
+        byUno.set(k, arr)
       }
-    } catch (err: any) {
-      setIrsaliyeler(prev => prev.map(i => i.lokasyon === lokasyon ? {
-        ...i, durum: 'hata', hata: err?.response?.data?.error ?? err?.message ?? 'Hata'
-      } : i))
+      const used = new Map<string, number>()
+      let uygulanan = 0
+      setLotlar((prev) => prev.map((lot) => {
+        if (lot.utsKodu.trim()) return lot
+        const barkod = lot.barkod.trim()
+        if (!barkod) return lot
+        const liste = byUno.get(barkod)
+        if (!liste?.length) return lot
+        const idx = used.get(barkod) ?? 0
+        if (idx >= liste.length) return lot
+        used.set(barkod, idx + 1)
+        uygulanan++
+        return { ...lot, utsKodu: liste[idx].uno }
+      }))
+      setUtsCekMesaj({
+        tip: 'ok',
+        text: `${res.data?.subeAdi ?? subeKodu} — ${utsSatirlar.length} UTS kaydı, ${uygulanan} lot satırına uygulandı.`,
+      })
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } }; message?: string }
+      setUtsCekMesaj({
+        tip: 'warn',
+        text: err?.response?.data?.error ?? err?.message ?? 'UTS sorgusu başarısız — elle girmeye devam edebilirsiniz.',
+      })
+    } finally {
+      setUtsCekLoading(false)
     }
   }
 
@@ -2802,8 +3619,10 @@ function UrunGirisTab() {
           bizimUrunAdi: satir.bizimUrunAdi,
           bizimUrunOdooId: satir.bizimUrunOdooId,
           bizimUrunProductId: satir.bizimUrunProductId ?? null,
+          bizimUrunBarkod: satir.bizimUrunBarkod,
+          varyantEtiketi: satir.varyantEtiketi,
           uretici: satir.uretici,
-          barkod: '',
+          barkod: satir.bizimUrunBarkod ?? '',
           utsKodu: '',
           lotNo: `${girisNo}-S${String(satirIdx + 1).padStart(2, '0')}-${String(i + 1).padStart(3, '0')}`,
           birimFiyat: satir.birimFiyat,
@@ -2817,6 +3636,8 @@ function UrunGirisTab() {
       }
     })
     setLotlar(yeniLotlar)
+    setUtsBelgeNo(faturaNo.trim())
+    setUtsCekMesaj(null)
     setAdim('lotlar')
   }
 
@@ -2834,6 +3655,11 @@ function UrunGirisTab() {
 
   async function kaydet() {
     setSaving(true); setError(null)
+    if (girisTipi === 'FATURASIZ' && !secilenSirketId) {
+      setError('Faturasız giriş için alıcı şirket seçimi zorunlu.')
+      setSaving(false)
+      return
+    }
     try {
       const res = await adminApi.post('/admin/urun-giris', {
         sirketId: secilenSirketId,
@@ -2851,17 +3677,20 @@ function UrunGirisTab() {
         girisTipi: girisTipi ?? 'FATURAYLA',
         girisNo,
         irsaliyeNo: irsaliyeNo || undefined,
+        utsBildirimId: utsBridgeBildirimId || undefined,
       })
 
-      if (res.data?.success) {
+      const s = res.data?.sonuclar ?? {}
+      const stokOk = res.data?.stokGirisiBasarili === true || s.picking?.state === 'done'
+      const mesajlar: string[] = []
+
+      if (res.data?.success && stokOk) {
         setSuccess(true)
-        const s = res.data.sonuclar ?? {}
-        const stokOk = res.data.stokGirisiBasarili === true || s.picking?.state === 'done'
-        const mesajlar = []
+        deleteUrunGirisDraft(girisNo)
+        taslakListesiniYenile()
+        setTaslakUyari(null)
         if (s.purchaseOrder) mesajlar.push(`✓ Satın alma siparişi: ${s.purchaseOrder.name}${s.purchaseOrder.satirSayisi ? ` (${s.purchaseOrder.satirSayisi} satır)` : ''}`)
-        if (stokOk) mesajlar.push(`✓ Stok girişi tamamlandı: ${s.picking?.name ?? 'picking'}`)
-        else if (s.picking) mesajlar.push(`✗ Stok girişi başarısız: ${s.picking.name} (${s.picking.state ?? 'bekliyor'})${s.picking.hata ? ` — ${s.picking.hata}` : ''}`)
-        else mesajlar.push('✗ Stok girişi başarısız: ürün kabul (picking) oluşturulamadı veya validate edilemedi')
+        mesajlar.push(`✓ Stok girişi tamamlandı: ${s.picking?.name ?? 'picking'}`)
         if (s.faturaOnay?.ok) mesajlar.push(`✓ Fatura onaylandı: ${s.faturaOnay.name ?? s.vendorBill?.name ?? ''}`)
         else if (s.vendorBill || s.faturaOnay) mesajlar.push(`⚠️ Fatura onaylanamadı: ${s.faturaOnay?.error ?? 'taslak kaldı'}`)
         if (s.lotSayisi) mesajlar.push(`✓ ${s.lotSayisi} lot/seri no oluşturuldu`)
@@ -2918,14 +3747,26 @@ function UrunGirisTab() {
                 belgeNo: faturaNo,
               })
               mesajlar.push(`✓ UTS Alma bildirimi kuyruğa eklendi (${utsKalemler.length} kalem)`)
+              setError(mesajlar.join('\n'))
             } catch (utsErr: unknown) {
               console.warn('[uts alma]', utsErr)
             }
           }
           setGelenFaturaId(null)
         }
+      } else if (girisTipi === 'FATURASIZ' && (s.lotSayisi ?? 0) > 0 && !stokOk) {
+        setSuccess(false)
+        if (s.lotSayisi) mesajlar.push(`✓ ${s.lotSayisi} lot/seri no oluşturuldu`)
+        mesajlar.push('⚠ Stok girişi henüz tamamlanamadı — Ana Depo stoğu güncellenmedi.')
+        if (res.data.hatalar?.length) mesajlar.push(`⚠ Hatalar:\n${res.data.hatalar.join('\n')}`)
+        setError(mesajlar.join('\n'))
       } else {
-        setError(res.data?.error ?? 'Kayıt başarısız')
+        setSuccess(false)
+        const errParts = [
+          res.data?.error,
+          ...(res.data?.hatalar ?? []),
+        ].filter(Boolean)
+        setError(errParts.length > 0 ? errParts.join('\n') : 'Kayıt başarısız')
       }
     } catch (e: any) {
       setError(e?.response?.data?.error ?? e?.message ?? 'Kayıt başarısız')
@@ -2944,6 +3785,61 @@ function UrunGirisTab() {
 
   return (
     <div>
+      {(taslakUyari || taslakListesi.length > 0) && !success ? (
+        <div style={{ marginBottom: 16 }}>
+          {utsBridgeBanner ? (
+            <div style={{ backgroundColor: '#eff6ff', border: '1px solid #93c5fd', borderRadius: 10, padding: '12px 16px', marginBottom: 12, fontSize: 13, color: '#1e40af' }}>
+              {utsBridgeBanner}
+            </div>
+          ) : null}
+
+          {taslakUyari ? (
+            <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '12px 16px', marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
+                Yarım kalmış bir ürün girişiniz var
+              </div>
+              <div style={{ fontSize: 12, color: '#78350f', marginBottom: 10 }}>
+                {taslakUyari.girisNo} · {adimEtiketi(taslakUyari.adim)}
+                {taslakUyari.cariAdi ? ` · ${taslakUyari.cariAdi}` : ''}
+                {taslakUyari.faturaNo ? ` · Fatura: ${taslakUyari.faturaNo}` : ''}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => taslakYukle(taslakUyari.id)} style={{ ...btnSmall, backgroundColor: '#C8102E', color: 'white', fontWeight: 800 }}>
+                  Devam et
+                </button>
+                <button type="button" onClick={() => taslakSil(taslakUyari.id)} style={{ ...btnSmall, backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                  Sil
+                </button>
+                <button type="button" onClick={() => setTaslakUyari(null)} style={{ ...btnSmall, backgroundColor: '#f3f4f6' }}>
+                  Yeni giriş yap
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {taslakListesi.length > 0 ? (
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px', backgroundColor: '#f9fafb' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#374151', marginBottom: 8 }}>Yarıda kalmış işlemler</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {taslakListesi.map((t) => (
+                  <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '8px 10px', backgroundColor: 'white', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+                    <div style={{ fontSize: 12, color: '#374151' }}>
+                      <strong>{t.girisNo}</strong> · {adimEtiketi(t.adim)} · {t.satirSayisi} satır · {t.lotSayisi} lot
+                      {t.cariAdi ? ` · ${t.cariAdi}` : ''}
+                      <span style={{ color: '#9ca3af', marginLeft: 8 }}>{new Date(t.updatedAt).toLocaleString('tr-TR')}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button type="button" onClick={() => taslakYukle(t.id)} style={{ ...btnSmall, backgroundColor: '#dcfce7', color: '#166534' }}>Devam</button>
+                      <button type="button" onClick={() => taslakSil(t.id)} style={{ ...btnSmall, backgroundColor: '#fee2e2', color: '#991b1b' }}>Sil</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* ÜRÜN ARAMA POPUP */}
       {urunPopupAcik && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -2980,12 +3876,29 @@ function UrunGirisTab() {
               <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: 500, maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
                   <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 4 }}>Varyant Seçin</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>{varyantPopup.templateAdi}</div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>{varyantPopup.templateAdi}</div>
+                  {!varyantYukleniyor && varyantlar.length > 0 ? (
+                    <input
+                      type="search"
+                      value={varyantFiltre}
+                      onChange={(e) => setVaryantFiltre(e.target.value)}
+                      placeholder="Model, renk veya ölçü ara..."
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #e5e7eb',
+                        fontSize: 13,
+                        marginBottom: 12,
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  ) : null}
                   {varyantYukleniyor ? (
                     <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: 20 }}>Yükleniyor...</div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {varyantlar.map(v => (
+                      {varyantlar.filter((v) => varyantFiltreEslesir(v, varyantFiltre)).map(v => (
                         <div key={v.id} onClick={() => {
                           if (!varyantPopup) return
                           setVaryantPopup(null)
@@ -2999,7 +3912,7 @@ function UrunGirisTab() {
                               list_price: 0,
                               standard_price: 0,
                             },
-                            { productVariantId: v.id, displayName: v.name },
+                            { productVariantId: v.id, displayName: v.name, barcode: v.barcode ?? '', nitelikler: v.nitelikler ?? [] },
                           )
                         }}
                           style={{ padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -3015,9 +3928,14 @@ function UrunGirisTab() {
                           <button type="button" style={{ padding: '4px 12px', backgroundColor: '#dcfce7', color: '#166534', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Seç</button>
                         </div>
                       ))}
+                      {!varyantYukleniyor && varyantFiltre.trim() && varyantlar.filter((v) => varyantFiltreEslesir(v, varyantFiltre)).length === 0 ? (
+                        <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: 16 }}>
+                          Eşleşen varyant bulunamadı.
+                        </div>
+                      ) : null}
                     </div>
                   )}
-                  <button type="button" onClick={() => setVaryantPopup(null)} style={{ marginTop: 16, padding: '8px 16px', backgroundColor: '#f3f4f6', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>İptal</button>
+                  <button type="button" onClick={() => { setVaryantPopup(null); setVaryantFiltre('') }} style={{ marginTop: 16, padding: '8px 16px', backgroundColor: '#f3f4f6', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>İptal</button>
                 </div>
               </div>
             )}
@@ -3215,124 +4133,6 @@ function UrunGirisTab() {
         </div>
       )}
 
-      {/* DIŞ MÜŞTERİ ONAY POPUP */}
-      {disMusteriOnayPopup && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: 640, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <div style={{ fontSize: 16, fontWeight: 900, color: '#1a1a2e', marginBottom: 4 }}>
-              🚚 Dış Müşteri Satışı Onayı
-            </div>
-            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
-              <strong>{disMusteriOnayPopup.partnerAdi}</strong> — {disMusteriOnayPopup.kalemler.length} kalem
-            </div>
-
-            {/* Kâr marjı özeti */}
-            <div style={{ backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12, padding: 14, marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>📊 Maliyet & Satış Özeti</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f3f4f6' }}>
-                    <th style={{ ...th, textAlign: 'left' }}>Ürün</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Maliyet ₺</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Satış ₺</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Kâr ₺</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Kâr %</th>
-                    {dovizKuru && <th style={{ ...th, textAlign: 'right' }}>Satış $</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {disMusteriOnayPopup.kalemler.map((k, i) => {
-                    const maliyet = Number(k.birimFiyat) || 0
-                    const satis = Number(k.satisFiyati) || 0
-                    const kar = satis - maliyet
-                    const karYuzde = maliyet > 0 ? ((kar / maliyet) * 100).toFixed(1) : '—'
-                    return (
-                      <tr key={k.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                        <td style={{ ...td, fontSize: 12 }}>
-                          <div style={{ fontWeight: 600 }}>{k.bizimUrunAdi}</div>
-                          <div style={{ fontSize: 11, color: '#9ca3af' }}>Kalem {i + 1}</div>
-                        </td>
-                        <td style={{ ...td, textAlign: 'right', color: '#6b7280' }}>₺{maliyet.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</td>
-                        <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>
-                          {satis > 0 ? `₺${satis.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : <span style={{ color: '#ef4444' }}>⚠️ Girilmedi</span>}
-                        </td>
-                        <td style={{ ...td, textAlign: 'right', color: kar >= 0 ? '#059669' : '#ef4444', fontWeight: 700 }}>
-                          {satis > 0 ? `₺${kar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '—'}
-                        </td>
-                        <td style={{ ...td, textAlign: 'right', color: Number(karYuzde) >= 0 ? '#059669' : '#ef4444', fontWeight: 700 }}>
-                          {satis > 0 ? `%${karYuzde}` : '—'}
-                        </td>
-                        {dovizKuru && (
-                          <td style={{ ...td, textAlign: 'right', color: '#6b7280' }}>
-                            {satis > 0 ? `$${(satis / dovizKuru.USD).toFixed(2)}` : '—'}
-                          </td>
-                        )}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ backgroundColor: '#f9fafb', fontWeight: 700 }}>
-                    <td style={{ ...td, fontWeight: 900 }}>TOPLAM</td>
-                    <td style={{ ...td, textAlign: 'right', color: '#6b7280' }}>
-                      ₺{disMusteriOnayPopup.kalemler.reduce((a, k) => a + (Number(k.birimFiyat) || 0), 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: 900 }}>
-                      ₺{disMusteriOnayPopup.kalemler.reduce((a, k) => a + (Number(k.satisFiyati) || 0), 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td style={{ ...td, textAlign: 'right', color: '#059669', fontWeight: 900 }}>
-                      ₺{disMusteriOnayPopup.kalemler.reduce((a, k) => a + ((Number(k.satisFiyati) || 0) - (Number(k.birimFiyat) || 0)), 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td style={{ ...td, textAlign: 'right', color: '#059669', fontWeight: 900 }}>
-                      {(() => {
-                        const topMaliyet = disMusteriOnayPopup.kalemler.reduce((a, k) => a + (Number(k.birimFiyat) || 0), 0)
-                        const topSatis = disMusteriOnayPopup.kalemler.reduce((a, k) => a + (Number(k.satisFiyati) || 0), 0)
-                        return topMaliyet > 0 ? `%${(((topSatis - topMaliyet) / topMaliyet) * 100).toFixed(1)}` : '—'
-                      })()}
-                    </td>
-                    {dovizKuru && (
-                      <td style={{ ...td, textAlign: 'right', color: '#6b7280', fontWeight: 700 }}>
-                        ${(disMusteriOnayPopup.kalemler.reduce((a, k) => a + (Number(k.satisFiyati) || 0), 0) / dovizKuru.USD).toFixed(2)}
-                      </td>
-                    )}
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            {/* Oluşturulacaklar */}
-            <div style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#1e40af' }}>
-              ℹ️ Onaylandığında Odoo'ya yazılacaklar:
-              <ul style={{ margin: '6px 0 0 16px', lineHeight: 1.8 }}>
-                <li>Teslimat transferi (WH/OUT) → stoktan düşer</li>
-                <li>Satış faturası (account.move) → {disMusteriOnayPopup.partnerAdi} adına</li>
-              </ul>
-            </div>
-
-            {disMusteriOnayPopup.kalemler.some(k => !k.satisFiyati || Number(k.satisFiyati) === 0) && (
-              <div style={{ backgroundColor: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '8px 14px', marginBottom: 16, fontSize: 12, color: '#92400e', fontWeight: 700 }}>
-                ⚠️ Satış fiyatı girilmemiş kalemler var. Geri dönüp fiyat girebilirsiniz.
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" onClick={() => setDisMusteriOnayPopup(null)} style={btnSmall}>
-                ← Geri Dön
-              </button>
-              <button type="button"
-                onClick={async () => {
-                  const lok = disMusteriOnayPopup.lokasyon
-                  setDisMusteriOnayPopup(null)
-                  await irsaliyeOlusturDevam(lok)
-                }}
-                style={{ ...btnPrimary, backgroundColor: '#059669', flex: 1 }}>
-                ✓ Onayla — Transfer + Fatura Oluştur
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ADIM GÖSTERGESİ */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #e5e7eb' }}>
         {ADIMLAR.map((a, i) => {
@@ -3419,15 +4219,11 @@ function UrunGirisTab() {
             {[
               { tip: 'FATURA_SONRA' as const, icon: '⏳', baslik: 'Ürün Geldi, Fatura Beklemede', aciklama: 'Stok girişi yapılır, fatura gelince eşleştirilir.', renk: '#d97706', bg: '#fffbeb', border: '#fde68a' },
               { tip: 'IRSALIYELI' as const, icon: '📋', baslik: 'İrsaliyeli Giriş', aciklama: 'İrsaliye numarasıyla giriş. Fatura sonra veya birlikte gelebilir.', renk: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
-              { tip: 'FATURASIZ' as const, icon: '🔓', baslik: 'Faturasız Giriş', aciklama: 'Eski stok veya kaynağı belirsiz giriş. Sadece stoka işlenir.', renk: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+              { tip: 'FATURASIZ' as const, icon: '🔓', baslik: 'Faturasız Giriş', aciklama: 'Eski stok veya kaynağı belirsiz giriş. Şirket seçilir, lot oluşturulur ve Ana Depo stoğuna işlenir.', renk: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
             ].map(s => (
               <div key={s.tip} onClick={() => {
                 setGirisTipi(s.tip)
-                if (s.tip === 'FATURASIZ') {
-                  setAdim('satirlar')
-                } else {
-                  setAdim('fatura')
-                }
+                setAdim('fatura')
               }}
                 style={{ border: `2px solid ${girisTipi === s.tip ? s.renk : s.border}`, borderRadius: 12, padding: '16px 20px', cursor: 'pointer', backgroundColor: s.bg, display: 'flex', alignItems: 'center', gap: 16, transition: 'all 0.15s' }}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = s.renk)}
@@ -3510,12 +4306,14 @@ function UrunGirisTab() {
       {adim === 'fatura' && (
         <div>
           {!sirketlerYuklendi && void sirketleriYukle()}
-          <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 12, color: '#1a1a2e' }}>Fatura Bilgileri</div>
+          <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 12, color: '#1a1a2e' }}>
+            {girisTipi === 'FATURASIZ' ? 'Şirket Seçimi' : 'Fatura Bilgileri'}
+          </div>
 
           {/* Alıcı Şirket */}
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>
-              Alıcı Şirket (Faturanın Kesildiği) *
+              {girisTipi === 'FATURASIZ' ? 'Alıcı Şirket (Stok girişi yapılacak) *' : 'Alıcı Şirket (Faturanın Kesildiği) *'}
             </label>
             {sirketler.length > 0 ? (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -3553,7 +4351,7 @@ function UrunGirisTab() {
             )}
 
           {/* Fatura Listesi */}
-          {faturaListesiAcik && secilenSirketId && (
+          {girisTipi !== 'FATURASIZ' && faturaListesiAcik && secilenSirketId && (
             <div style={{ marginBottom: 20, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
               <div style={{ backgroundColor: '#f9fafb', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb' }}>
                 <div>
@@ -3680,6 +4478,18 @@ function UrunGirisTab() {
           )}
           </div>
 
+          {girisTipi === 'FATURASIZ' && (
+            <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>Giriş Kayıt Numarası (Otomatik)</div>
+              <div style={{ fontSize: 15, fontWeight: 900, color: '#166534' }}>{girisNo}</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                Tedarikçi/fatura bilgisi gerekmez. Seçilen şirketin Ana Depo stoğuna lot ile giriş yapılır.
+              </div>
+            </div>
+          )}
+
+          {girisTipi !== 'FATURASIZ' && (
+          <>
           {/* Fiziki Tedarikçi */}
           <div style={{ marginBottom: 16, position: 'relative' }}>
             <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>
@@ -3910,6 +4720,9 @@ function UrunGirisTab() {
             </div>
           )}
 
+          </>
+          )}
+
           <div style={{ display: 'flex', gap: 10 }}>
             <button type="button" onClick={() => { uyumsoftStateSifirla(); setAdim('giris-tipi') }} style={btnSmall}>← Geri</button>
             <button type="button" onClick={() => void faturaAdimindanDevam()} style={btnPrimary}>
@@ -3923,16 +4736,66 @@ function UrunGirisTab() {
       {adim === 'satirlar' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontSize: 15, fontWeight: 900, color: '#1a1a2e' }}>Ürün Satırları — {cariAdi} · {faturaNo}</div>
+            <div style={{ fontSize: 15, fontWeight: 900, color: '#1a1a2e' }}>
+              Ürün Satırları — {girisTipi === 'FATURASIZ'
+                ? (secilenSirketAdi || 'Şirket seçilmedi')
+                : `${cariAdi} · ${faturaNo}`}
+            </div>
             <div style={{ fontSize: 13, color: '#6b7280' }}>{satirlar.length} satır · toplam {satirlar.reduce((a, s) => a + s.miktar, 0)} adet</div>
           </div>
 
-          {/* Toplu üretici */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, backgroundColor: '#f9fafb', padding: '10px 14px', borderRadius: 10, border: '1px solid #e5e7eb' }}>
+          {varyantUyari ? (
+            <div style={{
+              marginBottom: 12,
+              padding: '10px 14px',
+              borderRadius: 10,
+              backgroundColor: '#fffbeb',
+              border: '1px solid #fde68a',
+              color: '#92400e',
+              fontSize: 13,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+            }}>
+              <span>⚠ {varyantUyari}</span>
+              <button type="button" onClick={() => setVaryantUyari(null)} style={{ ...btnSmall, flexShrink: 0 }}>Kapat</button>
+            </div>
+          ) : null}
+
+          {/* Toplu üretici + otomatik eşleştirme */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 14, backgroundColor: '#f9fafb', padding: '10px 14px', borderRadius: 10, border: '1px solid #e5e7eb' }}>
             <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 700, whiteSpace: 'nowrap' }}>Toplu Üretici:</div>
-            <input value={topluUretici} onChange={e => setTopluUretici(e.target.value)} placeholder="Hoya, Rodenstock..." style={{ ...inp, marginBottom: 0, flex: 1 }} />
+            <input value={topluUretici} onChange={e => setTopluUretici(e.target.value)} placeholder="Hoya, Rodenstock..." style={{ ...inp, marginBottom: 0, flex: 1, minWidth: 140 }} />
             <button type="button" onClick={topluUreticiUygula} style={{ ...btnSmall, whiteSpace: 'nowrap', backgroundColor: '#eff6ff', color: '#1d4ed8' }}>Tümüne Uygula</button>
+            <div style={{ width: 1, height: 28, backgroundColor: '#e5e7eb', flexShrink: 0 }} />
+            <button
+              type="button"
+              onClick={eslestenIsimleriTamamla}
+              style={{ ...btnSmall, whiteSpace: 'nowrap', backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #86efac' }}
+            >
+              Eşleşen isimleri otomatik tamamla
+            </button>
           </div>
+
+          {eslestirmeMesaj ? (
+            <div style={{
+              marginBottom: 12,
+              padding: '10px 14px',
+              borderRadius: 10,
+              backgroundColor: eslestirmeMesaj.tip === 'ok' ? '#f0fdf4' : '#fffbeb',
+              border: `1px solid ${eslestirmeMesaj.tip === 'ok' ? '#86efac' : '#fde68a'}`,
+              color: eslestirmeMesaj.tip === 'ok' ? '#166534' : '#92400e',
+              fontSize: 13,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+            }}>
+              <span>{eslestirmeMesaj.tip === 'ok' ? '✓ ' : '⚠ '}{eslestirmeMesaj.text}</span>
+              <button type="button" onClick={() => setEslestirmeMesaj(null)} style={{ ...btnSmall, flexShrink: 0 }}>Kapat</button>
+            </div>
+          ) : null}
 
           <div style={{ overflowX: 'auto', marginBottom: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
@@ -3952,6 +4815,7 @@ function UrunGirisTab() {
               <tbody>
                 {satirlar.map(s => {
                   const net = (Number(s.birimFiyat) || 0) * s.miktar * (1 - (Number(s.iskonto) || 0) / 100)
+                  const ayniIsimdeKalan = s.eslesti ? ayniIsimdeEslesmemisSayisi(satirlar, s) : 0
                   return (
                     <tr key={s.id} style={{ backgroundColor: s.eslesti ? '#f0fdf4' : 'white', borderBottom: '1px solid #f3f4f6' }}>
                       <td style={td}>
@@ -3968,6 +4832,26 @@ function UrunGirisTab() {
                           style={{ width: '100%', padding: '6px 10px', backgroundColor: s.eslesti ? '#f0fdf4' : '#fefce8', border: `1px solid ${s.eslesti ? '#86efac' : '#fde68a'}`, borderRadius: 6, fontSize: 12, fontWeight: s.eslesti ? 700 : 400, color: s.eslesti ? '#166534' : '#92400e', cursor: 'pointer', textAlign: 'left', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
                           {s.eslesti ? `✓ ${s.bizimUrunAdi}` : '🔍 Odoo\'dan Seç...'}
                         </button>
+                        {ayniIsimdeKalan > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => ayniIsimEslestirmeyiUygula(s.id)}
+                            style={{
+                              marginTop: 4,
+                              width: '100%',
+                              padding: '4px 8px',
+                              backgroundColor: '#ecfdf5',
+                              border: '1px solid #a7f3d0',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              color: '#047857',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                            }}
+                          >
+                            Aynı isimde {ayniIsimdeKalan} satır daha — hepsine uygula
+                          </button>
+                        ) : null}
                       </td>
                       <td style={td}>
                         <input type="number" value={s.miktar} min={1} onChange={e => satirGuncelle(s.id, 'miktar', Number(e.target.value))} style={{ ...inp, marginBottom: 0, width: 60, fontSize: 12 }} />
@@ -4026,13 +4910,80 @@ function UrunGirisTab() {
           {adim === 'lotlar' && !dovizKuru && !dovizYukleniyor && void dovizKuruCek()}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontSize: 15, fontWeight: 900, color: '#1a1a2e' }}>Lot / Barkod Girişi</div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>{lotlar.length} kalem · her satır = 1 adet</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => { void fiyatlariOtomatikTamamlaFn() }}
+                style={{ ...btnSmall, whiteSpace: 'nowrap', backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #86efac' }}
+              >
+                Fiyatları otomatik tamamla
+              </button>
+              <div style={{ fontSize: 12, color: '#6b7280' }}>{lotlar.length} kalem · her satır = 1 adet</div>
+            </div>
           </div>
+
+          {fiyatMesaj ? (
+            <div style={{
+              marginBottom: 12,
+              padding: '10px 14px',
+              borderRadius: 10,
+              backgroundColor: fiyatMesaj.tip === 'ok' ? '#f0fdf4' : '#fffbeb',
+              border: `1px solid ${fiyatMesaj.tip === 'ok' ? '#86efac' : '#fde68a'}`,
+              color: fiyatMesaj.tip === 'ok' ? '#166534' : '#92400e',
+              fontSize: 13,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+            }}>
+              <span>{fiyatMesaj.tip === 'ok' ? '✓ ' : '⚠ '}{fiyatMesaj.text}</span>
+              <button type="button" onClick={() => setFiyatMesaj(null)} style={{ ...btnSmall, flexShrink: 0 }}>Kapat</button>
+            </div>
+          ) : null}
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 14, backgroundColor: '#f5f3ff', padding: '10px 14px', borderRadius: 10, border: '1px solid #ddd6fe' }}>
+            <div style={{ fontSize: 12, color: '#5b21b6', fontWeight: 700, whiteSpace: 'nowrap' }}>UTS (opsiyonel):</div>
+            <input
+              value={utsBelgeNo}
+              onChange={e => setUtsBelgeNo(e.target.value)}
+              placeholder={faturaNo || 'Belge / fatura no...'}
+              style={{ ...inp, marginBottom: 0, flex: 1, minWidth: 160 }}
+            />
+            <button
+              type="button"
+              onClick={() => { void utsBelgeNoIleCek() }}
+              disabled={utsCekLoading}
+              style={{ ...btnSmall, whiteSpace: 'nowrap', backgroundColor: '#ede9fe', color: '#5b21b6', border: '1px solid #c4b5fd' }}
+            >
+              {utsCekLoading ? 'Sorgulanıyor...' : 'Belge No ile UTS\'den Çek'}
+            </button>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>
+              Şube: {utsReferansSubeKodu()}{secilenSirketAdi ? ` · ${secilenSirketAdi}` : ''}
+            </span>
+          </div>
+
+          {utsCekMesaj ? (
+            <div style={{
+              marginBottom: 12,
+              padding: '10px 14px',
+              borderRadius: 10,
+              backgroundColor: utsCekMesaj.tip === 'ok' ? '#f5f3ff' : '#fffbeb',
+              border: `1px solid ${utsCekMesaj.tip === 'ok' ? '#c4b5fd' : '#fde68a'}`,
+              color: utsCekMesaj.tip === 'ok' ? '#5b21b6' : '#92400e',
+              fontSize: 13,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+            }}>
+              <span>{utsCekMesaj.tip === 'ok' ? '✓ ' : '⚠ '}{utsCekMesaj.text}</span>
+              <button type="button" onClick={() => setUtsCekMesaj(null)} style={{ ...btnSmall, flexShrink: 0 }}>Kapat</button>
+            </div>
+          ) : null}
 
           {/* Lokasyon bazlı gruplar */}
           {Array.from(new Set(lotlar.map(l => l.lokasyon))).map(lokasyon => {
             const grup = lotlar.filter(l => l.lokasyon === lokasyon)
-            const irsaliye = irsaliyeler.find(i => i.lokasyon === lokasyon)
             return (
               <div key={lokasyon} style={{ marginBottom: 20, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
                 {/* Grup başlığı */}
@@ -4053,23 +5004,6 @@ function UrunGirisTab() {
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{grup.length} kalem</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {irsaliye?.durum === 'tamam' ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 12, color: '#059669', fontWeight: 700 }}>✓ {irsaliye.pickingName}</span>
-                        <span style={{ fontSize: 11, color: '#9ca3af' }}>irsaliye oluşturuldu</span>
-                      </div>
-                    ) : irsaliye?.durum === 'hata' ? (
-                      <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700 }}>✕ {irsaliye.hata}</div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void irsaliyeOlustur(lokasyon)}
-                        disabled={irsaliye?.durum === 'olusturuluyor'}
-                        style={{ ...btnSmall, backgroundColor: '#eff6ff', color: '#1d4ed8', fontWeight: 700, fontSize: 12 }}
-                      >
-                        {irsaliye?.durum === 'olusturuluyor' ? '⏳ Oluşturuluyor...' : '📄 İrsaliye Oluştur'}
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -4105,7 +5039,6 @@ function UrunGirisTab() {
                         <button key={lok.id} type="button"
                           onClick={() => {
                             setLotlar(prev => prev.map(l => l.lokasyon === lokasyon ? { ...l, lokasyon: lok.id, lokasyonTip: 'sube', disMusteriId: null, disMusteriAdi: '' } : l))
-                            setIrsaliyeler(prev => prev.filter(i => i.lokasyon !== lokasyon))
                             setLokasyonSeciciAcik(null)
                           }}
                           style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', backgroundColor: lok.id === lokasyon ? '#1a1a2e' : '#f3f4f6', color: lok.id === lokasyon ? 'white' : '#374151', border: '1px solid #e5e7eb' }}>
@@ -4122,7 +5055,6 @@ function UrunGirisTab() {
                         <button key={lok.id} type="button"
                           onClick={() => {
                             setLotlar(prev => prev.map(l => l.lokasyon === lokasyon ? { ...l, lokasyon: lok.id, lokasyonTip: 'depo', disMusteriId: null, disMusteriAdi: '' } : l))
-                            setIrsaliyeler(prev => prev.filter(i => i.lokasyon !== lokasyon))
                             setLokasyonSeciciAcik(null)
                           }}
                           style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', backgroundColor: lok.id === lokasyon ? '#1a1a2e' : '#f3f4f6', color: lok.id === lokasyon ? 'white' : '#374151', border: '1px solid #e5e7eb' }}>
@@ -4153,7 +5085,6 @@ function UrunGirisTab() {
                               <div key={p.id}
                                 onClick={() => {
                                   setLotlar(prev => prev.map(l => l.lokasyon === lokasyon ? { ...l, lokasyon: `MUS-${p.id}`, lokasyonTip: 'dis-musteri', disMusteriId: p.id, disMusteriAdi: p.name } : l))
-                                  setIrsaliyeler(prev => prev.filter(i => i.lokasyon !== lokasyon))
                                   setDisMusteriArama(p.name)
                                   setDisMusteriSonuclar([])
                                   setLokasyonSeciciAcik(null)
@@ -4190,20 +5121,23 @@ function UrunGirisTab() {
                       </tr>
                     </thead>
                     <tbody>
-                      {grup.map((l, i) => (
-                        <tr key={l.id} style={{ borderBottom: '1px solid #f3f4f6', backgroundColor: irsaliye?.durum === 'tamam' ? '#f0fdf4' : 'white' }}>
+                      {grup.map((l, i) => {
+                        const ayniUrundeKalan = ayniUrundeFiyatsizLotSayisi(lotlar, l)
+                        return (
+                        <tr key={l.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                           <td style={{ ...td, color: '#9ca3af', fontSize: 11 }}>{i + 1}</td>
                           <td style={{ ...td, fontSize: 12 }}>
                             <div style={{ fontWeight: 700 }}>{l.bizimUrunAdi}</div>
-                            <div style={{ fontSize: 11, color: '#9ca3af' }}>Kalem {l.satırNo}</div>
+                            <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                              {l.varyantEtiketi?.trim() ? l.varyantEtiketi : `Kalem ${l.satırNo}`}
+                            </div>
                           </td>
                           <td style={td}>
                             <input
                               value={l.barkod}
                               onChange={e => lotGuncelle(l.id, 'barkod', e.target.value)}
                               placeholder="Barkod..."
-                              disabled={irsaliye?.durum === 'tamam'}
-                              style={{ ...inp, marginBottom: 0, fontSize: 12, width: 120, backgroundColor: irsaliye?.durum === 'tamam' ? '#f9fafb' : 'white' }}
+                              style={{ ...inp, marginBottom: 0, fontSize: 12, width: 120 }}
                             />
                           </td>
                           <td style={td}>
@@ -4211,16 +5145,14 @@ function UrunGirisTab() {
                               value={l.utsKodu}
                               onChange={e => lotGuncelle(l.id, 'utsKodu', e.target.value)}
                               placeholder="UTS..."
-                              disabled={irsaliye?.durum === 'tamam'}
-                              style={{ ...inp, marginBottom: 0, fontSize: 12, width: 100, backgroundColor: irsaliye?.durum === 'tamam' ? '#f9fafb' : 'white' }}
+                              style={{ ...inp, marginBottom: 0, fontSize: 12, width: 100 }}
                             />
                           </td>
                           <td style={td}>
                             <input
                               value={l.lotNo}
                               onChange={e => lotGuncelle(l.id, 'lotNo', e.target.value)}
-                              disabled={irsaliye?.durum === 'tamam'}
-                              style={{ ...inp, marginBottom: 0, fontSize: 12, width: 150, backgroundColor: irsaliye?.durum === 'tamam' ? '#f9fafb' : 'white' }}
+                              style={{ ...inp, marginBottom: 0, fontSize: 12, width: 150 }}
                             />
                           </td>
                           <td style={{ ...td, fontWeight: 700, fontSize: 12 }}>
@@ -4265,28 +5197,37 @@ function UrunGirisTab() {
                                   ≈ ${(Number(l.satisFiyati) / dovizKuru.USD).toFixed(1)} · €{(Number(l.satisFiyati) / dovizKuru.EUR).toFixed(1)}
                                 </div>
                               )}
+                              {ayniUrundeKalan > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => { void satisFiyatiTopluUygula(l.id) }}
+                                  style={{
+                                    marginTop: 2,
+                                    width: '100%',
+                                    padding: '4px 8px',
+                                    backgroundColor: '#ecfdf5',
+                                    border: '1px solid #a7f3d0',
+                                    borderRadius: 6,
+                                    fontSize: 10,
+                                    color: '#047857',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                  }}
+                                >
+                                  Aynı üründe {ayniUrundeKalan} satır daha — hepsine ₺{Number(l.satisFiyati).toLocaleString('tr-TR')} uygula
+                                </button>
+                              ) : null}
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
             )
           })}
-
-          {/* İrsaliye özeti */}
-          {irsaliyeler.filter(i => i.durum === 'tamam').length > 0 && (
-            <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 8 }}>✓ Oluşturulan İrsaliyeler</div>
-              {irsaliyeler.filter(i => i.durum === 'tamam').map(i => (
-                <div key={i.lokasyon} style={{ fontSize: 12, color: '#166534', marginBottom: 4 }}>
-                  • {i.pickingName} — {i.lokasyon} ({i.kalemSayisi} kalem)
-                </div>
-              ))}
-            </div>
-          )}
 
           <div style={{ display: 'flex', gap: 10 }}>
             <button type="button" onClick={() => setAdim('satirlar')} style={btnSmall}>← Geri</button>
@@ -4310,18 +5251,6 @@ function UrunGirisTab() {
               <div><span style={{ color: '#6b7280' }}>Toplam kalem:</span> <strong>{lotlar.length} adet</strong></div>
             </div>
           </div>
-
-          {/* İrsaliye özeti */}
-          {irsaliyeler.filter(i => i.durum === 'tamam').length > 0 && (
-            <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 6 }}>✓ Oluşturulan İrsaliyeler</div>
-              {irsaliyeler.filter(i => i.durum === 'tamam').map(i => (
-                <div key={i.lokasyon} style={{ fontSize: 12, color: '#166534', marginBottom: 3 }}>
-                  • {i.pickingName} — {i.lokasyon} ({i.kalemSayisi} kalem)
-                </div>
-              ))}
-            </div>
-          )}
 
           <div style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#1e40af' }}>
             ℹ️ Onaylandığında Odoo'ya yazılacaklar:
@@ -4433,7 +5362,7 @@ function UrunGirisTab() {
                   Atla
                 </button>
                 {!etiketZpl ? (
-                  <button type="button" onClick={etiketZplUret} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
+                  <button type="button" onClick={() => void etiketZplUret()} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
                     ZPL Üret
                   </button>
                 ) : (
@@ -4649,7 +5578,7 @@ function UrunGirisTab() {
 
       {gelenModalAcik && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: 14, width: 'min(720px, 100%)', maxHeight: '80vh', overflow: 'auto', padding: 20 }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: 14, width: 'min(820px, 100%)', maxHeight: '85vh', overflow: 'auto', padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 900 }}>🔗 Uyumsoft&apos;tan Otomatik Gelen Faturalar (e-Fatura)</div>
@@ -4658,8 +5587,27 @@ function UrunGirisTab() {
               <button type="button" onClick={() => setGelenModalAcik(false)} style={{ border: 'none', background: 'transparent', fontSize: 20, cursor: 'pointer' }}>×</button>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              <button type="button" disabled={gelenYukleniyor} onClick={() => void gelenFaturalariCek()} style={{ ...btnPrimary, fontSize: 12 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                Şirket
+                <select
+                  value={gelenSirketId}
+                  onChange={(e) => {
+                    const next = e.target.value as 'ng' | 'adese' | 'potential'
+                    setGelenSirketId(next)
+                    setGelenPageIndex(0)
+                    setGelenHasMore(false)
+                    setGelenCekOzet(null)
+                    void gelenFaturalariYukle(next)
+                  }}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                >
+                  <option value="ng">NG</option>
+                  <option value="adese">ADESE</option>
+                  <option value="potential">POTENTIAL</option>
+                </select>
+              </label>
+              <button type="button" disabled={gelenYukleniyor} onClick={() => void gelenFaturalariCek(false)} style={{ ...btnPrimary, fontSize: 12 }}>
                 {gelenYukleniyor ? 'Çekiliyor...' : 'Uyumsoft\'tan Çek'}
               </button>
               <button type="button" disabled={gelenYukleniyor} onClick={() => void gelenFaturalariYukle()} style={{ ...btnSmall, fontSize: 12 }}>
@@ -4667,13 +5615,88 @@ function UrunGirisTab() {
               </button>
             </div>
 
-            {gelenFaturalar.length === 0 ? (
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>
+              Fatura tarihi aralığı (UBL IssueDate) — seçilen aralık dışındaki kayıtlar listelenmez.
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                Fatura tarihi aralığı
+                <select
+                  value={gelenAralikPreset}
+                  onChange={(e) => gelenPresetDegistir(e.target.value as GelenFaturaAralikPreset)}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                >
+                  <option value="3">Son 3 gün</option>
+                  <option value="7">Son 7 gün</option>
+                  <option value="30">Son 30 gün</option>
+                  <option value="90">Son 90 gün</option>
+                  <option value="180">Son 6 ay</option>
+                  <option value="custom">Manuel tarih</option>
+                </select>
+              </label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                Başlangıç (fatura tarihi)
+                <input
+                  type="date"
+                  value={gelenBaslangic}
+                  disabled={gelenAralikPreset !== 'custom'}
+                  onChange={(e) => { setGelenBaslangic(e.target.value); setGelenAralikPreset('custom'); setGelenPageIndex(0) }}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                />
+              </label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                Bitiş (fatura tarihi)
+                <input
+                  type="date"
+                  value={gelenBitis}
+                  disabled={gelenAralikPreset !== 'custom'}
+                  onChange={(e) => { setGelenBitis(e.target.value); setGelenAralikPreset('custom'); setGelenPageIndex(0) }}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                />
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={gelenOnlyUnread}
+                  onChange={(e) => { setGelenOnlyUnread(e.target.checked); setGelenPageIndex(0); setGelenHasMore(false) }}
+                />
+                Sadece okunmamışlar
+              </label>
+              <input
+                type="search"
+                value={gelenAramaMetni}
+                onChange={(e) => setGelenAramaMetni(e.target.value)}
+                placeholder="Fatura no veya tedarikçi ara… (ör. 289021 veya OPA2026000289021)"
+                style={{ flex: 1, minWidth: 200, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+              />
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', whiteSpace: 'nowrap' }}>
+                Liste içi filtre
+                <input
+                  type="date"
+                  value={gelenFaturaTarihiFiltre}
+                  onChange={(e) => setGelenFaturaTarihiFiltre(e.target.value)}
+                  style={{ display: 'block', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                />
+              </label>
+            </div>
+
+            {gelenCekOzet ? (
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 10 }}>{gelenCekOzet}</div>
+            ) : null}
+
+            {gelenFaturalarFiltreli.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
-                Kayıt yok. &quot;Uyumsoft&apos;tan Çek&quot; ile yeni faturaları getirin.
+                {gelenAramaMetni.trim()
+                  ? `"${gelenAramaMetni.trim()}" listede yok — tarih aralığını genişletip "Okunmamış" filtresini kapatın ve tekrar çekin.`
+                  : 'Kayıt yok. Tarih aralığını seçip "Uyumsoft\'tan Çek" ile faturaları getirin.'}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {gelenFaturalar.map(f => (
+                {gelenFaturalarFiltreli.map(f => (
                   <div key={f.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                     <div>
                       <div style={{ fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -4681,7 +5704,7 @@ function UrunGirisTab() {
                         <span>{f.uyumsoftNo || '—'} — {f.tedarikciAdi || 'Tedarikçi'}</span>
                       </div>
                       <div style={{ fontSize: 12, color: '#6b7280' }}>
-                        {f.faturaTarihi || '—'} · {f.kalemSayisi} kalem · ₺{(f.tutarKdvHaric ?? 0).toLocaleString('tr-TR')}
+                        {f.faturaTarihi ?? ''} · {f.kalemSayisi} kalem · ₺{(f.tutarKdvHaric ?? 0).toLocaleString('tr-TR')}
                         {f.durum === 'AKTARILDI' && <span style={{ marginLeft: 8, color: '#059669' }}>Aktarıldı</span>}
                       </div>
                     </div>
@@ -4690,6 +5713,16 @@ function UrunGirisTab() {
                     </button>
                   </div>
                 ))}
+                {gelenHasMore ? (
+                  <button
+                    type="button"
+                    disabled={gelenYukleniyor}
+                    onClick={() => void gelenFaturalariCek(true)}
+                    style={{ ...btnSmall, fontSize: 12, alignSelf: 'center', marginTop: 4 }}
+                  >
+                    {gelenYukleniyor ? 'Yükleniyor...' : `Daha fazla yükle (sayfa ${gelenPageIndex + 2}, toplam ~${gelenTotalCount})`}
+                  </button>
+                ) : null}
               </div>
             )}
           </div>

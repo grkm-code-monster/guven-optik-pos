@@ -62,6 +62,12 @@ export async function getClient(sirketId: string = DEFAULT_SIRKET_ID): Promise<s
   return client;
 }
 
+/** Kimlik bilgisi değişince cache'i temizleyin (yeni client bir sonraki istekte oluşur) */
+export function clearUyumsoftClientCache(sirketId?: string): void {
+  if (sirketId) clients.delete(sirketId);
+  else clients.clear();
+}
+
 export async function testConnection(sirketId: string = DEFAULT_SIRKET_ID): Promise<unknown> {
   const creds = await getCredentialsForSirket(sirketId);
   const c = await getClient(sirketId);
@@ -80,6 +86,25 @@ export async function getSystemDate(sirketId: string = DEFAULT_SIRKET_ID): Promi
   return result?.GetSystemDateResult ?? '';
 }
 
+/** node-soap: `<IsEInvoiceUserResult IsSucceded="true" Value="true"/>` → `{ attributes: { ... } }` */
+function parseIsEInvoiceUserResult(raw: unknown): boolean {
+  if (raw === true || raw === 'true') return true;
+  if (raw === false || raw === 'false') return false;
+  if (raw && typeof raw === 'object') {
+    const attrs =
+      (raw as { attributes?: Record<string, unknown> }).attributes
+      ?? (raw as Record<string, unknown>);
+    const succeeded = attrs.IsSucceded;
+    if (succeeded === false || succeeded === 'false') {
+      const msg = String(attrs.Message || attrs.ErrorMessage || JSON.stringify(attrs));
+      throw new Error(`IsEInvoiceUser sorgu başarısız: ${msg}`);
+    }
+    const value = attrs.Value;
+    return value === true || value === 'true';
+  }
+  return false;
+}
+
 export async function isEInvoiceUser(
   vknTckn: string,
   sirketId: string = DEFAULT_SIRKET_ID,
@@ -90,7 +115,7 @@ export async function isEInvoiceUser(
     userInfo: buildUserInfo(creds),
     vknTckn,
   });
-  return result?.IsEInvoiceUserResult === true;
+  return parseIsEInvoiceUserResult(result?.IsEInvoiceUserResult);
 }
 
 export async function getUserAliasses(
@@ -265,6 +290,96 @@ export async function sendInvoice(
   return parsed;
 }
 
+export type OutboxInvoiceStatusResult = {
+  sorgulandi: boolean;
+  statusEnum?: string;
+  statusCode?: string;
+  mesaj?: string;
+  nihaiBasarili?: boolean;
+};
+
+function parseSoapBool(value: unknown): boolean {
+  return value === true || value === 'true';
+}
+
+function isOutboxInvoiceSuccess(statusEnum?: string): boolean {
+  if (!statusEnum) return false;
+  const s = statusEnum.toLowerCase();
+  return s === 'success' || s === 'approved' || s === 'sent' || s === 'completed';
+}
+
+export function isOutboxInvoiceError(statusEnum?: string): boolean {
+  if (!statusEnum) return false;
+  const s = statusEnum.toLowerCase();
+  return s === 'error' || s === 'failed' || s === 'rejected' || s === 'cancelled';
+}
+
+function parseOutboxStatus(attrs: Record<string, string>): string | undefined {
+  return attrs.StatusEnum ?? attrs.statusEnum ?? attrs.Status ?? attrs.status;
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function queryOutboxInvoiceStatus(
+  ettn: string,
+  sirketId: string,
+): Promise<OutboxInvoiceStatusResult> {
+  const creds = await getCredentialsForSirket(sirketId);
+  const c = await getClient(sirketId);
+  try {
+    const [result] = await c.QueryOutboxInvoiceStatusAsync({
+      userInfo: buildUserInfo(creds),
+      invoiceIds: { string: [ettn] },
+    });
+    const root = result?.QueryOutboxInvoiceStatusResult as {
+      attributes?: { IsSucceded?: boolean | string; Message?: string };
+      Value?: unknown;
+    } | undefined;
+    if (!parseSoapBool(root?.attributes?.IsSucceded)) {
+      return {
+        sorgulandi: false,
+        mesaj: String(root?.attributes?.Message ?? 'Outbox durum sorgusu başarısız'),
+      };
+    }
+    const items = root?.Value;
+    const first = Array.isArray(items) ? items[0] : items;
+    const attrs = (first as { attributes?: Record<string, string> })?.attributes ?? {};
+    const statusEnum = parseOutboxStatus(attrs);
+    const mesaj = attrs.Message ?? attrs.message;
+    const statusCode = attrs.StatusCode ?? attrs.statusCode;
+    return {
+      sorgulandi: true,
+      statusEnum,
+      statusCode,
+      mesaj,
+      nihaiBasarili: isOutboxInvoiceSuccess(statusEnum),
+    };
+  } catch (err) {
+    return {
+      sorgulandi: false,
+      mesaj: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function pollOutboxInvoiceStatus(
+  ettn: string,
+  sirketId: string,
+  delaysMs: number[] = [6000, 10000, 20000],
+): Promise<OutboxInvoiceStatusResult> {
+  let last: OutboxInvoiceStatusResult = { sorgulandi: false };
+  for (const delay of delaysMs) {
+    await sleepMs(delay);
+    last = await queryOutboxInvoiceStatus(ettn, sirketId);
+    if (!last.sorgulandi) continue;
+    if (isOutboxInvoiceError(last.statusEnum)) return last;
+    if (last.nihaiBasarili) return last;
+  }
+  return last;
+}
+
 // ── Gelen (inbox) e-fatura ────────────────────────────────────────
 
 export function ublAlanOku(value: unknown): string | number | boolean {
@@ -289,6 +404,7 @@ export interface InboxInvoiceListItem {
   status: string;
   isNew: boolean;
   isSeen: boolean;
+  /** Uyumsoft liste API'sinde ExecutionDate — detaydaki IssueDate (fatura düzenleme tarihi) ile aynı olmayabilir. */
   issueDate?: string;
   payableAmount: number;
   taxExclusiveAmount: number;
@@ -381,6 +497,15 @@ export interface InboxInvoiceDetail {
   siparisNo: string;
 }
 
+function normalizeUyumsoftDate(raw: unknown): string | undefined {
+  if (raw == null || raw === '') return undefined;
+  const s = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return undefined;
+}
+
 function parseInboxListItem(raw: Record<string, unknown>): InboxInvoiceListItem {
   return {
     invoiceId: String(raw.InvoiceId ?? ''),
@@ -390,11 +515,11 @@ function parseInboxListItem(raw: Record<string, unknown>): InboxInvoiceListItem 
     status: String(raw.Status ?? ''),
     isNew: raw.IsNew === true || raw.IsNew === 'true',
     isSeen: raw.IsSeen === true || raw.IsSeen === 'true',
-    issueDate: raw.ExecutionDate ? String(raw.ExecutionDate).slice(0, 10) : undefined,
+    issueDate: normalizeUyumsoftDate(raw.ExecutionDate),
     payableAmount: Number(raw.PayableAmount ?? 0),
     taxExclusiveAmount: Number(raw.TaxExclusiveAmount ?? 0),
     currency: String(raw.DocumentCurrencyCode ?? 'TRY'),
-    createDateUtc: raw.CreateDateUtc ? String(raw.CreateDateUtc) : undefined,
+    createDateUtc: normalizeUyumsoftDate(raw.CreateDateUtc),
   };
 }
 
@@ -429,6 +554,52 @@ function parseLineAllowances(
     iskontoTutar: tutar,
     iskonto,
   };
+}
+
+export function computeLinesTaxExclusiveTotal(
+  lines: InboxInvoiceDetail['lines'],
+): number {
+  return Math.round(
+    lines.reduce(
+      (acc, l) => acc + l.miktar * l.birimFiyat * (1 - (l.iskonto || 0) / 100),
+      0,
+    ) * 100,
+  ) / 100;
+}
+
+/** UBL başlık toplamı satır toplamından bariz sapıyorsa satır toplamını kullan. */
+export function resolveTaxExclusiveAmount(
+  headerAmount: number,
+  lines: InboxInvoiceDetail['lines'],
+): number {
+  const fromLines = computeLinesTaxExclusiveTotal(lines);
+  if (!lines.length) return headerAmount;
+  if (!headerAmount) return fromLines;
+  const diff = Math.abs(headerAmount - fromLines);
+  if (diff > 1 && (diff / fromLines > 0.01 || headerAmount < fromLines * 0.5)) {
+    console.warn(
+      `[uyumsoft] TaxExclusiveAmount (${headerAmount}) satır toplamından (${fromLines}) farklı; satır toplamı kullanılıyor.`,
+    );
+    return fromLines;
+  }
+  return headerAmount;
+}
+
+function parseIssueDateFromInvoice(inv: Record<string, unknown>): string {
+  const period = inv.InvoicePeriod as Record<string, unknown> | undefined;
+  const delivery = inv.Delivery as Record<string, unknown> | undefined;
+  const candidates = [
+    ublAlanOku(inv.IssueDate),
+    ublAlanOku(inv.TaxPointDate),
+    ublAlanOku(period?.StartDate),
+    ublAlanOku(period?.EndDate),
+    ublAlanOku(delivery?.ActualDeliveryDate),
+  ];
+  for (const candidate of candidates) {
+    const normalized = String(candidate).trim().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
+  }
+  return '';
 }
 
 function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDetail | null {
@@ -481,15 +652,18 @@ function parseInboxInvoiceDetail(value: Record<string, unknown>): InboxInvoiceDe
   });
 
   const monetary = inv.LegalMonetaryTotal as Record<string, unknown> | undefined;
+  const headerTaxExclusive = Number(ublAlanOku(monetary?.TaxExclusiveAmount) || 0);
+  const taxExclusiveAmount = resolveTaxExclusiveAmount(headerTaxExclusive, lines);
+  const issueRaw = parseIssueDateFromInvoice(inv);
 
   return {
     documentId: String(ublAlanOku(inv.UUID) || ''),
     invoiceNo: String(ublAlanOku(inv.ID) || ''),
-    issueDate: String(ublAlanOku(inv.IssueDate) || '').slice(0, 10),
+    issueDate: issueRaw,
     supplierVkn: supplier.vkn,
     supplierTitle: supplier.name,
     supplier,
-    taxExclusiveAmount: Number(ublAlanOku(monetary?.TaxExclusiveAmount) || 0),
+    taxExclusiveAmount,
     payableAmount: Number(ublAlanOku(monetary?.PayableAmount) || 0),
     currency: String(ublAlanOku(inv.DocumentCurrencyCode) || 'TRY'),
     lines,
@@ -502,6 +676,8 @@ export async function getInboxInvoiceList(
   query: {
   createStartDate?: Date;
   createEndDate?: Date;
+  executionStartDate?: Date;
+  executionEndDate?: Date;
   pageIndex?: number;
   pageSize?: number;
   onlyNewest?: boolean;
@@ -518,6 +694,8 @@ export async function getInboxInvoiceList(
   const end = query.createEndDate ?? new Date();
   const pageIndex = query.pageIndex ?? 0;
   const pageSize = query.pageSize ?? 50;
+  const executionStart = query.executionStartDate ?? null;
+  const executionEnd = query.executionEndDate ?? null;
 
   const [result] = await c.GetInboxInvoiceListAsync({
     userInfo: buildUserInfo(creds),
@@ -529,8 +707,8 @@ export async function getInboxInvoiceList(
       },
       CreateStartDate: start.toISOString(),
       CreateEndDate: end.toISOString(),
-      ExecutionStartDate: null,
-      ExecutionEndDate: null,
+      ExecutionStartDate: executionStart ? executionStart.toISOString() : null,
+      ExecutionEndDate: executionEnd ? executionEnd.toISOString() : null,
       Status: null,
     },
   });

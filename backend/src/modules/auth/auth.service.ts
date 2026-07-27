@@ -125,6 +125,8 @@ export async function login(username: string, pin: string) {
     role: user.role,
     branchId: user.branchId,
     shiftId: openShift?.id ?? null,
+    canWorkAtolye: user.canWorkAtolye,
+    ekYetkiler: user.ekYetkiler ?? [],
   };
 
   const token = signToken(payload);
@@ -137,6 +139,9 @@ export async function login(username: string, pin: string) {
       username: user.username,
       role: user.role,
       branchId: user.branchId,
+      branchCode: user.branch.code,
+      canWorkAtolye: user.canWorkAtolye,
+      ekYetkiler: user.ekYetkiler ?? [],
     },
     shiftId: payload.shiftId,
     pdksAttendance,

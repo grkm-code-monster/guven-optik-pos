@@ -120,3 +120,19 @@ export const VoidSaleInput = z.object({
 });
 export type VoidSaleInputType = z.infer<typeof VoidSaleInput>;
 
+export const UpdateDraftMetaInput = z.object({
+  step: z.union([
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+    z.literal(5),
+    z.literal(5.5),
+    z.literal(6),
+  ]).optional(),
+  pricing: z.unknown().optional(),
+  payments: z.unknown().optional(),
+  measurements: z.unknown().optional(),
+});
+export type UpdateDraftMetaInputType = z.infer<typeof UpdateDraftMetaInput>;
+

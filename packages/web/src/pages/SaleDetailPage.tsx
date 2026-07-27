@@ -5,6 +5,7 @@ import html2canvas from 'html2canvas'
 import { apiClient } from '../api/client'
 import { getSaleById, voidSale } from '../api/sales.api'
 import type { Sale } from '../api/types'
+import { isLensMeasurementSaleItem } from '../utils/saleMeasurements'
 
 const cardStyle: CSSProperties = {
   backgroundColor: 'white',
@@ -282,6 +283,7 @@ export default function SaleDetailPage() {
   const [resmiFaturaLoading, setResmiFaturaLoading] = useState(false)
   const [refreshLoading, setRefreshLoading] = useState(false)
   const [belgeError, setBelgeError] = useState<string | null>(null)
+  const [belgeInfo, setBelgeInfo] = useState<string | null>(null)
   const pdfRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
@@ -421,10 +423,17 @@ export default function SaleDetailPage() {
     if (!sale) return
     setRefreshLoading(true)
     setBelgeError(null)
+    setBelgeInfo(null)
     try {
+      const res = await apiClient.post(`/efatura/satis-onay/${sale.id}`)
+      if (res.data?.processing && res.data?.mesaj) {
+        setBelgeInfo(String(res.data.mesaj))
+      } else if (res.data?.hata && !res.data?.basarili) {
+        setBelgeError(String(res.data.hata))
+      }
       await load()
     } catch (e: any) {
-      setBelgeError(e?.response?.data?.message ?? 'Satış durumu yenilenemedi')
+      setBelgeError(e?.response?.data?.message ?? e?.response?.data?.hata ?? 'Satış durumu yenilenemedi')
     } finally {
       setRefreshLoading(false)
     }
@@ -432,15 +441,25 @@ export default function SaleDetailPage() {
 
   async function updateAllItemStatus(status: string) {
     if (!sale?.id) return
+    const targetItems =
+      status === 'IN_LAB' ? items.filter((it: any) => isLensMeasurementSaleItem(it)) : items
+    if (status === 'IN_LAB' && targetItems.length === 0) {
+      setError('Laboratuvara gönderilecek cam/lens kalemi bulunamadı (çerçeve kalemleri hariç tutulur).')
+      return
+    }
     setStatusSaving(true)
     setError(null)
     try {
       await Promise.all(
-        items.map((it: any) =>
+        targetItems.map((it: any) =>
           apiClient.patch(`/sales/${sale.id}/items/${it.id}/status`, { status }),
         ),
       )
-      setSuccess('Kalem durumları güncellendi.')
+      setSuccess(
+        status === 'IN_LAB'
+          ? `${targetItems.length} cam/lens kalemi laboratuvara gönderildi.`
+          : 'Kalem durumları güncellendi.',
+      )
       await load()
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Durum güncellenemedi')
@@ -560,7 +579,7 @@ export default function SaleDetailPage() {
                 letterSpacing: '0.04em',
               }}
             >
-              Satış #{String(sale.id).slice(0, 8)}
+              Satış {sale.referansNo ? sale.referansNo : `#${String(sale.id).slice(0, 8)}`}
             </div>
             <div style={{ marginTop: 10, fontSize: '1.4rem', fontWeight: 800, color: '#FFD700' }}>
               {sale.customer?.name ?? '—'}
@@ -573,6 +592,22 @@ export default function SaleDetailPage() {
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10, flexShrink: 0 }}>
+            {sale.referansNo ? (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '5px 10px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(255,255,255,0.6)',
+                  backgroundColor: 'rgba(255,255,255,0.12)',
+                  color: 'rgba(255,255,255,0.95)',
+                  fontFamily: "'Courier New', Courier, monospace",
+                }}
+              >
+                {sale.referansNo}
+              </span>
+            ) : null}
             {sale.odooSaleOrderId ? (
               <span
                 style={{
@@ -899,6 +934,9 @@ export default function SaleDetailPage() {
             {belgeError ? (
               <div style={{ color: danger, fontSize: 13, marginBottom: 12, fontWeight: 600 }}>{belgeError}</div>
             ) : null}
+            {belgeInfo ? (
+              <div style={{ color: '#92400e', fontSize: 13, marginBottom: 12, fontWeight: 600 }}>{belgeInfo}</div>
+            ) : null}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
               <button
                 type="button"
@@ -1089,8 +1127,8 @@ export default function SaleDetailPage() {
                         <td style={{ textAlign: 'right' }}>{pdfPara(Number(sale.grossTotal))}</td>
                       </tr>
                       <tr>
-                        <td style={{ color: '#6b7280', paddingBottom: 4 }}>KDV</td>
-                        <td style={{ textAlign: 'right' }}>{pdfPara(Number(sale.netTotal) - Number(sale.grossTotal))}</td>
+                        <td style={{ color: '#6b7280', paddingBottom: 4 }}>KDV (dahil)</td>
+                        <td style={{ textAlign: 'right' }}>{pdfPara(Number(sale.taxTotal))}</td>
                       </tr>
                       <tr>
                         <td style={{ color: '#6b7280', paddingBottom: 4 }}>İndirim</td>

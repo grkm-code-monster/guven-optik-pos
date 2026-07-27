@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SablonId } from '../etiket-tasarimci/sablon-types'
+import { renderEtiketBatchToDataUrls, type EtiketSablonRender } from './etiket-canvas-render'
+import { yazdirEtiketGorselleri } from './etiket-gorsel-yazdir'
 import EtiketSablonSecici from './EtiketSablonSecici'
-import { otomatikSablonSec, uretCokluEtiketZpl } from './etiket-sablon-helpers'
+import {
+  etiketUrunToRenderVeri,
+  getPilotEtiketSablon,
+  otomatikSablonSec,
+  uretEtiketZplTercihli,
+  type EtiketUrunVeri,
+} from './etiket-sablon-helpers'
 
 export type EtiketModalUrun = {
   key: string
@@ -14,6 +22,8 @@ export type EtiketModalUrun = {
   renkVaryant?: string
   utsKodu?: string | null
   utsKodlu?: boolean
+  lotNo?: string | null
+  kategoriId?: number | null
 }
 
 type Props = {
@@ -30,11 +40,28 @@ function varsayilanSablon(urunler: EtiketModalUrun[]): SablonId {
   return otomatikSablonSec(ilk.categAdi ?? '', uts)
 }
 
-export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
+function modalUrunToEtiketVeri(s: EtiketModalUrun): EtiketUrunVeri {
+  return {
+    urunAdi: s.urunAdi,
+    seriNo: s.seriNo || '-',
+    fiyat: s.fiyat,
+    barkod: s.barkod,
+    icReferans: s.barkod ?? undefined,
+    renkVaryant: s.renkVaryant,
+    utsKodu: s.utsKodu,
+    lotNo: s.lotNo,
+    categAdi: s.categAdi,
+  }
+}
+
+export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapat }: Props) {
   const [secimler, setSecimler] = useState<EtiketModalUrun[]>([])
   const [sablonId, setSablonId] = useState<SablonId>('gunes-aksesuar')
   const [zpl, setZpl] = useState('')
+  const [sablonRender, setSablonRender] = useState<EtiketSablonRender | null>(null)
+  const [uretilenItems, setUretilenItems] = useState<EtiketUrunVeri[]>([])
   const [loading, setLoading] = useState(false)
+  const [yazdiriliyor, setYazdiriliyor] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [kopyalandi, setKopyalandi] = useState(false)
 
@@ -49,6 +76,8 @@ export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
       setSecimler(list)
       setSablonId(varsayilanSablon(list))
       setZpl('')
+      setSablonRender(null)
+      setUretilenItems([])
       setError(null)
       setKopyalandi(false)
     }
@@ -58,7 +87,7 @@ export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
 
   const seciliSayisi = secimler.filter((s) => s.secili).length
 
-  function etiketBas() {
+  async function etiketBas() {
     setLoading(true)
     setError(null)
     try {
@@ -67,21 +96,17 @@ export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
         setError('En az 1 ürün seçin')
         return
       }
-      const zplKod = uretCokluEtiketZpl(
-        sablonId,
-        payload.map((s) => ({
-          urunAdi: s.urunAdi,
-          seriNo: s.seriNo || '-',
-          fiyat: s.fiyat,
-          barkod: s.barkod,
-          icReferans: s.barkod ?? undefined,
-          renkVaryant: s.renkVaryant,
-          utsKodu: s.utsKodu,
-        })),
-      )
+      const items = payload.map(modalUrunToEtiketVeri)
+      const [zplKod, sablon] = await Promise.all([
+        uretEtiketZplTercihli(sablonId, items, ilkSecili?.categAdi, source),
+        getPilotEtiketSablon(sablonId, ilkSecili?.categAdi),
+      ])
       setZpl(zplKod)
-    } catch (e: any) {
-      setError(e?.message ?? 'ZPL üretilemedi')
+      setSablonRender(sablon)
+      setUretilenItems(items)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } }; message?: string }
+      setError(err?.response?.data?.error ?? err?.message ?? 'Etiket üretilemedi')
     } finally {
       setLoading(false)
     }
@@ -94,7 +119,23 @@ export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
     setTimeout(() => setKopyalandi(false), 2000)
   }
 
-  function yazdir() {
+  async function yazdir() {
+    if (sablonRender && uretilenItems.length) {
+      setYazdiriliyor(true)
+      try {
+        const veriler = uretilenItems.map(etiketUrunToRenderVeri)
+        const sayfalar = renderEtiketBatchToDataUrls(sablonRender, veriler)
+        yazdirEtiketGorselleri(sayfalar)
+      } catch (e: unknown) {
+        const err = e as { message?: string }
+        setError(err?.message ?? 'Görsel yazdırma başarısız')
+      } finally {
+        setYazdiriliyor(false)
+      }
+      return
+    }
+
+    // Eski yol: pilot disi sablonlar icin ham PPLA/ZPL metni (yedek)
     if (!zpl) return
     const w = window.open('', '_blank')
     if (!w) return
@@ -102,6 +143,8 @@ export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
     w.document.close()
     w.print()
   }
+
+  const gorselYazdirma = Boolean(sablonRender)
 
   return (
     <div style={{
@@ -118,7 +161,7 @@ export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
         </div>
 
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
-          Ürünleri seçin, şablon belirleyin ve ZPL üretin.
+          Ürünleri seçin, şablon belirleyin ve etiket üretin. Yazdır, etiketi görsel olarak Argox sürücüsüne gönderir.
         </div>
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
@@ -168,14 +211,21 @@ export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
               style={{ width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', boxSizing: 'border-box' }}
             />
             <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-              ZPL içeriğini Argox yazıcı yazılımına yapıştırın.
+              {gorselYazdirma
+                ? 'PPLA ham komutu (yedek/kopya). Yazdır butonu etiketi PNG görseli olarak gönderir — macOS yazıcı ayarlarında özel kağıt boyutu ve Label Sensor: Gap seçili olmalı.'
+                : 'Ham komut metni (eski şablon). Görsel yazdırma bu şablon için henüz yok.'}
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <button type="button" onClick={() => void kopyala()} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e5e7eb', fontWeight: 700, cursor: 'pointer' }}>
-                {kopyalandi ? '✓ Kopyalandı' : 'Kopyala'}
+                {kopyalandi ? '✓ Kopyalandı' : 'Ham Kodu Kopyala'}
               </button>
-              <button type="button" onClick={yazdir} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e5e7eb', fontWeight: 700, cursor: 'pointer' }}>
-                Yazdır
+              <button
+                type="button"
+                disabled={yazdiriliyor}
+                onClick={() => void yazdir()}
+                style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e5e7eb', fontWeight: 700, cursor: 'pointer', opacity: yazdiriliyor ? 0.6 : 1 }}
+              >
+                {yazdiriliyor ? 'Hazırlanıyor...' : 'Yazdır'}
               </button>
             </div>
           </div>
@@ -189,7 +239,7 @@ export default function EtiketBasModal({ acik, urunler, onKapat }: Props) {
             <button
               type="button"
               disabled={loading || seciliSayisi === 0}
-              onClick={etiketBas}
+              onClick={() => void etiketBas()}
               style={{
                 padding: '10px 18px', borderRadius: 8, border: 'none', fontWeight: 800, cursor: 'pointer',
                 backgroundColor: '#059669', color: 'white', opacity: loading || seciliSayisi === 0 ? 0.6 : 1,

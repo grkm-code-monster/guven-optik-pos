@@ -33,6 +33,15 @@ export type GunlukKasaPdfSummary = {
   sgk: number
 }
 
+export type GunlukKasaPdfParams = {
+  branchName: string
+  date: string
+  rows: GunlukKasaPdfRow[]
+  summary: GunlukKasaPdfSummary
+  showRep?: boolean
+  durumNotu?: string
+}
+
 function fmtPdfMoney(value: string | number | null | undefined): string {
   if (value === undefined || value === null || value === '') return '—'
   const n = typeof value === 'number' ? value : Number(value)
@@ -66,6 +75,13 @@ function fmtPdfCurrency(value: string | number | null | undefined): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n)}`
+}
+
+export function formatKasaFormuBaslik(branchName: string, date: string): string {
+  const iso = date.slice(0, 10)
+  const [y, m, d] = iso.split('-')
+  if (!y || !m || !d) return `${branchName} - TARİHLİ KASA FORMU`
+  return `${branchName} - ${d}/${m}/${y} TARİHLİ KASA FORMU`
 }
 
 function drawSummaryCards(
@@ -109,14 +125,45 @@ function drawSummaryCards(
   return y + kartYukseklik
 }
 
-export async function downloadGunlukKasaPdf(params: {
-  branchName: string
-  date: string
-  rows: GunlukKasaPdfRow[]
-  summary: GunlukKasaPdfSummary
-  showRep?: boolean
-}): Promise<void> {
-  const { branchName, date, rows, summary, showRep } = params
+function drawDurumNotuSection(
+  doc: jsPDF,
+  notMetin: string,
+  startY: number,
+  marginX: number,
+): void {
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const contentWidth = pageWidth - marginX * 2
+  let y = startY + 10
+
+  if (y > pageHeight - 30) {
+    doc.addPage()
+    y = 20
+  }
+
+  doc.setFont(PDF_FONT_FAMILY, 'bold')
+  doc.setFontSize(12)
+  doc.setTextColor(163, 45, 45)
+  doc.text('Günlük Durum Notu', marginX, y)
+  y += 7
+
+  doc.setFont(PDF_FONT_FAMILY, 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(55, 65, 81)
+  const text = notMetin.trim() || '—'
+  const lines = doc.splitTextToSize(text, contentWidth) as string[]
+  for (const line of lines) {
+    if (y > pageHeight - 16) {
+      doc.addPage()
+      y = 20
+    }
+    doc.text(line, marginX, y)
+    y += 5
+  }
+}
+
+async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF> {
+  const { branchName, date, rows, summary, showRep, durumNotu = '' } = params
   const doc = await createPdfDoc({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
@@ -239,6 +286,9 @@ export async function downloadGunlukKasaPdf(params: {
     showFoot: body.length > 0 ? 'lastPage' : undefined,
   })
 
+  const tableEndY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? tableStartY
+  drawDurumNotuSection(doc, durumNotu, tableEndY, marginX)
+
   const pageCount = doc.getNumberOfPages()
   for (let page = 1; page <= pageCount; page += 1) {
     doc.setPage(page)
@@ -249,7 +299,15 @@ export async function downloadGunlukKasaPdf(params: {
     doc.text(`Sayfa ${page} / ${pageCount}`, pageWidth - marginX, pageHeight - 6, { align: 'right' })
   }
 
-  const safeBranch = branchName.replace(/[^\wğüşıöçĞÜŞİÖÇ\s-]/gi, '').trim().replace(/\s+/g, '-')
-  const safeDate = date.slice(0, 10)
-  doc.save(`Gunluk-Kasa_${safeBranch || 'sube'}_${safeDate}.pdf`)
+  return doc
+}
+
+export async function generateGunlukKasaPdfBlob(params: GunlukKasaPdfParams): Promise<Blob> {
+  const doc = await buildGunlukKasaPdfDoc(params)
+  return doc.output('blob')
+}
+
+export async function downloadGunlukKasaPdf(params: GunlukKasaPdfParams): Promise<void> {
+  const doc = await buildGunlukKasaPdfDoc(params)
+  doc.save(`${formatKasaFormuBaslik(params.branchName, params.date)}.pdf`)
 }

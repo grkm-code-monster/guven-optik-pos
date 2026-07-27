@@ -2,36 +2,64 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   getBekleyenTransferler,
   getGonderilenTransferler,
+  getTransferAksiyonLogs,
   kabulTransfer,
   sorunTransfer,
+  type TransferAksiyonOzet,
 } from '../../api/transfer.api'
 import { useAuthStore } from '../../store/auth.store'
 import EtiketBasModal, { type EtiketModalUrun } from '../etiket/EtiketBasModal'
 
-const AKTIF_LOKASYON_KEY = 'aktifLokasyon'
+import { getAktifLokasyon } from '../../utils/aktifLokasyon'
+import { extractApiErrorMessage } from '../../utils/extractApiErrorMessage'
+import { transferHataMesaji } from '../../utils/transferError'
 
 const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVN2', 'GVN10', 'ANADEPO', 'GVN5']
 
-const MOCK_BEKLEYEN = [
-  {
-    transferId: 'TRF-2026-0089',
-    refNo: 'TRF-2026-0089',
-    tarih: '2026-05-15',
-    gonderen: 'GVN1',
-    alici: 'GVN2',
-    personel: 'Ahmet Yılmaz',
-    urunler: [
-      { ad: 'Ray-Ban RB2140', varyant: 'Siyah', lotNo: 'LOT-001', seriNo: 'LOT-001', fiyat: 2500, etiketSecili: true, beklenenAdet: 1 },
-      { ad: 'Acuvue Oasys', varyant: '-2.00', lotNo: 'SN-884422', seriNo: 'SN-884422', fiyat: 800, etiketSecili: true, beklenenAdet: 1 },
-    ],
-  },
-]
+const transferTarihFmt = new Intl.DateTimeFormat('tr-TR', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+function formatTransferTarih(value: string | null | undefined): string | null {
+  if (!value) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return transferTarihFmt.format(d)
+}
+
+function aksiyonRozet(label: string, row?: { durum: string; mesaj?: string | null }) {
+  if (!row) {
+    return (
+      <span key={label} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#f3f4f6', color: '#9ca3af' }}>
+        {label} —
+      </span>
+    )
+  }
+  const ok = row.durum === 'basarili'
+  const skip = row.durum === 'atlandi'
+  const bg = ok ? '#dcfce7' : skip ? '#fef3c7' : '#fee2e2'
+  const color = ok ? '#166534' : skip ? '#92400e' : '#991b1b'
+  const icon = ok ? '✓' : skip ? '⏭' : '✗'
+  const title = row.mesaj ? `${label}: ${row.mesaj}` : label
+  return (
+    <span
+      key={label}
+      title={title}
+      style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: bg, color }}
+    >
+      {label} {icon}
+    </span>
+  )
+}
 
 type Props = {
   source?: 'pos' | 'admin'
   lokasyon?: string
   showGonderilen?: boolean
-  useMockFallback?: boolean
 }
 
 function readAdminUser(): { role?: string } | null {
@@ -47,14 +75,15 @@ export default function BekleyenTransferler({
   source = 'pos',
   lokasyon: lokasyonProp,
   showGonderilen = true,
-  useMockFallback = source === 'pos',
 }: Props) {
   const posUser = useAuthStore((s) => s.user)
   const adminUser = source === 'admin' ? readAdminUser() : null
   const user = posUser ?? adminUser
 
+  const posBranchCode = useAuthStore((s) => s.user?.branchCode)
+
   const [aktifLokasyon, setAktifLokasyon] = useState(
-    () => lokasyonProp ?? localStorage.getItem(AKTIF_LOKASYON_KEY) ?? 'GVN1',
+    () => lokasyonProp ?? getAktifLokasyon(source === 'pos' ? posBranchCode : null),
   )
   const [gorunum, setGorunum] = useState<'gelen' | 'giden'>('gelen')
   const [gelenTransferler, setGelenTransferler] = useState<any[]>([])
@@ -67,34 +96,42 @@ export default function BekleyenTransferler({
   const [success, setSuccess] = useState<string | null>(null)
   const [etiketAcik, setEtiketAcik] = useState(false)
   const [etiketUrunler, setEtiketUrunler] = useState<EtiketModalUrun[]>([])
+  const [aksiyonOzet, setAksiyonOzet] = useState<Record<string, TransferAksiyonOzet>>({})
 
   const canAccept = user?.role === 'STORE_MANAGER' || user?.role === 'ADMIN'
   const transferler = gorunum === 'gelen' ? gelenTransferler : gidenTransferler
 
   useEffect(() => {
     if (lokasyonProp) setAktifLokasyon(lokasyonProp)
-  }, [lokasyonProp])
+    else if (source === 'pos' && posBranchCode) setAktifLokasyon(posBranchCode)
+  }, [lokasyonProp, source, posBranchCode])
 
   function yukle() {
     setLoading(true)
+    setError(null)
     Promise.all([
       getBekleyenTransferler(aktifLokasyon, source),
       showGonderilen ? getGonderilenTransferler(aktifLokasyon, source) : Promise.resolve([]),
     ])
       .then(([gelen, giden]) => {
-        if (useMockFallback && (!Array.isArray(gelen) || gelen.length === 0)) {
-          setGelenTransferler(MOCK_BEKLEYEN)
-        } else {
-          setGelenTransferler(Array.isArray(gelen) ? gelen : [])
-        }
+        setGelenTransferler(Array.isArray(gelen) ? gelen : [])
         setGidenTransferler(Array.isArray(giden) ? giden : [])
-      })
-      .catch(() => {
-        if (useMockFallback) setGelenTransferler(MOCK_BEKLEYEN)
-        else {
-          setGelenTransferler([])
-          setGidenTransferler([])
+        const refs = [...(Array.isArray(gelen) ? gelen : []), ...(Array.isArray(giden) ? giden : [])]
+          .map((t: { transferRef?: string | null }) => t.transferRef)
+          .filter((r): r is string => Boolean(r))
+        if (refs.length) {
+          void getTransferAksiyonLogs(refs, source)
+            .then((data) => setAksiyonOzet(data.ozet ?? {}))
+            .catch(() => setAksiyonOzet({}))
+        } else {
+          setAksiyonOzet({})
         }
+      })
+      .catch((e: unknown) => {
+        setGelenTransferler([])
+        setGidenTransferler([])
+        const msg = extractApiErrorMessage(e, 'Transferler yüklenemedi')
+        setError(`${msg}. Lütfen tekrar deneyin.`)
       })
       .finally(() => setLoading(false))
   }
@@ -163,10 +200,10 @@ export default function BekleyenTransferler({
           setEtiketAcik(true)
         }
       } else {
-        setError(data?.message ?? 'Kabul başarısız')
+        setError(transferHataMesaji(data, 'Kabul başarısız'))
       }
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Kabul başarısız')
+    } catch (e: unknown) {
+      setError(extractApiErrorMessage(e, 'Kabul başarısız'))
     }
   }
 
@@ -179,10 +216,10 @@ export default function BekleyenTransferler({
         setAcikId(null)
         yukle()
       } else {
-        setError(data?.message ?? 'Sorun kaydedilemedi')
+        setError(transferHataMesaji(data, 'Sorun kaydedilemedi'))
       }
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Sorun kaydedilemedi')
+    } catch (e: unknown) {
+      setError(extractApiErrorMessage(e, 'Sorun kaydedilemedi'))
     }
   }
 
@@ -251,25 +288,35 @@ export default function BekleyenTransferler({
         </div>
       ) : null}
 
-      {transferler.map((t) => (
+      {transferler.map((t) => {
+        const tamamlandi = t.durum === 'done'
+        const atanma = formatTransferTarih(t.atanmaTarihi ?? t.tarih)
+        const kabul = tamamlandi ? formatTransferTarih(t.kabulTarihi) : null
+        return (
         <div key={t.transferId} style={{ marginBottom: 10 }}>
           <div className="transfer-kart">
             <div>
               <div className="transfer-kart-baslik">{t.refNo ?? t.transferId}</div>
               <div className="transfer-kart-meta">
-                {t.tarih} · {t.gonderen} → {t.alici ?? aktifLokasyon} · {t.personel} · {(t.urunler ?? []).length} ürün
-                {t.durum ? ` · ${t.durum}` : ''}
+                <div>Atandı: {atanma ?? '—'}</div>
+                <div>Kabul: {kabul ?? 'Bekliyor'}</div>
+                <div>
+                  {t.gonderen} → {t.alici ?? aktifLokasyon} · {t.personel} · {(t.urunler ?? []).length} ürün
+                  {t.durum ? ` · ${tamamlandi ? 'tamamlandı' : t.durum}` : ''}
+                </div>
+                {t.transferRef ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                    {aksiyonRozet('e-Fat', aksiyonOzet[t.transferRef]?.EFATURA)}
+                    {aksiyonRozet('e-İrs', aksiyonOzet[t.transferRef]?.EIRSALIYE)}
+                    {aksiyonRozet('UTS', aksiyonOzet[t.transferRef]?.UTS_VERME ?? aksiyonOzet[t.transferRef]?.UTS_ALMA)}
+                  </div>
+                ) : null}
               </div>
             </div>
             <div>
               <button type="button" className="btn-detay" onClick={() => detayAc(t)}>
                 Detay
               </button>
-              {gorunum === 'gelen' && canAccept ? (
-                <button type="button" className="btn-kabul" onClick={() => detayAc(t)}>
-                  Kabul Et
-                </button>
-              ) : null}
             </div>
           </div>
 
@@ -325,7 +372,7 @@ export default function BekleyenTransferler({
                 )
               })}
 
-              {gorunum === 'gelen' && canAccept ? (
+              {gorunum === 'gelen' && canAccept && !tamamlandi ? (
                 <>
                   <textarea
                     value={sorunNot}
@@ -347,7 +394,8 @@ export default function BekleyenTransferler({
             </div>
           ) : null}
         </div>
-      ))}
+        )
+      })}
 
       <EtiketBasModal
         acik={etiketAcik}

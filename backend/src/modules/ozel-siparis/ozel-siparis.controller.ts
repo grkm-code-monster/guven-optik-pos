@@ -110,7 +110,7 @@ router.post(
             where: { id: siparis.satisSiparisId },
             select: { odooSaleOrderId: true, odooSaleId: true },
           })
-          const originRef = sale?.odooSaleId ?? (sale?.odooSaleOrderId ? String(sale.odooSaleOrderId) : null)
+          const originRef = sale?.odooSaleOrderId ? String(sale.odooSaleOrderId) : (sale?.odooSaleId ?? null)
           if (originRef) {
             const pickings = await execute(
               'stock.picking',

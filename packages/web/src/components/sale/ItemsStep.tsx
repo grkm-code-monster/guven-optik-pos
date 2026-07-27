@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { searchTransferProducts, type TransferUrun } from '../../api/transfer.api'
 import { addItem, deleteItem, getSaleById, updateItem } from '../../api/sales.api'
 import { apiClient } from '../../api/client'
+import BarkodKameraInput from '../BarkodKameraInput'
 import { getAktifLokasyon } from '../../utils/aktifLokasyon'
+import { isGs1DataMatrix, parseGs1DataMatrix } from '../../utils/parseGs1DataMatrix'
 import {
   BAKIM_KATEGORI_ID,
   DIREKT_KATEGORI_ID,
@@ -22,7 +24,7 @@ const ARAMA_YONTEMLERI = [
 ] as const
 
 const typeCards: Array<{ type: ItemType; title: string; icon: string }> = [
-  { type: 'FRAME', title: 'Optik Çerçeve', icon: '🕶' },
+  { type: 'FRAME', title: 'Optik Gözlük', icon: '🕶' },
   { type: 'SUN', title: 'Güneş Gözlüğü', icon: '☀️' },
   { type: 'CONTACT', title: 'Lens', icon: '🔍' },
   { type: 'SOLUTION', title: 'Solüsyon', icon: '💧' },
@@ -201,6 +203,57 @@ function buildSearchUrl(
   return `/api/transfer/urun-ara?${params.toString()}`
 }
 
+async function handleScannedBarcode(kod: string, lokasyon: string) {
+  if (isGs1DataMatrix(kod)) {
+    const parsed = parseGs1DataMatrix(kod)
+    if (parsed) {
+      console.log('[GS1] parsed', parsed)
+      const gtinCandidates = [parsed.gtin13, parsed.gtin14].filter(
+        (v, i, arr) => arr.indexOf(v) === i,
+      )
+      for (const gtin of gtinCandidates) {
+        const rows = await searchTransferProducts({
+          q: gtin,
+          yontem: 'barkod',
+          lokasyon,
+          katalog: true,
+        })
+        if (rows.length) {
+          console.log('[GS1] barkod eşleşmesi', gtin, rows.length)
+          return { q: gtin, yontem: 'barkod' as const, results: rows }
+        }
+      }
+      if (parsed.serial) {
+        const lotRows = await searchTransferProducts({
+          q: parsed.serial,
+          yontem: 'lot',
+          lokasyon,
+          katalog: true,
+        })
+        if (lotRows.length) {
+          console.log('[GS1] lot/seri eşleşmesi', parsed.serial, lotRows.length)
+          return { q: parsed.serial, yontem: 'lot' as const, results: lotRows }
+        }
+        console.log('[GS1] eşleşme yok; aranan gtin', parsed.gtin13, 'seri', parsed.serial)
+      }
+      return { q: parsed.gtin13, yontem: 'barkod' as const }
+    }
+  }
+
+  let yontem: string = 'barkod'
+  try {
+    const { data } = await import('axios').then((m) =>
+      m.default.get(
+        `/api/transfer/urun-ara-akilli?q=${encodeURIComponent(kod)}&lokasyon=${encodeURIComponent(lokasyon)}`,
+      ),
+    )
+    if (data?.yontem) {
+      yontem = data.yontem === 'ad' ? 'barkod' : data.yontem
+    }
+  } catch {}
+  return { q: kod, yontem }
+}
+
 export default function ItemsStep({
   saleId,
   items,
@@ -224,7 +277,6 @@ export default function ItemsStep({
   const [q, setQ] = useState('')
   const [aramaYontemi, setAramaYontemi] = useState<string>('ad')
   const [kameraAcik, setKameraAcik] = useState(false)
-  const quaggaRef = useRef<HTMLDivElement>(null)
   const [searchResults, setSearchResults] = useState<TransferUrun[]>([])
   const [productsLoading, setProductsLoading] = useState(false)
   const [pickedProduct, setPickedProduct] = useState<PickedProduct | null>(null)
@@ -271,10 +323,16 @@ export default function ItemsStep({
       setSearchResults([])
       return
     }
-    if (aramaYontemi !== 'barkod' && pickedKategoriId == null && !pickedKategoriIds?.length) return
+    if (
+      aramaYontemi !== 'barkod' &&
+      aramaYontemi !== 'ad' &&
+      pickedKategoriId == null &&
+      !pickedKategoriIds?.length
+    ) {
+      return
+    }
 
     const lokasyon = getAktifLokasyon()
-    const url = buildSearchUrl(term, aramaYontemi, lokasyon, pickedKategoriId, pickedKategoriIds)
 
     const t = setTimeout(() => {
       setProductsLoading(true)
@@ -300,109 +358,6 @@ export default function ItemsStep({
 
     return () => clearTimeout(t)
   }, [modalOpen, step, q, aramaYontemi, pickedKategoriId, pickedKategoriIds])
-
-  useEffect(() => {
-    if (!kameraAcik || !quaggaRef.current) return
-    let stopped = false
-    let stream: MediaStream | null = null
-
-    async function baslat() {
-      const lokasyon = getAktifLokasyon()
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-        })
-
-        // Video elementi oluştur
-        const video = document.createElement('video')
-        video.srcObject = stream
-        video.setAttribute('playsinline', 'true')
-        video.style.width = '100%'
-        video.style.maxHeight = '280px'
-        video.style.objectFit = 'cover'
-        quaggaRef.current!.innerHTML = ''
-        quaggaRef.current!.appendChild(video)
-        await video.play()
-
-        // BarcodeDetector varsa kullan (Chrome native)
-        if ('BarcodeDetector' in window) {
-          const detector = new (window as any).BarcodeDetector({
-            formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'data_matrix']
-          })
-
-          async function tara() {
-            if (stopped) return
-            try {
-              const codes = await detector.detect(video)
-              if (codes.length > 0) {
-                const kod = codes[0].rawValue
-                stopped = true
-                setQ(kod)
-                setAramaYontemi('barkod')
-                // Akıllı arama — hangi alan olduğunu otomatik bul
-                try {
-                  const { data } = await import('axios').then(m => m.default.get(`/api/transfer/urun-ara-akilli?q=${encodeURIComponent(kod)}&lokasyon=${encodeURIComponent(lokasyon)}`))
-                  if (data?.yontem) {
-                    setAramaYontemi(data.yontem === 'ad' ? 'barkod' : data.yontem)
-                  }
-                } catch {}
-                kapat()
-                return
-              }
-            } catch {}
-            if (!stopped) requestAnimationFrame(tara)
-          }
-          requestAnimationFrame(tara)
-        } else {
-          // Fallback: jsQR
-          const { default: jsQR } = await import('jsqr')
-          const canvas = document.createElement('canvas')
-          const ctx = canvas.getContext('2d')!
-
-          async function tara() {
-            if (stopped) return
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-              canvas.width = video.videoWidth
-              canvas.height = video.videoHeight
-              ctx.drawImage(video, 0, 0)
-              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-              const code = jsQR(imageData.data, imageData.width, imageData.height)
-              if (code) {
-                const kod = code.data
-                stopped = true
-                setQ(kod)
-                setAramaYontemi('barkod')
-                // Akıllı arama — hangi alan olduğunu otomatik bul
-                try {
-                  const { data } = await import('axios').then(m => m.default.get(`/api/transfer/urun-ara-akilli?q=${encodeURIComponent(kod)}&lokasyon=${encodeURIComponent(lokasyon)}`))
-                  if (data?.yontem) {
-                    setAramaYontemi(data.yontem === 'ad' ? 'barkod' : data.yontem)
-                  }
-                } catch {}
-                kapat()
-                return
-              }
-            }
-            if (!stopped) requestAnimationFrame(tara)
-          }
-          requestAnimationFrame(tara)
-        }
-      } catch (e) {
-        setKameraAcik(false)
-      }
-    }
-
-    function kapat() {
-      stopped = true
-      stream?.getTracks().forEach(t => t.stop())
-      if (quaggaRef.current) quaggaRef.current.innerHTML = ''
-      setKameraAcik(false)
-    }
-
-    void baslat()
-
-    return () => { kapat() }
-  }, [kameraAcik])
 
   function resetModalState() {
     kameraKapat()
@@ -438,10 +393,6 @@ export default function ItemsStep({
   function close() {
     kameraKapat()
     setModalOpen(false)
-  }
-
-  async function kameraAc() {
-    setKameraAcik(true)
   }
 
   function kameraKapat() {
@@ -852,7 +803,7 @@ export default function ItemsStep({
             {step === (1.5 as any) && frameAkis === 'secim' ? (
               <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 4 }}>
-                  {pickedType?.type === 'FRAME' ? 'Optik Çerçeve' : 'Güneş Gözlüğü'} — nasıl devam edelim?
+                  {pickedType?.type === 'FRAME' ? 'Optik Gözlük' : 'Güneş Gözlüğü'} — nasıl devam edelim?
                 </div>
 
                 <button
@@ -1175,37 +1126,28 @@ export default function ItemsStep({
                   )
                 })() : null}
 
-                <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-                  <input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder={aramaYontemi === 'barkod' ? 'Barkod okutun veya yazın...' : 'En az 1 karakter ara...'}
-                    style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
-                  />
-                  {aramaYontemi === 'barkod' ? (
-                    <button
-                      type="button"
-                      onClick={() => (kameraAcik ? kameraKapat() : void kameraAc())}
-                      style={{
-                        padding: '0 14px',
-                        borderRadius: 8,
-                        border: '1px solid #e5e7eb',
-                        backgroundColor: kameraAcik ? '#fee2e2' : 'white',
-                        fontSize: 18,
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                      }}
-                      title={kameraAcik ? 'Kamerayı kapat' : 'Kamera ile barkod oku'}
-                    >
-                      {kameraAcik ? '✕' : '📷'}
-                    </button>
-                  ) : null}
-                </div>
-                {kameraAcik ? (
-                  <div style={{ marginTop: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#000' }}>
-                    <div ref={quaggaRef} style={{ width: '100%', maxHeight: 280, overflow: 'hidden' }} />
+                {aramaYontemi === 'ad' && pickedKategoriId == null && !pickedKategoriIds?.length ? (
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                    Kategori seçilmedi — tüm kategorilerde aranıyor.
                   </div>
                 ) : null}
+
+                <BarkodKameraInput
+                  value={q}
+                  onChange={setQ}
+                  kameraEnabled={aramaYontemi === 'barkod'}
+                  kameraOpen={kameraAcik}
+                  onKameraOpenChange={setKameraAcik}
+                  onScan={async (kod) => {
+                    const lokasyon = getAktifLokasyon()
+                    const scan = await handleScannedBarcode(kod, lokasyon)
+                    setAramaYontemi(scan.yontem)
+                    setQ(scan.q)
+                    if (scan.results) setSearchResults(scan.results)
+                  }}
+                  placeholder={aramaYontemi === 'barkod' ? 'Barkod okutun veya yazın...' : 'En az 1 karakter ara...'}
+                  inputStyle={{ ...inputStyle, marginBottom: 0 }}
+                />
                 <div style={{ marginTop: '10px', maxHeight: '320px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {productsLoading ? <div style={{ fontSize: '13px', color: '#6b7280' }}>Aranıyor...</div> : null}
                   {!productsLoading && q.trim().length >= 1 && searchResults.length === 0 ? (
@@ -1223,6 +1165,16 @@ export default function ItemsStep({
                         <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
                           {u.fiyat != null ? <>Fiyat: {money(u.fiyat)}</> : null}
                           {u.lotNo ? <> · Lot: {u.lotNo}</> : null}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            marginTop: '2px',
+                            color: (u.stok ?? 0) === 0 ? '#dc2626' : '#4b5563',
+                            fontWeight: (u.stok ?? 0) === 0 ? 600 : 400,
+                          }}
+                        >
+                          Stok: {u.stok ?? 0} adet
                         </div>
                       </div>
                       <button type="button" onClick={() => pickSearchResult(u)} style={primaryBtnStyle}>

@@ -2,8 +2,10 @@ export interface User {
   id: string
   name: string
   username: string
-  role: 'SALES_STAFF' | 'STORE_MANAGER' | 'WAREHOUSE_MANAGER' | 'REGIONAL_MANAGER' | 'ACCOUNTANT' | 'ADMIN'
+  role: 'SALES_STAFF' | 'STORE_MANAGER' | 'WAREHOUSE_MANAGER' | 'WORKSHOP_STAFF' | 'REGIONAL_MANAGER' | 'ACCOUNTANT' | 'ADMIN'
   branchId: string
+  branchCode?: string
+  canWorkAtolye?: boolean
 }
 
 export interface Customer {
@@ -11,6 +13,12 @@ export interface Customer {
   name: string
   phone: string
   note?: string
+  adres?: string
+  il?: string
+  ilce?: string
+  identityNo?: string
+  birthDate?: string
+  ePostaEmail?: string
 }
 
 export interface Product {
@@ -24,6 +32,7 @@ export interface Product {
   taxRate: string
   brand?: string
   model?: string
+  referansNo?: string | null
 }
 
 export interface Sale {
@@ -41,6 +50,9 @@ export interface Sale {
   user?: { name: string }
   items?: SaleItem[]
   payments?: Payment[]
+  referansNo?: string | null
+  odooSaleOrderId?: number | null
+  draftMeta?: Record<string, unknown> | null
   eFaturaId?: string | null
   eFaturaDurum?: string | null
 }
@@ -55,6 +67,7 @@ export interface SaleItem {
   unitPrice: string
   discount: string
   taxAmount: string
+  taxRate?: string | null
   lineTotal: string
   status: string
   linkType?: string | null
@@ -153,6 +166,7 @@ export interface DailyReport {
   cardNet?: string
   totalDiscount?: string
   salesDetail?: Array<{
+    tip?: 'MASRAF' | 'SATIS'
     saleId: string
     createdAt: string
     deliveryDate: string | null
@@ -173,6 +187,22 @@ export interface DailyReport {
     transferAmount: string
     itemSummary: string
   }>
+  labIncidents?: {
+    toplam: number
+    lensBroken: number
+    frameBroken: number
+    measurementShift: number
+    kayitlar: Array<{
+      id: string
+      saat: string
+      saleId: string | null
+      musteriAdi: string
+      incidentType: string
+      resolutionType: string | null
+      transferRef: string | null
+      ozelSiparisId: string | null
+    }>
+  }
 }
 
 export interface BankBreakdown {

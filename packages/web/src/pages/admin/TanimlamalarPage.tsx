@@ -4,14 +4,6 @@ import { adminApi } from './AdminLayout'
 type TabId = 'komisyon' | 'personeller' | 'subeler' | 'sirket-tanimlari'
 
 const INSTALLMENTS = [1, 2, 3, 6, 9, 12] as const
-const ROLE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'SALES_STAFF', label: 'Satış Personeli' },
-  { value: 'SALES_PERSON', label: 'Satış Temsilcisi' },
-  { value: 'STORE_MANAGER', label: 'Mağaza Müdürü' },
-  { value: 'REGIONAL_MANAGER', label: 'Bölge Müdürü' },
-  { value: 'ACCOUNTANT', label: 'Muhasebe' },
-  { value: 'ADMIN', label: 'Yönetici' },
-]
 
 type Rate = {
   id: string
@@ -52,14 +44,6 @@ type OdooEmployeeOption = {
   name: string
   job_title?: string | false
   department_id?: [number, string] | false
-}
-
-type OdooBranch = {
-  id: number
-  name: string
-  street?: string | false
-  phone?: string | false
-  email?: string | false
 }
 
 function tabBtn(active: boolean): React.CSSProperties {
@@ -446,8 +430,9 @@ type PosBranch = {
   vkn?: string | null
   odooLocationId?: number | null
   pdksPlaceId?: number | null
-  uyumsoftUser?: string | null
   adres?: string | null
+  il?: string | null
+  ilce?: string | null
   telefon?: string | null
 }
 
@@ -466,10 +451,14 @@ const emptyForm = {
   vkn: '',
   odooLocationId: '',
   pdksPlaceId: '',
-  uyumsoftUser: '',
-  uyumsoftPass: '',
   adres: '',
+  il: '',
+  ilce: '',
   telefon: '',
+}
+
+function ilIlceTam(b: Pick<PosBranch, 'il' | 'ilce'>): boolean {
+  return !!(b.il?.trim() && b.ilce?.trim())
 }
 
 function badge(ok: boolean, okLabel: string, failLabel: string): React.CSSProperties {
@@ -568,14 +557,28 @@ function SubelerTab() {
             onChange={(e) => setF((p) => ({ ...p, vkn: e.target.value }))}
             style={inputStyle}
           />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
           <input
             placeholder="Adres"
             value={f.adres}
             onChange={(e) => setF((p) => ({ ...p, adres: e.target.value }))}
             style={inputStyle}
           />
+          <input
+            placeholder="İl *"
+            value={f.il}
+            onChange={(e) => setF((p) => ({ ...p, il: e.target.value }))}
+            style={inputStyle}
+          />
+          <input
+            placeholder="İlçe *"
+            value={f.ilce}
+            onChange={(e) => setF((p) => ({ ...p, ilce: e.target.value }))}
+            style={inputStyle}
+          />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <select
             value={f.odooLocationId}
             onChange={(e) => setF((p) => ({ ...p, odooLocationId: e.target.value }))}
@@ -600,21 +603,6 @@ function SubelerTab() {
               </option>
             ))}
           </select>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              placeholder="Uyumsoft kullanıcı"
-              value={f.uyumsoftUser}
-              onChange={(e) => setF((p) => ({ ...p, uyumsoftUser: e.target.value }))}
-              style={{ ...inputStyle, flex: 1 }}
-            />
-            <input
-              placeholder="Uyumsoft şifre"
-              type="password"
-              value={f.uyumsoftPass}
-              onChange={(e) => setF((p) => ({ ...p, uyumsoftPass: e.target.value }))}
-              style={{ ...inputStyle, flex: 1 }}
-            />
-          </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -671,9 +659,9 @@ function SubelerTab() {
       vkn: b.vkn ?? '',
       odooLocationId: b.odooLocationId != null ? String(b.odooLocationId) : '',
       pdksPlaceId: b.pdksPlaceId != null ? String(b.pdksPlaceId) : '',
-      uyumsoftUser: b.uyumsoftUser ?? '',
-      uyumsoftPass: '',
       adres: b.adres ?? '',
+      il: b.il ?? '',
+      ilce: b.ilce ?? '',
       telefon: b.telefon ?? '',
     })
   }
@@ -767,8 +755,14 @@ function SubelerTab() {
                 <span style={badge(!!b.pdksPlaceId, `✓ place:${b.pdksPlaceId}`, '✗ PDKS')}>
                   {b.pdksPlaceId ? `✓ place:${b.pdksPlaceId}` : '✗ PDKS'}
                 </span>
-                <span style={badge(!!b.uyumsoftUser, '✓ UYM', '✗ UYM')}>
-                  {b.uyumsoftUser ? '✓ UYM' : '✗ UYM'}
+                <span
+                  style={badge(
+                    ilIlceTam(b),
+                    `${b.il}/${b.ilce}`,
+                    '✗ İl/İlçe',
+                  )}
+                >
+                  {ilIlceTam(b) ? `${b.il}/${b.ilce}` : '✗ İl/İlçe'}
                 </span>
               </div>
               <button
@@ -813,12 +807,6 @@ type OdooEmployee = {
   birthday?: string | false
 }
 
-type OdooDepartment = {
-  id: number
-  name: string
-  company_id?: OdooM2O
-}
-
 function m2oLabel(v?: OdooM2O): string {
   if (!v || !Array.isArray(v)) return '—'
   return v[1]
@@ -836,11 +824,6 @@ function odooEmployeeUrl(id: number) {
 
 function normalizePersonName(s: string) {
   return s.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
-function defaultGuvenCompanyId(companies: OdooBranch[]): string {
-  const guven = companies.find((c) => String(c.name).toUpperCase().includes('GÜVEN'))
-  return guven ? String(guven.id) : companies[0] ? String(companies[0].id) : ''
 }
 
 function UserOdooLinkRow({
@@ -950,45 +933,20 @@ function UserOdooLinkRow({
 
 function PersonellerTab() {
   const [employees, setEmployees] = useState<OdooEmployee[]>([])
-  const [companies, setCompanies] = useState<OdooBranch[]>([])
-  const [departments, setDepartments] = useState<OdooDepartment[]>([])
   const [posUsers, setPosUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
-
-  const [name, setName] = useState('')
-  const [tcKimlik, setTcKimlik] = useState('')
-  const [dogumTarihi, setDogumTarihi] = useState('')
-  const [iseBaslamaTarihi, setIseBaslamaTarihi] = useState('')
-  const [companyId, setCompanyId] = useState('')
-  const [departmentId, setDepartmentId] = useState('')
-  const [jobTitle, setJobTitle] = useState('')
-  const [mobilePhone, setMobilePhone] = useState('')
-  const [workEmail, setWorkEmail] = useState('')
-  const [username, setUsername] = useState('')
-  const [pin, setPin] = useState('')
-  const [role, setRole] = useState<string>('SALES_STAFF')
-  const [branchId, setBranchId] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [empRes, deptRes, branchRes, usersRes] = await Promise.all([
+      const [empRes, usersRes] = await Promise.all([
         adminApi.get('/admin/employees'),
-        adminApi.get('/admin/departments'),
-        adminApi.get('/admin/branches'),
         adminApi.get('/admin/users'),
       ])
-      const loadedCompanies: OdooBranch[] = branchRes.data?.data ?? []
       setEmployees(empRes.data?.data ?? [])
-      setDepartments(deptRes.data?.data ?? [])
-      setCompanies(loadedCompanies)
       setPosUsers(usersRes.data ?? [])
-      const guvenId = defaultGuvenCompanyId(loadedCompanies)
-      if (guvenId) setCompanyId(guvenId)
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Personeller yüklenemedi')
     } finally {
@@ -1000,22 +958,6 @@ function PersonellerTab() {
     void load()
   }, [load])
 
-  const branchOptions = useMemo(() => {
-    const fromUsers = [...new Set(posUsers.map((u) => u.branchId).filter(Boolean))]
-    if (fromUsers.length > 0) {
-      return fromUsers.map((id) => ({ value: id, label: `POS Şube: ${id.slice(0, 8)}…` }))
-    }
-    return companies.map((c) => ({ value: String(c.id), label: c.name }))
-  }, [posUsers, companies])
-
-  const filteredDepartments = useMemo(() => {
-    if (!companyId) return departments
-    return departments.filter((d) => {
-      const cid = Array.isArray(d.company_id) ? d.company_id[0] : null
-      return cid === Number(companyId)
-    })
-  }, [departments, companyId])
-
   const posUserByName = useMemo(() => {
     const map = new Map<string, AdminUser>()
     for (const u of posUsers) {
@@ -1025,81 +967,20 @@ function PersonellerTab() {
     return map
   }, [posUsers])
 
-  function openCreate() {
-    setName('')
-    setTcKimlik('')
-    setDogumTarihi('')
-    setIseBaslamaTarihi('')
-    setCompanyId(defaultGuvenCompanyId(companies))
-    setDepartmentId('')
-    setJobTitle('')
-    setMobilePhone('')
-    setWorkEmail('')
-    setUsername('')
-    setPin('')
-    setRole('SALES_STAFF')
-    setBranchId(branchOptions[0]?.value ?? '')
-    setModalOpen(true)
-  }
-
-  async function saveEmployee() {
-    if (!name.trim()) {
-      setError('Ad Soyad zorunludur.')
-      return
-    }
-    if (username.trim() && pin.trim() && !branchId.trim()) {
-      setError('POS erişimi için şube seçin.')
-      return
-    }
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await adminApi.post('/admin/employees', {
-        name: name.trim(),
-        tcKimlik: tcKimlik.trim() || undefined,
-        dogumTarihi: dogumTarihi || undefined,
-        iseBaslamaTarihi: iseBaslamaTarihi || undefined,
-        companyId: companyId ? Number(companyId) : 1,
-        departmentId: departmentId ? Number(departmentId) : undefined,
-        jobTitle: jobTitle.trim() || undefined,
-        mobilePhone: mobilePhone.trim() || undefined,
-        workEmail: workEmail.trim() || undefined,
-        username: username.trim() || undefined,
-        pin: pin.trim() || undefined,
-        role: username.trim() ? role : undefined,
-        branchId: branchId.trim() || undefined,
-      })
-      if (!res.data?.success) {
-        setError(res.data?.error ?? 'Kayıt başarısız')
-        return
-      }
-      setModalOpen(false)
-      await load()
-    } catch (e: any) {
-      setError(e?.response?.data?.error ?? 'Kayıt başarısız')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <button
-          type="button"
-          onClick={openCreate}
-          style={{
-            padding: '10px 16px',
-            borderRadius: 10,
-            border: 'none',
-            backgroundColor: '#1a1a2e',
-            color: 'white',
-            fontWeight: 800,
-            cursor: 'pointer',
-          }}
-        >
-          + Yeni Personel
-        </button>
+      <div style={{
+        marginBottom: 16,
+        padding: '12px 14px',
+        borderRadius: 10,
+        border: '1px solid #e5e7eb',
+        backgroundColor: '#f9fafb',
+        fontSize: 13,
+        color: '#4b5563',
+        lineHeight: 1.6,
+      }}>
+        Yeni personel işe alımı için → <strong>İK &amp; Prim → Personeller → + İşe Al</strong>.
+        Bu sekme mevcut Odoo çalışanlarını ve POS kullanıcılarını görüntülemek / Odoo bağlantısı kurmak içindir.
       </div>
 
       {error ? <p style={{ color: '#ef4444', fontSize: 13 }}>{error}</p> : null}
@@ -1202,198 +1083,6 @@ function PersonellerTab() {
           {employees.length === 0 ? <p style={{ color: '#6b7280' }}>Personel bulunamadı.</p> : null}
         </div>
       ) : null}
-
-      {modalOpen ? (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-            zIndex: 50,
-            overflowY: 'auto',
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: 'white',
-              borderRadius: 12,
-              padding: 24,
-              width: '100%',
-              maxWidth: 520,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
-            <h2 style={{ margin: '0 0 16px', fontWeight: 900 }}>Yeni Personel</h2>
-
-            <SectionTitle>Zorunlu</SectionTitle>
-            <input
-              placeholder="Ad Soyad *"
-              value={name}
-              onChange={(ev) => setName(ev.target.value)}
-              style={{ ...inputStyle, marginBottom: 16 }}
-            />
-
-            <SectionTitle>Kişisel</SectionTitle>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-              <input
-                placeholder="TC Kimlik No"
-                value={tcKimlik}
-                onChange={(ev) => setTcKimlik(ev.target.value)}
-                style={inputStyle}
-                maxLength={11}
-              />
-              <label style={{ fontSize: 12 }}>
-                <span style={{ color: '#6b7280', fontWeight: 600 }}>Doğum Tarihi</span>
-                <input
-                  type="date"
-                  value={dogumTarihi}
-                  onChange={(ev) => setDogumTarihi(ev.target.value)}
-                  style={{ ...inputStyle, marginTop: 4 }}
-                />
-              </label>
-            </div>
-
-            <SectionTitle>Çalışma</SectionTitle>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-              <label style={{ fontSize: 12 }}>
-                <span style={{ color: '#6b7280', fontWeight: 600 }}>İşe Başlama Tarihi</span>
-                <input
-                  type="date"
-                  value={iseBaslamaTarihi}
-                  onChange={(ev) => setIseBaslamaTarihi(ev.target.value)}
-                  style={{ ...inputStyle, marginTop: 4 }}
-                />
-              </label>
-              <label style={{ fontSize: 12 }}>
-                <span style={{ color: '#6b7280', fontWeight: 600 }}>Şirket</span>
-                <select
-                  value={companyId}
-                  onChange={(ev) => {
-                    setCompanyId(ev.target.value)
-                    setDepartmentId('')
-                  }}
-                  style={{ ...inputStyle, marginTop: 4 }}
-                >
-                  <option value="">Şirket seçin...</option>
-                  {companies.map((c) => (
-                    <option key={c.id} value={String(c.id)}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={{ fontSize: 12 }}>
-                <span style={{ color: '#6b7280', fontWeight: 600 }}>Departman</span>
-                <select
-                  value={departmentId}
-                  onChange={(ev) => setDepartmentId(ev.target.value)}
-                  style={{ ...inputStyle, marginTop: 4 }}
-                >
-                  <option value="">Departman seçin...</option>
-                  {filteredDepartments.map((d) => (
-                    <option key={d.id} value={String(d.id)}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <input
-                placeholder="Unvan"
-                value={jobTitle}
-                onChange={(ev) => setJobTitle(ev.target.value)}
-                style={inputStyle}
-              />
-              <input
-                placeholder="Telefon"
-                value={mobilePhone}
-                onChange={(ev) => setMobilePhone(ev.target.value)}
-                style={inputStyle}
-              />
-              <input
-                placeholder="E-posta"
-                type="email"
-                value={workEmail}
-                onChange={(ev) => setWorkEmail(ev.target.value)}
-                style={inputStyle}
-              />
-            </div>
-
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 800,
-                color: '#6b7280',
-                letterSpacing: '0.06em',
-                marginBottom: 8,
-                marginTop: 4,
-              }}
-            >
-              POS ERİŞİMİ (Opsiyonel)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-              <input
-                placeholder="Kullanıcı Adı"
-                value={username}
-                onChange={(ev) => setUsername(ev.target.value)}
-                style={inputStyle}
-              />
-              <input
-                placeholder="PIN"
-                type="password"
-                maxLength={6}
-                value={pin}
-                onChange={(ev) => setPin(ev.target.value)}
-                style={inputStyle}
-              />
-              <select value={role} onChange={(ev) => setRole(ev.target.value)} style={inputStyle}>
-                {ROLE_OPTIONS.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-              <label style={{ fontSize: 12 }}>
-                <span style={{ color: '#6b7280', fontWeight: 600 }}>Şube</span>
-                <select
-                  value={branchId}
-                  onChange={(ev) => setBranchId(ev.target.value)}
-                  style={{ ...inputStyle, marginTop: 4 }}
-                >
-                  <option value="">Şube seçin...</option>
-                  {branchOptions.map((b) => (
-                    <option key={b.value} value={b.value}>
-                      {b.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                type="button"
-                onClick={() => setModalOpen(false)}
-                style={{ ...btnStyle, flex: 1, backgroundColor: '#f3f4f6', color: '#111' }}
-              >
-                Vazgeç
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void saveEmployee()}
-                style={{ ...btnStyle, flex: 1, backgroundColor: '#1a1a2e', color: 'white' }}
-              >
-                Kaydet
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -1437,7 +1126,7 @@ type SirketId = 'ng' | 'adese' | 'potential'
 
 const SIRKET_TANIMLARI: Array<{ id: SirketId; label: string; tamAd: string; vkn: string; subeler: string[] }> = [
   { id: 'ng', label: 'NG', tamAd: 'Nejla Gümüşkesen Optik', vkn: '23819441406', subeler: ['GVN2', 'GVN10', 'ANADEPO'] },
-  { id: 'adese', label: 'ADESE', tamAd: 'Adese Optik Ltd. Şti.', vkn: '', subeler: ['GVN1', 'GVN3', 'GVN6', 'GVN7', 'GVN8', 'GVN9'] },
+  { id: 'adese', label: 'ADESE', tamAd: 'Adese Optik Ltd. Şti.', vkn: '0071251547', subeler: ['GVN1', 'GVN3', 'GVN6', 'GVN7', 'GVN8', 'GVN9'] },
   { id: 'potential', label: 'POTENTIAL', tamAd: 'Potential Ophthalmic Dış Tic. Ltd. Şti.', vkn: '', subeler: ['GVN5'] },
 ]
 
@@ -1473,73 +1162,31 @@ function EntegrasyonKarti({
   )
 }
 
-function SubeBlok({ sube, sirketId }: { sube: string; sirketId: SirketId }) {
-  const [acik, setAcik] = useState(false)
-  const pdks403 = PDKS_403_SUBELER.includes(sube)
-  const ngSubeler = ['GVN2', 'GVN10']
-  const pdksAktif = sirketId === 'ng' && ngSubeler.includes(sube)
-  const utsAktif = sirketId === 'ng' && ngSubeler.includes(sube)
-
-  const pdksDurum = pdks403 ? 'hata' : pdksAktif ? 'aktif' : 'pasif'
-  const pdksDetay = pdks403 ? 'Patron PDKS: 403 hatası — destek bekleniyor' : pdksAktif ? 'Mekan ID tanımlı' : 'Mekan ID girilmedi'
-
-  const ozet = [
-    `PDKS ${pdksAktif ? '✓' : pdks403 ? '⚠' : '—'}`,
-    `UTS ${utsAktif ? '✓' : '—'}`,
-    'WhatsApp —',
-    'Worldline —',
-  ].join(' · ')
-
+function EntegrasyonYonlendirmeNotu() {
   return (
-    <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: 8 }}>
-      <div
-        onClick={() => setAcik(a => !a)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f9fafb', cursor: 'pointer' }}
-      >
-        <div>
-          <span style={{ fontSize: 14, fontWeight: 800, color: '#1a1a2e' }}>{sube}</span>
-          <span style={{ fontSize: 12, color: pdks403 ? '#991b1b' : '#6b7280', marginLeft: 10 }}>{ozet}</span>
-        </div>
-        <span style={{ fontSize: 12, color: '#9ca3af', transform: acik ? 'rotate(180deg)' : 'rotate(0)', display: 'inline-block', transition: 'transform .2s' }}>▼</span>
+    <div style={{
+      marginTop: 20,
+      padding: '12px 14px',
+      borderRadius: 10,
+      border: '1px solid #e5e7eb',
+      backgroundColor: '#f9fafb',
+      fontSize: 12,
+      color: '#4b5563',
+      lineHeight: 1.6,
+    }}>
+      <div style={{ fontWeight: 800, color: '#1a1a2e', marginBottom: 6 }}>Şube bazlı entegrasyonlar nerede?</div>
+      <div>• UTS kurum no, token ve ortam → <strong>UTS Yönetimi</strong> → Şube Tanımlamaları</div>
+      <div>• Odoo lokasyon ID, PDKS mekan ID, VKN, adres → <strong>Tanımlamalar → Şubeler</strong></div>
+      <div style={{ marginTop: 6, color: '#92400e' }}>
+        • PDKS 403 bekleyen şubeler: {PDKS_403_SUBELER.join(', ')}
       </div>
-      {acik && (
-        <div style={{ padding: '12px 14px', borderTop: '1px solid #e5e7eb' }}>
-          <SubeEntegrasyon baslik="Patron PDKS" durum={pdksDurum} alanAdi="Mekan ID" alanDeger={pdksAktif ? '(kayıtlı)' : ''} />
-          <SubeEntegrasyon baslik="UTS token" durum={utsAktif ? 'aktif' : 'pasif'} alanAdi="Token" alanDeger={utsAktif ? '••••••••••' : ''} />
-          <SubeEntegrasyon baslik="WhatsApp" durum="pasif" alanAdi="Telefon no" alanDeger="" />
-          <SubeEntegrasyon baslik="Worldline terminal" durum="pasif" alanAdi="Terminal ID" alanDeger="" sonMu />
-        </div>
-      )}
     </div>
   )
 }
 
-function SubeEntegrasyon({ baslik, durum, alanAdi, alanDeger, sonMu }: {
-  baslik: string; durum: 'aktif' | 'pasif' | 'hata'; alanAdi: string; alanDeger: string; sonMu?: boolean
-}) {
-  const badgeMap = {
-    aktif: { bg: '#dcfce7', color: '#166534', label: 'Aktif' },
-    pasif: { bg: '#f3f4f6', color: '#6b7280', label: 'Pasif' },
-    hata: { bg: '#fee2e2', color: '#991b1b', label: 'Hata' },
-  }
-  const b = badgeMap[durum]
-  return (
-    <div style={{ borderBottom: sonMu ? 'none' : '1px solid #f3f4f6', paddingBottom: 10, marginBottom: sonMu ? 0 : 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{baslik}</span>
-        <span style={{ background: b.bg, color: b.color, fontSize: 11, padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>{b.label}</span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 11, color: '#6b7280', minWidth: 80 }}>{alanAdi}</span>
-        <span style={{ fontSize: 12, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '3px 8px', flex: 1, color: alanDeger ? '#1a1a2e' : '#9ca3af' }}>
-          {alanDeger || '—'}
-        </span>
-        <button type="button" style={{ ...btnStyle, fontSize: 12, padding: '4px 10px', background: '#f3f4f6', color: '#374151' }}>
-          {durum === 'aktif' ? 'Düzenle' : 'Ayarla'}
-        </button>
-      </div>
-    </div>
-  )
+function adminKayitHataMesaji(e: unknown): string {
+  const err = e as { response?: { data?: { error?: string; message?: string } } }
+  return err?.response?.data?.error ?? err?.response?.data?.message ?? 'Kayıt başarısız'
 }
 
 function SirketTanimlariTab() {
@@ -1554,16 +1201,26 @@ function SirketTanimlariTab() {
     uyumsoft_username: '',
     uyumsoft_password: '',
     uyumsoft_gonderen_birim: '',
+    uyumsoft_eirsaliye_username: '',
+    uyumsoft_eirsaliye_password: '',
+    uyumsoft_eirsaliye_gonderen_birim: '',
+    sirket_vkn: '',
     sirket_unvan: '',
     sirket_adres: '',
     sirket_il: '',
     sirket_ilce: '',
+    sirket_vergi_dairesi: '',
     sirket_telefon: '',
     sirket_eposta: '',
   })
   const [uyumsoftYukleniyor, setUyumsoftYukleniyor] = useState(false)
   const [uyumsoftKaydediliyor, setUyumsoftKaydediliyor] = useState(false)
   const [uyumsoftAyarlar, setUyumsoftAyarlar] = useState<Record<string, string>>({})
+  const [gunlukRaporModal, setGunlukRaporModal] = useState(false)
+  const [gunlukRaporForm, setGunlukRaporForm] = useState({ gunluk_rapor_alicilari: '' })
+  const [gunlukRaporYukleniyor, setGunlukRaporYukleniyor] = useState(false)
+  const [gunlukRaporKaydediliyor, setGunlukRaporKaydediliyor] = useState(false)
+  const [gunlukRaporAyarlar, setGunlukRaporAyarlar] = useState<Record<string, string>>({})
 
   const sirket = SIRKET_TANIMLARI.find(s => s.id === aktifSirket)!
 
@@ -1588,7 +1245,7 @@ function SirketTanimlariTab() {
       await adminApi.post(`/admin/sirket-ayar/${aktifSirket}`, { ayarlar: iysForm })
       await iysAyarlariniYukle(aktifSirket)
       setIysModal(false)
-    } catch { alert('Kayıt başarısız') } finally { setIysKaydediliyor(false) }
+    } catch (e) { alert(adminKayitHataMesaji(e)) } finally { setIysKaydediliyor(false) }
   }
 
   async function uyumsoftAyarlariniYukle(sirketId: string) {
@@ -1601,10 +1258,15 @@ function SirketTanimlariTab() {
         uyumsoft_username: data.uyumsoft_username ?? '',
         uyumsoft_password: '',
         uyumsoft_gonderen_birim: data.uyumsoft_gonderen_birim ?? '',
+        uyumsoft_eirsaliye_username: data.uyumsoft_eirsaliye_username ?? '',
+        uyumsoft_eirsaliye_password: '',
+        uyumsoft_eirsaliye_gonderen_birim: data.uyumsoft_eirsaliye_gonderen_birim ?? '',
+        sirket_vkn: data.sirket_vkn ?? '',
         sirket_unvan: data.sirket_unvan ?? '',
         sirket_adres: data.sirket_adres ?? '',
         sirket_il: data.sirket_il ?? '',
         sirket_ilce: data.sirket_ilce ?? '',
+        sirket_vergi_dairesi: data.sirket_vergi_dairesi ?? '',
         sirket_telefon: data.sirket_telefon ?? '',
         sirket_eposta: data.sirket_eposta ?? '',
       })
@@ -1617,21 +1279,46 @@ function SirketTanimlariTab() {
       await adminApi.post(`/admin/sirket-ayar/${aktifSirket}`, { ayarlar: uyumsoftForm })
       await uyumsoftAyarlariniYukle(aktifSirket)
       setUyumsoftModal(false)
-    } catch { alert('Kayıt başarısız') } finally { setUyumsoftKaydediliyor(false) }
+    } catch (e) { alert(adminKayitHataMesaji(e)) } finally { setUyumsoftKaydediliyor(false) }
+  }
+
+  async function gunlukRaporAyarlariniYukle(sirketId: string) {
+    setGunlukRaporYukleniyor(true)
+    try {
+      const res = await adminApi.get(`/admin/sirket-ayar/${sirketId}`)
+      const data = res.data?.data ?? {}
+      setGunlukRaporAyarlar(data)
+      setGunlukRaporForm({ gunluk_rapor_alicilari: data.gunluk_rapor_alicilari ?? '' })
+    } catch { setGunlukRaporAyarlar({}) } finally { setGunlukRaporYukleniyor(false) }
+  }
+
+  async function gunlukRaporKaydet() {
+    setGunlukRaporKaydediliyor(true)
+    try {
+      await adminApi.post(`/admin/sirket-ayar/${aktifSirket}`, { ayarlar: gunlukRaporForm })
+      await gunlukRaporAyarlariniYukle(aktifSirket)
+      setGunlukRaporModal(false)
+    } catch (e) { alert(adminKayitHataMesaji(e)) } finally { setGunlukRaporKaydediliyor(false) }
   }
 
   useEffect(() => {
     void uyumsoftAyarlariniYukle(aktifSirket)
+    void gunlukRaporAyarlariniYukle(aktifSirket)
   }, [aktifSirket])
 
   const iysAktif = !!(iysAyarlar.iys_iys_code && iysAyarlar.iys_brand_code && iysAyarlar.iys_username)
   const uyumsoftDbKayitli = !!(uyumsoftAyarlar.uyumsoft_username)
+  const eirsaliyeDbKayitli = !!(uyumsoftAyarlar.uyumsoft_eirsaliye_username)
   const uyumsoftAktif = uyumsoftDbKayitli || aktifSirket === 'ng'
   const uyumsoftDetay = uyumsoftDbKayitli
-    ? `${uyumsoftAyarlar.uyumsoft_username}${uyumsoftAyarlar.uyumsoft_gonderen_birim ? ` · ${uyumsoftAyarlar.uyumsoft_gonderen_birim}` : ''}${uyumsoftAyarlar.sirket_unvan ? ` · ${uyumsoftAyarlar.sirket_unvan}` : ''}`
+    ? `${uyumsoftAyarlar.uyumsoft_username}${uyumsoftAyarlar.uyumsoft_gonderen_birim ? ` · ${uyumsoftAyarlar.uyumsoft_gonderen_birim}` : ''}${uyumsoftAyarlar.sirket_unvan ? ` · ${uyumsoftAyarlar.sirket_unvan}` : ''}${eirsaliyeDbKayitli ? ' · e-İrsaliye ayrı hesap tanımlı' : ''}`
     : aktifSirket === 'ng'
       ? 'Varsayılan (.env)'
       : 'Credentials bekleniyor'
+  const gunlukRaporAliciSayisi = (gunlukRaporAyarlar.gunluk_rapor_alicilari ?? '')
+    .split(/[,;\s]+/)
+    .map((e) => e.trim())
+    .filter(Boolean).length
 
   return (
     <div>
@@ -1681,13 +1368,19 @@ function SirketTanimlariTab() {
           detay={iysAktif ? `İYS Kodu: ${iysAyarlar.iys_iys_code} · Marka: ${iysAyarlar.iys_brand_code}` : 'Henüz ayarlanmadı'}
           onDuzenle={() => { void iysAyarlariniYukle(aktifSirket); setIysModal(true) }}
         />
+        <EntegrasyonKarti
+          icon="📧" baslik="Günlük Rapor E-postası"
+          durum={gunlukRaporAliciSayisi ? 'aktif' : 'pasif'}
+          detay={gunlukRaporAliciSayisi ? `${gunlukRaporAliciSayisi} sabit alıcı` : 'Henüz alıcı tanımlanmadı'}
+          onDuzenle={() => { void gunlukRaporAyarlariniYukle(aktifSirket); setGunlukRaporModal(true) }}
+        />
         {uyumsoftModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ background: 'white', borderRadius: 16, padding: 24, width: 480, maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto' }}>
               <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 16 }}>Uyumsoft Ayarları — {sirket.label}</div>
               {uyumsoftYukleniyor ? <div style={{ color: '#9ca3af', fontSize: 13 }}>Yükleniyor...</div> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.04em', marginTop: 4 }}>WEB SERVİS</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.04em', marginTop: 4 }}>WEB SERVİS (e-Fatura)</div>
                   {[
                     { key: 'uyumsoft_username', label: 'Kullanıcı Adı', placeholder: 'Uyumsoft web servis kullanıcı adı' },
                     { key: 'uyumsoft_password', label: 'Şifre', placeholder: uyumsoftAyarlar.uyumsoft_password ? '••••••••' : 'Uyumsoft web servis şifresi', tip: 'password' },
@@ -1704,11 +1397,33 @@ function SirketTanimlariTab() {
                       />
                     </div>
                   ))}
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.04em', marginTop: 8, paddingTop: 8, borderTop: '1px solid #e5e7eb' }}>WEB SERVİS (e-İrsaliye — ayrı portal hesabı)</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', background: '#f0f9ff', borderRadius: 8, padding: '8px 12px' }}>
+                    e-İrsaliye e-Fatura&apos;dan farklı bir Uyumsoft hesabında olabilir. Boş bırakılırsa e-Fatura kimliği kullanılır.
+                  </div>
+                  {[
+                    { key: 'uyumsoft_eirsaliye_username', label: 'e-İrsaliye Kullanıcı Adı', placeholder: 'DespatchIntegration kullanıcı adı' },
+                    { key: 'uyumsoft_eirsaliye_password', label: 'e-İrsaliye Şifre', placeholder: uyumsoftAyarlar.uyumsoft_eirsaliye_password ? '••••••••' : 'e-İrsaliye web servis şifresi', tip: 'password' },
+                    { key: 'uyumsoft_eirsaliye_gonderen_birim', label: 'e-İrsaliye Gönderen Birim (opsiyonel)', placeholder: 'örn: urn:mail:eirsaliyegb@...' },
+                  ].map(({ key, label, placeholder, tip }) => (
+                    <div key={key}>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>{label}</label>
+                      <input
+                        type={tip ?? 'text'}
+                        value={(uyumsoftForm as Record<string, string>)[key]}
+                        onChange={e => setUyumsoftForm(f => ({ ...f, [key]: e.target.value }))}
+                        placeholder={placeholder}
+                        style={{ width: '100%', padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' as const }}
+                      />
+                    </div>
+                  ))}
                   <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '0.04em', marginTop: 8, paddingTop: 8, borderTop: '1px solid #e5e7eb' }}>ŞİRKET BİLGİLERİ (FATURA GÖNDERİCİ)</div>
                   {[
+                    { key: 'sirket_vkn', label: 'VKN', placeholder: 'örn: 0071251547' },
                     { key: 'sirket_unvan', label: 'Unvan', placeholder: 'Resmi şirket unvanı' },
-                    { key: 'sirket_il', label: 'İl', placeholder: 'örn: İZMİR' },
-                    { key: 'sirket_ilce', label: 'İlçe', placeholder: 'örn: Konak' },
+                    { key: 'sirket_il', label: 'İl', placeholder: 'örn: MUĞLA' },
+                    { key: 'sirket_ilce', label: 'İlçe', placeholder: 'örn: Milas' },
+                    { key: 'sirket_vergi_dairesi', label: 'Vergi Dairesi', placeholder: 'örn: Milas' },
                     { key: 'sirket_telefon', label: 'Telefon', placeholder: '0212 000 00 00' },
                     { key: 'sirket_eposta', label: 'E-posta', placeholder: 'info@sirket.com' },
                   ].map(({ key, label, placeholder }) => (
@@ -1787,12 +1502,36 @@ function SirketTanimlariTab() {
             </div>
           </div>
         )}
+        {gunlukRaporModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: 'white', borderRadius: 16, padding: 24, width: 480, maxWidth: '90vw' }}>
+              <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 16 }}>Günlük Rapor E-postası — {sirket.label}</div>
+              {gunlukRaporYukleniyor ? <div style={{ color: '#9ca3af', fontSize: 13 }}>Yükleniyor...</div> : (
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>
+                    Sabit alıcı listesi (virgülle ayırın)
+                  </label>
+                  <textarea
+                    value={gunlukRaporForm.gunluk_rapor_alicilari}
+                    onChange={(e) => setGunlukRaporForm({ gunluk_rapor_alicilari: e.target.value })}
+                    placeholder="mudur@guvenoptik.com, muhasebe@guvenoptik.com"
+                    style={{ width: '100%', minHeight: 90, padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' as const, fontFamily: 'inherit' }}
+                  />
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
+                    Günlük Kasa sekmesinden gönderilen raporlar bu adreslere otomatik gider.
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button type="button" onClick={() => setGunlukRaporModal(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', background: '#f3f4f6', cursor: 'pointer', fontWeight: 700 }}>İptal</button>
+                <button type="button" onClick={() => void gunlukRaporKaydet()} disabled={gunlukRaporKaydediliyor} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: '#1a1a2e', color: 'white', cursor: 'pointer', fontWeight: 700 }}>{gunlukRaporKaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <SectionTitle>Şube bazlı entegrasyonlar</SectionTitle>
-      {sirket.subeler.map(sube => (
-        <SubeBlok key={sube} sube={sube} sirketId={aktifSirket} />
-      ))}
+      <EntegrasyonYonlendirmeNotu />
     </div>
   )
 }

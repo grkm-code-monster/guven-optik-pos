@@ -1,8 +1,40 @@
 // @ts-nocheck
 import * as odooService from '../odoo/odoo.service';
 import * as odooLocations from '../odoo/odooLocations';
-import { tetikleTransferEFatura } from '../efatura/uyumsoft-efatura.service';
-import { isDevMockEnabled, MOCK_BEKLEYEN, MOCK_URUN_ARA } from './transfer.mock';
+import { normalizeTransferSearchTerm } from '../odoo/gs1-parser.util';
+import { kabulEtTransfer, baslatTransfer } from './transfer-core.service';
+import { isDevMockEnabled } from './transfer.mock';
+import { mapWithConcurrency } from '../../utils/map-with-concurrency';
+
+const ODOO_SEARCH_CONCURRENCY = 6;
+const SIRKET_SEARCH_IDS = [2, 3, 4];
+function transferUrunDedupKey(u) {
+    return `${u.id}|${u.lotId ?? ''}|${u.lotNo ?? ''}|${u.varyant ?? ''}`;
+}
+function dedupeTransferUrunResults(list) {
+    const seen = new Set();
+    const out = [];
+    for (const u of list ?? []) {
+        const key = transferUrunDedupKey(u);
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        out.push(u);
+    }
+    return out;
+}
+function dedupeVariantEntries(variants) {
+    const seen = new Set();
+    const out = [];
+    for (const v of variants ?? []) {
+        const key = stokMapKey(v.id, v._cid);
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        out.push(v);
+    }
+    return out;
+}
 /** "RAYBAN GÜNEŞ GÖZLÜĞÜ (2140, C101, 50)" → şablon adı + varyant değerleri */
 function branchCodeFromLocationId(locId) {
     for (const [code, id] of Object.entries(odooLocations.LOKASYON_ID_MAP)) {
@@ -86,26 +118,99 @@ async function fetchPtavMapForVariants(variants, defaultCompanyId) {
     }
     return ptavMap;
 }
-function mapVariantToTransferUrun(v, ptavMap) {
+function stokMapKey(productId, companyId) {
+    return companyId != null ? `${companyId}:${productId}` : String(productId);
+}
+function readStokFromMap(stokMap, productId, companyId) {
+    if (!stokMap?.size)
+        return null;
+    const composite = stokMapKey(productId, companyId);
+    if (stokMap.has(composite))
+        return stokMap.get(composite);
+    if (stokMap.has(productId))
+        return stokMap.get(productId);
+    return null;
+}
+async function fetchStokMapForProducts(entries, lokasyon) {
+    const stokMap = new Map();
+    if (!lokasyon || !entries?.length)
+        return stokMap;
+    const lokasyonId = await odooLocations.getLokasyonId(lokasyon);
+    if (!lokasyonId)
+        return stokMap;
+    const idsByCompany = new Map();
+    for (const entry of entries) {
+        const productId = entry?.id;
+        const companyId = entry?._cid;
+        if (!productId || !companyId)
+            continue;
+        if (!idsByCompany.has(companyId))
+            idsByCompany.set(companyId, new Set());
+        idsByCompany.get(companyId).add(productId);
+    }
+    for (const [companyId, idSet] of idsByCompany) {
+        const productIds = [...idSet];
+        if (!productIds.length)
+            continue;
+        try {
+            const quantDomain = [
+                ['location_id', '=', lokasyonId],
+                ['product_id', 'in', productIds],
+            ];
+            const quantFields = ['product_id', 'quantity', 'available_quantity'];
+            let quantlar = [];
+            try {
+                quantlar = (await odooService.execute('stock.quant', 'search_read', [quantDomain], {
+                    fields: quantFields,
+                    limit: productIds.length * 10,
+                }, companyId)) ?? [];
+            }
+            catch {
+                quantlar = (await odooService.execute('stock.quant', 'search_read', [quantDomain], {
+                    fields: ['product_id', 'quantity'],
+                    limit: productIds.length * 10,
+                }, companyId)) ?? [];
+            }
+            for (const row of quantlar) {
+                const productId = m2oId(row.product_id);
+                if (!productId)
+                    continue;
+                const qty = Number(row.available_quantity ?? row.quantity ?? 0);
+                const key = stokMapKey(productId, companyId);
+                stokMap.set(key, (stokMap.get(key) ?? 0) + qty);
+            }
+        }
+        catch (err) {
+            logOdooError('stok quant', err);
+        }
+    }
+    return stokMap;
+}
+function mapVariantToTransferUrun(v, ptavMap, stokMap, defaultStokZero = false) {
     const parsed = parseVariantDisplayName(v.display_name ?? v.name ?? '');
     let varyant = buildVaryantFromPtav(v.product_template_attribute_value_ids, ptavMap);
     if (!varyant)
         varyant = parsed.varyant;
+    const stokVal = readStokFromMap(stokMap, v.id, v._cid);
     return {
         id: v.id,
         ad: parsed.ad,
         varyant,
         fiyat: v.lst_price ?? null,
+        lotId: null,
         lotNo: null,
+        tracking: v.tracking ?? 'none',
         utsKodu: null,
         utsDurumu: 'BILINMIYOR',
-        stok: null,
+        stok: defaultStokZero ? (stokVal ?? 0) : (stokVal ?? null),
         kaynakFatura: null,
     };
 }
-async function mapVariantsBatchToTransferUrun(variants, defaultCompanyId) {
+async function mapVariantsBatchToTransferUrun(variants, defaultCompanyId, lokasyon) {
     const ptavMap = await fetchPtavMapForVariants(variants, defaultCompanyId);
-    return variants.map((v) => mapVariantToTransferUrun(v, ptavMap));
+    const enrichStok = Boolean(lokasyon);
+    const stokMap = enrichStok ? await fetchStokMapForProducts(variants, lokasyon) : null;
+    return variants.map((v) => mapVariantToTransferUrun(v, ptavMap, stokMap, enrichStok));
 }
 function odooErrMessage(err) {
     if (err instanceof Error)
@@ -118,6 +223,28 @@ function logOdooError(label, err) {
     console.error(`[Odoo Hatası] ${label}:`, odooErrMessage(err), err);
 }
 const BEKLEYEN_PICKING_STATES = ['confirmed', 'assigned'];
+const TAMAMLANAN_GUN = 14;
+const PICKING_LIST_FIELDS = [
+    'id', 'name', 'location_id', 'location_dest_id', 'scheduled_date', 'origin', 'note', 'state',
+    'create_date', 'date_done',
+];
+
+function recentDoneCutoffIso() {
+    const d = new Date();
+    d.setDate(d.getDate() - TAMAMLANAN_GUN);
+    return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+/** Bekleyen + son 14 günde tamamlanan picking'ler */
+function pickingListStateDomain() {
+    return [
+        '|',
+        ['state', 'in', BEKLEYEN_PICKING_STATES],
+        '&',
+        ['state', '=', 'done'],
+        ['date_done', '>=', recentDoneCutoffIso()],
+    ];
+}
 
 export async function getPickingDestBranchCode(pickingId: string | number): Promise<string> {
     const id = Number(pickingId);
@@ -186,6 +313,10 @@ function parsePersonelFromNote(note) {
     const match = clean.match(/Personel:\s*(.+?)(\n|$)/i);
     return match ? match[1].trim() : 'Bilinmiyor';
 }
+function extractTransferRef(p) {
+    const haystack = [p?.origin, p?.note, p?.name].filter(Boolean).join(' ');
+    return haystack.match(/TRANSFER-\d+/)?.[0] ?? null;
+}
 function getPickingTypeId(cikisLokasyon) {
     const key = String(cikisLokasyon ?? '').trim();
     const pickingTypeId = OUTGOING_PICKING_TYPE[key] ?? OUTGOING_PICKING_TYPE[key.toUpperCase()];
@@ -207,13 +338,14 @@ async function resolveProductId(rawId, companyId) {
     const id = Number(rawId);
     if (!Number.isFinite(id))
         throw new Error(`Geçersiz ürün id: ${rawId}`);
-    const asProduct = (await odooService.execute('product.product', 'search_read', [[['id', '=', id]]], { fields: ['id'], limit: 1 }, companyId));
+    // Ürün kimliği: şirket kısıtı olmadan çöz (paylaşımlı veya tutarsız company_id kayıtları)
+    const asProduct = (await odooService.execute('product.product', 'search_read', [[['id', '=', id]]], { fields: ['id'], limit: 1 }));
     if (asProduct?.length)
         return asProduct[0].id;
-    const variants = (await odooService.execute('product.product', 'search_read', [[['product_tmpl_id', '=', id]]], { fields: ['id'], limit: 1 }, companyId));
+    const variants = (await odooService.execute('product.product', 'search_read', [[['product_tmpl_id', '=', id]]], { fields: ['id'], limit: 1 }));
     if (variants?.length)
         return variants[0].id;
-    throw new Error(`Ürün bulunamadı (id=${id})`);
+    throw new Error(`Ürün bulunamadı (id=${id}, lokasyon şirketi=${companyId})`);
 }
 async function getProductUomId(productId, companyId) {
     const rows = (await odooService.execute('product.product', 'read', [[productId]], { fields: ['uom_id'] }, companyId));
@@ -222,9 +354,22 @@ async function getProductUomId(productId, companyId) {
         throw new Error(`Ürün UoM bulunamadı (product=${productId})`);
     return uomId;
 }
+function odooStrVal(v) {
+    return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
 async function mapQuantToUrun(q, companyId) {
     const productId = m2oId(q.product_id) ?? 0;
     const lotId = m2oId(q.lot_id);
+    let tracking = 'none';
+    try {
+        const products = (await odooService.execute('product.product', 'read', [[productId]], {
+            fields: ['tracking'],
+        }, companyId));
+        tracking = products?.[0]?.tracking ?? 'none';
+    }
+    catch {
+        tracking = 'none';
+    }
     let kaynakFatura = null;
     if (lotId) {
         try {
@@ -239,15 +384,15 @@ async function mapQuantToUrun(q, companyId) {
             kaynakFatura = null;
         }
     }
-    let utsKodu = q.x_uts_kodu ?? null;
-    let utsDurumu = q.x_uts_durumu ?? 'BEKLEMEDE';
+    let utsKodu = odooStrVal(q.x_uts_kodu);
+    let utsDurumu = odooStrVal(q.x_uts_durumu) ?? 'BEKLEMEDE';
     if (lotId && (!utsKodu || utsDurumu === 'BEKLEMEDE')) {
         try {
             const lots = (await odooService.execute('stock.lot', 'read', [[lotId]], { fields: ['x_uts_kodu', 'x_uts_durumu', 'x_uts_mi'] }, companyId));
             const lot = lots?.[0];
             if (lot) {
-                utsKodu = lot.x_uts_kodu ?? utsKodu;
-                utsDurumu = lot.x_uts_durumu ?? (lot.x_uts_mi ? 'ALINDI' : utsDurumu);
+                utsKodu = odooStrVal(lot.x_uts_kodu) ?? utsKodu;
+                utsDurumu = odooStrVal(lot.x_uts_durumu) ?? (lot.x_uts_mi ? 'ALINDI' : utsDurumu);
             }
         }
         catch {
@@ -258,7 +403,9 @@ async function mapQuantToUrun(q, companyId) {
         id: productId,
         ad: m2oName(q.product_id),
         varyant: lotId ? m2oName(q.lot_id) : '',
+        lotId: lotId ?? null,
         lotNo: lotId ? m2oName(q.lot_id) : null,
+        tracking,
         utsKodu,
         utsDurumu,
         stok: Number(q.quantity ?? q.available_quantity ?? 0),
@@ -304,8 +451,8 @@ async function mapMoveLinesToUrunler(moveLines: any[], companyId: number) {
             seriNo: ml.lot_id ? m2oName(ml.lot_id) : null,
             beklenenAdet: qty,
             sayilanAdet: qty,
-            utsKodu: ml.x_uts_kodu ?? null,
-            utsDurumu: ml.x_uts_durumu ?? 'BEKLEMEDE',
+            utsKodu: null,
+            utsDurumu: 'BEKLEMEDE',
             fiyat: prod?.lst_price ?? 0,
             barkod: prod?.barcode ?? prod?.default_code ?? null,
             categId,
@@ -317,7 +464,7 @@ async function mapMoveLinesToUrunler(moveLines: any[], companyId: number) {
 
 async function mapPickingToTransfer(p: any, companyId: number) {
     const moveLineFields = [
-        'id', 'product_id', 'lot_id', 'quantity', 'product_uom_id', 'x_uts_kodu', 'x_uts_durumu',
+        'id', 'product_id', 'lot_id', 'quantity', 'product_uom_id',
     ];
     let moveLines: any[] = [];
     try {
@@ -325,13 +472,16 @@ async function mapPickingToTransfer(p: any, companyId: number) {
     }
     catch (err) {
         console.error('[transfer] stock.move.line:', odooErrMessage(err));
-        moveLines = (await odooService.execute('stock.move.line', 'search_read', [[['picking_id', '=', p.id]]], { fields: ['id', 'product_id', 'lot_id', 'quantity'] }, companyId)) ?? [];
+        moveLines = [];
     }
     const urunler = await mapMoveLinesToUrunler(moveLines, companyId);
     return {
         transferId: p.id,
+        transferRef: extractTransferRef(p),
         refNo: p.name,
         tarih: p.scheduled_date,
+        atanmaTarihi: p.create_date ?? null,
+        kabulTarihi: p.state === 'done' ? (p.date_done || null) : null,
         gonderen: m2oName(p.location_id),
         alici: m2oName(p.location_dest_id),
         personel: parsePersonelFromNote(p.note),
@@ -385,9 +535,59 @@ function applyKategoriToDomain(domain, options) {
     }
     return domain;
 }
-async function searchUrunByNameCatalog(term, companyId, options) {
-    const RESULT_LIMIT = 100;
-    const kategoriId = resolveSearchKategoriId(options);
+async function searchVariantsByPtav(term, options, limit) {
+    const trimmed = String(term ?? '').trim();
+    if (!trimmed || limit <= 0)
+        return [];
+    const collected = [];
+    const seenVariantKeys = new Set();
+    const companyResults = await mapWithConcurrency(SIRKET_SEARCH_IDS, 3, async (cid) => {
+        const ptavs = (await odooService.execute('product.template.attribute.value', 'search_read', [[['name', 'ilike', trimmed]]], {
+            fields: ['id'],
+            limit: 30,
+        }, cid)) ?? [];
+        if (!ptavs.length)
+            return [];
+        const ptavIds = ptavs.map((p) => p.id).filter(Boolean);
+        const variantDomain = applyKategoriToDomain([
+            ['active', '=', true],
+            ['product_template_attribute_value_ids', 'in', ptavIds],
+        ], options);
+        return (await odooService.execute('product.product', 'search_read', [variantDomain], {
+            fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids', 'tracking'],
+            limit,
+            order: 'display_name asc',
+        }, cid)) ?? [];
+    });
+    for (let i = 0; i < SIRKET_SEARCH_IDS.length; i++) {
+        const cid = SIRKET_SEARCH_IDS[i];
+        for (const v of companyResults[i] ?? []) {
+            const key = stokMapKey(v.id, cid);
+            if (seenVariantKeys.has(key))
+                continue;
+            seenVariantKeys.add(key);
+            collected.push({ ...v, _cid: cid });
+            if (collected.length >= limit)
+                return collected;
+        }
+    }
+    return collected;
+}
+function mergeCatalogVariants(existing, incoming, limit) {
+    const seen = new Set(existing.map((v) => stokMapKey(v.id, v._cid)));
+    for (const v of incoming) {
+        const key = stokMapKey(v.id, v._cid);
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        existing.push(v);
+        if (existing.length >= limit)
+            break;
+    }
+    return existing;
+}
+async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
+    const RESULT_LIMIT = 50;
     const baseDomain = [
         ['type', 'in', catalogProductTypes(options)],
         ['active', '=', true],
@@ -399,31 +599,38 @@ async function searchUrunByNameCatalog(term, companyId, options) {
             : baseDomain,
         options,
     );
-    // Tüm şirketlerde ara — NG(2), ADESE(3), POTENTIAL(4)
-    const sirketIds = [2, 3, 4];
-    const seenIds = new Set<number>();
-    let allTemplates: any[] = [];
-    for (const cid of sirketIds) {
+    const seenIds = new Set();
+    const templateBatches = await mapWithConcurrency(SIRKET_SEARCH_IDS, 3, async (cid) => {
         const rows = (await odooService.execute('product.template', 'search_read', [domain], {
             fields: ['id', 'name', 'list_price'],
-            limit: 50,
+            limit: RESULT_LIMIT,
             order: 'name asc',
         }, cid)) ?? [];
-        for (const r of rows) {
-            if (!seenIds.has(r.id)) { seenIds.add(r.id); allTemplates.push({ ...r, _cid: cid }); }
+        return rows.map((r) => ({ ...r, _cid: cid }));
+    });
+    const allTemplates = [];
+    for (const batch of templateBatches) {
+        for (const r of batch) {
+            if (!seenIds.has(r.id)) {
+                seenIds.add(r.id);
+                allTemplates.push(r);
+            }
         }
     }
-    const templates = allTemplates;
-    const collected = [];
-    for (const tmpl of templates) {
-        const variants = (await odooService.execute('product.product', 'search_read', [
+    const templates = allTemplates.slice(0, RESULT_LIMIT);
+    const variantBatches = await mapWithConcurrency(templates, ODOO_SEARCH_CONCURRENCY, async (tmpl) => {
+        return (await odooService.execute('product.product', 'search_read', [
             [['product_tmpl_id', '=', tmpl.id], ['active', '=', true]],
         ], {
-            fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids'],
-            limit: RESULT_LIMIT - collected.length,
+            fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids', 'tracking'],
+            limit: RESULT_LIMIT,
             order: 'display_name asc',
         }, tmpl._cid ?? companyId)) ?? [];
-        for (const v of variants) {
+    });
+    const collected = [];
+    for (let i = 0; i < templates.length; i++) {
+        const tmpl = templates[i];
+        for (const v of variantBatches[i] ?? []) {
             collected.push({
                 ...v,
                 display_name: v.display_name ?? v.name ?? tmpl.name,
@@ -431,22 +638,34 @@ async function searchUrunByNameCatalog(term, companyId, options) {
                 _cid: tmpl._cid ?? companyId,
             });
             if (collected.length >= RESULT_LIMIT)
-                return mapVariantsBatchToTransferUrun(collected, companyId);
+                break;
+        }
+        if (collected.length >= RESULT_LIMIT)
+            break;
+    }
+    if (!collected.length) {
+        const variantDomain = applyKategoriToDomain([
+            ['active', '=', true],
+            '|', ['name', 'ilike', term], ['display_name', 'ilike', term],
+        ], options);
+        const directVariants = (await odooService.execute('product.product', 'search_read', [variantDomain], {
+            fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids', 'tracking'],
+            limit: RESULT_LIMIT,
+            order: 'display_name asc',
+        }, companyId)) ?? [];
+        for (const v of directVariants) {
+            collected.push({ ...v, _cid: companyId });
         }
     }
-    if (collected.length)
-        return mapVariantsBatchToTransferUrun(collected, companyId);
-    const variantDomain = applyKategoriToDomain([
-        ['active', '=', true],
-        '|', ['name', 'ilike', term], ['display_name', 'ilike', term],
-    ], options);
-    const directVariants = (await odooService.execute('product.product', 'search_read', [variantDomain], {
-        fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids'],
-        limit: RESULT_LIMIT,
-        order: 'display_name asc',
-    }, companyId)) ?? [];
-    const withCompany = directVariants.map((v) => ({ ...v, _cid: companyId }));
-    return mapVariantsBatchToTransferUrun(withCompany, companyId);
+    let merged = dedupeVariantEntries(collected);
+    if (term && String(term).trim()) {
+        const ptavVariants = await searchVariantsByPtav(term, options, RESULT_LIMIT);
+        merged = dedupeVariantEntries(mergeCatalogVariants(ptavVariants, merged, RESULT_LIMIT));
+    }
+    if (!merged.length)
+        return [];
+    const mapped = await mapVariantsBatchToTransferUrun(merged.slice(0, RESULT_LIMIT), companyId, lokasyon);
+    return dedupeTransferUrunResults(mapped);
 }
 async function mapProductsKatalog(productIds, lotRows, companyId) {
     const sonuclar = [];
@@ -456,101 +675,161 @@ async function mapProductsKatalog(productIds, lotRows, companyId) {
             if (!productId)
                 continue;
             const products = (await odooService.execute('product.product', 'read', [[productId]], {
-                fields: ['id', 'display_name', 'name', 'lst_price', 'list_price'],
+                fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'tracking'],
             }, companyId));
             const v = products?.[0];
             if (!v)
                 continue;
             const mapped = mapVariantToTransferUrun(v);
+            mapped.lotId = lot.id ?? null;
             mapped.lotNo = m2oName(lot.id) ?? lot.name ?? null;
             sonuclar.push(mapped);
         }
-        return sonuclar;
+        return dedupeTransferUrunResults(sonuclar);
     }
     if (!productIds.length)
         return [];
     const variants = (await odooService.execute('product.product', 'read', [productIds], {
-        fields: ['id', 'display_name', 'name', 'lst_price', 'list_price'],
+        fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'tracking'],
     }, companyId)) ?? [];
-    return variants.map(mapVariantToTransferUrun);
+    return dedupeTransferUrunResults(variants.map(mapVariantToTransferUrun));
 }
 export async function searchUrun(q, yontem, lokasyon, options) {
-    const term = q.trim();
+    const rawTerm = q.trim();
+    const term = normalizeTransferSearchTerm(rawTerm, yontem);
     const katalog = options?.katalog === true;
     const bakimKatalog = katalog && resolveSearchKategoriId(options) === BAKIM_KATEGORI_ID;
     const minLen = yontem === 'ad' ? (bakimKatalog ? 0 : 1) : 3;
-    if (term.length < minLen)
+    if (!term || term.length < minLen)
         return [];
     return withOdoo('urun-ara', async () => {
+        const t0 = Date.now();
         const companyId = odooLocations.getCompanyIdFromLokasyon(lokasyon);
         if (!companyId)
             throw new Error(`Lokasyon şirketi tanımsız: ${lokasyon}`);
+        let sonuclar;
         if (yontem === 'ad') {
-            return searchUrunByNameCatalog(term, companyId, options);
-        }
-        const lokasyonId = await odooLocations.getLokasyonId(lokasyon);
-        if (!katalog && !lokasyonId)
-            throw new Error(`Lokasyon bulunamadı: ${lokasyon}`);
-        let productIds = [];
-        let lotIds = [];
-        let lotRows = [];
-        if (yontem === 'barkod') {
-            const products = (await odooService.execute('product.product', 'search_read', [[['barcode', '=', term]]], { fields: ['id'], limit: 5 }, companyId));
-            productIds = (products ?? []).map((p) => p.id);
-        }
-        else if (yontem === 'uts') {
-            const lots = (await odooService.execute('stock.lot', 'search_read', [[['x_uts_kodu', '=', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
-            lotRows = lots ?? [];
-            lotIds = lotRows.map((l) => l.id);
-            productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
-        }
-        else if (yontem === 'lot') {
-            const lots = (await odooService.execute('stock.lot', 'search_read', [[['name', 'ilike', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
-            lotRows = lots ?? [];
-            lotIds = lotRows.map((l) => l.id);
-            productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
-        }
-        else if (yontem === 'ref') {
-            const lots = (await odooService.execute('stock.lot', 'search_read', [[['ref', 'ilike', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
-            lotRows = lots ?? [];
-            lotIds = lotRows.map((l) => l.id);
-            productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
-            if (!productIds.length) {
-                const products = (await odooService.execute('product.product', 'search_read', [[['default_code', 'ilike', term]]], { fields: ['id'], limit: 10 }, companyId));
-                productIds = (products ?? []).map((p) => p.id);
-            }
+            sonuclar = await searchUrunByNameCatalog(term, companyId, lokasyon, options);
         }
         else {
-            const products = (await odooService.execute('product.product', 'search_read', [[['name', 'ilike', term]]], { fields: ['id'], limit: 10 }, companyId));
-            productIds = (products ?? []).map((p) => p.id);
+            const lokasyonId = await odooLocations.getLokasyonId(lokasyon);
+            if (!katalog && !lokasyonId)
+                throw new Error(`Lokasyon bulunamadı: ${lokasyon}`);
+            let productIds = [];
+            let lotIds = [];
+            let lotRows = [];
+            if (yontem === 'barkod') {
+                const products = (await odooService.execute('product.product', 'search_read', [[['barcode', '=', term]]], { fields: ['id'], limit: 5 }, companyId));
+                productIds = (products ?? []).map((p) => p.id);
+            }
+            else if (yontem === 'uts') {
+                const lots = (await odooService.execute('stock.lot', 'search_read', [[['x_uts_kodu', '=', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
+                lotRows = lots ?? [];
+                lotIds = lotRows.map((l) => l.id);
+                productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
+            }
+            else if (yontem === 'lot') {
+                const lots = (await odooService.execute('stock.lot', 'search_read', [[['name', 'ilike', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
+                lotRows = lots ?? [];
+                lotIds = lotRows.map((l) => l.id);
+                productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
+            }
+            else if (yontem === 'ref') {
+                const lots = (await odooService.execute('stock.lot', 'search_read', [[['ref', 'ilike', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
+                lotRows = lots ?? [];
+                lotIds = lotRows.map((l) => l.id);
+                productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
+                if (!productIds.length) {
+                    const products = (await odooService.execute('product.product', 'search_read', [[['default_code', 'ilike', term]]], { fields: ['id'], limit: 10 }, companyId));
+                    productIds = (products ?? []).map((p) => p.id);
+                }
+            }
+            else {
+                const products = (await odooService.execute('product.product', 'search_read', [[['name', 'ilike', term]]], { fields: ['id'], limit: 10 }, companyId));
+                productIds = (products ?? []).map((p) => p.id);
+            }
+            if (katalog) {
+                sonuclar = await mapProductsKatalog(productIds, lotRows, companyId);
+            }
+            else {
+                const quantlar = await fetchQuantsAtLocation(lokasyonId, companyId, {
+                    lotIds: lotIds.length ? lotIds : undefined,
+                    productIds: !lotIds.length && productIds.length ? productIds : undefined,
+                    limit: 10,
+                });
+                sonuclar = [];
+                for (const row of quantlar) {
+                    sonuclar.push(await mapQuantToUrun(row, companyId));
+                }
+            }
         }
-        if (katalog) {
-            return mapProductsKatalog(productIds, lotRows, companyId);
+        const deduped = dedupeTransferUrunResults(sonuclar ?? []);
+        const ms = Date.now() - t0;
+        if (term !== rawTerm) {
+            console.log(`[transfer urun-ara] GS1 normalize: rawLen=${rawTerm.length} → term="${term.slice(0, 40)}" yontem=${yontem}`);
         }
-        const quantDomain = [
-            ['location_id', '=', lokasyonId],
-            ['quantity', '>', 0],
-        ];
-        if (lotIds.length)
-            quantDomain.push(['lot_id', 'in', lotIds]);
-        else if (productIds.length)
-            quantDomain.push(['product_id', 'in', productIds]);
-        else
-            return [];
-        const quantFields = ['product_id', 'lot_id', 'quantity', 'available_quantity'];
-        let quantlar = [];
-        try {
-            quantlar = (await odooService.execute('stock.quant', 'search_read', [quantDomain], { fields: [...quantFields, 'x_uts_kodu', 'x_uts_durumu'], limit: 10 }, companyId));
+        console.log(`[transfer urun-ara] yontem=${yontem} qLen=${term.length} results=${deduped.length} ${ms}ms`);
+        return deduped;
+    });
+}
+async function fetchQuantsAtLocation(lokasyonId, companyId, filters) {
+    const quantDomain = [
+        ['location_id', '=', lokasyonId],
+        ['quantity', '>', 0],
+    ];
+    if (filters?.lotIds?.length) {
+        quantDomain.push(['lot_id', 'in', filters.lotIds]);
+    }
+    else if (filters?.productIds?.length) {
+        quantDomain.push(['product_id', 'in', filters.productIds]);
+    }
+    else if (filters?.productId) {
+        quantDomain.push(['product_id', '=', filters.productId]);
+    }
+    else {
+        return [];
+    }
+    const quantFields = ['product_id', 'lot_id', 'quantity', 'available_quantity'];
+    try {
+        return (await odooService.execute('stock.quant', 'search_read', [quantDomain], {
+            fields: [...quantFields, 'x_uts_kodu', 'x_uts_durumu'],
+            limit: filters?.limit ?? 50,
+        }, companyId)) ?? [];
+    }
+    catch {
+        return (await odooService.execute('stock.quant', 'search_read', [quantDomain], {
+            fields: quantFields,
+            limit: filters?.limit ?? 50,
+        }, companyId)) ?? [];
+    }
+}
+/** Ürün adı aramasından sonra: seçili lokasyondaki lot/seri kayıtları */
+export async function searchUrunLotsByProduct(productId, lokasyon) {
+    const pid = Number(productId);
+    if (!Number.isFinite(pid) || pid <= 0) {
+        throw new Error('Geçersiz productId');
+    }
+    return withOdoo('urun-lotlari', async () => {
+        const companyId = odooLocations.getCompanyIdFromLokasyon(lokasyon);
+        if (!companyId) {
+            throw new Error(`Lokasyon şirketi tanımsız: ${lokasyon}`);
         }
-        catch {
-            quantlar = (await odooService.execute('stock.quant', 'search_read', [quantDomain], { fields: quantFields, limit: 10 }, companyId));
+        const lokasyonId = await odooLocations.getLokasyonId(lokasyon);
+        if (!lokasyonId) {
+            throw new Error(`Lokasyon bulunamadı: ${lokasyon}`);
         }
+        const resolvedProductId = await resolveProductId(pid, companyId);
+        const quantlar = await fetchQuantsAtLocation(lokasyonId, companyId, {
+            productId: resolvedProductId,
+            limit: 100,
+        });
+        console.log(`[urun-lotlari] productId=${pid} lokasyon=${lokasyon} company=${companyId} resolved=${resolvedProductId} quant=${quantlar.length}`);
         const sonuclar = [];
-        for (const row of quantlar ?? []) {
+        for (const row of quantlar) {
             sonuclar.push(await mapQuantToUrun(row, companyId));
         }
-        return sonuclar;
-    }, MOCK_URUN_ARA);
+        return dedupeTransferUrunResults(sonuclar);
+    }, []);
 }
 export async function searchUrunAkilli(term: string, lokasyon: string, companyId?: number) {
   const yontemler = ['barkod', 'uts', 'lot', 'ref', 'ad']
@@ -562,7 +841,7 @@ export async function searchUrunAkilli(term: string, lokasyon: string, companyId
   }
   return { results: [], yontem: null }
 }
-export async export function createTransfer(input) {
+export async function createTransfer(input) {
     const cikisSirket = odooLocations.getLokasyonSirket(input.cikisLokasyon);
     const girisSirket = odooLocations.getLokasyonSirket(input.girisLokasyon);
     if (!cikisSirket || !girisSirket) {
@@ -570,13 +849,6 @@ export async export function createTransfer(input) {
             success: false,
             error: 'LOKASYON_SIRKET',
             message: `Lokasyon şirketi tanımsız: ${!cikisSirket ? input.cikisLokasyon : input.girisLokasyon}`,
-        };
-    }
-    if (cikisSirket !== girisSirket) {
-        return {
-            success: false,
-            error: 'SIRKETLER_ARASI',
-            message: 'Şirketler arası transfer şu an manuel yapılmalıdır. Odoo Enterprise gerektirir.',
         };
     }
     const companyId = odooLocations.getCompanyIdFromLokasyon(input.cikisLokasyon);
@@ -593,88 +865,43 @@ export async export function createTransfer(input) {
         if (!cikisId || !girisId) {
             return { success: false, message: 'Lokasyon bulunamadı', error: 'LOKASYON_BULUNAMADI' };
         }
-        const pickingTypeId = getPickingTypeId(input.cikisLokasyon);
-        const pickingId = await odooService.execute('stock.picking', 'create', [
-            {
-                picking_type_id: pickingTypeId,
-                location_id: cikisId,
-                location_dest_id: girisId,
-                scheduled_date: input.tarih,
-                origin: input.referans || '',
-                note: buildPickingNote(input.personel, input.not),
-            },
-        ], {}, companyId);
+
+        const kalemler = [];
         for (const urun of input.urunler ?? []) {
-            try {
-                const productId = await resolveProductId(urun.id, companyId);
-                const uomId = await getProductUomId(productId, companyId);
-                const qty = Math.max(1, Number(urun.adet ?? 1));
-                const moveId = await odooService.execute('stock.move', 'create', [
-                    {
-                        picking_id: pickingId,
-                        product_id: productId,
-                        product_uom_qty: qty,
-                        product_uom: uomId,
-                        name: urun.ad,
-                        location_id: cikisId,
-                        location_dest_id: girisId,
-                        company_id: companyId,
-                    },
-                ], {}, companyId);
-                if (urun.lotNo) {
-                    const lotId = await getLotId(urun.lotNo, productId, companyId);
-                    if (lotId) {
-                        await odooService.execute('stock.move.line', 'create', [
-                            {
-                                move_id: moveId,
-                                picking_id: pickingId,
-                                product_id: productId,
-                                lot_id: lotId,
-                                quantity: qty,
-                                location_id: cikisId,
-                                location_dest_id: girisId,
-                                company_id: companyId,
-                            },
-                        ], {}, companyId);
-                    }
-                }
+            const productId = await resolveProductId(urun.id, companyId);
+            let lotId = urun.lotId ? Number(urun.lotId) : null;
+            if (!lotId && urun.lotNo) {
+                lotId = await getLotId(urun.lotNo, productId, companyId);
             }
-            catch (err) {
-                console.error('[transfer/olustur] stock.move / move.line:', odooErrMessage(err), err);
-                throw err;
-            }
+            kalemler.push({
+                productId,
+                resolvedProductId: productId,
+                miktar: Math.max(1, Number(urun.adet ?? 1)),
+                urunAdi: urun.ad,
+                lotId,
+            });
         }
-        try {
-            await odooService.execute('stock.picking', 'action_confirm', [[pickingId]], {}, companyId);
+
+        const notParts = [input.referans, buildPickingNote(input.personel, input.not)].filter(Boolean);
+        const sonuc = await baslatTransfer({
+            kaynakLocationId: cikisId,
+            hedefLocationId: girisId,
+            kalemler,
+            notlar: notParts.join(' — ') || undefined,
+        });
+
+        if (!sonuc.success) {
+            return { success: false, message: sonuc.message, error: 'TRANSFER_BASLATILAMADI' };
         }
-        catch (err) {
-            console.error('[transfer/olustur] action_confirm:', odooErrMessage(err), err);
-        }
-        try {
-            await odooService.execute('stock.picking', 'action_assign', [[pickingId]], {}, companyId);
-        }
-        catch (err) {
-            const msg = odooErrMessage(err);
-            if (msg.includes('kontrol edebilecek')) {
-                // Ürünsüz transfer — rezerve edilecek satır yok, normal
-            }
-            else {
-                console.error('[transfer/olustur] action_assign:', msg, err);
-            }
-        }
-        let refNo = String(pickingId);
-        try {
-            const picking = (await odooService.execute('stock.picking', 'read', [[pickingId]], { fields: ['name'] }, companyId));
-            refNo = picking?.[0]?.name ?? refNo;
-        }
-        catch (err) {
-            console.error('[transfer/olustur] stock.picking read:', odooErrMessage(err), err);
-        }
+
         return {
             success: true,
-            transferId: pickingId,
-            refNo,
-            odooPickingId: pickingId,
+            transferId: sonuc.kabulPickingId,
+            refNo: sonuc.pickingName ?? String(sonuc.kabulPickingId),
+            odooPickingId: sonuc.kabulPickingId,
+            transferRef: sonuc.transferRef,
+            durum: sonuc.durum,
+            message: sonuc.message,
         };
     });
 }
@@ -686,21 +913,16 @@ export async function listBekleyen(lokasyon) {
         const companyId = odooLocations.getCompanyIdFromLokasyon(lokasyon);
         if (!companyId)
             throw new Error(`Lokasyon şirketi tanımsız: ${lokasyon}`);
-        const pickingFields = [
-            'id', 'name', 'location_id', 'location_dest_id', 'scheduled_date', 'origin', 'note', 'state',
-        ];
         const pickinglar = (await odooService.execute('stock.picking', 'search_read', [
             [
+                '&',
                 ['location_dest_id', '=', lokasyonId],
-                ['state', 'in', BEKLEYEN_PICKING_STATES],
+                ...pickingListStateDomain(),
             ],
-        ], { fields: pickingFields, limit: 50, order: 'scheduled_date desc' }, companyId));
+        ], { fields: PICKING_LIST_FIELDS, limit: 50, order: 'create_date desc' }, companyId));
         const transferler = await Promise.all((pickinglar ?? []).map((p) => mapPickingToTransfer(p, companyId)));
         return transferler;
-    }, MOCK_BEKLEYEN.filter((t) => {
-        const alici = String(t.alici ?? '').toUpperCase();
-        return alici === lokasyon.toUpperCase() || alici.includes(lokasyon.toUpperCase());
-    }));
+    });
 }
 
 export async function listGonderilen(lokasyon) {
@@ -711,18 +933,16 @@ export async function listGonderilen(lokasyon) {
         const companyId = odooLocations.getCompanyIdFromLokasyon(lokasyon);
         if (!companyId)
             throw new Error(`Lokasyon şirketi tanımsız: ${lokasyon}`);
-        const pickingFields = [
-            'id', 'name', 'location_id', 'location_dest_id', 'scheduled_date', 'origin', 'note', 'state',
-        ];
         const pickinglar = (await odooService.execute('stock.picking', 'search_read', [
             [
+                '&',
                 ['location_id', '=', lokasyonId],
-                ['state', 'in', BEKLEYEN_PICKING_STATES],
+                ...pickingListStateDomain(),
             ],
-        ], { fields: pickingFields, limit: 50, order: 'scheduled_date desc' }, companyId));
+        ], { fields: PICKING_LIST_FIELDS, limit: 50, order: 'create_date desc' }, companyId));
         const transferler = await Promise.all((pickinglar ?? []).map((p) => mapPickingToTransfer(p, companyId)));
         return transferler;
-    }, []);
+    });
 }
 function validatePickingKwargs(companyId) {
     return {
@@ -757,96 +977,23 @@ async function validatePicking(pickingId, companyId) {
     }
     await odooService.execute('stock.picking', 'button_validate', [[pickingId]], validateKwargs, companyId);
 }
-export async export function acceptTransfer(transferId, sayimlar) {
+export async function acceptTransfer(transferId, sayimlar) {
     const pickingId = Number(transferId);
     if (!Number.isFinite(pickingId)) {
         return { success: false, message: `Geçersiz transfer id: ${transferId}` };
     }
     return withOdoo('kabul', async () => {
-        let companyId;
-        try {
-            const pickingRows = (await odooService.execute('stock.picking', 'read', [[pickingId]], {
-                fields: ['company_id'],
-            }));
-            companyId = m2oId(pickingRows?.[0]?.company_id) ?? 0;
-            console.log('[kabul] picking company_id raw:', pickingRows?.[0]?.company_id);
-            if (!companyId) {
-                return { success: false, message: 'Picking şirketi bulunamadı' };
-            }
-            const creds = odooService.getOdooCredentials(companyId);
-            console.log('[kabul] odoo uid:', creds.uid, 'company_id:', companyId);
-        }
-        catch (err) {
-            return { success: false, message: odooErrMessage(err) };
-        }
-        let moveLines = [];
-        try {
-            console.log('[kabul] company_id:', companyId);
-            console.log('[kabul] move line query with context');
-            moveLines = (await odooService.execute('stock.move.line', 'search_read', [[['picking_id', '=', pickingId]]], { fields: ['id', 'product_id', 'quantity'], context: odooService.buildOdooCompanyContext(companyId) }, companyId));
-        }
-        catch (err) {
-            return { success: false, message: odooErrMessage(err) };
-        }
-        const updates = [];
-        for (let i = 0; i < (sayimlar ?? []).length; i++) {
-            const s = sayimlar[i] ?? {};
-            const qtyDone = Number(s.qtyDone ?? s.sayilanAdet ?? s.beklenenAdet ?? 0);
-            let moveLineId = Number(s.moveLineId);
-            if (!Number.isFinite(moveLineId) && moveLines[i]) {
-                moveLineId = moveLines[i].id;
-            }
-            if (!Number.isFinite(moveLineId)) {
-                const productId = Number(s.id ?? m2oId(s.product_id));
-                const hit = moveLines.find((ml) => m2oId(ml.product_id) === productId);
-                if (hit)
-                    moveLineId = hit.id;
-            }
-            if (Number.isFinite(moveLineId)) {
-                updates.push({ moveLineId, qtyDone });
-            }
-        }
-        if (!updates.length && moveLines.length) {
-            for (const ml of moveLines) {
-                const qty = Number(ml.quantity ?? 0);
-                updates.push({ moveLineId: ml.id, qtyDone: qty || 0 });
-            }
-        }
-        for (const u of updates) {
-            console.log('[kabul] move.line write', u.moveLineId, 'qty', u.qtyDone, 'companyId', companyId);
-            await odooService.execute('stock.move.line', 'write', [[u.moveLineId], { quantity: u.qtyDone }], {}, companyId);
-        }
-        await validatePicking(pickingId, companyId);
-        const linesAfter = (await odooService.execute('stock.move.line', 'search_read', [[['picking_id', '=', pickingId]]], { fields: ['lot_id', 'location_dest_id'] }, companyId));
-        for (const ml of linesAfter ?? []) {
-            const lotId = m2oId(ml.lot_id);
-            if (!lotId)
-                continue;
-            try {
-                console.log('[kabul] stock.lot write', lotId, 'companyId', companyId);
-                await odooService.execute('stock.lot', 'write', [[lotId], { x_uts_durumu: 'MAGAZADA' }], {}, companyId);
-            }
-            catch {
-                // custom field may not exist
-            }
-        }
-        let branchCode = 'GVN1';
-        try {
-            const pickingDetail = (await odooService.execute('stock.picking', 'read', [[pickingId]], { fields: ['location_dest_id'] }, companyId));
-            const destId = m2oId(pickingDetail?.[0]?.location_dest_id);
-            if (destId)
-                branchCode = branchCodeFromLocationId(destId);
-        }
-        catch {
-            // optional
-        }
-        tetikleTransferEFatura(pickingId, branchCode).catch((err) => {
-            console.error('[e-Fatura] Transfer kabul tetikleme:', err);
+        const result = await kabulEtTransfer({
+            kabulPickingId: pickingId,
+            sayimlar: sayimlar ?? [],
         });
-        return { success: true, transferId: pickingId };
+        if (!result.success) {
+            return { success: false, message: result.message };
+        }
+        return { success: true, transferId: pickingId, transferRef: result.transferRef };
     });
 }
-export async export function reportTransferIssue(transferId, not) {
+export async function reportTransferIssue(transferId, not) {
     const pickingId = Number(transferId);
     if (!Number.isFinite(pickingId)) {
         return { success: false, message: `Geçersiz transfer id: ${transferId}` };
@@ -865,7 +1012,7 @@ export async export function reportTransferIssue(transferId, not) {
         return { success: true };
     });
 }
-export async export function debugLokasyonMap() {
+export async function debugLokasyonMap() {
     const map = await odooLocations.getLokasyonMap(true);
     return map;
 }

@@ -1,0 +1,260 @@
+Patron PDKS — GVN6/GVN7/GVN8 403 Destek Detayı
+Oluşturulma: 2026-07-11T09:40:14.897Z
+Kurum (organization) no: 2796
+
+=== ÖZET ===
+GVN6 mekan ID (placeId): 5781 — GÜVEN OPTİK 1959 - 6
+GVN7 mekan ID (placeId): 5779 — GÜVEN OPTİK 1959 7
+GVN8 mekan ID (placeId): 8026
+
+403 hatası reproduce edilen istek (GVN6):
+GET https://app.patronpdks.com/api/v4/organizations/2796/places/5781
+
+Kaynak kod notu:
+- Uygulama konum listesi için: backend/src/modules/pdks/pdks.service.ts → getKonumlar()
+  GET /organizations/{orgId}/places (200 OK — GVN6 listede görünüyor)
+- Admin şube tanımı: backend/src/modules/admin/admin.controller.ts → GET /admin/pdks-places
+  Aynı places list endpoint'ini çağırır.
+- POS login PDKS kontrolü: backend/src/modules/pdks/pdks.service.ts → hasTodayAttendance() / hasTodayEntryAtPlace()
+  GET /attendances ve GET /organizations/{orgId}/entries (userId filtresi) — şu an 403 değil.
+- Tekil konum detayı (/places/{id}) kod tabanında doğrudan çağrılmıyor; 403 bu endpoint'te reproduce edildi.
+
+================================================================================
+1) 403 DÖNEN İSTEK — GVN6 (placeId=5781)
+================================================================================
+HTTP Method: GET
+URL: https://app.patronpdks.com/api/v4/organizations/2796/places/5781
+Query params: {}
+
+Request headers:
+{
+  "Token": "Nd95w3E276KuZ0dp8DxpQSRmBKXN9cVXq30W7FZe",
+  "Content-Type": "application/json; charset=UTF-8",
+  "Accept-Language": "tr"
+}
+
+HTTP status: 403
+
+Response headers:
+{
+  "connection": "Keep-Alive",
+  "keep-alive": "timeout=5, max=100",
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "Content-Type, Token, Accept-Language",
+  "access-control-allow-credentials": "true",
+  "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "content-type": "application/json; charset=utf-8",
+  "content-length": "130",
+  "vary": "Accept-Encoding,User-Agent",
+  "date": "Sat, 11 Jul 2026 09:40:14 GMT",
+  "server": "LiteSpeed",
+  "alt-svc": "h3=\":443\"; ma=2592000, h3-29=\":443\"; ma=2592000, h3-Q050=\":443\"; ma=2592000, h3-Q046=\":443\"; ma=2592000, h3-Q043=\":443\"; ma=2592000, quic=\":443\"; ma=2592000; v=\"43,46\""
+}
+
+Response body:
+{
+  "apiVersion": "4.0",
+  "error": {
+    "code": 403,
+    "message": "Geçerli izin/yetkiye sahip değilsiniz.",
+    "errors": [
+      {
+        "domain": "organizations",
+        "reason": "",
+        "message": "Geçerli izin/yetkiye sahip değilsiniz."
+      }
+    ]
+  }
+}
+
+================================================================================
+2) 403 DÖNEN İSTEK — GVN6 konum girişleri (alternatif endpoint)
+================================================================================
+HTTP Method: GET
+URL: https://app.patronpdks.com/api/v4/organizations/2796/places/5781/entries
+Query params: {}
+
+Request headers:
+{
+  "Token": "Nd95w3E276KuZ0dp8DxpQSRmBKXN9cVXq30W7FZe",
+  "Content-Type": "application/json; charset=UTF-8",
+  "Accept-Language": "tr"
+}
+
+HTTP status: 403
+
+Response headers:
+{
+  "connection": "Keep-Alive",
+  "keep-alive": "timeout=5, max=100",
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "Content-Type, Token, Accept-Language",
+  "access-control-allow-credentials": "true",
+  "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "content-type": "application/json; charset=utf-8",
+  "content-length": "130",
+  "vary": "Accept-Encoding,User-Agent",
+  "date": "Sat, 11 Jul 2026 09:40:14 GMT",
+  "server": "LiteSpeed"
+}
+
+Response body:
+{
+  "apiVersion": "4.0",
+  "error": {
+    "code": 403,
+    "message": "Geçerli izin/yetkiye sahip değilsiniz.",
+    "errors": [
+      {
+        "domain": "organizations",
+        "reason": "",
+        "message": "Geçerli izin/yetkiye sahip değilsiniz."
+      }
+    ]
+  }
+}
+
+================================================================================
+3) KARŞILAŞTIRMA — places listesi (200 OK, GVN6 listede mevcut)
+================================================================================
+URL: https://app.patronpdks.com/api/v4/organizations/2796/places
+HTTP status: 200
+GVN6 kaydı (places listesinden):
+[
+  {
+    "id": 5779,
+    "organizationId": 2796,
+    "image": "qr-MDAwMDA1Nzc5.png",
+    "name": "GÜVEN OPTİK 1959 7",
+    "position": "38.46605287419506,27.220255098072812",
+    "radius": 7,
+    "allowOutside": false,
+    "radiusOptimization": true,
+    "alias": "MDAwMDA1Nzc5",
+    "timeLimits": {
+      "in": {
+        "active": false,
+        "time": "00:00:00"
+      }
+    },
+    "system": {
+      "tagIds": "1603"
+    },
+    "created": "2025-04-12 15:09:31",
+    "modified": "2025-04-12 15:09:31",
+    "status": 1
+  },
+  {
+    "id": 5781,
+    "organizationId": 2796,
+    "image": "qr-MDAwMDA1Nzgx.png",
+    "name": "GÜVEN OPTİK 1959 - 6",
+    "position": "38.4602423,27.1976959",
+    "radius": 7,
+    "allowOutside": false,
+    "radiusOptimization": true,
+    "alias": "MDAwMDA1Nzgx",
+    "timeLimits": {
+      "in": {
+        "active": false,
+        "time": "00:00:00"
+      }
+    },
+    "system": {
+      "tagIds": "1602"
+    },
+    "created": "2025-04-12 16:09:35",
+    "modified": "2025-04-12 16:09:35",
+    "status": 1
+  },
+  {
+    "id": 8026,
+    "organizationId": 2796,
+    "image": "qr-MDAwMDA4MDI2.png",
+    "name": "GÜVEN OPTİK 1959 8",
+    "position": "37.0558994,27.3507377",
+    "radius": 50,
+    "allowOutside": false,
+    "radiusOptimization": true,
+    "alias": "MDAwMDA4MDI2",
+    "timeLimits": {
+      "in": {
+        "active": false,
+        "time": "00:00:00"
+      }
+    },
+    "system": {
+      "tagIds": "1604"
+    },
+    "created": "2026-05-13 13:48:33",
+    "modified": "2026-05-13 13:48:33",
+    "status": 1
+  }
+]
+
+================================================================================
+4) UYGULAMA LOGIN AKIŞI — GVN6 personeli (pdksId=34700, placeId=5781)
+================================================================================
+4a) GET /attendances
+URL: https://app.patronpdks.com/api/v4/attendances
+Query: {"organizationId":"2796","date":"2026-07-11","employeeId":"34700"}
+Status: 404
+Body: {
+  "apiVersion": "4.0",
+  "error": {
+    "code": 404,
+    "message": "Not found",
+    "errors": [
+      {
+        "domain": "attendances",
+        "reason": "",
+        "message": "Not found"
+      }
+    ]
+  }
+}
+
+4b) GET /organizations/{orgId}/entries (fallback — hasTodayEntryAtPlace)
+URL: https://app.patronpdks.com/api/v4/organizations/2796/entries
+Query: {"created[gte]":"2026-07-11 00:00:00","userId":"34700","limit":100}
+Status: 200
+Not: placeId=5781 client-side filtrelenir; bu istek şu an 403 dönmüyor.
+
+================================================================================
+5) GVN7 / GVN8 — aynı 403 pattern (place detail)
+================================================================================GVN7 (placeId=5779)
+URL: https://app.patronpdks.com/api/v4/organizations/2796/places/5779
+Status: 403
+Body: {
+  "apiVersion": "4.0",
+  "error": {
+    "code": 403,
+    "message": "Geçerli izin/yetkiye sahip değilsiniz.",
+    "errors": [
+      {
+        "domain": "organizations",
+        "reason": "",
+        "message": "Geçerli izin/yetkiye sahip değilsiniz."
+      }
+    ]
+  }
+}
+
+GVN8 (placeId=8026)
+URL: https://app.patronpdks.com/api/v4/organizations/2796/places/8026
+Status: 403
+Body: {
+  "apiVersion": "4.0",
+  "error": {
+    "code": 403,
+    "message": "Geçerli izin/yetkiye sahip değilsiniz.",
+    "errors": [
+      {
+        "domain": "organizations",
+        "reason": "",
+        "message": "Geçerli izin/yetkiye sahip değilsiniz."
+      }
+    ]
+  }
+}
+

@@ -1,9 +1,11 @@
 import { NavLink } from 'react-router-dom'
 import { useAuthStore } from '../../store/auth.store'
+import { canAccessAtolye } from '../../utils/atolyeAccess'
 
 export default function Sidebar() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
+  const showAtolye = canAccessAtolye(user)
 
   return (
     <div
@@ -202,6 +204,26 @@ export default function Sidebar() {
         >
           🚚 Teslimat
         </NavLink>
+        {showAtolye && (
+          <NavLink
+            to="/atolye"
+            style={({ isActive }) => ({
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              marginBottom: '4px',
+              backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'transparent',
+              color: 'white',
+              textDecoration: 'none',
+              fontSize: '14px',
+              fontWeight: '500',
+            })}
+          >
+            🔬 Atölye
+          </NavLink>
+        )}
         <NavLink
           to="/garanti"
           style={({ isActive }) => ({

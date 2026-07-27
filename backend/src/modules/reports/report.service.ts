@@ -65,6 +65,96 @@ function zeroExtras() {
     kategoriBreakdown: { ...EMPTY_KATEGORI },
     kampanyaBreakdown: [] as Array<{ type: string; count: number }>,
     temsilciBreakdown: [] as Array<{ repName: string; saleCount: number; ciro: string; aylikHedef: number }>,
+    labIncidents: emptyLabIncidents(),
+  };
+}
+
+export type LabIncidentReportKayit = {
+  id: string;
+  saat: string;
+  saleId: string | null;
+  musteriAdi: string;
+  incidentType: string;
+  resolutionType: string | null;
+  transferRef: string | null;
+  ozelSiparisId: string | null;
+};
+
+export type LabIncidentsReport = {
+  toplam: number;
+  lensBroken: number;
+  frameBroken: number;
+  measurementShift: number;
+  kayitlar: LabIncidentReportKayit[];
+};
+
+function emptyLabIncidents(): LabIncidentsReport {
+  return {
+    toplam: 0,
+    lensBroken: 0,
+    frameBroken: 0,
+    measurementShift: 0,
+    kayitlar: [],
+  };
+}
+
+async function buildLabIncidentsSummary(
+  branchId: string,
+  start: Date,
+  end: Date,
+): Promise<LabIncidentsReport> {
+  const incidents = await prisma.labIncident.findMany({
+    where: {
+      atolyeBranchId: branchId,
+      createdAt: { gte: start, lte: end },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (!incidents.length) return emptyLabIncidents();
+
+  const saleItemIds = [...new Set(incidents.map((i) => i.saleItemId))];
+  const items = await prisma.saleItem.findMany({
+    where: { id: { in: saleItemIds } },
+    include: {
+      sale: {
+        select: {
+          id: true,
+          customer: { select: { name: true } },
+        },
+      },
+    },
+  });
+  const itemMap = new Map(items.map((i) => [i.id, i]));
+
+  let lensBroken = 0;
+  let frameBroken = 0;
+  let measurementShift = 0;
+
+  const kayitlar: LabIncidentReportKayit[] = incidents.map((inc) => {
+    if (inc.incidentType === 'LENS_BROKEN') lensBroken += 1;
+    else if (inc.incidentType === 'FRAME_BROKEN') frameBroken += 1;
+    else if (inc.incidentType === 'MEASUREMENT_SHIFT') measurementShift += 1;
+
+    const item = itemMap.get(inc.saleItemId);
+    return {
+      id: inc.id,
+      saat: inc.createdAt.toISOString(),
+      saleId: item?.sale?.id ?? null,
+      musteriAdi: item?.sale?.customer?.name ?? '—',
+      incidentType: inc.incidentType,
+      resolutionType: inc.resolutionType,
+      transferRef: inc.transferRef,
+      ozelSiparisId: inc.ozelSiparisId,
+    };
+  });
+
+  return {
+    toplam: incidents.length,
+    lensBroken,
+    frameBroken,
+    measurementShift,
+    kayitlar,
   };
 }
 
@@ -212,6 +302,22 @@ function dayRange(date: Date) {
   return { start, end };
 }
 
+function dateRangeBounds(startDate: Date, endDate: Date) {
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function saleWhereForCalendarRange(branchId: string, start: Date, end: Date) {
+  return {
+    branchId,
+    status: SaleStatus.PAID,
+    createdAt: { gte: start, lte: end },
+  } as const;
+}
+
 const paidSalesSelect = {
   id: true,
   netTotal: true,
@@ -296,6 +402,61 @@ async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
   }));
 }
 
+function formatMasrafItemSummary(description: string): string {
+  const trimmed = description.trim();
+  if (/^MASRAF:\s/.test(trimmed)) return trimmed;
+  const body = trimmed.replace(/^Masraf:\s*/i, '');
+  return `MASRAF: ${body}`;
+}
+
+async function buildMasrafDetailRows(shiftId: string) {
+  const movements = await prisma.cashMovement.findMany({
+    where: { shiftId, type: CashMovementType.CASH_OUT },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (movements.length === 0) return [];
+
+  const userIds = Array.from(new Set(movements.map((m) => m.userId)));
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true },
+  });
+  const userNameById = new Map(users.map((u) => [u.id, u.name]));
+
+  return movements.map((movement) => ({
+    tip: 'MASRAF' as const,
+    saleId: movement.id,
+    createdAt: movement.createdAt.toISOString(),
+    deliveryDate: null,
+    customerName: '—',
+    grossTotal: '0',
+    netTotal: '0',
+    taxExcluded: '0',
+    discountPct: '0',
+    sgkAmount: '0',
+    repName: userNameById.get(movement.userId) ?? '—',
+    cashAmount: movement.amount.negated().toString(),
+    cardPayments: [] as Array<{
+      bankName: string;
+      installment: number;
+      grossAmount: string;
+      commissionAmount: string;
+    }>,
+    transferAmount: '0',
+    itemSummary: formatMasrafItemSummary(movement.description),
+  }));
+}
+
+async function buildSalesDetailWithMasraflar(paidSales: PaidSaleForDetail[], shiftId: string) {
+  const [salesDetail, masrafRows] = await Promise.all([
+    buildSalesDetail(paidSales),
+    buildMasrafDetailRows(shiftId),
+  ]);
+  return [...salesDetail, ...masrafRows].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+}
+
 export async function getDailyReport(branchId: string, date: Date) {
   const { start, end } = dayRange(date);
 
@@ -320,6 +481,7 @@ export async function getDailyReport(branchId: string, date: Date) {
   }
 
   if (!shift) {
+    const labIncidents = await buildLabIncidentsSummary(branchId, start, end);
     return {
       date: date.toISOString(),
       branchId,
@@ -347,6 +509,7 @@ export async function getDailyReport(branchId: string, date: Date) {
       bankBreakdown: [],
       salesDetail: [],
       ...zeroExtras(),
+      labIncidents,
     };
   }
 
@@ -497,6 +660,8 @@ export async function getDailyReport(branchId: string, date: Date) {
     temsilciBreakdown,
   });
 
+  const labIncidents = await buildLabIncidentsSummary(branchId, start, end);
+
   return {
     date,
     branchId,
@@ -522,7 +687,8 @@ export async function getDailyReport(branchId: string, date: Date) {
     diff: shift.diff ? shift.diff.toString() : null,
     saleCount,
     bankBreakdown,
-    salesDetail: await buildSalesDetail(paidSales),
+    salesDetail: await buildSalesDetailWithMasraflar(paidSales, shift.id),
+    labIncidents,
     ...derived,
   };
 }
@@ -779,6 +945,201 @@ export async function getPersonalDailyReport(
     salesDetail: await buildSalesDetail(paidSales),
     ...derived,
   };
+}
+
+export async function getRangeReport(branchId: string, startDate: Date, endDate: Date) {
+  const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+  if (!branch) {
+    throw codeError('BRANCH_NOT_FOUND', 'Şube bulunamadı.');
+  }
+
+  const { start, end } = dateRangeBounds(startDate, endDate);
+  const paidSaleWhere = saleWhereForCalendarRange(branchId, start, end);
+
+  const paidSales = await prisma.sale.findMany({
+    where: paidSaleWhere,
+    select: paidSalesSelect,
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const salesAgg = await prisma.sale.aggregate({
+    where: paidSaleWhere,
+    _sum: {
+      grossTotal: true,
+      discountTotal: true,
+      netTotal: true,
+      taxTotal: true,
+    },
+    _count: { _all: true },
+  });
+
+  const paymentSaleWhere = { sale: paidSaleWhere };
+
+  const cashAgg = await prisma.payment.aggregate({
+    where: { ...paymentSaleWhere, paymentType: PaymentType.CASH },
+    _sum: { grossAmount: true },
+  });
+  const cardAgg = await prisma.payment.aggregate({
+    where: { ...paymentSaleWhere, paymentType: PaymentType.CARD },
+    _sum: { grossAmount: true, netAmount: true, commissionAmount: true },
+  });
+  const transferAgg = await prisma.payment.aggregate({
+    where: { ...paymentSaleWhere, paymentType: PaymentType.TRANSFER },
+    _sum: { grossAmount: true },
+  });
+  const openAccountAgg = await prisma.payment.aggregate({
+    where: { ...paymentSaleWhere, paymentType: PaymentType.OPEN_ACCOUNT },
+    _sum: { grossAmount: true },
+  });
+
+  const totalSales = salesAgg._sum.grossTotal ?? new Prisma.Decimal(0);
+  const totalDiscount = salesAgg._sum.discountTotal ?? new Prisma.Decimal(0);
+  const totalNet = salesAgg._sum.netTotal ?? new Prisma.Decimal(0);
+  const taxTotal = salesAgg._sum.taxTotal ?? new Prisma.Decimal(0);
+  const cashTotal = cashAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const cardGross = cardAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const cardNet = cardAgg._sum.netAmount ?? new Prisma.Decimal(0);
+  const totalCommission = cardAgg._sum.commissionAmount ?? new Prisma.Decimal(0);
+  const transferTotal = transferAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const openAccountTotal = openAccountAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const cashOut = new Prisma.Decimal(0);
+  const saleCount = salesAgg._count._all;
+
+  const bankGrouped = await prisma.payment.groupBy({
+    by: ['bankId', 'installment'],
+    where: {
+      paymentType: PaymentType.CARD,
+      bankId: { not: null },
+      sale: paidSaleWhere,
+    },
+    _sum: {
+      grossAmount: true,
+      commissionAmount: true,
+      netAmount: true,
+    },
+  });
+
+  const bankIds = Array.from(new Set(bankGrouped.map((b) => b.bankId).filter((x): x is string => Boolean(x))));
+  const banks = bankIds.length
+    ? await prisma.bank.findMany({ where: { id: { in: bankIds } }, select: { id: true, name: true } })
+    : [];
+  const bankNameById = new Map(banks.map((b) => [b.id, b.name]));
+
+  const bankBreakdown = bankGrouped.map((b) => ({
+    bankName: bankNameById.get(b.bankId as string) ?? '',
+    installment: b.installment ?? 1,
+    gross: (b._sum.grossAmount ?? new Prisma.Decimal(0)).toString(),
+    commission: (b._sum.commissionAmount ?? new Prisma.Decimal(0)).toString(),
+    net: (b._sum.netAmount ?? new Prisma.Decimal(0)).toString(),
+  }));
+
+  const allItems = paidSales.flatMap((sale) => sale.items);
+  const kategoriBreakdown = await buildKategoriBreakdown(allItems);
+
+  let toplamSgkHakki = new Prisma.Decimal(0);
+  const toplamVakifOdemesi = new Prisma.Decimal(0);
+  const repMap = new Map<string, { repName: string; saleCount: number; ciro: Prisma.Decimal }>();
+
+  for (const sale of paidSales) {
+    if (sale.sgkAmount) {
+      toplamSgkHakki = toplamSgkHakki.plus(sale.sgkAmount);
+    }
+    const repKey = sale.userId;
+    const prev = repMap.get(repKey) ?? {
+      repName: sale.user?.name ?? '—',
+      saleCount: 0,
+      ciro: new Prisma.Decimal(0),
+    };
+    prev.saleCount += 1;
+    prev.ciro = prev.ciro.plus(sale.netTotal);
+    repMap.set(repKey, prev);
+  }
+
+  const kampanyaBreakdown: Array<{ type: string; count: number }> = [];
+  const personelMap = await buildPersonelHedefMap();
+  const temsilciBreakdown = mapTemsilciBreakdown(repMap, personelMap);
+
+  const derived = buildDerivedMetrics({
+    totalSales,
+    taxTotal,
+    totalCommission,
+    cashTotal,
+    cashOut,
+    cardNet,
+    transferTotal,
+    totalNet,
+    saleCount,
+    toplamSgkHakki,
+    toplamVakifOdemesi,
+    kategoriBreakdown,
+    kampanyaBreakdown,
+    temsilciBreakdown,
+  });
+
+  return {
+    startDate: start.toISOString(),
+    endDate: end.toISOString(),
+    date: start.toISOString(),
+    branchId,
+    branchName: branch.name,
+    shiftId: null,
+    shiftOpenedAt: null,
+    openCash: '0',
+    totalSales: totalSales.toString(),
+    totalDiscount: totalDiscount.toString(),
+    totalNet: totalNet.toString(),
+    cashTotal: cashTotal.toString(),
+    cardGross: cardGross.toString(),
+    cardNet: cardNet.toString(),
+    totalCommission: totalCommission.toString(),
+    transferTotal: transferTotal.toString(),
+    openAccountTotal: openAccountTotal.toString(),
+    taxTotal: taxTotal.toString(),
+    cashIn: '0',
+    cashOut: '0',
+    advanceTotal: '0',
+    expectedCash: '0',
+    physicalCash: null,
+    diff: null,
+    saleCount,
+    bankBreakdown,
+    salesDetail: await buildSalesDetail(paidSales),
+    ...derived,
+  };
+}
+
+export async function getMonthlyPersonelBreakdown(branchId: string, ay: number, yil: number) {
+  if (ay < 1 || ay > 12 || yil < 2000 || yil > 2100) {
+    throw codeError('VALIDATION_ERROR', 'Geçersiz ay veya yıl.');
+  }
+
+  const start = new Date(yil, ay - 1, 1, 0, 0, 0, 0);
+  const end = new Date(yil, ay, 0, 23, 59, 59, 999);
+
+  const paidSales = await prisma.sale.findMany({
+    where: saleWhereForCalendarRange(branchId, start, end),
+    select: {
+      userId: true,
+      netTotal: true,
+      user: { select: { name: true } },
+    },
+  });
+
+  const repMap = new Map<string, { repName: string; saleCount: number; ciro: Prisma.Decimal }>();
+  for (const sale of paidSales) {
+    const repKey = sale.userId;
+    const prev = repMap.get(repKey) ?? {
+      repName: sale.user?.name ?? '—',
+      saleCount: 0,
+      ciro: new Prisma.Decimal(0),
+    };
+    prev.saleCount += 1;
+    prev.ciro = prev.ciro.plus(sale.netTotal);
+    repMap.set(repKey, prev);
+  }
+
+  const personelMap = await buildPersonelHedefMap();
+  return mapTemsilciBreakdown(repMap, personelMap);
 }
 
 export async function generateDailyExcel(branchId: string, date: Date) {

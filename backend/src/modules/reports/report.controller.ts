@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import multer from 'multer';
 import { Role } from '@prisma/client';
 import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
@@ -6,6 +7,7 @@ import * as reportService from './report.service';
 import * as reportEngine from './report-engine.service';
 import * as reportExport from './report-export.service';
 import * as reportTemplate from './report-template.service';
+import * as gunlukNot from './gunluk-not.service';
 import { ReportExportInput, ReportQueryInput } from './report-engine.types';
 import {
   CreateReportRequestInput,
@@ -14,6 +16,33 @@ import {
 } from './report-template.types';
 
 const router = Router();
+
+const gunlukNotUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+
+function parseEkAliciEmail(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.filter((e): e is string => typeof e === 'string');
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed.filter((e): e is string => typeof e === 'string');
+        }
+      } catch {
+        // fall through to comma split
+      }
+    }
+    return trimmed.split(/[,;\s]+/).filter(Boolean);
+  }
+  return [];
+}
 router.use(authenticate);
 
 function handleReportEngineError(err: unknown, res: Response): boolean {
@@ -22,6 +51,29 @@ function handleReportEngineError(err: unknown, res: Response): boolean {
     return true;
   }
   return false;
+}
+
+function handleGunlukNotError(err: unknown, res: Response): boolean {
+  if (!(err instanceof Error) || !('code' in err)) return false;
+  const code = (err as Error & { code: string }).code;
+  if (code === 'FORBIDDEN') {
+    res.status(403).json({ error: code, message: err.message });
+    return true;
+  }
+  if (code === 'VALIDATION_ERROR' || code === 'EMAIL_FAILED') {
+    res.status(400).json({ error: code, message: err.message });
+    return true;
+  }
+  if (code === 'BRANCH_NOT_FOUND') {
+    res.status(404).json({ error: code, message: err.message });
+    return true;
+  }
+  return false;
+}
+
+function resolveBranchId(req: Request): string {
+  const fromQuery = req.query.branchId ? String(req.query.branchId) : null;
+  return fromQuery ?? req.user!.branchId;
 }
 
 function handleTemplateError(err: unknown, res: Response): boolean {
@@ -279,6 +331,113 @@ router.get(
     }
   },
 );
+
+router.get(
+  '/gunluk-not',
+  authorize(Role.SALES_STAFF, Role.STORE_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const branchId = resolveBranchId(req);
+      const tarih = req.query.tarih ? String(req.query.tarih) : new Date().toISOString().slice(0, 10);
+      await gunlukNot.assertBranchAccess(branchId, req.user!.userId, req.user!.role);
+      const result = await gunlukNot.getGunlukDurumNotu(branchId, tarih);
+      return res.status(200).json(result);
+    } catch (err) {
+      if (handleGunlukNotError(err, res)) return;
+      next(err);
+    }
+  },
+);
+
+router.put(
+  '/gunluk-not',
+  authorize(Role.SALES_STAFF, Role.STORE_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { branchId: bodyBranchId, tarih, metin } = req.body ?? {};
+      const branchId = bodyBranchId ? String(bodyBranchId) : req.user!.branchId;
+      if (!tarih || typeof metin !== 'string') {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'branchId, tarih ve metin gerekli.' });
+      }
+      await gunlukNot.assertBranchAccess(branchId, req.user!.userId, req.user!.role);
+      const result = await gunlukNot.upsertGunlukDurumNotu(
+        branchId,
+        String(tarih),
+        metin,
+        req.user!.userId,
+      );
+      return res.status(200).json(result);
+    } catch (err) {
+      if (handleGunlukNotError(err, res)) return;
+      next(err);
+    }
+  },
+);
+
+router.post(
+  '/gunluk-not/gonder',
+  authorize(Role.STORE_MANAGER, Role.ADMIN),
+  gunlukNotUpload.single('pdf'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { branchId: bodyBranchId, tarih } = req.body ?? {};
+      const branchId = bodyBranchId ? String(bodyBranchId) : req.user!.branchId;
+      if (!tarih) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'tarih gerekli.' });
+      }
+      if (!req.file?.buffer?.length) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'PDF dosyası gerekli.' });
+      }
+      await gunlukNot.assertBranchAccess(branchId, req.user!.userId, req.user!.role);
+      const ekList = parseEkAliciEmail(req.body?.ekAliciEmail);
+      const result = await gunlukNot.sendGunlukDurumNotuEmail(
+        branchId,
+        String(tarih),
+        ekList,
+        req.file.buffer,
+      );
+      return res.status(200).json(result);
+    } catch (err) {
+      if (handleGunlukNotError(err, res)) return;
+      next(err);
+    }
+  },
+);
+
+router.get('/range', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const startParsed = parseDateParam(req.query.start);
+    const endParsed = parseDateParam(req.query.end);
+    if (!startParsed || !endParsed) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz start/end parametresi.' });
+    }
+    if (startParsed.d.getTime() > endParsed.d.getTime()) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Başlangıç tarihi bitişten sonra olamaz.' });
+    }
+    const report = await reportService.getRangeReport(
+      req.user!.branchId,
+      startParsed.d,
+      endParsed.d,
+    );
+    return res.status(200).json(report);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/personel-aylik', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const ay = Number(req.query.ay);
+    const yil = Number(req.query.yil);
+    if (!Number.isInteger(ay) || !Number.isInteger(yil)) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz ay/yil parametresi.' });
+    }
+    const rows = await reportService.getMonthlyPersonelBreakdown(req.user!.branchId, ay, yil);
+    return res.status(200).json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/daily', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {

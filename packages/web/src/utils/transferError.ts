@@ -1,6 +1,9 @@
+import { apiErrorBodyMesaji } from './extractApiErrorMessage'
+
 type TransferErrorPayload = {
   error?: string
   message?: string
+  detail?: string
 } | null | undefined
 
 const SIRKETLER_ARASI_FALLBACK =
@@ -10,7 +13,7 @@ export function transferHataMesaji(data: TransferErrorPayload, fallback: string)
   if (data?.error === 'SIRKETLER_ARASI') {
     return data.message ?? SIRKETLER_ARASI_FALLBACK
   }
-  return data?.message ?? fallback
+  return apiErrorBodyMesaji(data, fallback)
 }
 
 export function transferHataMiSirketlerArasi(data: TransferErrorPayload): boolean {

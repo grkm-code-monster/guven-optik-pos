@@ -7,7 +7,7 @@ export const SUNGLASSES_READY = 'SUNGLASSES_READY'
 /** Odoo optik cam kategori ID'leri */
 export const ODOO_OPTIK_CAM_CATEGORY_IDS = [
   4, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
-  36, 37, 38, 39, 40, 41,
+  36, 37, 38, 39, 40, 41, 42, 43, 44,
 ] as const
 const OPTIK_CAM_ID_SET = new Set<number>(ODOO_OPTIK_CAM_CATEGORY_IDS)
 
@@ -29,6 +29,9 @@ function isLensMeasurementSaleItem(item: SaleItem): boolean {
   if (linkType === 'FRAME_LENS' || linkType === 'CUSTOMER_FRAME') return true
   return false
 }
+
+/** Lab / montaj sürecine tabi kalem (TeslimatPage, backend sale-item-lab.util ile uyumlu) */
+export { isLensMeasurementSaleItem }
 
 export type LensOrderFrameTypeApi = 'KAPALI' | 'NILOR' | 'FASET'
 

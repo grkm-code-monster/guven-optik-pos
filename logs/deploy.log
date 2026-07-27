@@ -1,0 +1,24 @@
+
+
+========== Deploy başladı: 2026-07-27T11:32:19.443Z ==========
+[DRY RUN] git pull
+[DRY RUN] npm install (backend)
+[DRY RUN] npm install (web)
+[DRY RUN] prisma migrate deploy
+[DRY RUN] npm run build (backend)
+[DRY RUN] npm run build (web)
+[DRY RUN] pm2 restart guven-backend guven-frontend
+
+========== Deploy tamamlandı ==========
+
+
+========== Deploy başladı: 2026-07-27T11:32:56.573Z ==========
+[DRY RUN] git pull
+[DRY RUN] npm install (backend)
+[DRY RUN] npm install (web)
+[DRY RUN] prisma migrate deploy
+[DRY RUN] npm run build (backend)
+[DRY RUN] npm run build (web)
+[DRY RUN] pm2 restart guven-backend guven-frontend
+
+========== Deploy tamamlandı ==========

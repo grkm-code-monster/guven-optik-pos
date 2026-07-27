@@ -4,26 +4,58 @@ import { Prisma, Role, SaleStatus, ShiftStatus, SyncStatus } from '@prisma/clien
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { prisma } from '../../database/prisma';
 import { authenticate } from '../../middleware/authenticate';
-import { authorize } from '../../middleware/authorize';
+import { authorize, authorizeOrYetki } from '../../middleware/authorize';
+import { resolveAdminRouteAccess } from './ek-yetki';
 import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
-import { LOKASYON_ID_MAP } from '../odoo/odooLocations';
+import {
+  findExistingCategoryMatch,
+  OdooCategoryMatchError,
+  resolveOrCreateCategoryId,
+} from '../odoo/odoo-category.util';
+import { getAnaDepoLocationId, getCompanyIdFromLokasyon, LOKASYON_ID_MAP } from '../odoo/odooLocations';
+import { getOrCreateFaturasizCari } from '../odoo/faturasiz-cari.util';
 import * as pdksService from '../pdks/pdks.service';
 import * as stokYonetimi from './stok-yonetimi.service';
+import * as stokExport from './stok-export.service';
+import { buildUtsDuzeltmeSablonBuffer } from './envanter-uts-duzeltme-export.service';
+import {
+  ptavKey,
+  temizleImportSonrasiVaryantlar,
+} from './varyant-import-temizlik.service';
 import * as bildirimService from '../bildirim/bildirim.service';
 import {
   getOzelSiparisLoglari,
   getOzelSiparisStokGirisDetay,
   stokaAlOzelSiparis,
   updateOzelSiparisDurum,
+  createOzelSiparis,
 } from '../ozel-siparis/ozel-siparis.service';
-
-const POS_ROLES = [
-  Role.SALES_STAFF,
-  Role.STORE_MANAGER,
-  Role.WAREHOUSE_MANAGER,
-  Role.REGIONAL_MANAGER,
-  Role.ADMIN,
-] as const;
+import { olusturTransfer } from './transfer-olustur.service';
+import { kabulEtTransfer } from '../transfer/transfer-core.service';
+import { listTransferAksiyonLogs } from '../transfer/transfer-aksiyon-log.service';
+import {
+  bildirimOlusturVeGonder,
+  extractUtsHataDetay,
+  gondermeBildiriminiYap,
+  resolveUtsSubeForSubeKodu,
+  sirketIdToReferansSube,
+  sorgulaAlmaBekleyenler,
+  sorgulaBelgeNoIleAlmaBekleyenler,
+  almakIstemiyorumOlarakIsaretle,
+  bekleyenAlmaTopluBildir,
+  listGonderilenUtsBildirimler,
+  listUrunGirisiBekleyenler,
+  markUtsUrunGirisiTamamlandi,
+  testUtsSubeToken,
+  urunGirisiBekleyenSayac,
+} from '../uts/uts.service';
+import envanterImportRouter from './envanter-import.controller';
+import sablonExcelImportRouter from './sablon-excel-import.controller';
+import deployRouter from './deploy.controller';
+import { applyStockAdjustment } from './stock-adjustment.service';
+import { getOrCreateStockLot, isLotAvailableForReceipt } from './stock-lot.service';
+import { syncPersonelSubeFromUserId, syncOdooEmployeeIdFromPersonel, syncOdooEmployeeIdFromUser, syncEkYetkilerFromPersonel } from './personel-sube-sync';
+import { filterSecilebilirEkYetkiler } from './ek-yetki';
 
 const ODOO_ALL_COMPANIES_KWARGS = {
   context: { allowed_company_ids: [...ODOO_ALL_COMPANY_IDS] },
@@ -382,26 +414,8 @@ router.get(
 );
 
 router.use((req: Request, res: Response, next: NextFunction) => {
-  // POS — stok sorgu, temin adımı (lokasyon stok, özel sipariş, transfer)
-  if (
-    req.path === '/branches' ||
-    req.path === '/stock' ||
-    req.path === '/lokasyon-stok' ||
-    req.path === '/stok-kontrol-urun' ||
-    req.path === '/ozel-siparis-ekle'
-  ) {
-    return authorize(...POS_ROLES)(req, res, next);
-  }
-  if (req.path.startsWith('/transfer-')) {
-    return authorize(...POS_ROLES)(req, res, next);
-  }
-  if (req.path.startsWith('/fiyat-degisiklikleri')) {
-    return authorize(Role.ADMIN, Role.STORE_MANAGER)(req, res, next);
-  }
-  if (req.path.startsWith('/stok-urun') || req.path.startsWith('/stok-fiyat')) {
-    return authorize(Role.ADMIN, Role.WAREHOUSE_MANAGER)(req, res, next);
-  }
-  return authorize(Role.ADMIN)(req, res, next);
+  const { yetkiler, roles } = resolveAdminRouteAccess(req.path);
+  return authorizeOrYetki(yetkiler, ...roles)(req, res, next);
 });
 
 function codeError(code: string, message: string) {
@@ -558,6 +572,7 @@ router.get('/users', async (_req: Request, res: Response, next: NextFunction) =>
         role: true,
         branchId: true,
         isActive: true,
+        canWorkAtolye: true,
         createdAt: true,
         personelId: true,
         odooEmployeeId: true,
@@ -590,6 +605,7 @@ router.post('/users', async (req: Request, res: Response, next: NextFunction) =>
     const branchId = String(req.body?.branchId ?? '').trim();
     const personelId = req.body?.personelId ?? null;
     const odooEmployeeId = req.body?.odooEmployeeId ? Number(req.body.odooEmployeeId) : null;
+    const canWorkAtolye = req.body?.canWorkAtolye === true;
     if (!name || !username || !pin || !role || !branchId) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz istek gövdesi.' });
     }
@@ -600,7 +616,7 @@ router.post('/users', async (req: Request, res: Response, next: NextFunction) =>
     const pinHash = await bcrypt.hash(pin, 10);
 
     const user = await prisma.user.create({
-      data: { name, username, pin: pinHash, role, branchId, isActive: true, personelId, odooEmployeeId },
+      data: { name, username, pin: pinHash, role, branchId, isActive: true, personelId, odooEmployeeId, canWorkAtolye },
     });
 
     return res.status(200).json({
@@ -610,6 +626,7 @@ router.post('/users', async (req: Request, res: Response, next: NextFunction) =>
       role: user.role,
       branchId: user.branchId,
       isActive: user.isActive,
+      canWorkAtolye: user.canWorkAtolye,
       createdAt: user.createdAt,
     });
   } catch (err) {
@@ -638,6 +655,9 @@ router.put('/users/:id', async (req: Request, res: Response, next: NextFunction)
     if (req.body?.odooEmployeeId !== undefined) {
       data.odooEmployeeId = req.body.odooEmployeeId ? Number(req.body.odooEmployeeId) : null;
     }
+    if (req.body?.canWorkAtolye !== undefined) {
+      data.canWorkAtolye = Boolean(req.body.canWorkAtolye);
+    }
 
     if (data.username && data.username !== existing.username) {
       const u = await prisma.user.findUnique({ where: { username: data.username } });
@@ -653,6 +673,7 @@ router.put('/users/:id', async (req: Request, res: Response, next: NextFunction)
       role: user.role,
       branchId: user.branchId,
       isActive: user.isActive,
+      canWorkAtolye: user.canWorkAtolye,
       createdAt: user.createdAt,
     });
   } catch (err) {
@@ -688,43 +709,15 @@ router.post('/users/:id/link-employee', async (req: Request, res: Response, next
     }
 
     const emp = employees[0];
+    const { personelSynced } = await syncOdooEmployeeIdFromUser(userId, odooEmployeeId);
 
-    const empNameParts = emp.name.trim().split(' ');
-    const soyad = empNameParts[empNameParts.length - 1];
-    const ad = empNameParts.slice(0, -1).join(' ');
-
-    const personel = await prisma.personel.findFirst({
-      where: {
-        ad: { contains: ad, mode: 'insensitive' },
-        soyad: { contains: soyad, mode: 'insensitive' },
-      },
-    });
-
-    let personelLinked = false;
-    if (personel && !personel.userId) {
-      await prisma.personel.update({
-        where: { id: personel.id },
-        data: {
-          userId,
-          odooEmployeeId,
-        },
-      });
-      personelLinked = true;
-    }
-
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        odooEmployeeId,
-        personelId: personelLinked ? personel!.id : undefined,
-      },
-    });
+    const updated = await prisma.user.findUnique({ where: { id: userId } });
 
     return res.json({
       success: true,
       user: updated,
       odooEmployee: emp,
-      personelLinked,
+      personelLinked: personelSynced,
     });
   } catch (err) {
     if (handleAdminError(err, res)) return;
@@ -852,8 +845,9 @@ router.get('/branch-list', async (_req: Request, res: Response) => {
         vkn: true,
         odooLocationId: true,
         pdksPlaceId: true,
-        uyumsoftUser: true,
         adres: true,
+        il: true,
+        ilce: true,
         telefon: true,
         yedekSorumluId: true,
       },
@@ -869,8 +863,7 @@ router.get('/branch-list', async (_req: Request, res: Response) => {
 router.post('/branch', authorize(Role.ADMIN), async (req, res, next) => {
   try {
     const { name, code, sirketId, sirketAdi, vkn,
-      odooLocationId, pdksPlaceId, uyumsoftUser,
-      uyumsoftPass, adres, telefon } = req.body;
+      odooLocationId, pdksPlaceId, adres, il, ilce, telefon } = req.body;
     if (!name?.trim() || !code?.trim()) {
       return res.status(400).json({ error: 'name ve code zorunlu' });
     }
@@ -882,9 +875,10 @@ router.post('/branch', authorize(Role.ADMIN), async (req, res, next) => {
         sirketAdi: sirketAdi || null, vkn: vkn || null,
         odooLocationId: odooLocationId ? Number(odooLocationId) : null,
         pdksPlaceId: pdksPlaceId ? Number(pdksPlaceId) : null,
-        uyumsoftUser: uyumsoftUser || null,
-        uyumsoftPass: uyumsoftPass || null,
-        adres: adres || null, telefon: telefon || null,
+        adres: adres || null,
+        il: il?.trim() || null,
+        ilce: ilce?.trim() || null,
+        telefon: telefon || null,
       },
     });
     return res.json({ success: true, data: branch });
@@ -900,7 +894,7 @@ router.post('/branch', authorize(Role.ADMIN), async (req, res, next) => {
 router.put('/branch/:id', authorize(Role.ADMIN), async (req, res, next) => {
   try {
     const data: any = {};
-    const strFields = ['name', 'sirketAdi', 'vkn', 'adres', 'telefon', 'uyumsoftUser', 'uyumsoftPass'];
+    const strFields = ['name', 'sirketAdi', 'vkn', 'adres', 'il', 'ilce', 'telefon'];
     const numFields = ['sirketId', 'odooLocationId', 'pdksPlaceId'];
     for (const f of strFields) {
       if (req.body[f] !== undefined) data[f] = req.body[f] || null;
@@ -1006,7 +1000,7 @@ router.get('/stock', async (req: Request, res: Response) => {
       'search_read',
       [domain],
       {
-        fields: ['product_id', 'location_id', 'quantity', 'reserved_quantity', 'product_categ_id'],
+        fields: ['id', 'product_id', 'location_id', 'quantity', 'reserved_quantity', 'product_categ_id'],
         limit: 500,
         order: 'quantity desc',
         ...ODOO_ALL_COMPANIES_KWARGS,
@@ -1016,6 +1010,23 @@ router.get('/stock', async (req: Request, res: Response) => {
     return res.json({ success: true, data: quants });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/stock-adjustment', async (req: Request, res: Response) => {
+  try {
+    const { productId, locationCode, qty, quantId } = req.body ?? {};
+    const result = await applyStockAdjustment({
+      productId: Number(productId),
+      locationCode: String(locationCode ?? ''),
+      qty: Number(qty),
+      quantId: quantId != null && quantId !== '' ? Number(quantId) : undefined,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    const msg = odooErrText(err);
+    console.error('[stock-adjustment hata]', msg);
+    return res.status(400).json({ success: false, error: msg });
   }
 });
 
@@ -1412,14 +1423,17 @@ router.delete('/campaigns/:id', async (req: Request, res: Response) => {
 // ── ÜRÜN ARA (Odoo product.template) ──────────────────────────────
 router.get('/urun-ara', async (req: Request, res: Response) => {
   try {
-    const q = String(req.query.q ?? '').trim().toLowerCase();
+    const q = String(req.query.q ?? '').trim();
+    if (!q || q.length < 1) return res.json({ data: [] });
 
     const domain: any[] = [
       ['active', '=', true],
       ['type', 'in', ['product', 'consu']],
-      '|',
+      '|', '|', '|',
       ['name', 'ilike', q],
       ['attribute_line_ids.value_ids.name', 'ilike', q],
+      ['barcode', 'ilike', q],
+      ['default_code', 'ilike', q],
     ];
 
     const products = await execute(
@@ -1458,16 +1472,22 @@ router.post('/urun-olustur', async (req: Request, res: Response) => {
 
     let categId: number | null = null;
     if (categ_name?.trim()) {
-      const cats = await execute(
-        'product.category',
-        'search_read',
-        [[['name', 'ilike', categ_name.trim()]]],
-        { fields: ['id', 'name'], limit: 1 },
-      );
-      if (Array.isArray(cats) && cats.length > 0) {
-        categId = cats[0].id;
-      } else {
-        categId = await execute('product.category', 'create', [{ name: categ_name.trim() }]);
+      try {
+        const resolved = await resolveOrCreateCategoryId(categ_name);
+        categId = resolved.id;
+      } catch (err) {
+        if (err instanceof OdooCategoryMatchError) {
+          return res.status(400).json({
+            error: err.message,
+            code: err.code,
+            candidates: err.candidates.map((c) => ({
+              id: c.id,
+              name: c.name,
+              complete_name: c.complete_name,
+            })),
+          });
+        }
+        throw err;
       }
     }
 
@@ -1717,7 +1737,7 @@ router.post('/nitelik-olustur', async (req: Request, res: Response) => {
     if (Array.isArray(existing) && existing.length > 0) {
       attrId = existing[0].id;
     } else {
-      attrId = await execute('product.attribute', 'create', [{ name: name.trim(), create_variant: 'always' }]);
+      attrId = await execute('product.attribute', 'create', [{ name: name.trim(), create_variant: 'dynamic' }]);
     }
 
     // Değerleri ekle
@@ -1848,6 +1868,8 @@ router.get('/uretici-ara', async (req: Request, res: Response) => {
 });
 
 // ── İRSALİYE OLUŞTUR (Odoo stock.picking — lokasyon bazlı) ─────────
+// NOT: DepoPage Adım 4 kısayolu kaldırıldı (2026-07). Frontend artık çağırmıyor.
+// Asıl akış: POST /admin/urun-giris (Adım 5 kaydet). Endpoint referans için korunuyor.
 router.post('/irsaliye-olustur', async (req: Request, res: Response) => {
   try {
     const {
@@ -2010,6 +2032,8 @@ router.post('/satis-fiyati-guncelle', async (req: Request, res: Response) => {
 });
 
 // ── DIŞ MÜŞTERİ TRANSFER + SATIŞ FATURASI ────────────────────────
+// NOT: DepoPage Adım 4 dış müşteri kısayolu kaldırıldı (2026-07). Frontend artık çağırmıyor.
+// Asıl akış: POST /admin/urun-giris (Adım 5 kaydet). Endpoint referans için korunuyor.
 router.post('/dis-musteri-transfer', async (req: Request, res: Response) => {
   try {
     const { sirketId, faturaNo, faturaTarihi, partnerId, partnerAdi, kalemler } = req.body ?? {};
@@ -2226,21 +2250,34 @@ async function resolveProductVariantId(
     } catch { /* fallthrough */ }
   }
 
-  if (!bizimUrunOdooId) return null;
+  if (bizimUrunOdooId) {
+    const byTemplate = await execute(
+      'product.product',
+      'search_read',
+      [[['product_tmpl_id', '=', bizimUrunOdooId]]],
+      { fields: ['id'], limit: 1 },
+      cid,
+    );
+    if (byTemplate?.[0]?.id) return byTemplate[0].id;
 
-  try {
-    const asProduct = await execute('product.product', 'read', [[bizimUrunOdooId]], { fields: ['id'] }, cid);
-    if (asProduct?.[0]?.id) return asProduct[0].id;
-  } catch { /* template id olabilir */ }
+    try {
+      const asProduct = await execute(
+        'product.product',
+        'read',
+        [[bizimUrunOdooId]],
+        { fields: ['id', 'product_tmpl_id'] },
+        cid,
+      );
+      const row = asProduct?.[0];
+      if (row?.id) {
+        const tmplRef = row.product_tmpl_id;
+        const tmplId = Array.isArray(tmplRef) ? tmplRef[0] : tmplRef;
+        if (tmplId && tmplId !== bizimUrunOdooId) return row.id;
+      }
+    } catch { /* template id olabilir */ }
+  }
 
-  const variants = await execute(
-    'product.product',
-    'search_read',
-    [[['product_tmpl_id', '=', bizimUrunOdooId]]],
-    { fields: ['id'], limit: 1 },
-    cid,
-  );
-  return variants?.[0]?.id ?? null;
+  return null;
 }
 
 async function resolveProductTemplateId(
@@ -2282,90 +2319,6 @@ async function getProductUomId(productId: number, companyId?: number): Promise<n
   const uom = rows?.[0]?.uom_id;
   if (Array.isArray(uom)) return uom[0] ?? 1;
   return typeof uom === 'number' ? uom : 1;
-}
-
-async function isLotAvailableForReceipt(
-  lotId: number,
-  companyId?: number,
-  excludePickingId?: number,
-): Promise<{ available: boolean; reason?: string }> {
-  const cid = companyId && companyId > 0 ? companyId : undefined;
-
-  const doneMls = await execute(
-    'stock.move.line',
-    'search_read',
-    [[['lot_id', '=', lotId], ['state', '=', 'done']]],
-    { fields: ['id', 'picking_id'], limit: 3 },
-    cid,
-  );
-  if (doneMls?.length) {
-    const pickName = doneMls[0].picking_id?.[1] ?? doneMls[0].picking_id?.[0];
-    return { available: false, reason: `Seri no zaten teslim alınmış (picking: ${pickName})` };
-  }
-
-  const openMls = await execute(
-    'stock.move.line',
-    'search_read',
-    [[['lot_id', '=', lotId], ['state', 'not in', ['done', 'cancel']]]],
-    { fields: ['id', 'picking_id', 'state'], limit: 5 },
-    cid,
-  );
-  for (const ml of openMls ?? []) {
-    const pickId = ml.picking_id?.[0];
-    if (excludePickingId && pickId === excludePickingId) continue;
-    const pickName = ml.picking_id?.[1] ?? pickId;
-    return { available: false, reason: `Seri no başka picking'de kullanımda: ${pickName} (ml ${ml.id})` };
-  }
-
-  const quants = await execute(
-    'stock.quant',
-    'search_read',
-    [[['lot_id', '=', lotId], ['quantity', '>', 0]]],
-    { fields: ['location_id', 'quantity'], limit: 5 },
-    cid,
-  );
-  for (const q of quants ?? []) {
-    const locName = String(q.location_id?.[1] ?? '');
-    if (!locName.toLowerCase().includes('vendor')) {
-      return { available: false, reason: `Seri no stokta: ${locName} (qty=${q.quantity})` };
-    }
-  }
-
-  return { available: true };
-}
-
-async function getOrCreateStockLot(
-  lotNo: string,
-  productId: number,
-  companyId?: number,
-  barkod?: string,
-): Promise<number> {
-  const cid = companyId && companyId > 0 ? companyId : undefined;
-  const existing = await execute(
-    'stock.lot',
-    'search_read',
-    [[['name', '=', lotNo], ['product_id', '=', productId]]],
-    { fields: ['id'], limit: 1 },
-    cid,
-  );
-  if (existing?.[0]?.id) {
-    const avail = await isLotAvailableForReceipt(existing[0].id, cid);
-    if (!avail.available) {
-      throw new Error(
-        `Seri no "${lotNo}" yeniden kullanılamaz: ${avail.reason}. ` +
-        'Önceki yarım kalan girişi temizleyin veya sihirbazı yeni oturumla (yeni GRS no) başlatın.',
-      );
-    }
-    console.log(`[urun-giris] mevcut lot kullanıldı (müsait): ${lotNo} → ${existing[0].id}`);
-    return existing[0].id;
-  }
-
-  const lotVals: Record<string, any> = { name: lotNo, product_id: productId };
-  if (barkod) lotVals.ref = barkod;
-  if (cid) lotVals.company_id = cid;
-  const lotId = await execute('stock.lot', 'create', [lotVals], {}, cid);
-  console.log(`[urun-giris] yeni lot oluşturuldu: ${lotNo} → ${lotId}`);
-  return lotId;
 }
 
 async function resolveLotOdooId(
@@ -2569,7 +2522,7 @@ async function assignLotsAndValidatePicking(
   companyId?: number,
 ): Promise<void> {
   const cid = companyId && companyId > 0 ? companyId : undefined;
-  const anadepoId = LOKASYON_ID_MAP.ANADEPO;
+  const hedefLokasyonId = getAnaDepoLocationId(cid ?? 1);
 
   const pickingRows = await execute(
     'stock.picking',
@@ -2582,13 +2535,19 @@ async function assignLotsAndValidatePicking(
   if (!picking) throw new Error(`Picking bulunamadı: ${pickingId}`);
 
   const locationId = picking.location_id?.[0];
-  const locationDestId = anadepoId || picking.location_dest_id?.[0];
+  const locationDestId = hedefLokasyonId || picking.location_dest_id?.[0];
   console.log(
-    `[urun-giris] picking ${picking.name} state=${picking.state} loc=${picking.location_id?.[1]} → dest=${locationDestId}`,
+    `[urun-giris] picking ${picking.name} state=${picking.state} loc=${picking.location_id?.[1]} → dest=${locationDestId} (company ${cid ?? 1} ana depo)`,
   );
 
   if (locationDestId && picking.location_dest_id?.[0] !== locationDestId) {
-    await execute('stock.picking', 'write', [[pickingId], { location_dest_id: locationDestId }], {}, cid);
+    await execute(
+      'stock.picking',
+      'write',
+      [[pickingId], { location_dest_id: locationDestId }],
+      {},
+      cid,
+    );
   }
 
   if (picking.state === 'draft') {
@@ -2704,12 +2663,128 @@ async function assignLotsAndValidatePicking(
     'stock.picking',
     'read',
     [[pickingId]],
-    { fields: ['state'] },
+    { fields: ['state', 'location_dest_id'] },
     cid,
   );
   if (after?.[0]?.state !== 'done') {
     throw new Error(`Picking validate sonrası state=${after?.[0]?.state ?? 'bilinmiyor'} (done bekleniyordu)`);
   }
+}
+
+async function resolveSupplierLocationId(companyId: number): Promise<number> {
+  const cid = companyId;
+  let rows = await execute(
+    'stock.location',
+    'search_read',
+    [[['usage', '=', 'supplier'], ['company_id', '=', cid]]],
+    { fields: ['id'], limit: 1 },
+    cid,
+  );
+  if (!rows.length) {
+    rows = await execute(
+      'stock.location',
+      'search_read',
+      [[['usage', '=', 'supplier'], ['company_id', '=', false]]],
+      { fields: ['id'], limit: 1 },
+    );
+  }
+  if (!rows.length) {
+    rows = await execute(
+      'stock.location',
+      'search_read',
+      [[['usage', '=', 'supplier']]],
+      { fields: ['id'], limit: 1 },
+    );
+  }
+  const locId = rows[0]?.id;
+  if (!locId) throw new Error('Tedarikçi lokasyonu bulunamadı');
+  return locId;
+}
+
+/** Faturasız giriş: PO olmadan incoming picking + move satırları */
+async function createFaturasizIncomingPicking(
+  companyId: number,
+  girisNo: string,
+  satirList: any[],
+  faturaTarihi?: string,
+): Promise<number> {
+  const cid = companyId;
+  const hedefId = getAnaDepoLocationId(cid);
+  const tedarikciLokId = await resolveSupplierLocationId(cid);
+  const faturasizCariId = await getOrCreateFaturasizCari(cid);
+
+  const ptRows = await execute(
+    'stock.picking.type',
+    'search_read',
+    [[['code', '=', 'incoming'], ['active', '=', true], ['company_id', '=', cid]]],
+    { fields: ['id'], limit: 1 },
+    cid,
+  );
+  if (!ptRows.length) {
+    throw new Error(`Şirket ${cid} için incoming picking type bulunamadı`);
+  }
+
+  const origin = String(girisNo ?? '').trim() || 'FATURASIZ';
+  const pickingId = await execute(
+    'stock.picking',
+    'create',
+    [{
+      picking_type_id: ptRows[0].id,
+      location_id: tedarikciLokId,
+      location_dest_id: hedefId,
+      company_id: cid,
+      partner_id: faturasizCariId,
+      origin,
+      scheduled_date: faturaTarihi || new Date().toISOString().slice(0, 10),
+      note: `Faturasız ürün girişi — ${origin}`,
+    }],
+    {},
+    cid,
+  );
+
+  let moveCount = 0;
+  for (const satir of satirList) {
+    const productId = await resolveProductVariantId(
+      satir.bizimUrunOdooId,
+      satir.bizimUrunProductId,
+      cid,
+    );
+    if (!productId) {
+      console.warn('[urun-giris] faturasız move atlandı — ürün bulunamadı:', satir.id);
+      continue;
+    }
+    const qty = Math.max(1, Math.round(Number(satir.miktar) || 1));
+    const uomId = await getProductUomId(productId, cid);
+    await execute(
+      'stock.move',
+      'create',
+      [{
+        picking_id: pickingId,
+        product_id: productId,
+        product_uom_qty: qty,
+        product_uom: uomId,
+        location_id: tedarikciLokId,
+        location_dest_id: hedefId,
+        name: satir.tedarikciUrunAdi || satir.bizimUrunAdi || 'Ürün',
+      }],
+      {},
+      cid,
+    );
+    moveCount++;
+  }
+
+  if (moveCount === 0) {
+    try {
+      await execute('stock.picking', 'unlink', [[pickingId]], {}, cid);
+    } catch { /* boş picking silinemezse sorun değil */ }
+    throw new Error('Stok hareketi için geçerli ürün satırı bulunamadı');
+  }
+
+  console.log(
+    `[urun-giris] faturasız incoming picking ${pickingId} oluşturuldu `
+    + `(${moveCount} move) → dest=${hedefId} (company ${cid})`,
+  );
+  return pickingId;
 }
 
 // ── ÜRÜN GİRİŞİ ANA ENDPOINT ──────────────────────────────────────
@@ -2729,6 +2804,7 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
       satirlar,
       lotlar,
       girisNo,
+      girisTipi,
     } = req.body ?? {};
 
     const sonuclar: Record<string, any> = {};
@@ -2736,8 +2812,20 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
     const cid = sirketId && Number(sirketId) > 0 ? Number(sirketId) : undefined;
     const satirList = satirlar ?? [];
     const lotList = lotlar ?? [];
+    const girisTipiNorm = String(girisTipi ?? 'FATURAYLA').toUpperCase();
+    const poGerekli = girisTipiNorm !== 'FATURASIZ';
 
-    console.log(`[urun-giris] ${satirList.length} satır, ${lotList.length} lot gönderildi (fatura: ${faturaNo ?? '-'}, giris: ${girisNo ?? '-'})`);
+    console.log(
+      `[urun-giris] ${satirList.length} satır, ${lotList.length} lot gönderildi `
+      + `(tip: ${girisTipiNorm}, fatura: ${faturaNo ?? '-'}, giris: ${girisNo ?? '-'}, sirket: ${cid ?? '-'})`,
+    );
+
+    if (girisTipiNorm === 'FATURASIZ' && !cid) {
+      return res.status(400).json({
+        success: false,
+        error: 'Faturasız giriş için alıcı şirket seçimi zorunlu.',
+      });
+    }
 
     const orphanWarnings = await reportOrphanReceipts(faturaNo ?? '', cid);
     if (orphanWarnings.length) {
@@ -2766,11 +2854,19 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
     // Tedarikçi: fiziki tedarikçi varsa o, yoksa cari
     const tedarikciId = fizikiTedarikciId || gercekCariId;
 
+    if (poGerekli && !tedarikciId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tedarikçi/cari seçilmeden ürün girişi tamamlanamaz.',
+      });
+    }
+
     // ── 1) SATIN ALMA SİPARİŞİ (purchase.order) ───────────────────
     let poId: number | null = null;
     let poLineCount = 0;
     try {
-      if (tedarikciId && satirList.length > 0) {
+      // FATURASIZ: PO yok — aşağıda createFaturasizIncomingPicking ile stok yazılır
+      if (poGerekli && tedarikciId && satirList.length > 0) {
         const poVals: Record<string, any> = {
           partner_id: tedarikciId,
           date_order: faturaTarihi || new Date().toISOString().slice(0, 10),
@@ -2831,7 +2927,19 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
       }
     } catch (poErr: any) {
       console.error('[purchase.order hata]', poErr?.message);
-      hatalar.push(`Satın alma siparişi: ${poErr?.faultString ?? poErr?.message}`);
+      const poMsg = `Satın alma siparişi: ${odooErrText(poErr).slice(0, 300)}`;
+      if (poGerekli) {
+        return res.status(400).json({ success: false, error: poMsg });
+      }
+      hatalar.push(poMsg);
+    }
+
+    if (poGerekli && !poId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Satın alma siparişi oluşturulamadı. Lot/seri numarası oluşturulmadı.',
+        hatalar: hatalar.length > 0 ? hatalar : undefined,
+      });
     }
 
     // ── 2) STOK LOT'LARI (stock.lot) + BARKOD ─────────────────────
@@ -2851,18 +2959,13 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
             continue;
           }
 
-          const lotId = await getOrCreateStockLot(lot.lotNo, productId, cid, lot.barkod);
+          const { lotId } = await getOrCreateStockLot(lot.lotNo, productId, cid, lot.barkod, lot.utsKodu);
           lotIdMap[lot.id] = lotId;
 
-          const templateId = await resolveProductTemplateId(
-            lot.bizimUrunOdooId,
-            lot.bizimUrunProductId,
-            cid,
-          );
-          if (lot.barkod && templateId && !barkodGuncellenenler.has(templateId)) {
+          if (lot.barkod && productId && !barkodGuncellenenler.has(productId)) {
             try {
-              await execute('product.template', 'write', [[templateId], { barcode: lot.barkod }], {}, cid);
-              barkodGuncellenenler.add(templateId);
+              await execute('product.product', 'write', [[productId], { barcode: lot.barkod }], {}, cid);
+              barkodGuncellenenler.add(productId);
             } catch (be: any) {
               console.warn('[barkod güncelle]', be?.message);
             }
@@ -2937,6 +3040,40 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
         console.error('[urun-giris] picking bul/validate HATA:', msg.slice(0, 400));
         hatalar.push(`Stok hareketi aranırken hata: ${msg.slice(0, 300)}`);
       }
+    } else if (girisTipiNorm === 'FATURASIZ' && cid && Object.keys(lotIdMap).length > 0) {
+      try {
+        const manualPickingId = await createFaturasizIncomingPicking(
+          cid,
+          girisNo ?? '',
+          satirList,
+          faturaTarihi,
+        );
+        await assignLotsAndValidatePicking(manualPickingId, lotList, lotIdMap, cid);
+        const validated = await execute(
+          'stock.picking',
+          'read',
+          [[manualPickingId]],
+          { fields: ['id', 'name', 'state'] },
+          cid,
+        );
+        const finalState = validated[0]?.state;
+        sonuclar.picking = {
+          id: manualPickingId,
+          name: validated[0]?.name,
+          state: finalState,
+        };
+        stokGirisiBasarili = finalState === 'done';
+        console.log(`[urun-giris] faturasız picking ${validated[0]?.name} → ${finalState}`);
+        if (!stokGirisiBasarili) {
+          hatalar.push(`Stok girişi tamamlanamadı: ${validated[0]?.name} state=${finalState}`);
+        }
+      } catch (fe: any) {
+        const msg = odooErrText(fe);
+        console.error('[urun-giris] faturasız picking HATA:', msg.slice(0, 400));
+        hatalar.push(`Faturasız stok girişi başarısız: ${msg.slice(0, 300)}`);
+      }
+    } else if (girisTipiNorm === 'FATURASIZ' && cid && Object.keys(lotIdMap).length === 0) {
+      hatalar.push('Lot oluşturulamadığı için stok girişi yapılamadı');
     }
 
     sonuclar.stokGirisiBasarili = stokGirisiBasarili;
@@ -2950,7 +3087,7 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
           'purchase.order.line',
           'search_read',
           [[['order_id', '=', poId]]],
-          { fields: ['id', 'product_id', 'product_qty', 'qty_received'], order: 'id asc', limit: 100 },
+          { fields: ['id', 'product_id', 'product_qty', 'qty_received'], order: 'id asc' },
           cid,
         );
 
@@ -2973,6 +3110,7 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
             name: satir.tedarikciUrunAdi || satir.bizimUrunAdi || '',
             quantity: satir.miktar || 1,
             price_unit: Number(satir.birimFiyat) || 0,
+            discount: Number(satir.iskonto) || 0,
             purchase_line_id: purchaseLineId,
           }]);
         }
@@ -3032,32 +3170,64 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
       console.log('[urun-giris] stok girişi başarısız — tedarikçi faturası oluşturulmadı/onaylanmadı');
     }
 
-    // ── 5) SATIŞ FİYATI GÜNCELLE ──────────────────────────────────
-    try {
-      const fiyatGuncellenenler = new Set<number>();
-      for (const lot of lotList) {
-        if (!lot.satisFiyati) continue;
-        const templateId = await resolveProductTemplateId(
-          lot.bizimUrunOdooId,
-          lot.bizimUrunProductId,
-          cid,
-        );
-        if (!templateId || fiyatGuncellenenler.has(templateId)) continue;
-        const fiyat = Number(lot.satisFiyati);
-        if (fiyat <= 0) continue;
-        await execute('product.template', 'write', [[templateId], { list_price: fiyat }], {}, cid);
-        fiyatGuncellenenler.add(templateId);
+    // ── 5) SATIŞ FİYATI GÜNCELLE (stok girişi tamamlandıysa) ───────
+    if (stokGirisiBasarili) {
+      try {
+        const fiyatGuncellenenler = new Set<number>();
+        for (const lot of lotList) {
+          if (!lot.satisFiyati) continue;
+          const templateId = await resolveProductTemplateId(
+            lot.bizimUrunOdooId,
+            lot.bizimUrunProductId,
+            cid,
+          );
+          if (!templateId || fiyatGuncellenenler.has(templateId)) continue;
+          const fiyat = Number(lot.satisFiyati);
+          if (fiyat <= 0) continue;
+          await execute('product.template', 'write', [[templateId], { list_price: fiyat }], {}, cid);
+          fiyatGuncellenenler.add(templateId);
+        }
+        sonuclar.fiyatGuncellenen = fiyatGuncellenenler.size;
+      } catch (fyErr: any) {
+        console.warn('[satis fiyati hata]', fyErr?.message);
       }
-      sonuclar.fiyatGuncellenen = fiyatGuncellenenler.size;
-    } catch (fyErr: any) {
-      console.warn('[satis fiyati hata]', fyErr?.message);
+    }
+
+    const success = stokGirisiBasarili && (sonuclar.lotSayisi ?? 0) > 0;
+
+    if (success) {
+      const utsBildirimId = String(req.body?.utsBildirimId ?? '').trim() || null;
+      if (utsBildirimId) {
+        try {
+          await markUtsUrunGirisiTamamlandi({ barkod: '', utsBildirimId });
+        } catch (markErr) {
+          console.warn('[urun-giris] UTS bildirim işaretleme:', markErr);
+        }
+      }
+      for (const lot of lotList) {
+        const barkod = String(lot?.utsKodu ?? lot?.barkod ?? '').trim();
+        if (!barkod) continue;
+        const lotNo = lot?.lotNo != null ? String(lot.lotNo).trim() : null;
+        const seriNo = lotNo;
+        try {
+          await markUtsUrunGirisiTamamlandi({ barkod, seriNo, lotNo, utsBildirimId: null });
+        } catch (markErr) {
+          console.warn('[urun-giris] UTS ürün girişi işaretleme:', markErr);
+        }
+      }
     }
 
     return res.json({
-      success: true,
+      success,
       stokGirisiBasarili,
       sonuclar,
       hatalar: hatalar.length > 0 ? hatalar : undefined,
+      ...(!stokGirisiBasarili && !hatalar.length
+        ? { error: 'Stok girişi tamamlanamadı (picking validate edilemedi).' }
+        : {}),
+      ...(!stokGirisiBasarili && (sonuclar.lotSayisi ?? 0) > 0
+        ? { error: 'Lot oluşturuldu ancak stok girişi tamamlanamadı.' }
+        : {}),
     });
   } catch (err: any) {
     const msg = err?.faultString ?? err?.message ?? String(err);
@@ -3195,599 +3365,57 @@ router.get('/lot-ara', async (req: Request, res: Response) => {
 // ── TOPLU TRANSFER OLUŞTUR (stock.picking internal) ───────────────
 router.post('/transfer-olustur', async (req, res) => {
   try {
-    const { kalemler, notlar } = req.body ?? {}
-    if (!kalemler?.length) return res.status(400).json({ error: 'Kalemler zorunlu' })
-
-    const olusturulanlar = []
-
-    // Kaynak-hedef kombinasyonlarına göre grupla
-    const gruplar: Record<string, typeof kalemler> = {}
-    for (const k of kalemler) {
-      const key = `${k.kaynak}-${k.hedef}`
-      if (!gruplar[key]) gruplar[key] = []
-      gruplar[key].push(k)
-    }
-
-    for (const [key, grup] of Object.entries(gruplar)) {
-      const [kaynakId, hedefId] = key.split('-').map(Number)
-
-      // Kaynak ve hedef lokasyonların şirketlerini bul
-      const lokasyonlar = await execute('stock.location', 'search_read',
-        [[['id', 'in', [kaynakId, hedefId]]]],
-        { fields: ['id', 'name', 'company_id'], limit: 2 })
-
-      const kaynakLok = lokasyonlar.find((l: any) => l.id === kaynakId)
-      const hedefLok = lokasyonlar.find((l: any) => l.id === hedefId)
-      const kaynakSirketId = kaynakLok?.company_id?.[0] ?? 1
-      const hedefSirketId = hedefLok?.company_id?.[0] ?? 1
-
-      // Her kalem için product.product ID'sini doğrula
-      for (const kalem of grup) {
-        try {
-          // Önce product.product olarak oku
-          const prodCheck = await execute('product.product', 'search_read',
-            [[['id', '=', kalem.productId]]],
-            { fields: ['id', 'name'], limit: 1 })
-          if (prodCheck[0]?.id) {
-            kalem.resolvedProductId = prodCheck[0].id // product.product ID confirmed
-          } else {
-            // Template ID ise variant'ı bul
-            const variants = await execute('product.product', 'search_read',
-              [[['product_tmpl_id', '=', kalem.productId]]],
-              { fields: ['id'], limit: 1 })
-            kalem.resolvedProductId = variants[0]?.id ?? kalem.productId
-          }
-        } catch {
-          kalem.resolvedProductId = kalem.productId
-        }
-      }
-
-      // ── STOK KONTROLÜ ─────────────────────────────────────────
-      const stokHatalari: string[] = []
-      for (const kalem of grup) {
-        try {
-          const stokDomain: any[] = [
-            ['location_id', '=', kaynakId],
-            ['quantity', '>', 0],
-            '|',
-            ['product_id', '=', kalem.resolvedProductId ?? kalem.productId],
-            ['product_id.product_tmpl_id', '=', kalem.resolvedProductId ?? kalem.productId],
-          ]
-          if (kalem.lotId) stokDomain.push(['lot_id', '=', kalem.lotId])
-
-          const stok = await execute('stock.quant', 'search_read',
-            [stokDomain],
-            { fields: ['id', 'quantity', 'lot_id'], limit: 1 },
-            kaynakSirketId)
-
-          if (!stok.length || stok[0].quantity < (kalem.miktar || 1)) {
-            const mevcutStok = stok[0]?.quantity ?? 0
-            stokHatalari.push(`"${kalem.urunAdi}" için yeterli stok yok (mevcut: ${mevcutStok}, istenen: ${kalem.miktar || 1})`)
-          }
-        } catch (se: any) {
-          console.warn('[stok kontrol hata]', se?.message?.slice(0, 80))
-        }
-      }
-
-      if (stokHatalari.length > 0) {
-        olusturulanlar.push({
-          tip: 'stok-hatasi',
-          hata: stokHatalari.join(', '),
-          kaynak: kaynakId,
-          hedef: hedefId,
-        })
-        continue
-      }
-
-      if (kaynakSirketId === hedefSirketId) {
-        // ── ŞİRKET İÇİ TRANSFER ──────────────────────────────────
-        const ptDomain: any[] = [['code', '=', 'internal'], ['active', '=', true], ['company_id', '=', kaynakSirketId]]
-        let pickingTypes = await execute('stock.picking.type', 'search_read',
-          [ptDomain], { fields: ['id', 'name'], limit: 1 }, kaynakSirketId)
-
-        if (!pickingTypes.length) {
-          const warehouses = await execute('stock.warehouse', 'search_read',
-            [[['company_id', '=', kaynakSirketId]]],
-            { fields: ['id', 'name'], limit: 1 }, kaynakSirketId)
-          const yeniPTId = await execute('stock.picking.type', 'create', [{
-            name: 'İç Transferler',
-            code: 'internal',
-            company_id: kaynakSirketId,
-            warehouse_id: warehouses[0]?.id || false,
-            sequence_code: `INT${kaynakSirketId}`,
-            show_operations: true,
-          }], {}, kaynakSirketId)
-          pickingTypes = [{ id: yeniPTId }]
-        }
-
-        const pickingTypeId = pickingTypes[0].id
-
-        const pickingId = await execute('stock.picking', 'create', [{
-          picking_type_id: pickingTypeId,
-          location_id: kaynakId,
-          location_dest_id: hedefId,
-          company_id: kaynakSirketId,
-          note: notlar || '',
-        }], {}, kaynakSirketId)
-
-        for (const kalem of grup) {
-          await execute('stock.move', 'create', [{
-            picking_id: pickingId,
-            product_id: kalem.resolvedProductId ?? kalem.productId,
-            product_uom_qty: kalem.miktar || 1,
-            product_uom: 1,
-            location_id: kaynakId,
-            location_dest_id: hedefId,
-            name: kalem.urunAdi || 'Transfer',
-          }], {}, kaynakSirketId)
-        }
-
-        await execute('stock.picking', 'action_confirm', [[pickingId]], {}, kaynakSirketId)
-        await execute('stock.picking', 'action_assign', [[pickingId]], {}, kaynakSirketId)
-
-        // Move line'lara lot ata ve validate et
-        const moveLines = await execute('stock.move.line', 'search_read',
-          [[['picking_id', '=', pickingId]]],
-          { fields: ['id', 'product_id'], limit: 100 }, kaynakSirketId)
-
-        for (let i = 0; i < moveLines.length; i++) {
-          const ml = moveLines[i]
-          const ilgiliKalem = grup[i]
-          const writeVals: Record<string, any> = { quantity: ilgiliKalem?.miktar || 1 }
-          if (ilgiliKalem?.lotId) writeVals.lot_id = ilgiliKalem.lotId
-          await execute('stock.move.line', 'write', [[ml.id], writeVals], {}, kaynakSirketId)
-        }
-
-        try {
-          await execute('stock.picking', 'button_validate', [[pickingId]], {}, kaynakSirketId)
-        } catch (ve: any) {
-          console.warn('[validate uyarı]', ve?.faultString?.slice(0, 100))
-        }
-
-        const pickingData = await execute('stock.picking', 'read',
-          [[pickingId]], { fields: ['id', 'name', 'state'] }, kaynakSirketId)
-
-        olusturulanlar.push({
-          tip: 'sirket-ici',
-          pickingId,
-          pickingName: pickingData[0]?.name,
-          state: pickingData[0]?.state,
-          kalemSayisi: grup.length,
-        })
-
-      } else {
-        // ── ŞİRKETLER ARASI SATIŞ ────────────────────────────────
-        // Satıcı: kaynakSirketId, Alıcı: hedefSirketId
-        // %5 kâr marjı ile satış faturası
-
-        const invoiceLines = []
-        const satisSipLines = []
-
-        for (const kalem of grup) {
-          const productRows = await execute('product.product', 'search_read',
-            [[['id', '=', kalem.resolvedProductId ?? kalem.productId]]],
-            { fields: ['id', 'name', 'lst_price', 'standard_price'], limit: 1 }, kaynakSirketId)
-          const product = productRows[0]
-          if (!product) continue
-
-          const maliyet = kalem.maliyet || product.standard_price || 0
-          const satisFiyati = kalem.satisFiyati || Math.round(maliyet * 1.05 * 100) / 100
-
-          invoiceLines.push([0, 0, {
-            product_id: product.id,
-            name: kalem.urunAdi || product.name || '',
-            quantity: kalem.miktar || 1,
-            price_unit: satisFiyati,
-          }])
-
-          satisSipLines.push([0, 0, {
-            product_id: product.id,
-            name: kalem.urunAdi || product.name || '',
-            product_uom_qty: kalem.miktar || 1,
-            price_unit: satisFiyati,
-            product_uom: 1,
-          }])
-        }
-
-        // Alıcı şirketi partner olarak bul
-        const aliciSirket = await execute('res.company', 'read',
-          [[hedefSirketId]], { fields: ['id', 'name', 'partner_id'] })
-        const aliciPartnerId = aliciSirket[0]?.partner_id?.[0]
-
-        if (!aliciPartnerId) {
-          olusturulanlar.push({ tip: 'sirketler-arasi', hata: 'Alıcı şirket partner bulunamadı' })
-          continue
-        }
-
-        // sale.order yerine direkt out_invoice oluştur
-        const soData = { name: `TRANSFER-${Date.now()}` }
-
-        let invoiceId = null
-        let invoiceName = ''
-        try {
-          if (invoiceLines.length > 0) {
-            // Vergi hesabı bul
-            const vergiler = await execute('account.tax', 'search_read',
-              [[['type_tax_use', '=', 'sale'], ['company_id', '=', kaynakSirketId], ['active', '=', true]]],
-              { fields: ['id', 'name', 'amount'], limit: 1 }, kaynakSirketId)
-            const vergiId = vergiler[0]?.id
-
-            // Gelir hesabı bul
-            const gelirHesap = await execute('account.account', 'search_read',
-              [[['code', '=', '600'], ['company_id', '=', kaynakSirketId]]],
-              { fields: ['id'], limit: 1 }, kaynakSirketId)
-            const gelirHesapId = gelirHesap[0]?.id
-
-            // Invoice line'lara vergi ve hesap ekle
-            const invoiceLinesWithTax = invoiceLines.map((line: any) => {
-              const vals = { ...line[2] }
-              if (gelirHesapId) vals.account_id = gelirHesapId
-              if (vergiId) vals.tax_ids = [[6, 0, [vergiId]]]
-              return [0, 0, vals]
-            })
-
-            invoiceId = await execute('account.move', 'create', [{
-              move_type: 'out_invoice',
-              partner_id: aliciPartnerId,
-              company_id: kaynakSirketId,
-              invoice_date: new Date().toISOString().slice(0, 10),
-              invoice_line_ids: invoiceLinesWithTax,
-              narration: `Şirketler arası transfer ${kaynakLok?.name} → ${hedefLok?.name} - %5 kâr`,
-            }], {}, kaynakSirketId)
-
-            // Faturayı onayla
-            try {
-              await execute('account.move', 'action_post', [[invoiceId]], {}, kaynakSirketId)
-            } catch (pe: any) {
-              console.warn('[fatura onayla]', pe?.message?.slice(0, 100))
-            }
-
-            const invData = await execute('account.move', 'read',
-              [[invoiceId]], { fields: ['id', 'name', 'state'] }, kaynakSirketId)
-            invoiceName = invData[0]?.name ?? ''
-          }
-        } catch (ie: any) {
-          console.warn('[sirketler arasi fatura hata]', ie?.message?.slice(0, 150))
-          invoiceName = 'Hata: ' + ie?.message?.slice(0, 50)
-        }
-
-        const sonKayitRef: any = {
-          tip: 'sirketler-arasi',
-          satisSiparisi: soData.name,
-          fatura: invoiceName,
-          kalemSayisi: grup.length,
-          kaynakSirket: kaynakLok?.company_id?.[1],
-          hedefSirket: hedefLok?.company_id?.[1],
-        }
-
-        // ── NG/HEDEF ŞİRKET TARAFI: SATIN ALMA + STOK GİRİŞİ ──────
-        try {
-          // Alıcı şirket için satın alma faturası oluştur
-          const alimFaturaLines = []
-          for (const kalem of grup) {
-            const hedefProductId = kalem.resolvedProductId ?? kalem.productId
-
-            // Gider hesabı bul
-            const giderHesap = await execute('account.account', 'search_read',
-              [[['code', '=', '620'], ['company_id', '=', hedefSirketId]]],
-              { fields: ['id'], limit: 1 }, hedefSirketId)
-
-            const lineVals: any = {
-              product_id: hedefProductId,
-              name: kalem.urunAdi || '',
-              quantity: kalem.miktar || 1,
-              price_unit: kalem.maliyet ? Math.round(kalem.maliyet * 1.05 * 100) / 100 : 0,
-            }
-            if (giderHesap[0]?.id) lineVals.account_id = giderHesap[0].id
-            alimFaturaLines.push([0, 0, lineVals])
-          }
-
-          if (alimFaturaLines.length > 0) {
-            // Satıcı partner bul (ADESE şirketi)
-            const saticiSirket = await execute('res.company', 'read',
-              [[kaynakSirketId]], { fields: ['id', 'name', 'partner_id'] })
-            const saticiPartnerId = saticiSirket[0]?.partner_id?.[0]
-
-            if (saticiPartnerId) {
-              const alimFaturaId = await execute('account.move', 'create', [{
-                move_type: 'in_invoice',
-                partner_id: saticiPartnerId,
-                company_id: hedefSirketId,
-                invoice_date: new Date().toISOString().slice(0, 10),
-                invoice_line_ids: alimFaturaLines,
-                narration: `Şirketler arası alım ${kaynakLok?.name} → ${hedefLok?.name}`,
-              }], {}, hedefSirketId)
-
-              try {
-                await execute('account.move', 'action_post', [[alimFaturaId]], {}, hedefSirketId)
-              } catch (pe: any) {
-                console.warn('[alim fatura onayla]', pe?.message?.slice(0, 100))
-              }
-
-              const alimInvData = await execute('account.move', 'read',
-                [[alimFaturaId]], { fields: ['id', 'name'] }, hedefSirketId)
-              sonKayitRef.alimFatura = alimInvData[0]?.name
-            }
-          }
-
-          // Hedef şirkette stok girişi (receipt)
-          const hedefPtReceipt = await execute('stock.picking.type', 'search_read',
-            [[['code', '=', 'incoming'], ['active', '=', true], ['company_id', '=', hedefSirketId]]],
-            { fields: ['id', 'name'], limit: 1 }, hedefSirketId)
-
-          if (hedefPtReceipt.length > 0) {
-            let tedarikciLok = await execute('stock.location', 'search_read',
-              [[['usage', '=', 'supplier'], ['company_id', '=', hedefSirketId]]],
-              { fields: ['id', 'name'], limit: 1 }, hedefSirketId)
-
-            if (!tedarikciLok.length) {
-              tedarikciLok = await execute('stock.location', 'search_read',
-                [[['usage', '=', 'supplier'], ['company_id', '=', false]]],
-                { fields: ['id', 'name'], limit: 1 })
-            }
-
-            if (!tedarikciLok.length) {
-              tedarikciLok = await execute('stock.location', 'search_read',
-                [[['usage', '=', 'supplier']]],
-                { fields: ['id', 'name'], limit: 1 })
-            }
-
-            const tedarikciLokId = tedarikciLok[0]?.id
-
-            if (tedarikciLokId) {
-              const inPickingId = await execute('stock.picking', 'create', [{
-                picking_type_id: hedefPtReceipt[0].id,
-                location_id: tedarikciLokId,
-                location_dest_id: hedefId,
-                company_id: hedefSirketId,
-                note: `Şirketler arası giriş ← ${kaynakLok?.name}`,
-              }], {}, hedefSirketId)
-
-              for (const kalem of grup) {
-                await execute('stock.move', 'create', [{
-                  picking_id: inPickingId,
-                  product_id: kalem.resolvedProductId ?? kalem.productId,
-                  product_uom_qty: kalem.miktar || 1,
-                  product_uom: 1,
-                  location_id: tedarikciLokId,
-                  location_dest_id: hedefId,
-                  name: kalem.urunAdi || 'Transfer',
-                }], {}, hedefSirketId)
-              }
-
-              await execute('stock.picking', 'action_confirm', [[inPickingId]], {}, hedefSirketId)
-              await execute('stock.picking', 'action_assign', [[inPickingId]], {}, hedefSirketId)
-
-              const inMoveLines = await execute('stock.move.line', 'search_read',
-                [[['picking_id', '=', inPickingId]]],
-                { fields: ['id', 'product_id', 'lot_id'], limit: 100 }, hedefSirketId)
-
-              if (inMoveLines.length === 0) {
-                for (const kalem of grup) {
-                  const hedefProdId = kalem.resolvedProductId ?? kalem.productId
-
-                  const mlVals: any = {
-                    picking_id: inPickingId,
-                    product_id: hedefProdId,
-                    quantity: kalem.miktar || 1,
-                    location_id: tedarikciLokId,
-                    location_dest_id: hedefId,
-                    product_uom_id: 1,
-                  }
-
-                  // Lot varsa hedef şirkette yeni lot oluştur
-                  if (kalem.lotId) {
-                    try {
-                      // Kaynak lot bilgisini al
-                      const kaynakLotData = await execute('stock.lot', 'read',
-                        [[kalem.lotId]], { fields: ['id', 'name', 'ref'] })
-                      const lotAdi = kaynakLotData[0]?.name ?? `LOT-${kalem.lotId}`
-
-                      // Hedef şirkette aynı isimde lot var mı kontrol et
-                      const mevcutLot = await execute('stock.lot', 'search_read',
-                        [[['name', '=', lotAdi], ['product_id', '=', hedefProdId], ['company_id', '=', hedefSirketId]]],
-                        { fields: ['id'], limit: 1 }, hedefSirketId)
-
-                      let hedefLotId: number
-                      if (mevcutLot.length > 0) {
-                        hedefLotId = mevcutLot[0].id
-                      } else {
-                        const yeniLotVals: any = {
-                          name: lotAdi,
-                          product_id: hedefProdId,
-                          company_id: hedefSirketId,
-                        }
-                        if (kaynakLotData[0]?.ref) yeniLotVals.ref = kaynakLotData[0].ref
-                        hedefLotId = await execute('stock.lot', 'create', [yeniLotVals], {}, hedefSirketId)
-                      }
-                      mlVals.lot_id = hedefLotId
-                    } catch (le: any) {
-                      console.warn('[hedef lot hata]', le?.message?.slice(0, 100))
-                    }
-                  }
-
-                  await execute('stock.move.line', 'create', [mlVals], {}, hedefSirketId)
-                }
-              } else {
-                for (let i = 0; i < inMoveLines.length; i++) {
-                  const kalemI = grup[i]
-                  const writeVals: any = { quantity: kalemI?.miktar || 1 }
-
-                  if (kalemI?.lotId) {
-                    try {
-                      const kaynakLotData = await execute('stock.lot', 'read',
-                        [[kalemI.lotId]], { fields: ['id', 'name', 'ref'] })
-                      const lotAdi = kaynakLotData[0]?.name ?? `LOT-${kalemI.lotId}`
-
-                      const lineProductId = inMoveLines[i].product_id?.[0] ?? kalemI?.resolvedProductId ?? kalemI?.productId
-                      const mevcutLot = await execute('stock.lot', 'search_read',
-                        [[['name', '=', lotAdi], ['product_id', '=', lineProductId], ['company_id', '=', hedefSirketId]]],
-                        { fields: ['id'], limit: 1 }, hedefSirketId)
-
-                      let hedefLotId: number
-                      if (mevcutLot.length > 0) {
-                        hedefLotId = mevcutLot[0].id
-                      } else {
-                        const yeniLotVals: any = {
-                          name: lotAdi,
-                          product_id: lineProductId,
-                          company_id: hedefSirketId,
-                        }
-                        if (kaynakLotData[0]?.ref) yeniLotVals.ref = kaynakLotData[0].ref
-                        hedefLotId = await execute('stock.lot', 'create', [yeniLotVals], {}, hedefSirketId)
-                      }
-                      writeVals.lot_id = hedefLotId
-                    } catch (le: any) {
-                      console.warn('[incoming write lot hata]', le?.message?.slice(0, 100))
-                    }
-                  }
-
-                  await execute('stock.move.line', 'write',
-                    [[inMoveLines[i].id], writeVals], {}, hedefSirketId)
-                }
-              }
-
-              try {
-                await execute('stock.picking', 'button_validate', [[inPickingId]], {}, hedefSirketId)
-              } catch (ve: any) {
-                console.warn('[incoming validate HATA]', ve?.faultString?.slice(0, 200) ?? ve?.message?.slice(0, 200))
-              }
-
-              const inPickData = await execute('stock.picking', 'read',
-                [[inPickingId]], { fields: ['id', 'name', 'state'] }, hedefSirketId)
-              sonKayitRef.hedefStokGirisi = inPickData[0]?.name
-            }
-          }
-        } catch (hedefErr: any) {
-          console.warn('[hedef sirket islem hata]', hedefErr?.message?.slice(0, 150))
-        }
-
-        olusturulanlar.push(sonKayitRef)
-
-        // Şirketler arası stok hareketi — kaynak şirketten çıkış
-        try {
-          const ptOut = await execute('stock.picking.type', 'search_read',
-            [[['code', '=', 'outgoing'], ['active', '=', true], ['company_id', '=', kaynakSirketId]]],
-            { fields: ['id', 'name'], limit: 1 }, kaynakSirketId)
-
-          if (ptOut.length > 0) {
-            // Önce şirkete özel customer lokasyonu ara, bulamazsa global olanı al
-            let musteriLok = await execute('stock.location', 'search_read',
-              [[['usage', '=', 'customer'], ['company_id', '=', kaynakSirketId]]],
-              { fields: ['id', 'name'], limit: 1 }, kaynakSirketId)
-
-            if (!musteriLok.length) {
-              // Global customer lokasyonu (company_id = false)
-              musteriLok = await execute('stock.location', 'search_read',
-                [[['usage', '=', 'customer'], ['company_id', '=', false]]],
-                { fields: ['id', 'name'], limit: 1 })
-            }
-
-            if (!musteriLok.length) {
-              // Herhangi bir customer lokasyonu
-              musteriLok = await execute('stock.location', 'search_read',
-                [[['usage', '=', 'customer']]],
-                { fields: ['id', 'name'], limit: 1 })
-            }
-
-            const musteriLokId = musteriLok[0]?.id
-
-            if (musteriLokId) {
-              const outPickingId = await execute('stock.picking', 'create', [{
-                picking_type_id: ptOut[0].id,
-                location_id: kaynakId,
-                location_dest_id: musteriLokId,
-                company_id: kaynakSirketId,
-                partner_id: aliciPartnerId,
-                note: `Şirketler arası transfer → ${hedefLok?.name}`,
-              }], {}, kaynakSirketId)
-
-              for (const kalem of grup) {
-                await execute('stock.move', 'create', [{
-                  picking_id: outPickingId,
-                  product_id: kalem.resolvedProductId ?? kalem.productId,
-                  product_uom_qty: kalem.miktar || 1,
-                  product_uom: 1,
-                  location_id: kaynakId,
-                  location_dest_id: musteriLokId,
-                  name: kalem.urunAdi || 'Transfer',
-                }], {}, kaynakSirketId)
-              }
-
-              await execute('stock.picking', 'action_confirm', [[outPickingId]], {}, kaynakSirketId)
-              await execute('stock.picking', 'action_assign', [[outPickingId]], {}, kaynakSirketId)
-
-              // Move line yoksa manuel oluştur
-              const outMoveLines = await execute('stock.move.line', 'search_read',
-                [[['picking_id', '=', outPickingId]]],
-                { fields: ['id', 'product_id', 'lot_id'], limit: 100 }, kaynakSirketId)
-
-              if (outMoveLines.length === 0) {
-                // Stock quant'tan lot bilgisini al
-                for (const kalem of grup) {
-                  const productId = kalem.resolvedProductId ?? kalem.productId
-
-                  const quants = await execute('stock.quant', 'search_read',
-                    [[['location_id', '=', kaynakId], ['product_id', '=', productId], ['quantity', '>', 0]]],
-                    { fields: ['id', 'lot_id', 'quantity'], limit: 1 }, kaynakSirketId)
-
-                  const mlVals: any = {
-                    picking_id: outPickingId,
-                    product_id: productId,
-                    quantity: kalem.miktar || 1,
-                    location_id: kaynakId,
-                    location_dest_id: musteriLokId,
-                    product_uom_id: 1,
-                  }
-                  if (quants[0]?.lot_id) mlVals.lot_id = quants[0].lot_id[0]
-                  else if (kalem.lotId) mlVals.lot_id = kalem.lotId
-
-                  await execute('stock.move.line', 'create', [mlVals], {}, kaynakSirketId)
-                }
-              } else {
-                for (let i = 0; i < outMoveLines.length; i++) {
-                  const kalem = grup[i]
-                  const writeVals: any = { quantity: kalem?.miktar || 1 }
-
-                  if (!outMoveLines[i].lot_id) {
-                    const productId = kalem?.resolvedProductId ?? kalem?.productId
-                    const quants = await execute('stock.quant', 'search_read',
-                      [[['location_id', '=', kaynakId], ['product_id', '=', productId], ['quantity', '>', 0]]],
-                      { fields: ['lot_id'], limit: 1 }, kaynakSirketId)
-                    if (quants[0]?.lot_id) writeVals.lot_id = quants[0].lot_id[0]
-                    else if (kalem?.lotId) writeVals.lot_id = kalem.lotId
-                  }
-
-                  await execute('stock.move.line', 'write',
-                    [[outMoveLines[i].id], writeVals], {}, kaynakSirketId)
-                }
-              }
-
-              try {
-                await execute('stock.picking', 'button_validate', [[outPickingId]], {}, kaynakSirketId)
-              } catch (ve: any) {
-                console.warn('[outgoing validate HATA]', ve?.faultString?.slice(0, 200) ?? ve?.message?.slice(0, 200))
-              }
-
-              const outData = await execute('stock.picking', 'read',
-                [[outPickingId]], { fields: ['id', 'name', 'state'] }, kaynakSirketId)
-              const sonKayit = olusturulanlar[olusturulanlar.length - 1] as any
-              sonKayit.stokHareketi = outData[0]?.name
-            }
-          }
-        } catch (se: any) {
-          console.warn('[sirketler arasi stok hata]', se?.message?.slice(0, 150))
-        }
-      }
-    }
-
-    return res.json({ success: true, transferler: olusturulanlar })
+    const { kalemler, notlar } = req.body ?? {};
+    if (!kalemler?.length) return res.status(400).json({ error: 'Kalemler zorunlu' });
+
+    const result = await olusturTransfer({ kalemler, notlar });
+    return res.json(result);
   } catch (err: any) {
-    const msg = err?.faultString ?? err?.message ?? String(err)
-    console.error('[transfer-olustur hata]', msg)
-    return res.status(500).json({ error: msg })
+    const msg = err?.faultString ?? err?.message ?? String(err);
+    console.error('[transfer-olustur hata]', msg);
+    return res.status(500).json({ error: msg });
   }
-})
+});
+
+router.post('/transfer-kabul', async (req, res) => {
+  try {
+    const { kabulPickingId, transferRef, sayimlar } = req.body ?? {};
+    const pickingId = Number(kabulPickingId);
+    if (!Number.isFinite(pickingId) || pickingId <= 0) {
+      return res.status(400).json({ success: false, message: 'kabulPickingId zorunlu' });
+    }
+
+    const result = await kabulEtTransfer({
+      kabulPickingId: pickingId,
+      transferRef,
+      sayimlar,
+    });
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[transfer-kabul hata]', msg);
+    return res.status(500).json({ success: false, message: msg });
+  }
+});
+
+router.get('/transfer-aksiyon-log', async (req, res) => {
+  try {
+    const transferRef = typeof req.query.transferRef === 'string' ? req.query.transferRef.trim() : undefined;
+    const refsRaw = typeof req.query.transferRefs === 'string' ? req.query.transferRefs : '';
+    const transferRefs = refsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) ? limitRaw : 100;
+    const logs = await listTransferAksiyonLogs({ transferRef, transferRefs, limit });
+    return res.json({ logs });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[transfer-aksiyon-log hata]', msg);
+    return res.status(500).json({ error: msg });
+  }
+});
 
 
 
@@ -3799,11 +3427,12 @@ router.get('/transfer-urun-ara', async (req, res) => {
 
     // 1) Lot/seri no ile ara
     const lotDomain: any[] = [
-      '|', '|', '|',
+      '|', '|', '|', '|',
       ['name', 'ilike', q],
       ['ref', 'ilike', q],
       ['product_id.name', 'ilike', q],
       ['product_id.default_code', 'ilike', q],
+      ['product_id.barcode', 'ilike', q],
     ]
 
     const lots = await execute('stock.lot', 'search_read', [lotDomain], {
@@ -4028,13 +3657,10 @@ router.post('/muhasebe-kurulum', async (req, res) => {
 // ── FİNANSAL VARLIK CRUD ──────────────────────────────────────────
 router.get('/finansal-varliklar', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const varliklar = await prisma.finansalVarlik.findMany({
       where: { aktif: true },
       orderBy: [{ sirketAdi: 'asc' }, { tip: 'asc' }, { ad: 'asc' }],
     })
-    await prisma.$disconnect()
     return res.json({ data: varliklar })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -4043,14 +3669,11 @@ router.get('/finansal-varliklar', async (req, res) => {
 
 router.post('/finansal-varlik-ekle', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { ad, tip, katman, sirketId, sirketAdi, subeId, subeAdi, para_birimi, aciklama, odooHesapId } = req.body
     if (!ad?.trim() || !tip || !katman) return res.status(400).json({ error: 'ad, tip, katman zorunlu' })
     const varlik = await prisma.finansalVarlik.create({
       data: { ad, tip, katman, sirketId, sirketAdi, subeId, subeAdi, para_birimi: para_birimi || 'TRY', aciklama, odooHesapId }
     })
-    await prisma.$disconnect()
     return res.json({ success: true, data: varlik })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -4060,13 +3683,10 @@ router.post('/finansal-varlik-ekle', async (req, res) => {
 // ── ORTAKLAR CRUD ─────────────────────────────────────────────────
 router.get('/ortaklar', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const ortaklar = await prisma.ortak.findMany({
       where: { aktif: true },
       orderBy: { ad: 'asc' },
     })
-    await prisma.$disconnect()
     return res.json({ data: ortaklar })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -4075,12 +3695,9 @@ router.get('/ortaklar', async (req, res) => {
 
 router.post('/ortak-ekle', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { ad, soyad, telefon, email } = req.body
     if (!ad?.trim()) return res.status(400).json({ error: 'Ad zorunlu' })
     const ortak = await prisma.ortak.create({ data: { ad, soyad, telefon, email } })
-    await prisma.$disconnect()
     return res.json({ success: true, data: ortak })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -4090,8 +3707,6 @@ router.post('/ortak-ekle', async (req, res) => {
 // ── FİNANS HAREKETİ ───────────────────────────────────────────────
 router.get('/finans-hareketler', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { sirketId, katman, tip, baslangic, bitis, limit } = req.query
     const where: any = { iptalEdildi: false }
     if (sirketId) where.sirketId = Number(sirketId)
@@ -4108,7 +3723,6 @@ router.get('/finans-hareketler', async (req, res) => {
       take: Number(limit ?? 100),
       include: { kaynakVarlik: true, hedefVarlik: true, ortak: true },
     })
-    await prisma.$disconnect()
     return res.json({ data: hareketler })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -4117,8 +3731,6 @@ router.get('/finans-hareketler', async (req, res) => {
 
 router.post('/finans-hareket-ekle', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const {
       tarih, tip, katman, kaynakVarlikId, hedefVarlikId, ortakId,
       sirketId, sirketAdi, subeId, tutar, paraBirimi, odemeYontemi,
@@ -4136,7 +3748,6 @@ router.post('/finans-hareket-ekle', async (req, res) => {
       },
       include: { kaynakVarlik: true, hedefVarlik: true, ortak: true }
     })
-    await prisma.$disconnect()
     return res.json({ success: true, data: hareket })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -4146,8 +3757,6 @@ router.post('/finans-hareket-ekle', async (req, res) => {
 // ── ORTAK CARİ ────────────────────────────────────────────────────
 router.get('/ortak-cari', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { ortakId } = req.query
     const where: any = {}
     if (ortakId) where.ortakId = String(ortakId)
@@ -4161,7 +3770,6 @@ router.get('/ortak-cari', async (req, res) => {
       if (!bakiyeMap[key]) bakiyeMap[key] = 0
       bakiyeMap[key] += k.tip === 'ALACAK' ? k.tutar : -k.tutar
     }
-    await prisma.$disconnect()
     return res.json({ data: kayitlar, bakiyeler: bakiyeMap })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -4171,9 +3779,6 @@ router.get('/ortak-cari', async (req, res) => {
 // ── FİNANS DASHBOARD (Özet) ───────────────────────────────────────
 router.get('/finans-ozet', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
-
     // Varlik bakiyeleri
     const varliklar = await prisma.finansalVarlik.findMany({ where: { aktif: true } })
 
@@ -4201,7 +3806,6 @@ router.get('/finans-ozet', async (req, res) => {
       ortakBakiyeler.push({ ...o, bakiye: Math.round(toplam * 100) / 100 })
     }
 
-    await prisma.$disconnect()
     return res.json({
       success: true,
       varliklar: ozetler,
@@ -4424,14 +4028,11 @@ router.post('/personel-sube-guncelle', async (req, res, next) => {
 
 router.post('/personel-ekle', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas, pdksId, aylikHedef, odooEmployeeId } = req.body
     if (!ad?.trim() || !soyad?.trim() || !pozisyon) return res.status(400).json({ error: 'Ad, soyad, pozisyon zorunlu' })
     const personel = await prisma.personel.create({
       data: { ad, soyad, telefon, email, pozisyon, subeId, subeAdi, sirketId, sirketAdi, bolgeId, maas: Number(maas) || 0, aylikHedef: aylikHedef ? Number(aylikHedef) : 0, pdksId, odooEmployeeId: odooEmployeeId ? Number(odooEmployeeId) : undefined }
     })
-    await prisma.$disconnect()
     return res.json({ success: true, data: personel })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -4660,7 +4261,16 @@ router.post('/personel-isten-cikar/:id', async (req, res, next) => {
       }
     }
 
-    sonuc.pdksUyari = 'PDKS sisteminden manuel olarak çıkarın';
+    if (personel.pdksId) {
+      const pdksSonuc = await pdksService.setPdksUserStatus(personel.pdksId, false);
+      if (pdksSonuc.success) {
+        sonuc.pdks = 'Pasif edildi';
+      } else {
+        sonuc.pdksHata = pdksSonuc.message ?? 'PDKS pasif edilemedi';
+        sonuc.pdksManuelGerekli = true;
+      }
+    }
+
     return res.json({ success: true, personelId, sebep, ...sonuc });
   } catch (err) {
     next(err);
@@ -4678,16 +4288,20 @@ router.post('/personel-aktifles/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Personel bulunamadı' });
     }
 
+    const sonuc: Record<string, unknown> = {};
+
     await prisma.personel.update({
       where: { id: personelId },
       data: { aktif: true },
     });
+    sonuc.prisma = 'Aktif edildi';
 
     if (personel.userId) {
       await prisma.user.update({
         where: { id: personel.userId },
         data: { isActive: true },
       });
+      sonuc.posUser = 'Aktif edildi';
     }
 
     if (personel.odooEmployeeId) {
@@ -4696,12 +4310,24 @@ router.post('/personel-aktifles/:id', async (req, res, next) => {
           [personel.odooEmployeeId],
           { active: true },
         ]);
-      } catch {
-        // Odoo unarchive başarısız olsa da Prisma/POS aktif kalır
+        sonuc.odoo = 'Unarchive edildi';
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        sonuc.odooHata = msg.slice(0, 100);
       }
     }
 
-    return res.json({ success: true, personelId });
+    if (personel.pdksId) {
+      const pdksSonuc = await pdksService.setPdksUserStatus(personel.pdksId, true);
+      if (pdksSonuc.success) {
+        sonuc.pdks = 'Aktif edildi';
+      } else {
+        sonuc.pdksHata = pdksSonuc.message ?? 'PDKS aktif edilemedi';
+        sonuc.pdksManuelGerekli = true;
+      }
+    }
+
+    return res.json({ success: true, personelId, ...sonuc });
   } catch (err) {
     next(err);
   }
@@ -4767,7 +4393,7 @@ router.get('/personel-baglanti-ozet', async (req, res, next) => {
         userId: true,
         aktif: true,
         telefon: true,
-        user: { select: { id: true, username: true, role: true } },
+        user: { select: { id: true, username: true, role: true, canWorkAtolye: true } },
       },
       orderBy: { ad: 'asc' },
     });
@@ -4891,10 +4517,10 @@ router.post('/personel-sube-toplu-ata', async (req, res, next) => {
 router.post('/personel-odoo-bagla/:id', async (req, res, next) => {
   try {
     const { odooEmployeeId } = req.body;
-    await prisma.personel.update({
-      where: { id: req.params.id },
-      data: { odooEmployeeId: Number(odooEmployeeId) },
-    });
+    if (!odooEmployeeId) {
+      return res.status(400).json({ error: 'odooEmployeeId zorunlu' });
+    }
+    await syncOdooEmployeeIdFromPersonel(req.params.id, Number(odooEmployeeId));
     return res.json({ success: true });
   } catch (err) {
     next(err);
@@ -4931,7 +4557,7 @@ router.delete('/personel-pdks/:id', async (req, res, next) => {
 
 router.put('/personel-pos-guncelle/:id', async (req, res, next) => {
   try {
-    const { username, role, pin } = req.body;
+    const { username, role, pin, canWorkAtolye, ekYetkiler } = req.body;
     const personel = await prisma.personel.findUnique({ where: { id: req.params.id } });
     if (!personel?.userId) {
       return res.status(400).json({ error: 'POS kullanıcısı bağlı değil' });
@@ -4941,15 +4567,25 @@ router.put('/personel-pos-guncelle/:id', async (req, res, next) => {
     if (username?.trim()) data.username = String(username).trim().toLowerCase();
     if (role) data.role = role as Role;
     if (pin) data.pin = await bcrypt.hash(String(pin), 10);
+    if (canWorkAtolye !== undefined) data.canWorkAtolye = Boolean(canWorkAtolye);
 
-    if (!Object.keys(data).length) {
+    if (ekYetkiler !== undefined) {
+      const filtered = filterSecilebilirEkYetkiler(
+        Array.isArray(ekYetkiler) ? ekYetkiler.map(String) : [],
+      );
+      await syncEkYetkilerFromPersonel(req.params.id, filtered);
+    }
+
+    if (!Object.keys(data).length && ekYetkiler === undefined) {
       return res.status(400).json({ error: 'Güncellenecek alan yok' });
     }
 
-    await prisma.user.update({
-      where: { id: personel.userId },
-      data,
-    });
+    if (Object.keys(data).length) {
+      await prisma.user.update({
+        where: { id: personel.userId },
+        data,
+      });
+    }
     return res.json({ success: true });
   } catch (err: unknown) {
     const e = err as { code?: string };
@@ -4990,9 +4626,10 @@ router.get('/pdks-personeller', async (_req, res, next) => {
       | { data?: Array<{ id: number; name?: string; givenName?: string; familyName?: string }> };
     const list = Array.isArray(raw) ? raw : (raw.data ?? []);
     return res.json({
-      data: list.map((p: { id: number; name?: string; givenName?: string; familyName?: string }) => ({
+      data: list.map((p: { id: number; name?: string; givenName?: string; familyName?: string; status?: number }) => ({
         id: p.id,
         name: p.name || `${p.givenName ?? ''} ${p.familyName ?? ''}`.trim(),
+        status: p.status,
       })),
     });
   } catch (err) {
@@ -5011,14 +4648,27 @@ router.post('/personel-pos-bagla/:id', async (req, res, next) => {
         error: 'Bu POS kullanıcısı başka personele bağlı',
       });
     }
-    await prisma.personel.update({
+    await prisma.$transaction([
+      prisma.personel.update({
+        where: { id: req.params.id },
+        data: { userId },
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { personelId: req.params.id },
+      }),
+    ]);
+    await syncPersonelSubeFromUserId(req.params.id, userId);
+    const personel = await prisma.personel.findUnique({
       where: { id: req.params.id },
-      data: { userId },
+      select: { ekYetkiler: true },
     });
-    await prisma.user.update({
-      where: { id: userId },
-      data: { personelId: req.params.id },
-    });
+    if (personel?.ekYetkiler?.length) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { ekYetkiler: personel.ekYetkiler },
+      });
+    }
     return res.json({ success: true });
   } catch (err) {
     next(err);
@@ -5067,12 +4717,17 @@ router.post('/personel-pos-olustur/:id', async (req, res, next) => {
         branchId: branch.id,
         isActive: true,
         personelId: personel.id,
+        ekYetkiler: personel.ekYetkiler ?? [],
       },
     });
 
     await prisma.personel.update({
       where: { id: req.params.id },
-      data: { userId: user.id },
+      data: {
+        userId: user.id,
+        subeId: branch.code,
+        subeAdi: branch.name,
+      },
     });
 
     return res.json({
@@ -5107,21 +4762,33 @@ router.get('/pos-kullanicilar', async (req, res, next) => {
   }
 });
 
-router.put('/personel-guncelle/:id', async (req, res) => {
+router.put('/personel-guncelle/:id', async (req, res, next) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
-    const { id } = req.params
-    const data = req.body
-    if (data.maas) data.maas = Number(data.maas)
-    if (data.aylikHedef) data.aylikHedef = Number(data.aylikHedef)
-    const personel = await prisma.personel.update({ where: { id }, data })
-    await prisma.$disconnect()
-    return res.json({ success: true, data: personel })
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message })
+    const { id } = req.params;
+    const data = { ...req.body };
+    if (data.maas) data.maas = Number(data.maas);
+    if (data.aylikHedef) data.aylikHedef = Number(data.aylikHedef);
+
+    if (data.ekYetkiler !== undefined) {
+      const filtered = filterSecilebilirEkYetkiler(
+        Array.isArray(data.ekYetkiler) ? data.ekYetkiler.map(String) : [],
+      );
+      await syncEkYetkilerFromPersonel(id, filtered);
+      delete data.ekYetkiler;
+    }
+
+    const updateData = { ...data };
+    delete updateData.id;
+    const personel =
+      Object.keys(updateData).length > 0
+        ? await prisma.personel.update({ where: { id }, data: updateData })
+        : await prisma.personel.findUnique({ where: { id } });
+
+    return res.json({ success: true, data: personel });
+  } catch (err) {
+    next(err);
   }
-})
+});
 
 // ── PERSONEL BELGE (yönetici: indir / onayla / sil) ───────────────
 router.get('/personel-belge/:belgeId/indir', async (req, res, next) => {
@@ -5181,12 +4848,9 @@ router.get('/personel-belgeler-ozet', async (req, res, next) => {
 // ── PRİM KURAL CRUD ───────────────────────────────────────────────
 router.get('/prim-kurallar', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const kurallar = await prisma.primKural.findMany({
       where: { aktif: true }, orderBy: { createdAt: 'desc' }
     })
-    await prisma.$disconnect()
     return res.json({ data: kurallar })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -5195,8 +4859,6 @@ router.get('/prim-kurallar', async (req, res) => {
 
 router.post('/prim-kural-ekle', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { ad, tip, kapsam, donem, hedefTutar, hedefAdet, primOrani, primSabit, kategoriAdi, subeId, subeAdi, bolgeId, sirketId, pozisyonlar } = req.body
     if (!ad?.trim() || !tip || !kapsam || !donem) return res.status(400).json({ error: 'ad, tip, kapsam, donem zorunlu' })
     const kural = await prisma.primKural.create({
@@ -5211,7 +4873,6 @@ router.post('/prim-kural-ekle', async (req, res) => {
         pozisyonlar: pozisyonlar ? JSON.stringify(pozisyonlar) : null,
       }
     })
-    await prisma.$disconnect()
     return res.json({ success: true, data: kural })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -5375,24 +5036,14 @@ router.post('/prim-hesapla', async (req, res) => {
 
 // ── ÖZEL SİPARİŞ CRUD ─────────────────────────────────────────────
 
-function parseOzelSiparisReceteNum(v: unknown): number | null {
-  if (v == null || v === '') return null
-  if (typeof v === 'number' && Number.isFinite(v)) return v
-  const s = String(v).trim().replace(',', '.')
-  if (!s) return null
-  const n = Number(s.replace(/^\+/, ''))
-  return Number.isFinite(n) ? n : null
-}
-
 router.get('/ozel-siparisler', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
-    const { durum, subeId, sirketId, limit } = req.query
+    const { durum, subeId, sirketId, limit, satisSiparisId } = req.query
     const where: any = {}
     if (durum) where.durum = String(durum)
     if (subeId) where.subeId = String(subeId)
     if (sirketId) where.sirketId = Number(sirketId)
+    if (satisSiparisId) where.satisSiparisId = String(satisSiparisId)
     const siparisler = await prisma.ozelSiparis.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -5410,7 +5061,6 @@ router.get('/ozel-siparisler', async (req, res) => {
       ...s,
       musteriAdi: (s.musteriId && customerNameById.get(s.musteriId)) || s.musteriAdi,
     }))
-    await prisma.$disconnect()
     return res.json({ data: enriched })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -5419,64 +5069,18 @@ router.get('/ozel-siparisler', async (req, res) => {
 
 router.post('/ozel-siparis-ekle', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
-    const {
-      musteriAdi, musteriTelefon, musteriId,
-      satisSiparisId, subeId, subeAdi, sirketId,
-      tip, urunAdi, urunKodu, miktar,
-      sagSph, sagCyl, sagAks, sagAdd, sagPd,
-      solSph, solCyl, solAks, solAdd, solPd,
-      camTipi, camIndeksi, kaplama, cerceveBilgisi,
-      tedarikciId, tedarikciAdi,
-      tahminiMaliyet, satisFiyati,
-      notlar, tahminiGelisTarihi, olusturanKullanici, olcumBilgisi, satisTemsilcisi,
-    } = req.body
-
-    if (!musteriAdi?.trim() || !urunAdi?.trim() || !tip) {
-      return res.status(400).json({ error: 'musteriAdi, urunAdi, tip zorunlu' })
-    }
-
-    const siparis = await prisma.ozelSiparis.create({
-      data: {
-        musteriAdi, musteriTelefon, musteriId,
-        satisSiparisId, subeId, subeAdi,
-        sirketId: sirketId ? Number(sirketId) : null,
-        tip, urunAdi, urunKodu,
-        miktar: Number(miktar) || 1,
-        sagSph: parseOzelSiparisReceteNum(sagSph),
-        sagCyl: parseOzelSiparisReceteNum(sagCyl),
-        sagAks: parseOzelSiparisReceteNum(sagAks),
-        sagAdd: parseOzelSiparisReceteNum(sagAdd),
-        sagPd: parseOzelSiparisReceteNum(sagPd),
-        solSph: parseOzelSiparisReceteNum(solSph),
-        solCyl: parseOzelSiparisReceteNum(solCyl),
-        solAks: parseOzelSiparisReceteNum(solAks),
-        solAdd: parseOzelSiparisReceteNum(solAdd),
-        solPd: parseOzelSiparisReceteNum(solPd),
-        camTipi, camIndeksi, kaplama, cerceveBilgisi,
-        tedarikciId: tedarikciId ? Number(tedarikciId) : null,
-        tedarikciAdi,
-        tahminiMaliyet: tahminiMaliyet ? Number(tahminiMaliyet) : null,
-        satisFiyati: satisFiyati ? Number(satisFiyati) : null,
-        notlar,         olusturanKullanici,
-        olusturanUserId: (req as any).user?.userId ?? undefined,
-        olcumBilgisi: olcumBilgisi ?? undefined,
-        satisTemsilcisi: satisTemsilcisi ?? undefined,
-        tahminiGelisTarihi: tahminiGelisTarihi ? new Date(tahminiGelisTarihi) : null,
-      }
-    })
-    await prisma.$disconnect()
-    return res.json({ success: true, data: siparis })
+    const result = await createOzelSiparis(req.body, (req as any).user?.userId ?? null);
+    return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message })
+    if (err?.message === 'musteriAdi, urunAdi, tip zorunlu') {
+      return res.status(400).json({ error: err.message });
+    }
+    return res.status(500).json({ error: err?.message });
   }
-})
+});
 
 router.put('/ozel-siparis-guncelle/:id', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { id } = req.params
     const { firmaUrunu, satisTemsilcisi, notlar } = req.body
     const updated = await prisma.ozelSiparis.update({
@@ -5487,7 +5091,6 @@ router.put('/ozel-siparis-guncelle/:id', async (req, res) => {
         ...(notlar !== undefined && { notlar }),
       },
     })
-    await prisma.$disconnect()
     return res.json(updated)
   } catch (e: any) {
     return res.status(500).json({ error: e.message })
@@ -5547,8 +5150,6 @@ router.post('/ozel-siparis-stoka-al/:id', async (req, res) => {
 // ── SİPARİŞ TESLİM AL (Odoo'ya yaz) ─────────────────────────────
 router.post('/ozel-siparis-teslim/:id', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { id } = req.params
     const { hedef } = req.body // 'MUSTERI' | 'DEPO'
 
@@ -5619,7 +5220,6 @@ router.post('/ozel-siparis-teslim/:id', async (req, res) => {
       sonuc.mesaj = 'Ürün depoya alındı. Stok girişi için Ürün Girişi sekmesini kullanın.'
     }
 
-    await prisma.$disconnect()
     return res.json({ success: true, ...sonuc })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -5648,12 +5248,12 @@ router.get('/urun-varyanlar/:templateId', async (req, res) => {
       sonuclar.push({
         id: v.id,
         name: v.name,
-        defaultCode: v.default_code ?? '',
-        barcode: v.barcode ?? '',
+        defaultCode: typeof v.default_code === 'string' ? v.default_code : '',
+        barcode: typeof v.barcode === 'string' ? v.barcode : '',
         nitelikler: attrVals.map((a: any) => ({
           nitelikId: a.attribute_id?.[0],
           nitelikAdi: a.attribute_id?.[1],
-          degerAdi: a.name,
+          degerAdi: typeof a.name === 'string' ? a.name : '',
         }))
       })
     }
@@ -5669,14 +5269,11 @@ router.get('/urun-varyanlar/:templateId', async (req, res) => {
 // ── BEKLEYEN FATURA KAYITLARI ─────────────────────────────────────
 router.get('/bekleyen-faturalar', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const kayitlar = await prisma.bekleyenFatura.findMany({
       where: { durum: { in: ['BEKLIYOR', 'KISMI'] } },
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
-    await prisma.$disconnect()
     return res.json({ data: kayitlar })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -5685,8 +5282,6 @@ router.get('/bekleyen-faturalar', async (req, res) => {
 
 router.post('/bekleyen-fatura-ekle', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const {
       girisTipi, tedarikciAdi, tedarikciId,
       irsaliyeNo, aciklama, sirketId, sirketAdi,
@@ -5707,7 +5302,6 @@ router.post('/bekleyen-fatura-ekle', async (req, res) => {
         durum: 'BEKLIYOR',
       }
     })
-    await prisma.$disconnect()
     return res.json({ success: true, data: kayit })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -5716,8 +5310,6 @@ router.post('/bekleyen-fatura-ekle', async (req, res) => {
 
 router.post('/bekleyen-fatura-eslestir/:id', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { id } = req.params
     const { odooFaturaId, odooFaturaNo, notlar } = req.body
 
@@ -5733,7 +5325,6 @@ router.post('/bekleyen-fatura-eslestir/:id', async (req, res) => {
         eslesmeTarihi: new Date(),
       }
     })
-    await prisma.$disconnect()
     return res.json({ success: true, data: kayit })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
@@ -5779,10 +5370,39 @@ router.get('/odoo-nitelik-degerleri', async (_req, res, next) => {
 
 router.post('/odoo-kategori-ekle', async (req, res, next) => {
   try {
-    const { ad, parentId } = req.body;
+    const { ad, parentId, forceCreate } = req.body;
     if (!ad?.trim()) return res.status(400).json({ error: 'ad zorunlu' });
+
+    const parent = parentId ? Number(parentId) : null;
+    const existing = await findExistingCategoryMatch(ad, { parentId: parent });
+
+    if (existing.matchType === 'ambiguous') {
+      return res.status(409).json({
+        code: 'category-ambiguous',
+        error: 'Kategori adı birden fazla olası eşleşmeye sahip, tam adını netleştirin.',
+        candidates: existing.candidates.map((c) => ({
+          id: c.id,
+          name: c.name,
+          complete_name: c.complete_name,
+        })),
+      });
+    }
+
+    if (existing.match && !forceCreate) {
+      return res.status(409).json({
+        code: 'category-exists',
+        error: `Benzer bir kategori zaten var: "${existing.match.complete_name}"`,
+        existing: {
+          id: existing.match.id,
+          name: existing.match.name,
+          complete_name: existing.match.complete_name,
+        },
+        matchType: existing.matchType,
+      });
+    }
+
     const data: Record<string, unknown> = { name: ad.trim() };
-    if (parentId) data.parent_id = Number(parentId);
+    if (parent) data.parent_id = parent;
     const id = await execute('product.category', 'create', [data]);
     return res.json({ success: true, id });
   } catch (err) {
@@ -5797,6 +5417,7 @@ router.post('/odoo-nitelik-ekle', async (req, res, next) => {
     const attrId = await execute('product.attribute', 'create', [{
       name: ad.trim(),
       display_type: displayType || 'select',
+      create_variant: 'dynamic',
     }]);
     if (degerler?.length) {
       for (const d of degerler) {
@@ -5950,14 +5571,15 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
 
     const variants = await execute(
       'product.product', 'search_read',
-      [[['product_tmpl_id', '=', tmplId]]],
+      [[['product_tmpl_id', '=', tmplId], ['active', 'in', [true, false]]]],
       {
         fields: [
-          'id', 'name', 'default_code', 'barcode',
+          'id', 'name', 'default_code', 'barcode', 'active',
           'lst_price', 'standard_price',
           'product_template_attribute_value_ids',
         ],
         limit: 500,
+        context: { active_test: false },
       },
     );
 
@@ -5981,7 +5603,7 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
       }
     }
 
-    const result = variants.map((v: { id: number; default_code?: string | false; barcode?: string | false; lst_price?: number; standard_price?: number; product_template_attribute_value_ids?: number[] }) => {
+    const result = variants.map((v: { id: number; active?: boolean; default_code?: string | false; barcode?: string | false; lst_price?: number; standard_price?: number; product_template_attribute_value_ids?: number[] }) => {
       const attrs: Record<string, string> = {};
       for (const ptavId of v.product_template_attribute_value_ids ?? []) {
         const ptav = ptavMap.get(ptavId);
@@ -5989,6 +5611,7 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
       }
       return {
         id: v.id,
+        active: v.active !== false,
         default_code: v.default_code || '',
         barcode: v.barcode || '',
         lst_price: v.lst_price || 0,
@@ -6146,7 +5769,10 @@ router.post('/odoo-sablon-olustur', async (req, res, next) => {
       volume: Number(hacim) || 0,
     };
 
-    if (sirketId) tmplData.company_id = Number(sirketId);
+    if (sirketId) {
+      const sid = Number(sirketId);
+      if (sid === 2 || sid === 3 || sid === 4) tmplData.company_id = sid;
+    }
     if (vergi) {
       const taxes = await execute('account.tax', 'search_read',
         [[['type_tax_use', '=', 'sale'], ['amount', '=', Number(vergi)]]],
@@ -6157,39 +5783,6 @@ router.post('/odoo-sablon-olustur', async (req, res, next) => {
     const tmplId = await execute('product.template', 'create', [tmplData]);
 
     return res.json({ success: true, tmplId });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.post('/odoo-sablon-nitelik-ata', async (req, res, next) => {
-  try {
-    const { tmplId, nitelikler } = req.body;
-
-    if (!tmplId || !nitelikler?.length) {
-      return res.status(400).json({ error: 'tmplId ve nitelikler zorunlu' });
-    }
-
-    const attributeLines = nitelikler.map((n: { attributeId: number; valueIds: number[] }) => [0, 0, {
-      attribute_id: n.attributeId,
-      value_ids: [[6, 0, n.valueIds]],
-    }]);
-
-    await execute('product.template', 'write', [
-      [Number(tmplId)],
-      { attribute_line_ids: attributeLines },
-    ]);
-
-    const variants = await execute('product.product', 'search_read',
-      [[['product_tmpl_id', '=', Number(tmplId)]]],
-      {
-        fields: ['id', 'name',
-          'product_template_attribute_value_ids',
-          'default_code', 'barcode', 'lst_price', 'standard_price'],
-        limit: 200,
-      });
-
-    return res.json({ success: true, variants });
   } catch (err) {
     next(err);
   }
@@ -6206,7 +5799,7 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
     const nitelikler = await execute(
       'product.attribute', 'search_read',
       [[['name', 'in', ['MODEL', 'RENK', 'ÖLÇÜ']]]],
-      { fields: ['id', 'name'] },
+      { fields: ['id', 'name', 'create_variant'] },
     );
     const nitelikMap = new Map<string, number>(
       (nitelikler as { id: number; name: string }[]).map((n) => [n.name, n.id]),
@@ -6269,12 +5862,21 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
       }
     }
 
-    const sonuclar: {
-      satir: number; varyantId: number; model: string; renk: string;
-      olcu: string; barkod: string; fiyat: number;
-    }[] = [];
+    type ParsedImportRow = {
+      index: number;
+      modelAd: string;
+      renkAd: string;
+      olcuAd: string | null;
+      barkod: string;
+      fiyat: number;
+      modelId: number;
+      renkId: number;
+      olcuId: number | null;
+    };
+
+    const parsedRows: ParsedImportRow[] = [];
     const hatalar: { satir: number; sebep: string }[] = [];
-    const eklenenDegerIdler = new Set<string>();
+    const attrUniqueValues = new Map<number, Set<number>>();
 
     for (let i = 0; i < satirlar.length; i++) {
       const satir = satirlar[i] as string[];
@@ -6299,41 +5901,74 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
           ? await getOrCreateDeger(olcuAttrId, olcuAd)
           : null;
 
-        const addToLine = async (attrId: number, valueId: number) => {
-          const key = `${attrId}_${valueId}`;
-          if (eklenenDegerIdler.has(key)) return;
-          eklenenDegerIdler.add(key);
-
-          const line = lineMap.get(attrId);
-          if (!line || line.id === -1) {
-            const lineId = Number(await execute(
-              'product.template.attribute.line', 'create',
-              [{
-                product_tmpl_id: Number(tmplId),
-                attribute_id: attrId,
-                value_ids: [[4, valueId]],
-              }],
-            ));
-            lineMap.set(attrId, { id: lineId, value_ids: [valueId] });
-          } else if (!line.value_ids.includes(valueId)) {
-            await execute(
-              'product.template.attribute.line', 'write',
-              [[line.id], { value_ids: [[4, valueId]] }],
-            );
-            line.value_ids.push(valueId);
-          }
+        const track = (attrId: number, valueId: number) => {
+          if (!attrUniqueValues.has(attrId)) attrUniqueValues.set(attrId, new Set());
+          attrUniqueValues.get(attrId)!.add(valueId);
         };
+        track(modelAttrId, modelId);
+        track(renkAttrId, renkId);
+        if (olcuId) track(olcuAttrId, olcuId);
 
-        await addToLine(modelAttrId, modelId);
-        await addToLine(renkAttrId, renkId);
-        if (olcuId) await addToLine(olcuAttrId, olcuId);
+        parsedRows.push({
+          index: i,
+          modelAd,
+          renkAd,
+          olcuAd,
+          barkod,
+          fiyat,
+          modelId,
+          renkId,
+          olcuId,
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message.slice(0, 150) : 'Bilinmeyen hata';
+        hatalar.push({ satir: i + 1, sebep: msg });
+      }
+    }
 
+    // Nitelik satırlarını toplu kur (dynamic modda kartezyen varyant üretmez)
+    for (const [attrId, valueSet] of attrUniqueValues) {
+      const valueIds = [...valueSet];
+      const line = lineMap.get(attrId);
+      if (!line || line.id === -1) {
+        const lineId = Number(await execute(
+          'product.template.attribute.line', 'create',
+          [{
+            product_tmpl_id: Number(tmplId),
+            attribute_id: attrId,
+            value_ids: [[6, 0, valueIds]],
+          }],
+        ));
+        lineMap.set(attrId, { id: lineId, value_ids: valueIds });
+      } else {
+        const merged = [...new Set([...line.value_ids, ...valueIds])];
+        if (merged.length !== line.value_ids.length
+          || merged.some((id) => !line.value_ids.includes(id))) {
+          await execute(
+            'product.template.attribute.line', 'write',
+            [[line.id], { value_ids: [[6, 0, merged]] }],
+          );
+          lineMap.set(attrId, { id: line.id, value_ids: merged });
+        }
+      }
+    }
+
+    const sonuclar: {
+      satir: number; varyantId: number; model: string; renk: string;
+      olcu: string; barkod: string; fiyat: number;
+    }[] = [];
+
+    const korunanPtavKeys = new Set<string>();
+    const korunanVaryantIds = new Set<number>();
+
+    for (const row of parsedRows) {
+      try {
         const ptavlar = await execute(
           'product.template.attribute.value', 'search_read',
           [[
             ['product_tmpl_id', '=', Number(tmplId)],
             ['product_attribute_value_id', 'in',
-              [modelId, renkId, ...(olcuId ? [olcuId] : [])],
+              [row.modelId, row.renkId, ...(row.olcuId ? [row.olcuId] : [])],
             ],
           ]],
           { fields: ['id', 'attribute_id', 'product_attribute_value_id'] },
@@ -6344,18 +5979,18 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
         }[];
 
         const modelPtav = ptavlar.find(
-          (p) => p.product_attribute_value_id[0] === modelId,
+          (p) => p.product_attribute_value_id[0] === row.modelId,
         );
         const renkPtav = ptavlar.find(
-          (p) => p.product_attribute_value_id[0] === renkId,
+          (p) => p.product_attribute_value_id[0] === row.renkId,
         );
-        const olcuPtav = olcuId ? ptavlar.find(
-          (p) => p.product_attribute_value_id[0] === olcuId,
+        const olcuPtav = row.olcuId ? ptavlar.find(
+          (p) => p.product_attribute_value_id[0] === row.olcuId,
         ) : null;
 
-        if (!modelPtav || !renkPtav || (olcuId && !olcuPtav)) {
+        if (!modelPtav || !renkPtav || (row.olcuId && !olcuPtav)) {
           hatalar.push({
-            satir: i + 1,
+            satir: row.index + 1,
             sebep: 'PTAV bulunamadı',
           });
           continue;
@@ -6366,18 +6001,23 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
           renkPtav.id,
           ...(olcuPtav ? [olcuPtav.id] : []),
         ];
+        const key = ptavKey(ptavIds);
+        korunanPtavKeys.add(key);
 
-        const mevcutVaryant = await execute(
-          'product.product', 'search',
-          [[
-            ['product_tmpl_id', '=', Number(tmplId)],
-            ['product_template_attribute_value_ids', '=', ptavIds[0]],
-          ]],
-        ) as number[];
+        const mevcutVaryantlar = await execute(
+          'product.product', 'search_read',
+          [[['product_tmpl_id', '=', Number(tmplId)]]],
+          { fields: ['id', 'product_template_attribute_value_ids'], limit: 5000 },
+        ) as { id: number; product_template_attribute_value_ids: number[] }[];
 
-        if (mevcutVaryant.length > 0) {
+        const mevcutEslesen = mevcutVaryantlar.find(
+          (v) => ptavKey(v.product_template_attribute_value_ids ?? []) === key,
+        );
+
+        if (mevcutEslesen) {
+          korunanVaryantIds.add(mevcutEslesen.id);
           hatalar.push({
-            satir: i + 1,
+            satir: row.index + 1,
             sebep: 'Varyant zaten mevcut',
           });
           continue;
@@ -6388,35 +6028,46 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
           [{
             product_tmpl_id: Number(tmplId),
             product_template_attribute_value_ids: [[6, 0, ptavIds]],
-            barcode: barkod || false,
-            lst_price: fiyat || 0,
+            barcode: row.barkod || false,
+            lst_price: row.fiyat || 0,
           }],
         ));
+        korunanVaryantIds.add(varyantId);
 
         sonuclar.push({
-          satir: i + 1,
+          satir: row.index + 1,
           varyantId,
-          model: modelAd,
-          renk: renkAd,
-          olcu: olcuAd || '',
-          barkod: barkod || '',
-          fiyat: fiyat || 0,
+          model: row.modelAd,
+          renk: row.renkAd,
+          olcu: row.olcuAd || '',
+          barkod: row.barkod || '',
+          fiyat: row.fiyat || 0,
         });
       } catch (e: unknown) {
         const msg = e instanceof Error
           ? e.message.slice(0, 150)
           : 'Bilinmeyen hata';
-        hatalar.push({ satir: i + 1, sebep: msg });
+        hatalar.push({ satir: row.index + 1, sebep: msg });
       }
     }
+
+    const temizlik = await temizleImportSonrasiVaryantlar(
+      Number(tmplId),
+      korunanPtavKeys,
+      korunanVaryantIds,
+    );
 
     return res.json({
       success: true,
       olusturulan: sonuclar.length,
       hatalar: hatalar.length,
+      otomatikTemizlenen: temizlik.temizlenen,
+      kalanVaryant: temizlik.kalanVaryant,
+      temizlenemedi: temizlik.silinemedi.length,
       detay: {
         sonuclar: sonuclar.slice(0, 50),
         hatalar: hatalar.slice(0, 50),
+        temizlenemediIds: temizlik.silinemedi.slice(0, 20),
       },
     });
   } catch (err) {
@@ -6585,9 +6236,32 @@ router.get('/stok-kontrol', async (req: Request, res: Response, next: NextFuncti
   }
 });
 
+router.post('/stok-kontrol/uts-duzeltme-sablon', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { productIds } = req.body ?? {};
+    if (!Array.isArray(productIds) || !productIds.length) {
+      return res.status(400).json({ error: 'productIds zorunlu' });
+    }
+    const buffer = await buildUtsDuzeltmeSablonBuffer(productIds.map(Number));
+    const tarih = new Date().toISOString().slice(0, 10);
+    const filename = `uts-duzeltme-sablon-${tarih}.xlsx`;
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/stok-urunleri', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { q, kategoriId, fiyatMin, fiyatMax, stokDurumu, lokasyon, kdv, page, limit } = req.query;
+    const { q, kategoriId, fiyatMin, fiyatMax, stokDurumu, lokasyon, kdv, durum, page, limit } = req.query;
+    const durumVal = durum ? String(durum) : undefined;
     const result = await stokYonetimi.listStokUrunleri({
       q: q ? String(q) : undefined,
       kategoriId: kategoriId ? Number(kategoriId) : undefined,
@@ -6596,10 +6270,117 @@ router.get('/stok-urunleri', async (req: Request, res: Response, next: NextFunct
       stokDurumu: stokDurumu as 'tumu' | 'var' | 'sifir' | undefined,
       lokasyon: lokasyon ? String(lokasyon) : undefined,
       kdv: kdv ? Number(kdv) : undefined,
+      durum: durumVal === 'arsiv' || durumVal === 'hepsi' ? durumVal : undefined,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 50,
     });
     return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/stok-urunleri/arsivle', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { urunIds } = req.body ?? {};
+    if (!Array.isArray(urunIds) || !urunIds.length) {
+      return res.status(400).json({ error: 'urunIds zorunlu' });
+    }
+    const result = await stokYonetimi.topluUrunArsivle(urunIds.map(Number));
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/stok-urunleri/arsivden-cikar', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { urunIds } = req.body ?? {};
+    if (!Array.isArray(urunIds) || !urunIds.length) {
+      return res.status(400).json({ error: 'urunIds zorunlu' });
+    }
+    const result = await stokYonetimi.topluUrunArsivdenCikar(urunIds.map(Number));
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/odoo-sablon/varyant-arsivle', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { variantIds } = req.body ?? {};
+    if (!Array.isArray(variantIds) || !variantIds.length) {
+      return res.status(400).json({ error: 'variantIds zorunlu' });
+    }
+    const result = await stokYonetimi.topluVaryantArsivle(variantIds.map(Number));
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/odoo-sablon/varyant-arsivden-cikar', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { variantIds } = req.body ?? {};
+    if (!Array.isArray(variantIds) || !variantIds.length) {
+      return res.status(400).json({ error: 'variantIds zorunlu' });
+    }
+    const result = await stokYonetimi.topluVaryantArsivdenCikar(variantIds.map(Number));
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+function parseStokExportFormat(raw: unknown): 'pdf' | 'xlsx' | 'csv' | null {
+  const f = String(raw ?? '').toLowerCase();
+  if (f === 'pdf' || f === 'xlsx' || f === 'csv') return f;
+  return null;
+}
+
+router.post('/stok-urunleri/disa-aktar', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { urunIds, format } = req.body ?? {};
+    const fmt = parseStokExportFormat(format);
+    if (!fmt) return res.status(400).json({ error: 'format zorunlu (pdf, xlsx, csv)' });
+    if (!Array.isArray(urunIds) || !urunIds.length) {
+      return res.status(400).json({ error: 'urunIds zorunlu' });
+    }
+    const buffer = await stokExport.exportStokUrunleri(urunIds.map(Number), fmt);
+    const filename = stokExport.stokExportFilename('stok-urunleri', fmt);
+    res.setHeader('Content-Type', stokExport.stokExportContentType(fmt));
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/odoo-sablon/varyant-disa-aktar', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { variantIds, format } = req.body ?? {};
+    const fmt = parseStokExportFormat(format);
+    if (!fmt) return res.status(400).json({ error: 'format zorunlu (pdf, xlsx, csv)' });
+    if (!Array.isArray(variantIds) || !variantIds.length) {
+      return res.status(400).json({ error: 'variantIds zorunlu' });
+    }
+    const buffer = await stokExport.exportStokVaryantlari(variantIds.map(Number), fmt);
+    const filename = stokExport.stokExportFilename('stok-varyantlari', fmt);
+    res.setHeader('Content-Type', stokExport.stokExportContentType(fmt));
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
   } catch (err) {
     next(err);
   }
@@ -6655,6 +6436,19 @@ router.get('/stok-urun/:tmplId/lotlar', async (req: Request, res: Response, next
   }
 });
 
+router.get('/varyant-lot-bilgisi/:productId', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const productId = Number(req.params.productId);
+    if (!Number.isFinite(productId) || productId <= 0) {
+      return res.status(400).json({ error: 'Geçersiz productId' });
+    }
+    const data = await stokYonetimi.getVaryantLotBilgisi(productId);
+    return res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/fiyat-degisiklikleri', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = req.user;
@@ -6666,7 +6460,13 @@ router.get('/fiyat-degisiklikleri', async (req: Request, res: Response, next: Ne
       subeKodu = String(req.query.subeKodu);
     }
     const okundu = req.query.okundu === 'true' ? true : req.query.okundu === 'false' ? false : undefined;
-    const data = await stokYonetimi.listFiyatBildirimleri({ subeKodu, okundu });
+    const etiketBasildi =
+      req.query.etiketBasildi === 'true'
+        ? true
+        : req.query.etiketBasildi === 'false'
+          ? false
+          : undefined;
+    const data = await stokYonetimi.listFiyatBildirimleri({ subeKodu, okundu, etiketBasildi });
     return res.json({ data });
   } catch (err) {
     next(err);
@@ -6686,6 +6486,43 @@ router.get('/fiyat-degisiklikleri/sayac', async (req: Request, res: Response, ne
       count += await bildirimService.bildirimSayac(user.userId);
     }
     return res.json({ count });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/fiyat-degisiklikleri/toplu-etiket-basildi', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    const { ids } = req.body ?? {};
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ error: 'ids zorunlu' });
+    }
+    let subeKodu: string | undefined;
+    if (user.role === Role.STORE_MANAGER) {
+      subeKodu = await kullaniciSubeKodu(user.branchId);
+    }
+    const result = await stokYonetimi.fiyatBildirimEtiketBasildiToplu(
+      ids.map(String),
+      { subeKodu },
+    );
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/fiyat-degisiklikleri/:id/etiket-basildi', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
+    let subeKodu: string | undefined;
+    if (user.role === Role.STORE_MANAGER) {
+      subeKodu = await kullaniciSubeKodu(user.branchId);
+    }
+    const data = await stokYonetimi.fiyatBildirimEtiketBasildi(req.params.id, { subeKodu });
+    return res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -6714,61 +6551,6 @@ router.patch('/fiyat-degisiklikleri/okundu-tumu', async (req: Request, res: Resp
     next(err);
   }
 });
-
-async function gondermeBildiriminiYap(bildirim: {
-  id: string;
-  tip: string;
-  payload: unknown;
-  kalemler: Array<{ barkod: string; seriNo: string | null; lotNo: string | null; adet: number }>;
-}, utsSube: { token: string; ortam: string }) {
-  const baseUrl = utsSube.ortam === 'test'
-    ? 'https://utstest.saglik.gov.tr'
-    : 'https://utsuygulama.saglik.gov.tr';
-
-  const endpointMap: Record<string, string> = {
-    ALMA: '/UTS/uh/rest/bildirim/alma/ekle',
-    VERME: '/UTS/uh/rest/bildirim/verme/ekle',
-    TUKETICIYE_VERME: '/UTS/uh/rest/bildirim/tuketiciyeVerme/ekle',
-    TANIMSIZ_YERE_VERME: '/UTS/uh/rest/bildirim/utsdeTanimsizYereVerme/ekle',
-    TUKETICIDEN_IADE: '/UTS/uh/rest/bildirim/tuketicidenIadeAlma/ekle',
-    HEK_ZAYIAT: '/UTS/uh/rest/bildirim/hekZayiat/ekle',
-  };
-
-  const endpoint = endpointMap[bildirim.tip];
-  if (!endpoint) throw new Error(`Bilinmeyen bildirim tipi: ${bildirim.tip}`);
-
-  const payloadBase = typeof bildirim.payload === 'object' && bildirim.payload !== null
-    ? { ...(bildirim.payload as Record<string, unknown>) }
-    : {};
-
-  const sonuclar: unknown[] = [];
-  for (const kalem of bildirim.kalemler) {
-    const body: Record<string, unknown> = { ...payloadBase };
-    body.UNO = kalem.barkod;
-    if (kalem.seriNo) body.SNO = kalem.seriNo;
-    if (kalem.lotNo) body.LNO = kalem.lotNo;
-    if (kalem.adet > 1) body.ADT = kalem.adet;
-
-    const resp = await axios.post(
-      `${baseUrl}${endpoint}`,
-      body,
-      { headers: { utsToken: utsSube.token, 'Content-Type': 'application/json' } },
-    );
-    sonuclar.push(resp.data);
-  }
-
-  const first = sonuclar[0] as { SNC?: string } | undefined;
-  await prisma.utsBildirim.update({
-    where: { id: bildirim.id },
-    data: {
-      durum: 'GONDERILDI',
-      utsBildirimId: first?.SNC || null,
-      gonderimZamani: new Date(),
-      hataDetay: null,
-    },
-  });
-  return sonuclar;
-}
 
 // ── UTS YÖNETİMİ ─────────────────────────────────────────────────
 router.get('/uts/subeler', async (req, res, next) => {
@@ -6807,31 +6589,10 @@ router.post('/uts/sube-kaydet', async (req, res, next) => {
 
 router.post('/uts/token-test/:branchId', async (req, res, next) => {
   try {
-    const utsSube = await prisma.utsSube.findUnique({
-      where: { branchId: req.params.branchId },
-    });
-    if (!utsSube?.token) return res.status(400).json({ error: 'Token tanımlı değil' });
-
-    const baseUrl = utsSube.ortam === 'test'
-      ? 'https://utstest.saglik.gov.tr'
-      : 'https://utsuygulama.saglik.gov.tr';
-
-    await axios.post(
-      `${baseUrl}/UTS/rest/kurum/firmaSorgula`,
-      { VRG: '1' },
-      { headers: { utsToken: utsSube.token, 'Content-Type': 'application/json' } },
-    );
-    await prisma.utsSube.update({
-      where: { branchId: req.params.branchId },
-      data: { sonKontrol: new Date(), aktif: true },
-    });
-    return res.json({ success: true, mesaj: 'Token geçerli' });
+    const sonuc = await testUtsSubeToken(req.params.branchId);
+    return res.json(sonuc);
   } catch (err) {
-    await prisma.utsSube.update({
-      where: { branchId: req.params.branchId },
-      data: { sonKontrol: new Date(), aktif: false },
-    }).catch(() => {});
-    return res.json({ success: false, mesaj: 'Token geçersiz veya bağlantı hatası' });
+    next(err);
   }
 });
 
@@ -6975,6 +6736,166 @@ router.get('/uts/kuyruk', async (req, res, next) => {
   }
 });
 
+router.get('/uts/gonderilen', async (req, res, next) => {
+  try {
+    const days = Number(req.query.days) || 30;
+    const limit = Number(req.query.limit) || 100;
+    const { data, count } = await listGonderilenUtsBildirimler({ days, limit });
+    return res.json({ success: true, count, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/uts/urun-girisi-bekleyen', async (req, res, next) => {
+  try {
+    const [sayac, data] = await Promise.all([
+      urunGirisiBekleyenSayac(),
+      listUrunGirisiBekleyenler(50),
+    ]);
+    return res.json({ success: true, sayac, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/uts/bekleyen-alma-toplu-bildir', async (req, res, next) => {
+  try {
+    const { subeKodu, satirlar } = req.body ?? {};
+    if (!subeKodu || !Array.isArray(satirlar) || !satirlar.length) {
+      return res.status(400).json({ error: 'subeKodu ve satirlar zorunlu' });
+    }
+    const sonuclar = await bekleyenAlmaTopluBildir({ subeKodu: String(subeKodu), satirlar });
+    const basarili = sonuclar.filter((s) => s.durum === 'GONDERILDI').length;
+    const basarisiz = sonuclar.length - basarili;
+    return res.json({ success: true, basarili, basarisiz, sonuclar });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/uts/belge-sorgula', async (req, res, next) => {
+  try {
+    const belgeNo = String(req.query.belgeNo ?? '').trim();
+    let subeKodu = String(req.query.subeKodu ?? '').trim();
+    const sirketId = Number(req.query.sirketId);
+    if (!subeKodu && Number.isFinite(sirketId) && sirketId > 0) {
+      subeKodu = sirketIdToReferansSube(sirketId);
+    }
+    if (!subeKodu) subeKodu = 'GVN2';
+
+    const utsSube = await resolveUtsSubeForSubeKodu(subeKodu);
+    if (!utsSube?.token?.trim()) {
+      return res.status(400).json({ error: `${subeKodu} şubesi için UTS token tanımlı değil` });
+    }
+    if (!utsSube.aktif) {
+      return res.status(400).json({ error: `${subeKodu} UTS entegrasyonu pasif — UTS Yönetimi'nden token test edin` });
+    }
+
+    const gkkRaw = Number(req.query.gkk);
+    const gonderenKurumNo = Number.isFinite(gkkRaw) && gkkRaw > 0 ? gkkRaw : undefined;
+    const uno = String(req.query.uno ?? '').trim() || undefined;
+
+    const satirlar = belgeNo
+      ? await sorgulaBelgeNoIleAlmaBekleyenler({
+          token: utsSube.token,
+          ortam: utsSube.ortam,
+          belgeNo,
+          gonderenKurumNo,
+        })
+      : await sorgulaAlmaBekleyenler({
+          token: utsSube.token,
+          ortam: utsSube.ortam,
+          gonderenKurumNo,
+          urunNumarasi: uno,
+        });
+
+    return res.json({
+      success: true,
+      subeKodu,
+      subeAdi: utsSube.branch?.name ?? subeKodu,
+      belgeNo: belgeNo || undefined,
+      sayi: satirlar.length,
+      data: satirlar,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/uts/alma-bekleyenler', async (req, res, next) => {
+  try {
+    let subeKodu = String(req.query.subeKodu ?? '').trim();
+    const sirketId = Number(req.query.sirketId);
+    if (!subeKodu && Number.isFinite(sirketId) && sirketId > 0) {
+      subeKodu = sirketIdToReferansSube(sirketId);
+    }
+    if (!subeKodu) {
+      return res.status(400).json({ error: 'subeKodu zorunlu' });
+    }
+
+    const utsSube = await resolveUtsSubeForSubeKodu(subeKodu);
+    if (!utsSube?.token?.trim()) {
+      return res.status(400).json({ error: `${subeKodu} şubesi için UTS token tanımlı değil` });
+    }
+    if (!utsSube.aktif) {
+      return res.status(400).json({ error: `${subeKodu} UTS entegrasyonu pasif — UTS Yönetimi'nden token test edin` });
+    }
+
+    const belgeNo = String(req.query.belgeNo ?? '').trim() || undefined;
+    const gkkRaw = Number(req.query.gkk);
+    const gonderenKurumNo = Number.isFinite(gkkRaw) && gkkRaw > 0 ? gkkRaw : undefined;
+    const uno = String(req.query.uno ?? '').trim() || undefined;
+
+    const satirlar = await sorgulaAlmaBekleyenler({
+      token: utsSube.token,
+      ortam: utsSube.ortam,
+      belgeNo,
+      gonderenKurumNo,
+      urunNumarasi: uno,
+    });
+
+    return res.json({
+      success: true,
+      subeKodu,
+      subeAdi: utsSube.branch?.name ?? subeKodu,
+      filtreler: { belgeNo, gkk: gonderenKurumNo, uno },
+      sayi: satirlar.length,
+      data: satirlar,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/uts/almak-istemiyorum', async (req, res, next) => {
+  try {
+    const bid = String(req.body?.bid ?? '').trim();
+    let subeKodu = String(req.body?.subeKodu ?? '').trim();
+    if (!bid) return res.status(400).json({ error: 'bid zorunlu' });
+    if (!subeKodu) return res.status(400).json({ error: 'subeKodu zorunlu' });
+
+    const utsSube = await resolveUtsSubeForSubeKodu(subeKodu);
+    if (!utsSube?.token?.trim()) {
+      return res.status(400).json({ error: `${subeKodu} şubesi için UTS token tanımlı değil` });
+    }
+    if (!utsSube.aktif) {
+      return res.status(400).json({ error: `${subeKodu} UTS entegrasyonu pasif — UTS Yönetimi'nden token test edin` });
+    }
+
+    const sonuc = await almakIstemiyorumOlarakIsaretle({
+      token: utsSube.token,
+      ortam: utsSube.ortam,
+      bid,
+    });
+
+    return res.json({ success: true, bid, data: sonuc });
+  } catch (err) {
+    const message = extractUtsHataDetay(err);
+    return res.status(500).json({ error: message });
+  }
+});
+
 router.post('/uts/bildirim-olustur', async (req, res, next) => {
   try {
     const {
@@ -6987,45 +6908,21 @@ router.post('/uts/bildirim-olustur', async (req, res, next) => {
       return res.status(400).json({ error: 'tip, branchId ve kalemler zorunlu' });
     }
 
-    const payload: Prisma.InputJsonValue = { BNO: belgeNo ?? null };
-    if (karsiKurumNo) (payload as Record<string, unknown>).KUN = Number(karsiKurumNo);
-    if (karsiVkn) (payload as Record<string, unknown>).VKN = karsiVkn;
-
-    const bildirim = await prisma.utsBildirim.create({
-      data: {
-        tip,
-        branchId,
-        belgeNo,
-        karsiKurumNo,
-        karsiVkn,
-        karsiAd,
-        payload,
-        durum: 'BEKLIYOR',
-        kalemler: {
-          create: kalemler.map((k: { barkod: string; seriNo?: string; lotNo?: string; adet?: number }) => ({
-            barkod: k.barkod,
-            seriNo: k.seriNo || null,
-            lotNo: k.lotNo || null,
-            adet: k.adet || 1,
-          })),
-        },
+    const sonuc = await bildirimOlusturVeGonder({
+      tip,
+      branchId,
+      kalemler,
+      karsiTaraf: {
+        kurumNo: karsiKurumNo,
+        vkn: karsiVkn,
+        ad: karsiAd,
       },
-      include: { kalemler: true },
+      belgeNo,
+      hemenGonder: !!hemenGonder,
     });
 
-    if (hemenGonder) {
-      const utsSube = await prisma.utsSube.findUnique({ where: { branchId } });
-      if (utsSube?.token && utsSube?.aktif) {
-        try {
-          await gondermeBildiriminiYap(bildirim, { token: utsSube.token, ortam: utsSube.ortam });
-        } catch {
-          // gönderim başarısız, kuyrukta kalır
-        }
-      }
-    }
-
     const guncel = await prisma.utsBildirim.findUnique({
-      where: { id: bildirim.id },
+      where: { id: sonuc.bildirimId },
       include: { kalemler: true },
     });
     return res.json({ success: true, data: guncel });
@@ -7052,7 +6949,7 @@ router.post('/uts/bildirim-gonder/:id', async (req, res, next) => {
     await gondermeBildiriminiYap(bildirim, { token: utsSube.token, ortam: utsSube.ortam });
     return res.json({ success: true });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Gönderim hatası';
+    const message = extractUtsHataDetay(err);
     await prisma.utsBildirim.update({
       where: { id: req.params.id },
       data: { durum: 'HATA', hataDetay: message },
@@ -7082,7 +6979,7 @@ router.post('/uts/toplu-gonder', async (req, res, next) => {
         await gondermeBildiriminiYap(bildirim, { token: utsSube.token, ortam: utsSube.ortam });
         sonuclar.push({ id, durum: 'GONDERILDI' });
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Gönderim hatası';
+        const message = extractUtsHataDetay(e);
         await prisma.utsBildirim.update({
           where: { id },
           data: { durum: 'HATA', hataDetay: message },
@@ -7098,12 +6995,9 @@ router.post('/uts/toplu-gonder', async (req, res, next) => {
 
 router.get('/sirket-ayar/:sirketId', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const ayarlar = await prisma.sirketAyar.findMany({
       where: { sirketId: req.params.sirketId },
     })
-    await prisma.$disconnect()
     const map: Record<string, string> = {}
     for (const a of ayarlar) {
       if (a.anahtar.includes('password') || a.anahtar.includes('sifre')) {
@@ -7120,8 +7014,6 @@ router.get('/sirket-ayar/:sirketId', async (req, res) => {
 
 router.post('/sirket-ayar/:sirketId', async (req, res) => {
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     const { ayarlar } = req.body
     for (const [anahtar, deger] of Object.entries(ayarlar as Record<string, string>)) {
       if (!deger || deger === '••••••••') continue
@@ -7131,12 +7023,25 @@ router.post('/sirket-ayar/:sirketId', async (req, res) => {
         update: { deger: String(deger) },
       })
     }
-    await prisma.$disconnect()
+    // e-İrsaliye kimlik bilgisi değiştiyse SOAP client cache'ini temizle
+    const keys = Object.keys(ayarlar as Record<string, string>)
+    if (keys.some((k) => k.startsWith('uyumsoft_eirsaliye_'))) {
+      const { clearDespatchClientCache } = await import('../efatura/uyumsoft-irsaliye.service')
+      clearDespatchClientCache(req.params.sirketId)
+    }
+    if (keys.includes('uyumsoft_username') || keys.includes('uyumsoft_password')) {
+      const { clearUyumsoftClientCache } = await import('../uyumsoft/uyumsoft.service')
+      clearUyumsoftClientCache(req.params.sirketId)
+    }
     return res.json({ success: true })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })
   }
 })
+
+router.use('/envanter-import', envanterImportRouter);
+router.use('/odoo-sablon-excel', sablonExcelImportRouter);
+router.use('/deploy', deployRouter);
 
 export default router;
 

@@ -15,8 +15,7 @@ apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      useAuthStore.getState().logout()
-      window.location.href = '/login'
+      window.dispatchEvent(new CustomEvent('auth:session-expired'))
     }
     return Promise.reject(err)
   }

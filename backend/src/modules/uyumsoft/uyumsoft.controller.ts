@@ -11,6 +11,10 @@ import {
   isEInvoiceUser,
   getUserAliasses,
 } from './uyumsoft.service';
+import {
+  getDespatchClient,
+  verifyDespatchConnection,
+} from '../efatura/uyumsoft-irsaliye.service';
 
 const router = Router();
 router.use(authenticate);
@@ -74,6 +78,24 @@ router.get('/whoami', async (req, res, next) => {
       },
     });
     return res.json({ success: true, sirketId, username: creds.username, result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/irsaliye-test/:sirketId', async (req, res, next) => {
+  try {
+    const sirketId = resolveSirketId(req.params.sirketId);
+    await getDespatchClient(sirketId);
+    const baglanti = await verifyDespatchConnection(sirketId);
+    return res.json({
+      success: true,
+      sirketId,
+      servis: 'DespatchIntegration',
+      yontem: baglanti.yontem,
+      tarih: baglanti.yontem === 'GetSystemDate' ? baglanti.deger : undefined,
+      kullanici: baglanti.yontem === 'UserInfoWithNoCheck' ? baglanti.deger : undefined,
+    });
   } catch (err) {
     next(err);
   }

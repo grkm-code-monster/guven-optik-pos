@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AxiosInstance } from 'axios'
 import { apiClient } from '../api/client'
 import { adminApi } from './admin/AdminLayout'
+import { useAuthStore } from '../store/auth.store'
+import FiyatDegisenUrunlerTab from '../components/stok/FiyatDegisenUrunlerTab'
 
 const PRIMARY = '#c0392b'
 
@@ -460,10 +462,44 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
 }
 
 export default function StokSorgulaPage() {
+  const role = useAuthStore((s) => s.user?.role)
+  const fiyatSekmesiGoster = role === 'STORE_MANAGER' || role === 'REGIONAL_MANAGER' || role === 'ADMIN'
+  const [activeTab, setActiveTab] = useState<'stok' | 'fiyat'>('stok')
+
   return (
     <div>
       <h1 style={{ margin: '0 0 20px', fontSize: 24, fontWeight: 900, color: PRIMARY }}>Stok Sorgula</h1>
-      <StockQueryPanel variant="pos" />
+
+      {fiyatSekmesiGoster ? (
+        <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #e5e7eb', marginBottom: 20 }}>
+          {([
+            ['stok', '📦 Stok Sorgula'],
+            ['fiyat', '💰 Fiyatı Değişen Ürünler'],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveTab(id)}
+              style={{
+                padding: '10px 18px',
+                fontSize: 13,
+                background: 'none',
+                border: 'none',
+                borderBottom: activeTab === id ? `2px solid ${PRIMARY}` : '2px solid transparent',
+                marginBottom: -2,
+                fontWeight: activeTab === id ? 900 : 600,
+                cursor: 'pointer',
+                color: activeTab === id ? PRIMARY : '#6b7280',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {activeTab === 'stok' || !fiyatSekmesiGoster ? <StockQueryPanel variant="pos" /> : null}
+      {activeTab === 'fiyat' && fiyatSekmesiGoster ? <FiyatDegisenUrunlerTab /> : null}
     </div>
   )
 }

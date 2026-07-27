@@ -101,6 +101,83 @@ function drawPdfTable(
   return y;
 }
 
+export type TableExportOpts = {
+  title: string;
+  headers: string[];
+  rows: Array<Array<string | number>>;
+};
+
+export async function exportTableExcel(opts: TableExportOpts): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Veri');
+
+  ws.addRow(['GÜVEN OPTİK - ' + opts.title]);
+  ws.addRow(['Oluşturulma', new Date().toISOString().slice(0, 19).replace('T', ' ')]);
+  ws.addRow([]);
+  ws.addRow(opts.headers);
+
+  if (opts.rows.length === 0) {
+    ws.addRow(['Veri yok']);
+  } else {
+    for (const row of opts.rows) {
+      ws.addRow(row);
+    }
+  }
+
+  ws.getRow(4).font = { bold: true };
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+export async function exportTablePdf(opts: TableExportOpts): Promise<Buffer> {
+  const dataRows =
+    opts.rows.length === 0
+      ? [['Veri yok', ...opts.headers.slice(1).map(() => '')]]
+      : opts.rows;
+
+  return new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({
+      margin: 40,
+      size: 'A4',
+      layout: opts.headers.length > 5 ? 'landscape' : 'portrait',
+    });
+
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk) => chunks.push(chunk as Buffer));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    doc.registerFont('Roboto', FONT_REGULAR);
+    doc.registerFont('Roboto-Bold', FONT_BOLD);
+
+    doc.font('Roboto-Bold').fontSize(16).text(opts.title);
+    doc.moveDown(0.5);
+    doc
+      .font('Roboto')
+      .fontSize(10)
+      .text(`Oluşturulma: ${new Date().toLocaleString('tr-TR')}`);
+    doc.moveDown(1);
+
+    drawPdfTable(doc, opts.headers, dataRows, doc.y);
+
+    doc.end();
+  });
+}
+
+function csvEscape(value: string | number): string {
+  const s = String(value);
+  if (/[",;\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+export function exportTableCsv(opts: TableExportOpts): Buffer {
+  const lines = [
+    opts.headers.map(csvEscape).join(';'),
+    ...opts.rows.map((row) => row.map(csvEscape).join(';')),
+  ];
+  return Buffer.from('\uFEFF' + lines.join('\n'), 'utf-8');
+}
+
 export async function exportReportPdf(
   queryResult: Record<string, unknown>[],
   dimensions: string[],

@@ -1,12 +1,44 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getOdooKategoriler,
   getStokKontrol,
+  indirUtsDuzeltmeSablon,
   olusturTransferTalebi,
   type StokKontrolUrun,
 } from '../../api/stok.api'
+import { createTransfer, searchTransferProductLots } from '../../api/transfer.api'
+import { extractApiErrorMessage } from '../../utils/extractApiErrorMessage'
+import { transferHataMesaji } from '../../utils/transferError'
 
 const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVN2', 'GVN10', 'ANADEPO', 'GVN5']
+
+type LotSatir = {
+  lotId: number | null
+  lotNo: string
+  sube: string
+  miktar: number
+  utsKodu: string | null
+  utsDurumu: string
+}
+
+type LotTransferCtx = {
+  productId: number
+  urunAdi: string
+  lot: LotSatir
+}
+
+function readAdminUser(): { id?: string; name?: string } | null {
+  try {
+    const raw = localStorage.getItem('admin-user')
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function bugunTarih() {
+  return new Date().toISOString().slice(0, 10)
+}
 
 const LOKASYON_ID_MAP: Record<string, number> = {
   GVN1: 53, GVN3: 54, GVN4: 55, GVN6: 56, GVN8: 57, GVN9: 58,
@@ -42,6 +74,17 @@ const th: React.CSSProperties = {
   letterSpacing: '0.04em',
 }
 const td: React.CSSProperties = { padding: '10px 12px', fontSize: 13, verticalAlign: 'top' }
+const subTh: React.CSSProperties = {
+  padding: '8px 12px',
+  textAlign: 'left',
+  fontSize: 10,
+  fontWeight: 800,
+  color: '#6b7280',
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  borderBottom: '1px solid #e5e7eb',
+}
+const subTd: React.CSSProperties = { padding: '8px 12px', fontSize: 12, borderBottom: '1px solid #f3f4f6' }
 
 function kullanilabilir(l: { miktar: number; reserved: number }) {
   return Math.max(0, l.miktar - l.reserved)
@@ -109,6 +152,13 @@ export default function StokKontrolTab() {
   const [transferAcik, setTransferAcik] = useState(false)
   const [hedefSube, setHedefSube] = useState('')
   const [transferYukleniyor, setTransferYukleniyor] = useState(false)
+  const [expandedProductIds, setExpandedProductIds] = useState<Set<number>>(new Set())
+  const [lotCache, setLotCache] = useState<Map<number, LotSatir[]>>(new Map())
+  const [lotYukleniyor, setLotYukleniyor] = useState<Set<number>>(new Set())
+  const [lotTransferCtx, setLotTransferCtx] = useState<LotTransferCtx | null>(null)
+  const [lotHedefSube, setLotHedefSube] = useState('')
+  const [lotTransferYukleniyor, setLotTransferYukleniyor] = useState(false)
+  const [utsSablonYukleniyor, setUtsSablonYukleniyor] = useState(false)
 
   const seciliUrunler = useMemo(
     () => urunler.filter((u) => secili.has(u.productId)),
@@ -119,17 +169,19 @@ export default function StokKontrolTab() {
     getOdooKategoriler().then((k) => setKategoriler(k)).catch(() => {})
   }, [])
 
-  const ara = useCallback(async () => {
+  const ara = useCallback(async (): Promise<StokKontrolUrun[]> => {
     const hasFilter = arama.trim() || kategoriId || fiyatMin || fiyatMax
       || stokDurumu !== 'tumu' || lokasyon || kdv
     if (!hasFilter) {
       setMesaj({ tip: 'err', text: 'En az bir filtre seçin veya arama yapın.' })
-      return
+      return []
     }
     setLoading(true)
     setMesaj(null)
     setSearched(true)
     setSecili(new Set())
+    setExpandedProductIds(new Set())
+    setLotCache(new Map())
     try {
       const effectiveStokDurumu = sadeceStokta
         ? 'var'
@@ -144,13 +196,148 @@ export default function StokKontrolTab() {
         kdv: kdv ? Number(kdv) : undefined,
       })
       setUrunler(data)
+      return data
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Stok kontrol verisi alınamadı' })
       setUrunler([])
+      return []
     } finally {
       setLoading(false)
     }
   }, [arama, kategoriId, fiyatMin, fiyatMax, stokDurumu, sadeceStokta, lokasyon, kdv])
+
+  function toggleExpand(productId: number) {
+    const willExpand = !expandedProductIds.has(productId)
+    setExpandedProductIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(productId)) next.delete(productId)
+      else next.add(productId)
+      return next
+    })
+    if (willExpand && !lotCache.has(productId)) {
+      void yukleLotlar(productId)
+    }
+  }
+
+  async function yukleLotlar(productId: number, urunOverride?: StokKontrolUrun) {
+    const urun = urunOverride ?? urunler.find((u) => u.productId === productId)
+    if (!urun) return
+
+    setLotYukleniyor((prev) => new Set(prev).add(productId))
+    try {
+      const subeler = urun.lokasyonlar.filter((l) => l.miktar > 0).map((l) => l.kod)
+      const satirlar: LotSatir[] = []
+      for (const sube of subeler) {
+        const rows = await searchTransferProductLots(productId, sube, 'admin')
+        for (const row of rows) {
+          satirlar.push({
+            lotId: row.lotId != null && Number.isFinite(Number(row.lotId)) ? Number(row.lotId) : null,
+            lotNo: row.lotNo?.trim() || '—',
+            sube,
+            miktar: Number(row.stok) || 0,
+            utsKodu: typeof row.utsKodu === 'string' ? row.utsKodu.trim() || null : null,
+            utsDurumu: typeof row.utsDurumu === 'string' ? row.utsDurumu.trim() || '—' : '—',
+          })
+        }
+      }
+      setLotCache((prev) => new Map(prev).set(productId, satirlar))
+    } catch (err) {
+      console.error('[StokKontrol] lot/UTS yükleme hatası', { productId, err })
+      setLotCache((prev) => new Map(prev).set(productId, []))
+    } finally {
+      setLotYukleniyor((prev) => {
+        const next = new Set(prev)
+        next.delete(productId)
+        return next
+      })
+    }
+  }
+
+  async function yenileLotPanel(productId: number, urunOverride?: StokKontrolUrun) {
+    setLotCache((prev) => {
+      const next = new Map(prev)
+      next.delete(productId)
+      return next
+    })
+    await yukleLotlar(productId, urunOverride)
+  }
+
+  function lotTransferModalAc(urun: StokKontrolUrun, lot: LotSatir) {
+    if (!lot.lotId) {
+      setMesaj({ tip: 'err', text: 'Bu lot için Odoo lot kimliği bulunamadı — transfer başlatılamaz.' })
+      return
+    }
+    if (!LOKASYON_ID_MAP[lot.sube]) {
+      setMesaj({ tip: 'err', text: `Bilinmeyen şube kodu (${lot.sube}) — transfer başlatılamaz.` })
+      return
+    }
+    setLotHedefSube('')
+    setLotTransferCtx({ productId: urun.productId, urunAdi: urun.urunAdi, lot })
+  }
+
+  async function lotTransferGonder() {
+    if (!lotTransferCtx) return
+    const { productId, urunAdi, lot } = lotTransferCtx
+    if (!lotHedefSube) {
+      setMesaj({ tip: 'err', text: 'Hedef şube seçin.' })
+      return
+    }
+    if (lot.sube === lotHedefSube) {
+      setMesaj({ tip: 'err', text: 'Kaynak ve hedef şube aynı olamaz.' })
+      return
+    }
+    const adminUser = readAdminUser()
+    if (!adminUser?.id) {
+      setMesaj({ tip: 'err', text: 'Oturum bulunamadı — yeniden giriş yapın.' })
+      return
+    }
+
+    setLotTransferYukleniyor(true)
+    try {
+      const data = await createTransfer({
+        cikisLokasyon: lot.sube,
+        girisLokasyon: lotHedefSube,
+        tarih: bugunTarih(),
+        referans: `Stok Kontrol — ${urunAdi} (${lot.lotNo})`,
+        not: '',
+        urunler: [{
+          id: productId,
+          ad: urunAdi,
+          lotId: lot.lotId,
+          lotNo: lot.lotNo,
+          varyant: '',
+          adet: 1,
+          utsKodu: lot.utsKodu,
+          utsDurumu: lot.utsDurumu,
+        }],
+        personel: String(adminUser.id),
+      }, 'admin')
+
+      if (data?.success) {
+        const ref = data.transferRef ?? data.transferId ?? ''
+        const picking = data.odooPickingId ? ` (Odoo #${data.odooPickingId})` : ''
+        const text = data.durum === 'basarili'
+          ? `Transfer tamamlandı${ref ? `: ${ref}` : ''}${picking}`
+          : (data.message ?? `Transfer gönderildi${ref ? `: ${ref}` : ''}${picking} — hedef şube kabul bekliyor`)
+        setMesaj({ tip: 'ok', text })
+        setLotTransferCtx(null)
+        setLotHedefSube('')
+        const wasExpanded = expandedProductIds.has(productId)
+        const refreshed = await ara()
+        if (wasExpanded) {
+          setExpandedProductIds((prev) => new Set(prev).add(productId))
+          const urun = refreshed.find((u) => u.productId === productId)
+          if (urun) await yenileLotPanel(productId, urun)
+        }
+      } else {
+        setMesaj({ tip: 'err', text: transferHataMesaji(data, 'Transfer oluşturulamadı') })
+      }
+    } catch (e: unknown) {
+      setMesaj({ tip: 'err', text: extractApiErrorMessage(e, 'Transfer oluşturulamadı') })
+    } finally {
+      setLotTransferYukleniyor(false)
+    }
+  }
 
   function toggleSec(id: number) {
     setSecili((prev) => {
@@ -179,6 +366,20 @@ export default function StokKontrolTab() {
     }
     setHedefSube('')
     setTransferAcik(true)
+  }
+
+  async function utsSablonIndir() {
+    if (!seciliUrunler.length) return
+    setUtsSablonYukleniyor(true)
+    setMesaj(null)
+    try {
+      await indirUtsDuzeltmeSablon(seciliUrunler.map((u) => u.productId))
+      setMesaj({ tip: 'ok', text: `${seciliUrunler.length} ürün için UTS düzeltme şablonu indirildi.` })
+    } catch (e: unknown) {
+      setMesaj({ tip: 'err', text: extractApiErrorMessage(e, 'Şablon indirilemedi') })
+    } finally {
+      setUtsSablonYukleniyor(false)
+    }
   }
 
   async function transferOlustur() {
@@ -213,18 +414,26 @@ export default function StokKontrolTab() {
     setTransferYukleniyor(true)
     try {
       const res = await olusturTransferTalebi(kalemler)
-      if (!res?.success) throw new Error(res?.error ?? 'Transfer oluşturulamadı')
       const hatali = (res.transferler ?? []).filter((t: any) => t.tip === 'stok-hatasi')
+      const kismi = (res.transferler ?? []).filter((t: any) => t.tip === 'sirketler-arasi' && t.durum === 'kismi')
+      const basarisiz = (res.transferler ?? []).filter((t: any) => t.tip === 'sirketler-arasi' && t.durum === 'basarisiz')
       if (hatali.length) {
         setMesaj({ tip: 'err', text: hatali.map((h: any) => h.hata).join('; ') })
+      } else if (kismi.length) {
+        setMesaj({
+          tip: 'err',
+          text: res.message ?? kismi.map((t: any) => t.manuelMudahaleMesaji ?? t.hata).filter(Boolean).join('; '),
+        })
+      } else if (basarisiz.length || !res?.success) {
+        setMesaj({ tip: 'err', text: res.message ?? basarisiz.map((t: any) => t.hata).join('; ') ?? 'Transfer oluşturulamadı' })
       } else {
-        setMesaj({ tip: 'ok', text: 'Transfer talebi oluşturuldu.' })
+        setMesaj({ tip: 'ok', text: res.message ?? 'Transfer talebi oluşturuldu.' })
         setSecili(new Set())
         setTransferAcik(false)
         void ara()
       }
-    } catch (e: any) {
-      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.message ?? 'Transfer oluşturulamadı' })
+    } catch (e: unknown) {
+      setMesaj({ tip: 'err', text: extractApiErrorMessage(e, 'Transfer oluşturulamadı') })
     } finally {
       setTransferYukleniyor(false)
     }
@@ -243,7 +452,7 @@ export default function StokKontrolTab() {
             value={arama}
             onChange={(e) => setArama(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void ara() }}
-            placeholder="Ürün adı / iç ref"
+            placeholder="Ürün adı / iç ref / barkod"
             style={{ ...inp, marginTop: 4 }}
           />
         </label>
@@ -341,6 +550,14 @@ export default function StokKontrolTab() {
             <button type="button" onClick={transferModalAc} style={{ ...btn, backgroundColor: '#2563eb', color: 'white' }}>
               Transfer Talebi Oluştur
             </button>
+            <button
+              type="button"
+              onClick={() => void utsSablonIndir()}
+              disabled={utsSablonYukleniyor}
+              style={{ ...btn, backgroundColor: '#059669', color: 'white', opacity: utsSablonYukleniyor ? 0.7 : 1 }}
+            >
+              {utsSablonYukleniyor ? 'İndiriliyor...' : 'UTS Düzeltme Şablonu İndir'}
+            </button>
             <button type="button" onClick={() => setSecili(new Set())} style={btn}>Seçimi Temizle</button>
           </div>
         ) : null}
@@ -354,6 +571,7 @@ export default function StokKontrolTab() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                  <th style={{ ...th, width: 28, padding: '10px 4px' }}></th>
                   <th style={{ ...th, width: 36 }}>
                     <input
                       type="checkbox"
@@ -363,6 +581,7 @@ export default function StokKontrolTab() {
                     />
                   </th>
                   <th style={th}>Ürün Adı</th>
+                  <th style={th}>Barkod</th>
                   <th style={th}>Kategori</th>
                   <th style={th}>Satış ₺</th>
                   <th style={th}>KDV</th>
@@ -373,9 +592,31 @@ export default function StokKontrolTab() {
               <tbody>
                 {urunler.map((u) => {
                   const kaynak = primaryStockBranch(u)
+                  const expanded = expandedProductIds.has(u.productId)
+                  const lotSatirlar = lotCache.get(u.productId)
+                  const lotLoading = lotYukleniyor.has(u.productId)
                   return (
-                    <tr key={u.productId} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                      <td style={td}>
+                    <Fragment key={u.productId}>
+                      <tr key={u.productId} style={{ borderBottom: expanded ? 'none' : '1px solid #f3f4f6' }}>
+                        <td style={{ ...td, width: 28, padding: '10px 4px' }}>
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(u.productId)}
+                            aria-label={expanded ? 'Lot/UTS gizle' : 'Lot/UTS göster'}
+                            style={{
+                              border: 'none',
+                              background: 'none',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              color: '#6b7280',
+                              padding: 0,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {expanded ? '▼' : '▶'}
+                          </button>
+                        </td>
+                        <td style={td}>
                         <input
                           type="checkbox"
                           checked={secili.has(u.productId)}
@@ -385,6 +626,7 @@ export default function StokKontrolTab() {
                         />
                       </td>
                       <td style={{ ...td, fontWeight: 700, maxWidth: 240 }}>{u.urunAdi}</td>
+                      <td style={{ ...td, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'nowrap' }}>{u.barkod?.trim() || '—'}</td>
                       <td style={{ ...td, fontSize: 12, color: '#6b7280', maxWidth: 160 }}>{u.kategori || '—'}</td>
                       <td style={td}>{u.satisFiyati?.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) ?? '—'}</td>
                       <td style={td}>%{Math.round(u.kdvOrani ?? 0)}</td>
@@ -417,11 +659,72 @@ export default function StokKontrolTab() {
                         ) : null}
                       </td>
                     </tr>
+                    {expanded ? (
+                      <tr key={`${u.productId}-lotlar`} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <td colSpan={9} style={{ padding: 0, backgroundColor: '#f9fafb' }}>
+                          {lotLoading ? (
+                            <div style={{ padding: '12px 16px', fontSize: 12, color: '#6b7280' }}>Lot/UTS bilgisi yükleniyor...</div>
+                          ) : lotSatirlar?.length ? (
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                              <thead>
+                                <tr>
+                                  <th style={{ ...subTh, paddingLeft: 44 }}>Lot / Seri No</th>
+                                  <th style={subTh}>Şube</th>
+                                  <th style={subTh}>Miktar</th>
+                                  <th style={subTh}>UTS Kodu</th>
+                                  <th style={subTh}>UTS Durumu</th>
+                                  <th style={{ ...subTh, width: 100 }}>İşlem</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lotSatirlar.map((lot, idx) => {
+                                  const transferEdilebilir = Boolean(lot.lotId && LOKASYON_ID_MAP[lot.sube])
+                                  return (
+                                  <tr key={`${lot.sube}-${lot.lotNo}-${idx}`}>
+                                    <td style={{ ...subTd, paddingLeft: 44, fontFamily: 'monospace', fontWeight: 600 }}>{lot.lotNo}</td>
+                                    <td style={subTd}>{lot.sube}</td>
+                                    <td style={subTd}>{lot.miktar}</td>
+                                    <td style={{ ...subTd, fontFamily: 'monospace', fontSize: 11 }}>
+                                      {typeof lot.utsKodu === 'string' && lot.utsKodu.trim() ? lot.utsKodu.trim() : '—'}
+                                    </td>
+                                    <td style={subTd}>{lot.utsDurumu}</td>
+                                    <td style={subTd}>
+                                      <button
+                                        type="button"
+                                        disabled={!transferEdilebilir}
+                                        onClick={() => lotTransferModalAc(u, lot)}
+                                        title={transferEdilebilir ? 'Bu lotu başka şubeye transfer et' : 'Lot kimliği veya şube kodu eksik'}
+                                        style={{
+                                          ...btn,
+                                          padding: '4px 10px',
+                                          fontSize: 11,
+                                          backgroundColor: transferEdilebilir ? '#2563eb' : '#e5e7eb',
+                                          color: transferEdilebilir ? 'white' : '#9ca3af',
+                                          cursor: transferEdilebilir ? 'pointer' : 'not-allowed',
+                                        }}
+                                      >
+                                        Transfer Et
+                                      </button>
+                                    </td>
+                                  </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <div style={{ padding: '12px 16px', fontSize: 12, color: '#9ca3af' }}>
+                              Bu ürün için lot/UTS kaydı yok
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ) : null}
+                    </Fragment>
                   )
                 })}
                 {!urunler.length ? (
                   <tr>
-                    <td colSpan={7} style={{ ...td, textAlign: 'center', color: '#9ca3af', padding: 32 }}>
+                    <td colSpan={9} style={{ ...td, textAlign: 'center', color: '#9ca3af', padding: 32 }}>
                       Eşleşen ürün bulunamadı.
                     </td>
                   </tr>
@@ -431,6 +734,73 @@ export default function StokKontrolTab() {
           )}
         </div>
       </div>
+
+      {lotTransferCtx ? (
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 2001,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        }}>
+          <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 480 }}>
+            <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 8 }}>Lot Transferi</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+              {lotTransferCtx.urunAdi.slice(0, 60)}
+            </div>
+
+            <div style={{ fontSize: 13, marginBottom: 12 }}>
+              <div style={{ color: '#6b7280', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Lot / Seri No</div>
+              <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{lotTransferCtx.lot.lotNo}</div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <div style={{ color: '#6b7280', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Çıkış (sabit)</div>
+                <div style={{ padding: '8px 12px', backgroundColor: '#f3f4f6', borderRadius: 8, fontWeight: 700 }}>
+                  {lotTransferCtx.lot.sube}
+                </div>
+              </div>
+              <div>
+                <div style={{ color: '#6b7280', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Miktar</div>
+                <div style={{ padding: '8px 12px', backgroundColor: '#f3f4f6', borderRadius: 8, fontWeight: 700 }}>
+                  1
+                </div>
+              </div>
+            </div>
+
+            <label style={{ display: 'block', marginBottom: 20 }}>
+              <span style={{ fontSize: 12, fontWeight: 700 }}>Hedef şube</span>
+              <select
+                value={lotHedefSube}
+                onChange={(e) => setLotHedefSube(e.target.value)}
+                style={{ ...inp, marginTop: 4 }}
+              >
+                <option value="">— Seçin —</option>
+                {LOKASYONLAR.filter((l) => l !== lotTransferCtx.lot.sube).map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+            </label>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => { setLotTransferCtx(null); setLotHedefSube('') }}
+                disabled={lotTransferYukleniyor}
+                style={btn}
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={() => void lotTransferGonder()}
+                disabled={lotTransferYukleniyor || !lotHedefSube}
+                style={{ ...btnPrimary, backgroundColor: '#2563eb' }}
+              >
+                {lotTransferYukleniyor ? 'Gönderiliyor...' : 'Transfer Başlat'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {transferAcik ? (
         <div style={{

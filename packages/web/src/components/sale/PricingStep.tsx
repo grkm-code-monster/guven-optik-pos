@@ -1,5 +1,5 @@
 import type { Sale } from '../../api/types'
-import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchBranchCampaigns, logCampaignApplications, type Campaign } from '../../api/campaigns.api'
 import { dbCampaignToCard } from '../../utils/campaignPricing'
 import { useAuthStore } from '../../store/auth.store'
@@ -67,12 +67,14 @@ export default function PricingStep({
   onOverviewChange,
   onNext,
   onBack,
+  restoredOverview = null,
 }: {
   sale: Sale | null
   customerPrescription?: Record<string, unknown> | null
   onOverviewChange?: (o: PricingOverview) => void
   onNext: () => void
   onBack: () => void
+  restoredOverview?: PricingOverview | null
 }) {
   const [mode, setMode] = useState<PaymentPricingMode>('NORMAL')
   const [foundationName, setFoundationName] = useState<string>(VAKIF_OPTIONS[0])
@@ -103,8 +105,43 @@ export default function PricingStep({
   const [hediyeCode, setHediyeCode] = useState('')
   const [hediyeAmountStr, setHediyeAmountStr] = useState('')
   const [hediye, setHediye] = useState<{ code: string; amountTRY: number } | null>(null)
+  const restoredOverviewApplied = useRef(false)
+  const skipSaleResetOnce = useRef(!!restoredOverview)
 
   useEffect(() => {
+    if (!restoredOverview || restoredOverviewApplied.current) return
+    restoredOverviewApplied.current = true
+    setMode(restoredOverview.mode)
+    if (restoredOverview.kasaIndirimTutar && restoredOverview.kasaIndirimTutar > 0) {
+      setKasaIndirimTutar(String(restoredOverview.kasaIndirimTutar))
+    }
+    if (restoredOverview.giftVoucherCode && restoredOverview.giftVoucherAmountTRY) {
+      setHediye({
+        code: restoredOverview.giftVoucherCode,
+        amountTRY: restoredOverview.giftVoucherAmountTRY,
+      })
+    }
+    if (restoredOverview.mode === 'VAKIF' && restoredOverview.thirdPartyCoverageTRY > 0) {
+      setFoundationAmount(String(restoredOverview.thirdPartyCoverageTRY))
+      setFoundationConfirmed(true)
+    }
+    if (restoredOverview.mode === 'OZEL_SIGORTA' && restoredOverview.pricingInvoiceNote) {
+      setInsuranceCompanyNote(restoredOverview.pricingInvoiceNote)
+    }
+  }, [restoredOverview])
+
+  useEffect(() => {
+    if (skipSaleResetOnce.current) {
+      skipSaleResetOnce.current = false
+      if (branchId) {
+        setDbLoading(true)
+        fetchBranchCampaigns(branchId)
+          .then(setDbCampaigns)
+          .catch(() => {})
+          .finally(() => setDbLoading(false))
+      }
+      return
+    }
     setSgkConfirmedSnapshot(null)
     setSgkModalOpen(false)
     setSgkForm(defaultSgkForm())
@@ -684,7 +721,7 @@ export default function PricingStep({
               <th style={th}>Ürün</th>
               <th style={th}>Liste Fiyatı</th>
               <th style={th}>İndirim</th>
-              <th style={th}>KDV</th>
+              <th style={th}>KDV (dahil)</th>
               <th style={th}>Toplam</th>
             </tr>
           </thead>
@@ -704,7 +741,7 @@ export default function PricingStep({
 
       <div style={{ marginTop: '14px', borderTop: '1px solid #e5e7eb', paddingTop: '14px' }}>
         <div style={row}>
-          <span style={label}>Ara Toplam</span>
+          <span style={label}>Ara Toplam (KDV dahil)</span>
           <span style={value}>{sale.grossTotal}</span>
         </div>
         <div style={row}>
@@ -712,7 +749,7 @@ export default function PricingStep({
           <span style={value}>{sale.discountTotal}</span>
         </div>
         <div style={row}>
-          <span style={label}>KDV</span>
+          <span style={label}>KDV (dahil olan)</span>
           <span style={value}>{sale.taxTotal}</span>
         </div>
         <div style={{ ...row, marginTop: '8px' }}>

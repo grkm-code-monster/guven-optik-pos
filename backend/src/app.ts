@@ -22,6 +22,7 @@ import pdksRouter from './modules/pdks/pdks.controller';
 import etiketRouter from './modules/etiket/etiket.controller';
 import bildirimRouter from './modules/bildirim/bildirim.controller';
 import ozelSiparisRouter from './modules/ozel-siparis/ozel-siparis.controller';
+import ecommerceApiRouter from './modules/ecommerce-api/ecommerce-api.controller';
 import { authenticate } from './middleware/authenticate';
 
 export function createApp() {
@@ -29,7 +30,7 @@ export function createApp() {
 
   app.use(helmet());
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: '15mb' }));
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
@@ -59,6 +60,7 @@ export function createApp() {
   app.use('/api/etiket', etiketRouter);
   app.use('/api/bildirimler', bildirimRouter);
   app.use('/api/ozel-siparis', ozelSiparisRouter);
+  app.use('/api/external', ecommerceApiRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({

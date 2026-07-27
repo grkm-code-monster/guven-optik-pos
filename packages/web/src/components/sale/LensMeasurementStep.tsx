@@ -61,14 +61,18 @@ export default function LensMeasurementStep({
   customerPrescription,
   onComplete,
   onBack,
+  initialDrafts,
 }: {
   sale: Sale
   customerPrescription?: Record<string, unknown> | null
   onComplete: (drafts: LensMeasurementDraft[]) => void
   onBack: () => void
+  initialDrafts?: LensMeasurementDraft[]
 }) {
   const lenses = getLensMeasurementSaleItems(sale.items)
-  const [drafts, setDrafts] = useState<LensMeasurementDraft[]>(() => buildInitialMeasurementDrafts(sale))
+  const [drafts, setDrafts] = useState<LensMeasurementDraft[]>(
+    () => (initialDrafts?.length ? initialDrafts : buildInitialMeasurementDrafts(sale)),
+  )
   const [ix, setIx] = useState(0)
   const [activeIx, setActiveIx] = useState<number | null>(null)
 

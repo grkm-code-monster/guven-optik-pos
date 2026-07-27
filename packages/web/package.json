@@ -15,8 +15,10 @@
     "@tanstack/react-query": "^5.100.9",
     "@zxing/library": "^0.21.3",
     "axios": "^1.16.0",
+    "bwip-js": "^4.11.2",
     "chart.js": "^4.5.1",
     "html2canvas": "^1.4.1",
+    "jsbarcode": "^3.12.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "jsqr": "^1.4.0",
@@ -31,6 +33,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.2.4",
+    "@types/jsbarcode": "^3.11.4",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

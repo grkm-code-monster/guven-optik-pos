@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   bildirimOkundu,
+  fiyatBildirimEtiketBasildi,
   getFiyatBildirimleri,
   getUrunLotlari,
   tumBildirimleriOkundu,
@@ -93,6 +94,9 @@ export default function BildirimPanel({ acik, onKapat, onSayacGuncelle }: Props)
       }))
       const res = await generateZpl(items, 'admin')
       setEtiketZpl(res.zpl)
+      await fiyatBildirimEtiketBasildi(b.id)
+      onSayacGuncelle()
+      void yukle()
     } finally {
       setEtiketYukleniyor(null)
     }
@@ -188,6 +192,7 @@ export default function BildirimPanel({ acik, onKapat, onSayacGuncelle }: Props)
               <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 4 }}>{b.urunAdi}</div>
               <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
                 {b.subeKodu} · {b.fiyatTipi === 'ALIS' ? 'Alış' : 'Satış'} fiyatı
+                {b.etiketBasildi ? ' · ✓ Etiket basıldı' : ''}
               </div>
               <div style={{ fontSize: 13, marginBottom: 8 }}>
                 <span style={{ textDecoration: 'line-through', color: '#9ca3af' }}>

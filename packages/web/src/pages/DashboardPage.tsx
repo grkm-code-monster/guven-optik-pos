@@ -26,10 +26,10 @@ ChartJS.register(
   Tooltip,
   Legend,
 )
-import { getDailyReport, getPersonalDailyReport, downloadExcel } from '../api/reports.api'
+import { getDailyReport, getPersonalDailyReport, getRangeReport, getMonthlyPersonelBreakdown, downloadExcel, getGunlukDurumNotu, saveGunlukDurumNotu, sendGunlukDurumNotuEmail, type PersonelAylikRow } from '../api/reports.api'
 import { getCurrentShift } from '../api/shifts.api'
 import type { DailyReport, User } from '../api/types'
-import { downloadGunlukKasaPdf } from '../utils/gunlukKasaPdf'
+import { downloadGunlukKasaPdf, generateGunlukKasaPdfBlob, formatKasaFormuBaslik } from '../utils/gunlukKasaPdf'
 
 type SalesDetailRow = NonNullable<DailyReport['salesDetail']>[number]
 
@@ -79,6 +79,22 @@ function ayBaslangic() {
 
 function bugun() {
   return new Date().toISOString().split('T')[0]
+}
+
+function periodRangeDates(period: PeriodKey, customFrom?: string, customTo?: string) {
+  const bitis = bugun()
+  const now = new Date()
+  if (period === 'today') return { start: bitis, end: bitis }
+  if (period === 'week') {
+    const day = now.getDay()
+    const mondayOffset = day === 0 ? 6 : day - 1
+    const monday = new Date(now)
+    monday.setDate(now.getDate() - mondayOffset)
+    return { start: monday.toISOString().split('T')[0], end: bitis }
+  }
+  if (period === 'month') return { start: ayBaslangic(), end: bitis }
+  if (period === 'year') return { start: `${now.getFullYear()}-01-01`, end: bitis }
+  return { start: customFrom ?? ayBaslangic(), end: customTo ?? bitis }
 }
 
 function periodToDateStrings(period: PeriodKey, customFrom?: string, customTo?: string) {
@@ -158,7 +174,9 @@ function cardCommissionTotal(row: SalesDetailRow) {
 }
 
 function summarizeGunlukKasaRows(rows: SalesDetailRow[]) {
-  return rows.reduce(
+  return rows
+    .filter((s) => s.tip !== 'MASRAF')
+    .reduce(
     (acc, s) => {
       acc.gross += Number(s.grossTotal)
       acc.net += Number(s.netTotal)
@@ -262,6 +280,92 @@ function MetricCards({ items }: { items: { label: string; value: string }[] }) {
   )
 }
 
+function labIncidentTipLabel(type: string) {
+  if (type === 'LENS_BROKEN') return 'Cam kırıldı'
+  if (type === 'FRAME_BROKEN') return 'Çerçeve kırıldı'
+  if (type === 'MEASUREMENT_SHIFT') return 'Ölçüm kaydırması'
+  return type
+}
+
+function labIncidentCozumLabel(
+  resolution: string | null | undefined,
+  transferRef?: string | null,
+) {
+  if (resolution === 'TRANSFER') return transferRef ? `Transfer (${transferRef})` : 'Transfer'
+  if (resolution === 'OZEL_SIPARIS') return 'Özel Sipariş'
+  if (resolution === 'NONE') return 'Kayıt'
+  if (!resolution) return 'Bekliyor'
+  return resolution
+}
+
+function AtolyeOlaylariOzet({ report }: { report: DailyReport | null }) {
+  const [expanded, setExpanded] = useState(false)
+  const lab = report?.labIncidents
+  if (!lab?.toplam) return null
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          ...CARD_STYLE,
+          width: '100%',
+          textAlign: 'left',
+          cursor: 'pointer',
+          borderLeft: '4px solid #d97706',
+          background: '#fffbeb',
+        }}
+      >
+        <div style={{ fontSize: 11, color: '#92400e', fontWeight: 700, textTransform: 'uppercase' }}>
+          ⚠️ Atölye Olayları
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: '#b45309', marginTop: 6 }}>{lab.toplam}</div>
+        <div style={{ fontSize: 12, color: '#78350f', marginTop: 4 }}>
+          Cam: {lab.lensBroken} · Çerçeve: {lab.frameBroken} · Ölçüm: {lab.measurementShift}
+          {' · '}
+          {expanded ? '▲ Gizle' : '▼ Detay'}
+        </div>
+      </button>
+      {expanded ? (
+        <div style={{ ...CARD_STYLE, marginTop: 8, padding: 0, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: '#f9fafb', textAlign: 'left' }}>
+                <th style={{ padding: '8px 10px' }}>Saat</th>
+                <th style={{ padding: '8px 10px' }}>Müşteri</th>
+                <th style={{ padding: '8px 10px' }}>Tip</th>
+                <th style={{ padding: '8px 10px' }}>Çözüm</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lab.kayitlar.map((k) => (
+                <tr key={k.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                  <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                    {new Date(k.saat).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                  </td>
+                  <td style={{ padding: '8px 10px' }}>
+                    {k.musteriAdi}
+                    {k.saleId ? (
+                      <span style={{ display: 'block', fontSize: 11, color: '#9ca3af' }}>
+                        #{k.saleId.slice(0, 8)}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td style={{ padding: '8px 10px' }}>{labIncidentTipLabel(k.incidentType)}</td>
+                  <td style={{ padding: '8px 10px' }}>
+                    {labIncidentCozumLabel(k.resolutionType, k.transferRef)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function TabBar({ tabs, active, onChange }: { tabs: string[]; active: number; onChange: (i: number) => void }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
@@ -337,6 +441,222 @@ function KategoriBars({ report }: { report: DailyReport | null }) {
   )
 }
 
+type GunlukKasaSutunKey =
+  | 'alisverisTarihi'
+  | 'teslimTarihi'
+  | 'musteri'
+  | 'urunKalemleri'
+  | 'brutTutar'
+  | 'siparisBedeli'
+  | 'vergiHaric'
+  | 'iskonto'
+  | 'nakit'
+  | 'taksit'
+  | 'oran'
+  | 'slipTop'
+  | 'bankaKom'
+  | 'receteBed'
+  | 'musteriSaati'
+  | 'kacinciSatis'
+  | 'temsilci'
+
+type GunlukKasaTotals = ReturnType<typeof summarizeGunlukKasaRows>
+
+type GunlukKasaSutunDef = {
+  key: GunlukKasaSutunKey
+  label: string
+  varsayilanGorunur: boolean
+  totalType: 'label' | 'value' | 'blank'
+  totalRender?: (totals: GunlukKasaTotals) => React.ReactNode
+}
+
+const GUNLUK_KASA_SUTUNLARI: GunlukKasaSutunDef[] = [
+  { key: 'alisverisTarihi', label: 'Alışveriş Tarihi', varsayilanGorunur: true, totalType: 'label' },
+  { key: 'teslimTarihi', label: 'Teslim Tarihi', varsayilanGorunur: true, totalType: 'label' },
+  { key: 'musteri', label: 'Müşteri', varsayilanGorunur: true, totalType: 'label' },
+  { key: 'urunKalemleri', label: 'Ürün Kalemleri', varsayilanGorunur: true, totalType: 'label' },
+  {
+    key: 'brutTutar',
+    label: 'Brüt Tutar',
+    varsayilanGorunur: true,
+    totalType: 'value',
+    totalRender: (t) => formatMoney(t.gross),
+  },
+  {
+    key: 'siparisBedeli',
+    label: 'Sipariş Bedeli',
+    varsayilanGorunur: true,
+    totalType: 'value',
+    totalRender: (t) => formatMoney(t.net),
+  },
+  {
+    key: 'vergiHaric',
+    label: 'Vergi Hariç',
+    varsayilanGorunur: true,
+    totalType: 'value',
+    totalRender: (t) => formatMoney(t.taxFree),
+  },
+  {
+    key: 'iskonto',
+    label: 'İsk.%',
+    varsayilanGorunur: true,
+    totalType: 'value',
+    totalRender: (t) => (t.gross ? `${((t.discount / t.gross) * 100).toFixed(1)}%` : '—'),
+  },
+  {
+    key: 'nakit',
+    label: 'Nakit',
+    varsayilanGorunur: true,
+    totalType: 'value',
+    totalRender: (t) => formatMoney(t.cash),
+  },
+  { key: 'taksit', label: 'Taksit', varsayilanGorunur: false, totalType: 'blank' },
+  { key: 'oran', label: 'Oran', varsayilanGorunur: false, totalType: 'blank' },
+  {
+    key: 'slipTop',
+    label: 'Slip Top.',
+    varsayilanGorunur: false,
+    totalType: 'value',
+    totalRender: (t) => formatMoney(t.slip),
+  },
+  {
+    key: 'bankaKom',
+    label: 'Banka Kom.',
+    varsayilanGorunur: false,
+    totalType: 'value',
+    totalRender: (t) => formatMoney(t.commission),
+  },
+  {
+    key: 'receteBed',
+    label: 'Reçete Bed.',
+    varsayilanGorunur: false,
+    totalType: 'value',
+    totalRender: (t) => formatMoney(t.sgk),
+  },
+  { key: 'musteriSaati', label: 'Müşteri Saati', varsayilanGorunur: false, totalType: 'blank' },
+  { key: 'kacinciSatis', label: 'Kaçıncı Satışı', varsayilanGorunur: false, totalType: 'blank' },
+  { key: 'temsilci', label: 'Temsilci', varsayilanGorunur: true, totalType: 'blank' },
+]
+
+const GUNLUK_KASA_SUTUN_STORAGE_KEY = 'gunlukKasaSutunTercihi'
+
+const GUNLUK_KASA_TD_STYLE: React.CSSProperties = { padding: '8px 6px' }
+
+function defaultGunlukKasaSutunTercihi(): Record<GunlukKasaSutunKey, boolean> {
+  return Object.fromEntries(
+    GUNLUK_KASA_SUTUNLARI.map((c) => [c.key, c.varsayilanGorunur]),
+  ) as Record<GunlukKasaSutunKey, boolean>
+}
+
+function loadGunlukKasaSutunTercihi(): Record<GunlukKasaSutunKey, boolean> {
+  const defaults = defaultGunlukKasaSutunTercihi()
+  try {
+    const raw = localStorage.getItem(GUNLUK_KASA_SUTUN_STORAGE_KEY)
+    if (!raw) return defaults
+    const parsed = JSON.parse(raw) as Partial<Record<GunlukKasaSutunKey, boolean>>
+    return { ...defaults, ...parsed }
+  } catch {
+    return defaults
+  }
+}
+
+function saveGunlukKasaSutunTercihi(pref: Record<GunlukKasaSutunKey, boolean>) {
+  localStorage.setItem(GUNLUK_KASA_SUTUN_STORAGE_KEY, JSON.stringify(pref))
+}
+
+function renderGunlukKasaCell(
+  key: GunlukKasaSutunKey,
+  s: SalesDetailRow,
+  ctx: { isMasraf: boolean; masrafAciklama: string; saleNo: number | null },
+): React.ReactNode {
+  const dash = '—'
+  switch (key) {
+    case 'alisverisTarihi':
+      return fmtDate(s.createdAt)
+    case 'teslimTarihi':
+      return ctx.isMasraf ? dash : s.deliveryDate ? new Date(s.deliveryDate).toLocaleDateString('tr-TR') : dash
+    case 'musteri':
+      return ctx.isMasraf ? dash : s.customerName
+    case 'urunKalemleri':
+      return ctx.isMasraf ? `🔴 MASRAF: ${ctx.masrafAciklama}` : s.itemSummary || dash
+    case 'brutTutar':
+      return ctx.isMasraf ? dash : formatMoney(s.grossTotal)
+    case 'siparisBedeli':
+      return ctx.isMasraf ? dash : formatMoney(s.netTotal)
+    case 'vergiHaric':
+      return ctx.isMasraf ? dash : formatMoney(s.taxExcluded)
+    case 'iskonto':
+      return ctx.isMasraf ? dash : `${s.discountPct}%`
+    case 'nakit':
+      return formatMoney(s.cashAmount)
+    case 'taksit':
+      return ctx.isMasraf ? dash : (s.cardPayments[0]?.installment ?? dash)
+    case 'oran':
+      return ctx.isMasraf ? dash : (s.cardPayments[0]?.bankName ?? dash)
+    case 'slipTop':
+      return ctx.isMasraf ? dash : formatMoney(cardSlipTotal(s))
+    case 'bankaKom':
+      return ctx.isMasraf ? dash : formatMoney(cardCommissionTotal(s))
+    case 'receteBed':
+      return ctx.isMasraf ? dash : formatMoney(s.sgkAmount)
+    case 'musteriSaati':
+      return fmtTime(s.createdAt)
+    case 'kacinciSatis':
+      return ctx.saleNo ?? dash
+    case 'temsilci':
+      return s.repName
+    default:
+      return dash
+  }
+}
+
+function gunlukKasaCellStyle(key: GunlukKasaSutunKey, isMasraf: boolean): React.CSSProperties {
+  if (key === 'urunKalemleri') {
+    return {
+      ...GUNLUK_KASA_TD_STYLE,
+      maxWidth: 180,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      ...(isMasraf ? { color: RED, fontWeight: 700 } : {}),
+    }
+  }
+  if (key === 'nakit' && isMasraf) {
+    return { ...GUNLUK_KASA_TD_STYLE, color: RED, fontWeight: 700 }
+  }
+  return GUNLUK_KASA_TD_STYLE
+}
+
+function renderGunlukKasaTotalsCells(activeCols: GunlukKasaSutunDef[], totals: GunlukKasaTotals) {
+  const cells: React.ReactNode[] = []
+  let i = 0
+  while (i < activeCols.length) {
+    const col = activeCols[i]
+    if (col.totalType === 'label') {
+      let span = 0
+      while (i + span < activeCols.length && activeCols[i + span].totalType === 'label') span += 1
+      cells.push(
+        <td key={col.key} colSpan={span} style={GUNLUK_KASA_TD_STYLE}>
+          Toplam
+        </td>,
+      )
+      i += span
+    } else if (col.totalType === 'value') {
+      cells.push(
+        <td key={col.key} style={GUNLUK_KASA_TD_STYLE}>
+          {col.totalRender?.(totals) ?? '—'}
+        </td>,
+      )
+      i += 1
+    } else {
+      let span = 0
+      while (i + span < activeCols.length && activeCols[i + span].totalType === 'blank') span += 1
+      cells.push(<td key={col.key} colSpan={span} style={GUNLUK_KASA_TD_STYLE} />)
+      i += span
+    }
+  }
+  return cells
+}
+
 function GunlukKasaTable({
   rows,
   showRep,
@@ -344,104 +664,131 @@ function GunlukKasaTable({
   rows: SalesDetailRow[]
   showRep?: boolean
 }) {
-  const cols = [
-    'Alışveriş Tarihi',
-    'Teslim Tarihi',
-    'Müşteri',
-    'Ürün Kalemleri',
-    'Brüt Tutar',
-    'Sipariş Bedeli',
-    'Vergi Hariç',
-    'İsk.%',
-    'Nakit',
-    'Taksit',
-    'Oran',
-    'Slip Top.',
-    'Banka Kom.',
-    'Reçete Bed.',
-    'Müşteri Saati',
-    'Kaçıncı Satışı',
-    ...(showRep ? ['Temsilci'] : []),
-  ]
+  const [sutunPanelAcik, setSutunPanelAcik] = useState(false)
+  const [sutunTercihi, setSutunTercihi] = useState<Record<GunlukKasaSutunKey, boolean>>(
+    () => loadGunlukKasaSutunTercihi(),
+  )
+
+  const configurableCols = useMemo(
+    () => GUNLUK_KASA_SUTUNLARI.filter((c) => c.key !== 'temsilci' || showRep),
+    [showRep],
+  )
+
+  const activeCols = useMemo(
+    () => configurableCols.filter((c) => sutunTercihi[c.key]),
+    [configurableCols, sutunTercihi],
+  )
 
   const totals = summarizeGunlukKasaRows(rows)
 
+  function toggleSutun(key: GunlukKasaSutunKey) {
+    setSutunTercihi((prev) => {
+      const next = { ...prev, [key]: !prev[key] }
+      saveGunlukKasaSutunTercihi(next)
+      return next
+    })
+  }
+
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead>
-          <tr>
-            {cols.map((c) => (
-              <th
-                key={c}
-                style={{
-                  textAlign: 'left',
-                  padding: '8px 6px',
-                  borderBottom: '0.5px solid #e5e7eb',
-                  fontSize: 11,
-                  color: '#6b7280',
-                  whiteSpace: 'nowrap',
-                }}
+    <div style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button
+          type="button"
+          onClick={() => setSutunPanelAcik((v) => !v)}
+          style={{ ...BTN_STYLE, fontSize: 12 }}
+        >
+          📋 Sütunlar
+        </button>
+      </div>
+      {sutunPanelAcik ? (
+        <div
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 36,
+            zIndex: 30,
+            background: 'white',
+            border: '1px solid #e5e7eb',
+            borderRadius: 10,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
+            padding: '12px 14px',
+            minWidth: 220,
+            maxHeight: 320,
+            overflowY: 'auto',
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 10 }}>Görünür sütunlar</div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {configurableCols.map((col) => (
+              <label
+                key={col.key}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}
               >
-                {c}
-              </th>
+                <input
+                  type="checkbox"
+                  checked={sutunTercihi[col.key]}
+                  onChange={() => toggleSutun(col.key)}
+                />
+                {col.label}
+              </label>
             ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
+          </div>
+        </div>
+      ) : null}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
             <tr>
-              <td colSpan={cols.length} style={{ padding: 16, color: '#9ca3af' }}>
-                Kayıt yok.
-              </td>
+              {activeCols.map((col) => (
+                <th
+                  key={col.key}
+                  style={{
+                    textAlign: 'left',
+                    padding: '8px 6px',
+                    borderBottom: '0.5px solid #e5e7eb',
+                    fontSize: 11,
+                    color: '#6b7280',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {col.label}
+                </th>
+              ))}
             </tr>
-          ) : null}
-          {rows.map((s, idx) => (
-            <tr key={s.saleId} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
-              <td style={{ padding: '8px 6px' }}>{fmtDate(s.createdAt)}</td>
-              <td style={{ padding: '8px 6px' }}>
-                {s.deliveryDate ? new Date(s.deliveryDate).toLocaleDateString('tr-TR') : '—'}
-              </td>
-              <td style={{ padding: '8px 6px' }}>{s.customerName}</td>
-              <td style={{ padding: '8px 6px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.itemSummary || '—'}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(s.grossTotal)}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(s.netTotal)}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(s.taxExcluded)}</td>
-              <td style={{ padding: '8px 6px' }}>{s.discountPct}%</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(s.cashAmount)}</td>
-              <td style={{ padding: '8px 6px' }}>{s.cardPayments[0]?.installment ?? '—'}</td>
-              <td style={{ padding: '8px 6px' }}>{s.cardPayments[0]?.bankName ?? '—'}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(cardSlipTotal(s))}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(cardCommissionTotal(s))}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(s.sgkAmount)}</td>
-              <td style={{ padding: '8px 6px' }}>{fmtTime(s.createdAt)}</td>
-              <td style={{ padding: '8px 6px' }}>{idx + 1}</td>
-              {showRep ? (
-                <td style={{ padding: '8px 6px' }}>{s.repName}</td>
-              ) : null}
-            </tr>
-          ))}
-          {rows.length > 0 ? (
-            <tr style={{ fontWeight: 800, background: '#fafafa' }}>
-              <td colSpan={4} style={{ padding: '8px 6px' }}>
-                Toplam
-              </td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(totals.gross)}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(totals.net)}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(totals.taxFree)}</td>
-              <td style={{ padding: '8px 6px' }}>
-                {totals.gross ? `${((totals.discount / totals.gross) * 100).toFixed(1)}%` : '—'}
-              </td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(totals.cash)}</td>
-              <td colSpan={2} style={{ padding: '8px 6px' }} />
-              <td style={{ padding: '8px 6px' }}>{formatMoney(totals.slip)}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(totals.commission)}</td>
-              <td style={{ padding: '8px 6px' }}>{formatMoney(totals.sgk)}</td>
-              <td colSpan={showRep ? 3 : 2} style={{ padding: '8px 6px' }} />
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={Math.max(activeCols.length, 1)} style={{ padding: 16, color: '#9ca3af' }}>
+                  Kayıt yok.
+                </td>
+              </tr>
+            ) : null}
+            {(() => {
+              let saleCounter = 0
+              return rows.map((s) => {
+                const isMasraf = s.tip === 'MASRAF'
+                const saleNo = isMasraf ? null : ++saleCounter
+                const masrafAciklama = isMasraf ? s.itemSummary.replace(/^MASRAF:\s*/, '') : ''
+                return (
+                  <tr key={s.saleId} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
+                    {activeCols.map((col) => (
+                      <td key={col.key} style={gunlukKasaCellStyle(col.key, isMasraf)}>
+                        {renderGunlukKasaCell(col.key, s, { isMasraf, masrafAciklama, saleNo })}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })
+            })()}
+            {rows.length > 0 && activeCols.length > 0 ? (
+              <tr style={{ fontWeight: 800, background: '#fafafa' }}>
+                {renderGunlukKasaTotalsCells(activeCols, totals)}
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -598,6 +945,8 @@ function GunlukKasaView({
   showRep,
   repFilter,
   onRepFilter,
+  branchId,
+  canSendEmail,
 }: {
   report: DailyReport | null
   date: string
@@ -605,6 +954,8 @@ function GunlukKasaView({
   showRep?: boolean
   repFilter?: string | null
   onRepFilter?: (name: string | null) => void
+  branchId: string
+  canSendEmail?: boolean
 }) {
   const filtered = useMemo(() => {
     const rows = report?.salesDetail ?? []
@@ -616,6 +967,84 @@ function GunlukKasaView({
 
   const hasShift = reportHasShift(report)
 
+  const [notMetin, setNotMetin] = useState('')
+  const [notDraft, setNotDraft] = useState('')
+  const [notYukleniyor, setNotYukleniyor] = useState(false)
+  const [notKaydediliyor, setNotKaydediliyor] = useState(false)
+  const [notKayitZamani, setNotKayitZamani] = useState<string | null>(null)
+  const [sabitAlicilar, setSabitAlicilar] = useState<string[]>([])
+  const [emailModalAcik, setEmailModalAcik] = useState(false)
+  const [ekAliciInput, setEkAliciInput] = useState('')
+  const [emailGonderiliyor, setEmailGonderiliyor] = useState(false)
+  const [gonderimZamani, setGonderimZamani] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!branchId || !date) return
+    setNotYukleniyor(true)
+    getGunlukDurumNotu(branchId, date)
+      .then((data) => {
+        setNotMetin(data.metin)
+        setNotDraft(data.metin)
+        setNotKayitZamani(data.updatedAt)
+        setSabitAlicilar(data.sabitAlicilar ?? [])
+      })
+      .catch(() => {
+        setNotMetin('')
+        setNotDraft('')
+        setNotKayitZamani(null)
+        setSabitAlicilar([])
+      })
+      .finally(() => setNotYukleniyor(false))
+  }, [branchId, date])
+
+  async function notKaydet(metin: string) {
+    if (!branchId || !date) return
+    setNotKaydediliyor(true)
+    try {
+      const saved = await saveGunlukDurumNotu(branchId, date, metin)
+      setNotMetin(saved.metin)
+      setNotDraft(saved.metin)
+      setNotKayitZamani(saved.updatedAt)
+    } catch {
+      alert('Not kaydedilemedi.')
+    } finally {
+      setNotKaydediliyor(false)
+    }
+  }
+
+  async function emailGonder() {
+    if (!branchId || !date) return
+    const ekList = ekAliciInput
+      .split(/[,;\s]+/)
+      .map((e) => e.trim())
+      .filter(Boolean)
+    setEmailGonderiliyor(true)
+    try {
+      if (notDraft !== notMetin) {
+        await notKaydet(notDraft)
+      }
+      const branchName = report?.branchName ?? 'Şube'
+      const pdfFilename = `${formatKasaFormuBaslik(branchName, date)}.pdf`
+      const pdfBlob = await generateGunlukKasaPdfBlob({
+        branchName,
+        date,
+        rows: filtered,
+        summary,
+        showRep,
+        durumNotu: notDraft,
+      })
+      const result = await sendGunlukDurumNotuEmail(branchId, date, pdfBlob, pdfFilename, ekList)
+      setGonderimZamani(result.gonderimZamani)
+      setEmailModalAcik(false)
+      setEkAliciInput('')
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      alert(msg ?? 'E-posta gönderilemedi.')
+    } finally {
+      setEmailGonderiliyor(false)
+    }
+  }
+
   function handleGunlukKasaPdf() {
     void downloadGunlukKasaPdf({
       branchName: report?.branchName ?? 'Şube',
@@ -623,6 +1052,7 @@ function GunlukKasaView({
       rows: filtered,
       summary,
       showRep,
+      durumNotu: notDraft,
     })
   }
 
@@ -658,18 +1088,128 @@ function GunlukKasaView({
               { label: 'Brüt Ciro', value: formatMoney(summary.gross) },
               { label: 'Sipariş Bedeli', value: formatMoney(summary.net) },
               { label: 'Nakit Giriş', value: formatMoney(summary.cash) },
+              { label: 'Nakit Çıkış', value: formatMoney(report?.cashOut) },
               { label: 'Slip Toplamı', value: formatMoney(summary.slip) },
               {
                 label: 'İskonto %',
                 value: summary.gross ? `${((summary.discount / summary.gross) * 100).toFixed(1)}%` : '—',
               },
               { label: 'Satış Adedi', value: String(filtered.length) },
+              ...(report?.labIncidents?.toplam
+                ? [{ label: '⚠️ Atölye Olayları', value: String(report.labIncidents.toplam) }]
+                : []),
             ]}
           />
+          <AtolyeOlaylariOzet report={report} />
           <div style={{ marginTop: 16 }}>
             <GunlukKasaTable rows={filtered} showRep={showRep} />
           </div>
         </>
+      ) : null}
+
+      <div style={{ ...CARD_STYLE, marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 800 }}>Günlük Durum Notu</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {notKayitZamani ? (
+              <span style={{ fontSize: 12, color: '#6b7280' }}>
+                Kaydedildi {new Date(notKayitZamani).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            ) : null}
+            {gonderimZamani ? (
+              <span style={{ fontSize: 12, color: GREEN, fontWeight: 700 }}>
+                Gönderildi ✓ {new Date(gonderimZamani).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            ) : null}
+            {canSendEmail ? (
+              <button
+                type="button"
+                onClick={() => setEmailModalAcik(true)}
+                style={{ ...BTN_STYLE, borderColor: BLUE, color: BLUE, fontWeight: 700 }}
+              >
+                📧 E-posta Gönder
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <textarea
+          value={notDraft}
+          disabled={notYukleniyor}
+          onChange={(e) => setNotDraft(e.target.value)}
+          onBlur={() => {
+            if (notDraft !== notMetin) void notKaydet(notDraft)
+          }}
+          placeholder={'Örn:\n• Bugün 12 satış yapıldı, yoğun saat 14:00–16:00\n• Stokta olmayan: Ray-Ban RB2140 kahve\n• SGK denetimi için evraklar hazırlandı'}
+          style={{
+            width: '100%',
+            minHeight: 140,
+            padding: 12,
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            fontSize: 13,
+            lineHeight: 1.5,
+            resize: 'vertical',
+            boxSizing: 'border-box',
+            fontFamily: 'inherit',
+          }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+          <button
+            type="button"
+            disabled={notKaydediliyor || notDraft === notMetin}
+            onClick={() => void notKaydet(notDraft)}
+            style={{
+              ...BTN_STYLE,
+              background: notDraft === notMetin ? '#f3f4f6' : RED,
+              color: notDraft === notMetin ? '#9ca3af' : 'white',
+              borderColor: notDraft === notMetin ? '#e5e7eb' : RED,
+              fontWeight: 700,
+            }}
+          >
+            {notKaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+          </button>
+        </div>
+      </div>
+
+      {emailModalAcik ? (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'white', borderRadius: 16, padding: 24, width: 480, maxWidth: '90vw' }}>
+            <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 16 }}>Günlük Durum Raporu — E-posta</div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 6 }}>Sabit alıcılar</div>
+              {sabitAlicilar.length ? (
+                <div style={{ fontSize: 13, color: '#374151', background: '#f9fafb', borderRadius: 8, padding: 10 }}>
+                  {sabitAlicilar.join(', ')}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: '#9ca3af' }}>Admin panelden sabit alıcı tanımlanmamış.</div>
+              )}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>
+                Ek alıcı ekle (virgülle ayırın)
+              </label>
+              <input
+                type="text"
+                value={ekAliciInput}
+                onChange={(e) => setEkAliciInput(e.target.value)}
+                placeholder="ornek@firma.com, diger@firma.com"
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => setEmailModalAcik(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', background: '#f3f4f6', cursor: 'pointer', fontWeight: 700 }}>İptal</button>
+              <button
+                type="button"
+                disabled={emailGonderiliyor || (!sabitAlicilar.length && !ekAliciInput.trim())}
+                onClick={() => void emailGonder()}
+                style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: '#1a1a2e', color: 'white', cursor: 'pointer', fontWeight: 700, opacity: emailGonderiliyor ? 0.7 : 1 }}
+              >
+                {emailGonderiliyor ? 'Gönderiliyor...' : 'Gönder'}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   )
@@ -815,7 +1355,7 @@ function PersonelDashboard({ user }: { user: User }) {
       {!shiftId || !reportHasShift(report) ? <VardiyaKapaliBanner /> : null}
       <TabBar tabs={tabs} active={tab} onChange={setTab} />
       {tab === 0 ? (
-        <GunlukKasaView report={report} date={date} onDateChange={setDate} />
+        <GunlukKasaView report={report} date={date} onDateChange={setDate} branchId={user.branchId} />
       ) : null}
       {tab === 1 ? (
         <div>
@@ -1041,6 +1581,10 @@ function MudurDashboard({ user }: { user: User }) {
   })
   const [branchPersoneller, setBranchPersoneller] = useState<Array<{ id: string; name: string; role: string }>>([])
   const [gorevliKaydediliyor, setGorevliKaydediliyor] = useState(false)
+  const [rangeReport, setRangeReport] = useState<DailyReport | null>(null)
+  const [rangeLoading, setRangeLoading] = useState(false)
+  const [monthlyPersonel, setMonthlyPersonel] = useState<PersonelAylikRow[]>([])
+  const [monthlyPersonelLoading, setMonthlyPersonelLoading] = useState(false)
 
   const tabs = ['Mağaza Özeti', 'Günlük Kasa', 'Benim Satışlarım', 'Görevler', 'Personel', 'Raporlar']
 
@@ -1064,6 +1608,26 @@ function MudurDashboard({ user }: { user: User }) {
   useEffect(() => {
     getPersonalDailyReport(date).then(setPersonalReport).catch(() => setPersonalReport(null))
   }, [date])
+
+  useEffect(() => {
+    if (tab !== 5) return
+    const { start, end } = periodRangeDates(period, customFrom, customTo)
+    setRangeLoading(true)
+    getRangeReport(start, end)
+      .then(setRangeReport)
+      .catch(() => setRangeReport(null))
+      .finally(() => setRangeLoading(false))
+  }, [tab, period, customFrom, customTo])
+
+  useEffect(() => {
+    if (tab !== 4) return
+    const now = new Date()
+    setMonthlyPersonelLoading(true)
+    getMonthlyPersonelBreakdown(now.getMonth() + 1, now.getFullYear())
+      .then(setMonthlyPersonel)
+      .catch(() => setMonthlyPersonel([]))
+      .finally(() => setMonthlyPersonelLoading(false))
+  }, [tab])
 
   useEffect(() => {
     async function fetchGorevler() {
@@ -1253,11 +1817,13 @@ function MudurDashboard({ user }: { user: User }) {
           showRep
           repFilter={repFilter}
           onRepFilter={setRepFilter}
+          branchId={user.branchId}
+          canSendEmail
         />
       ) : null}
 
       {tab === 2 ? (
-        <GunlukKasaView report={personalReport} date={date} onDateChange={setDate} />
+        <GunlukKasaView report={personalReport} date={date} onDateChange={setDate} branchId={user.branchId} />
       ) : null}
 
       {tab === 3 ? (
@@ -1373,6 +1939,9 @@ function MudurDashboard({ user }: { user: User }) {
           </button>
           <div style={CARD_STYLE}>
             <div style={{ fontWeight: 800, marginBottom: 12 }}>Aylık personel performans</div>
+            {monthlyPersonelLoading ? (
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Yükleniyor…</div>
+            ) : null}
             <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '0.5px solid #e5e7eb' }}>
@@ -1384,7 +1953,12 @@ function MudurDashboard({ user }: { user: User }) {
                 </tr>
               </thead>
               <tbody>
-                {(report?.temsilciBreakdown ?? []).map((r) => (
+                {monthlyPersonel.length === 0 && !monthlyPersonelLoading ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 16, color: '#9ca3af' }}>Bu ay satış kaydı yok.</td>
+                  </tr>
+                ) : null}
+                {monthlyPersonel.map((r) => (
                   <tr key={r.repName} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
                     <td style={{ padding: 8 }}>{r.repName}</td>
                     <td style={{ padding: 8, textAlign: 'right' }}>{r.saleCount}</td>
@@ -1490,17 +2064,18 @@ function MudurDashboard({ user }: { user: User }) {
         <div>
           <SectionHeader title="Raporlar" showPdf />
           <PeriodFilter period={period} onPeriod={setPeriod} customFrom={customFrom} customTo={customTo} onCustomFrom={setCustomFrom} onCustomTo={setCustomTo} />
+          {rangeLoading ? <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>Yükleniyor…</div> : null}
           <MetricCards
             items={[
-              { label: 'Net Ciro', value: formatMoney(report?.netCiro) },
-              { label: 'Satış Adedi', value: String(report?.saleCount ?? 0) },
-              { label: 'Ort. Sepet', value: formatMoney(report?.ortalamaSepet) },
-              { label: 'İskonto', value: formatMoney(report?.totalDiscount) },
+              { label: 'Net Ciro', value: formatMoney(rangeReport?.netCiro) },
+              { label: 'Satış Adedi', value: String(rangeReport?.saleCount ?? 0) },
+              { label: 'Ort. Sepet', value: formatMoney(rangeReport?.ortalamaSepet) },
+              { label: 'İskonto', value: formatMoney(rangeReport?.totalDiscount) },
             ]}
           />
           <div style={{ ...CARD_STYLE, marginTop: 16 }}>
             <div style={{ fontWeight: 700, marginBottom: 12 }}>Kategori dağılımı</div>
-            <KategoriBars report={report} />
+            <KategoriBars report={rangeReport} />
           </div>
           <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
             <button type="button" onClick={() => void exportExcel()} style={{ ...BTN_STYLE, color: GREEN, borderColor: GREEN }}>
@@ -1913,7 +2488,7 @@ function BolgeMudurDashboard({ user }: { user: User }) {
       ) : null}
 
       {aktifSekme === 'benim' ? (
-        <GunlukKasaView report={personalReport} date={personalDate} onDateChange={setPersonalDate} />
+        <GunlukKasaView report={personalReport} date={personalDate} onDateChange={setPersonalDate} branchId={user.branchId} />
       ) : null}
 
       {aktifSekme === 'raporlar' && ozet ? (

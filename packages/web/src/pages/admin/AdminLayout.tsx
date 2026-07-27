@@ -4,6 +4,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { ChatbotButon } from '../../components/ChatbotPanel'
 import BildirimPanel from '../../components/admin/BildirimPanel'
 import { getToplamBildirimSayac } from '../../api/bildirim.api'
+import { canSeeAdminMenuItem, type AdminUserLite } from '../../constants/ekYetki'
 
 export const adminApi = axios.create({ baseURL: '/api' })
 
@@ -17,9 +18,7 @@ adminApi.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('admin-token')
-      localStorage.removeItem('admin-user')
-      window.location.href = '/admin/login'
+      window.dispatchEvent(new CustomEvent('auth:admin-session-expired'))
     }
     return Promise.reject(err)
   },
@@ -50,6 +49,7 @@ const MENU: MenuGroup[] = [
       { label: 'Depo Yönetimi', icon: '📦', to: '/admin/depo' },
       { label: 'Stok Yönetimi', icon: '🏷️', to: '/admin/stok-yonetimi' },
       { label: 'Etiket Tasarımcısı', icon: '🎨', to: '/admin/etiket-tasarimci' },
+      { label: 'Etiket Şablonları (Yeni)', icon: '🏷️', to: '/admin/etiket-sablon-duzenleyici' },
       { label: 'Ürün Yapılandırma', icon: '⚙️', to: '/admin/urun-yapilandirma' },
       { label: 'Garanti & İade', icon: '🔧', to: '/admin/garanti' },
       { label: 'UTS Yönetimi', icon: '🏥', to: '/admin/uts' },
@@ -77,7 +77,7 @@ export default function AdminLayout() {
   const adminUser = (() => {
     try {
       const raw = localStorage.getItem('admin-user')
-      return raw ? JSON.parse(raw) as { role?: string } : null
+      return raw ? JSON.parse(raw) as AdminUserLite : null
     } catch {
       return null
     }
@@ -85,13 +85,13 @@ export default function AdminLayout() {
 
   const menu = useMemo(() => {
     const role = adminUser?.role
-    let groups = MENU
-    if (role === 'STORE_MANAGER') {
-      groups = MENU.map((g) => ({
-        ...g,
-        items: g.items.filter((i) => i.to !== '/admin/stok-yonetimi'),
-      }))
-    }
+    let groups = MENU.map((g) => ({
+      ...g,
+      items: g.items.filter((item) =>
+        adminUser ? canSeeAdminMenuItem(adminUser, item.to) : false,
+      ),
+    })).filter((g) => g.items.length > 0)
+
     if (role === 'ADMIN') {
       groups = [
         ...groups.slice(0, 1),
@@ -99,16 +99,30 @@ export default function AdminLayout() {
           title: '📈 RAPOR MOTORU',
           items: [{ label: 'Rapor Matrisi', icon: '📈', to: '/admin/rapor-matris' }],
         },
+        {
+          title: '🚀 SİSTEM',
+          items: [{ label: 'Sunucu Güncelle', icon: '🚀', to: '/admin/deploy' }],
+        },
         ...groups.slice(1),
       ]
     }
     return groups
-  }, [adminUser?.role])
+  }, [adminUser])
 
   useEffect(() => {
     if (!localStorage.getItem('admin-token')) {
       navigate('/admin/login', { replace: true })
     }
+  }, [navigate])
+
+  useEffect(() => {
+    const onExpired = () => {
+      localStorage.removeItem('admin-token')
+      localStorage.removeItem('admin-user')
+      navigate('/admin/login', { replace: true })
+    }
+    window.addEventListener('auth:admin-session-expired', onExpired)
+    return () => window.removeEventListener('auth:admin-session-expired', onExpired)
   }, [navigate])
 
   const sayacYukle = () => {

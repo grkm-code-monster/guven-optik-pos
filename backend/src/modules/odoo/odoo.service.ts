@@ -50,6 +50,9 @@ export const SIRKET_ODOO_CREDENTIALS: Record<number, { uid: number; password: st
 
 export const ODOO_ALL_COMPANY_IDS = [1, 2, 3, 4];
 
+/** Vergi chart'ı bu şirkette (account.tax multi-company kuralı parent_of için context'te gerekli) */
+export const ODOO_TAX_CHART_COMPANY_ID = 1;
+
 export function getOdooCredentials(companyId: number) {
   return SIRKET_ODOO_CREDENTIALS[companyId] ?? SIRKET_ODOO_CREDENTIALS[1];
 }
@@ -58,6 +61,14 @@ export function buildOdooCompanyContext(forceCompanyId: number) {
   return {
     allowed_company_ids: [forceCompanyId],
     company_id: forceCompanyId,
+  };
+}
+
+/** account.tax parent_of — yalnızca vergi okuma/oluşturma ve vergili account.move çağrılarında */
+export function buildOdooTaxAccessContext(companyId: number) {
+  return {
+    allowed_company_ids: Array.from(new Set([ODOO_TAX_CHART_COMPANY_ID, companyId])),
+    company_id: companyId,
   };
 }
 
@@ -77,8 +88,8 @@ export async function execute(
     uid = creds.uid;
     password = creds.password;
     finalKwargs.context = {
-      ...(finalKwargs.context ?? {}),
       ...buildOdooCompanyContext(companyId),
+      ...(finalKwargs.context ?? {}),
     };
   } else {
     uid = await getUid();

@@ -16,8 +16,10 @@ model User {
   role       Role
   branchId   String
   isActive   Boolean  @default(true)
+  canWorkAtolye Boolean @default(false)
   odooEmployeeId  Int?      // hr.employee.id
   personelId      String?   @unique // Personel.id FK
+  ekYetkiler      String[]  @default([])
   createdAt  DateTime @default(now())
   branch     Branch   @relation(fields: [branchId], references: [id])
   personel        Personel? @relation("UserPersonelLink", fields: [personelId], references: [id])
@@ -38,6 +40,7 @@ enum Role {
   REGIONAL_MANAGER
   ACCOUNTANT
   ADMIN
+  WORKSHOP_STAFF
 }
 
 model Branch {
@@ -45,6 +48,7 @@ model Branch {
   name            String
   code            String    @unique
   isActive        Boolean   @default(true)
+  hasAtolye       Boolean   @default(false)
   sirketId        Int?
   sirketAdi       String?
   vkn             String?
@@ -53,6 +57,8 @@ model Branch {
   uyumsoftUser    String?
   uyumsoftPass    String?
   adres           String?
+  il              String?
+  ilce            String?
   telefon         String?
   yedekSorumluId  String?
   users           User[]
@@ -83,6 +89,9 @@ model Customer {
   name             String
   phone            String    @unique
   note             String?
+  adres            String?
+  il               String?
+  ilce             String?
   // V2 alanları — şimdi ekle, V2'de aktive et
   identityNo       String?
   birthDate        DateTime?
@@ -203,6 +212,7 @@ model Product {
   model       String?         // Model
   isActive    Boolean         @default(true)
   odooId      String?
+  referansNo  String?         @unique
   saleItems   SaleItem[]
 }
 
@@ -276,6 +286,8 @@ model Sale {
   odooCancelError    String?
   eFaturaId          String?
   eFaturaDurum       String?    // GONDERILDI, BEKLIYOR, HATA
+  referansNo         String?    @unique
+  draftMeta          Json?      // taslak adım/fiyat/ödeme/ölçüm snapshot
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
   customer Customer @relation(fields: [customerId], references: [id])
@@ -314,6 +326,7 @@ model SaleItem {
   qty             Int     @default(1)
   unitPrice       Decimal @db.Decimal(10, 2)
   discount        Decimal @db.Decimal(10, 2) @default(0)
+  taxRate         Decimal? @db.Decimal(5, 2)
   taxAmount       Decimal @db.Decimal(10, 2)
   lineTotal       Decimal @db.Decimal(10, 2)
 
@@ -328,9 +341,30 @@ model SaleItem {
   deliveryDate  DateTime?
   lensOrderMeasurement Json?
 
+  atolyeBranchId    String?
+  sentToLabAt       DateTime?
+  sentToLabByUserId String?
+
   sale    Sale    @relation(fields: [saleId], references: [id])
   product Product @relation(fields: [productId], references: [id])
   warrantyClaims WarrantyClaim[]
+}
+
+// ── ATÖLYE LAB OLAYI (WarrantyClaim'den ayrı) ────────────────────
+model LabIncident {
+  id               String   @id @default(cuid())
+  saleItemId       String
+  atolyeBranchId   String
+  reportedByUserId String
+  incidentType     String   // LENS_BROKEN | FRAME_BROKEN | MEASUREMENT_SHIFT
+  note             String?
+  resolutionType   String?  // TRANSFER | OZEL_SIPARIS | NONE
+  ozelSiparisId    String?
+  transferRef      String?
+  createdAt        DateTime @default(now())
+
+  @@index([saleItemId])
+  @@index([atolyeBranchId])
 }
 
 enum LinkType {
@@ -725,6 +759,7 @@ model Personel {
   pdksId          String?  // Patron PDKS personel ID
   userId          String?  @unique // User.id FK
   odooEmployeeId  Int?      // hr.employee.id
+  ekYetkiler      String[]  @default([])
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   user            User?    @relation("PersonelUserLink", fields: [userId], references: [id])
@@ -818,6 +853,7 @@ model OzelSiparis {
 
   // Satış bağlantısı
   satisSiparisId    String?  // POS satış siparişi ID
+  saleItemId        String?  // POS satış kalemi ID (mükerrer sipariş kontrolü)
   subeId            String?
   subeAdi           String?
   sirketId          Int?
@@ -917,6 +953,7 @@ model BekleyenFatura {
   uyumsoftEttn    String?   @unique // Gelen e-fatura DocumentId / UUID
   uyumsoftVeri    String?   // JSON: Uyumsoft fatura özeti + kalemler
   uyumsoftDurum   String?   // Approved, IsNew vb.
+  uyumsoftSirketId String?  @default("ng") // Uyumsoft hesap kodu: ng | adese | potential
   hedefDepo       String?   @default("ANADEPO")
   tedarikciIrsaliyeNo String? // Tedarikçinin irsaliye numarası
   aciklama        String?
@@ -937,6 +974,7 @@ model BekleyenFatura {
   updatedAt       DateTime  @updatedAt
 
   @@index([girisTipi, durum])
+  @@index([uyumsoftSirketId])
 }
 
 // Uyumsoft gelen fatura — tedarikçi bazlı sütun eşleştirme profili
@@ -1110,6 +1148,8 @@ model UtsBildirim {
   utsBildirimId  String?
   hataDetay      String?
   gonderimZamani DateTime?
+  urunGirisiYapildiMi Boolean  @default(false)
+  urunGirisiTarihi DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   branch         Branch   @relation(fields: [branchId], references: [id])
@@ -1124,6 +1164,19 @@ model UtsBildirimKalem {
   lotNo      String?
   adet       Int         @default(1)
   bildirim   UtsBildirim @relation(fields: [bildirimId], references: [id], onDelete: Cascade)
+}
+
+model TransferAksiyonLog {
+  id          String   @id @default(cuid())
+  transferRef String
+  aksiyon     String   // EFATURA | EIRSALIYE | UTS_VERME | UTS_ALMA | ENVANTER
+  durum       String   // basarili | basarisiz | atlandi
+  mesaj       String?
+  kayitId     String?
+  createdAt   DateTime @default(now())
+
+  @@index([transferRef])
+  @@index([aksiyon])
 }
 
 model Fatura {
@@ -1164,6 +1217,19 @@ model FaturaKuyruk {
   @@index([durum])
 }
 
+model Irsaliye {
+  id          String   @id @default(cuid())
+  irsaliyeNo  String   @unique
+  sube        String
+  transferRef String?  @unique
+  ettn        String?
+  durum       String   @default("GONDERILDI") // GONDERILDI, HATA
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([sube])
+}
+
 model ChatbotKullanim {
   id             String   @id @default(cuid())
   userId         String   @unique
@@ -1173,16 +1239,20 @@ model ChatbotKullanim {
 }
 
 model FiyatDegisiklikBildirimi {
-  id                 String   @id @default(cuid())
-  urunId             Int      // Odoo product.template id
-  urunAdi            String
-  eskiFiyat          Decimal  @db.Decimal(12, 2)
-  yeniFiyat          Decimal  @db.Decimal(12, 2)
-  fiyatTipi          String   @default("SATIS") // SATIS | ALIS
-  degistirenUserId   String
-  subeKodu           String   // GVN1, ANADEPO vb.
-  okundu             Boolean  @default(false)
-  createdAt          DateTime @default(now())
+  id                  String    @id @default(cuid())
+  urunId              Int       // Odoo product.template id
+  urunAdi             String
+  eskiFiyat           Decimal   @db.Decimal(12, 2)
+  yeniFiyat           Decimal   @db.Decimal(12, 2)
+  fiyatTipi           String    @default("SATIS") // SATIS | ALIS
+  degistirenUserId    String
+  subeKodu            String    // GVN1, ANADEPO vb.
+  okundu              Boolean   @default(false)
+  etiketBasildi       Boolean   @default(false)
+  etiketBasilmaTarihi DateTime?
+  sonHatirlatmaTarihi DateTime?
+  kategoriAdi         String?
+  createdAt           DateTime  @default(now())
 
   @@index([subeKodu, okundu])
   @@index([createdAt])
@@ -1205,6 +1275,7 @@ model Bildirim {
 model EtiketSablonu {
   id              String   @id @default(cuid())
   ad              String
+  slug            String?  @unique
   kategori        String   // CERCEVE | GUNES | AKSESUAR | GENEL
   elemanlar       Json
   etiketGenislik  Int      // mm
@@ -1357,4 +1428,23 @@ model ReportRequest {
   createdAt             DateTime @default(now())
 
   @@index([talepEdenId])
+}
+
+model GunlukDurumNotu {
+  id          String   @id @default(cuid())
+  branchId    String
+  tarih       DateTime @db.Date
+  metin       String
+  olusturanId String
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([branchId, tarih])
+}
+
+// Günlük atomik referans sıra sayacı — GVNU / GVNS
+model SequenceCounter {
+  key       String   @id
+  deger     Int      @default(0)
+  updatedAt DateTime @updatedAt
 }

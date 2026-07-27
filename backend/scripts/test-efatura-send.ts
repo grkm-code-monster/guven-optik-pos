@@ -26,7 +26,7 @@ async function main() {
   const branchCode = branch?.code ?? 'GVN1';
   const count = await prisma.fatura.count({ where: { sube: branchCode } });
   const faturaNo = faturaNoUret(branchCode, count + 1);
-  const faturaData = satistenFaturaData(satis, faturaNo, branchCode);
+  const faturaData = await satistenFaturaData(satis, faturaNo, branchCode, branch);
 
   console.log('Şube:', branchCode, '| Fatura No:', faturaNo, '| Müşteri:', faturaData.aliciAdi);
   const sonuc = await eFaturaGonder(faturaData, branch);

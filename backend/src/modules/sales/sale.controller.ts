@@ -7,9 +7,11 @@ import {
   AddSaleItemInput,
   ConfirmSaleInput,
   CreateSaleInput,
+  UpdateDraftMetaInput,
   VoidSaleInput,
 } from './sale.types';
 import * as saleService from './sale.service';
+import * as labIncidentService from './lab-incident.service';
 import { subeToSirketAyarId } from '../efatura/uyumsoft-efatura.service';
 import { getOutboxInvoicePdf } from '../uyumsoft/uyumsoft.service';
 
@@ -26,11 +28,25 @@ function handleSaleError(err: unknown, res: Response): boolean {
     SALE_ITEM_NOT_FOUND: { status: 404, message: 'Kalem bulunamadı.' },
     PRODUCT_NOT_FOUND: { status: 404, message: 'Ürün bulunamadı.' },
     SALE_NOT_EDITABLE: { status: 409, message: 'Satış düzenlenemez.' },
+    SALE_ALREADY_PROCESSING: { status: 409, message: 'Satış zaten işleniyor veya onaylanmış.' },
     LENS_REQUIRES_FRAME_LINK: { status: 400, message: 'Cam kalemi bir çerçeveye bağlı olmalı.' },
     PAYMENT_AMOUNT_MISMATCH: { status: 400, message: 'Ödeme tutarı satış toplamı ile eşleşmiyor.' },
     PRODUCT_BARCODE_EXISTS: { status: 409, message: 'Bu barkod zaten kayıtlı.' },
     SALE_ALREADY_VOID: { status: 409, message: 'Satış zaten iptal.' },
     INSUFFICIENT_PERMISSION: { status: 403, message: 'Bu işlem için yetkiniz yok.' },
+    FORBIDDEN_STATUS_TRANSITION: { status: 403, message: 'Bu durum geçişi için yetkiniz yok.' },
+    ATOLYE_BRANCH_REQUIRED: { status: 400, message: 'Laboratuvara gönderim için atölye şubesi seçilmelidir.' },
+    ATOLYE_BRANCH_INVALID: { status: 400, message: 'Seçilen şubenin atölyesi yok.' },
+    NOT_LAB_ELIGIBLE_ITEM: { status: 400, message: 'Bu ürün laboratuvar sürecine tabi değil.' },
+    FORBIDDEN_ATOLYE_BRANCH: { status: 403, message: 'Bu atölye kuyruğuna erişim yetkiniz yok.' },
+    NOT_IN_ATOLYE: { status: 400, message: 'Kalem atölye kuyruğunda değil.' },
+    INVALID_ITEM_STATUS: { status: 400, message: 'Kalem durumu sorun bildirimi için uygun değil.' },
+    PRODUCT_ID_MISSING: { status: 400, message: 'Odoo ürün ID bulunamadı.' },
+    LAB_INCIDENT_NOT_FOUND: { status: 404, message: 'Olay kaydı bulunamadı.' },
+    INVALID_INCIDENT_TYPE: { status: 400, message: 'Geçersiz olay tipi.' },
+    INCIDENT_ALREADY_RESOLVED: { status: 409, message: 'Olay zaten çözümlenmiş.' },
+    ATOLYE_LOCATION_MISSING: { status: 400, message: 'Atölye lokasyonu tanımsız.' },
+    TRANSFER_FAILED: { status: 502, message: 'Transfer başarısız.' },
     CARD_PAYMENT_FIELDS_REQUIRED: { status: 400, message: 'Kart ödemesi için bankId, posDeviceId ve installment zorunludur.' },
     COMMISSION_RATE_NOT_FOUND: { status: 400, message: 'Komisyon oranı bulunamadı.' },
   };
@@ -115,8 +131,34 @@ router.patch('/:id/items/:itemId/status', async (req: Request, res: Response, ne
       deliveryDate = Number.isNaN(parsed.getTime()) ? undefined : parsed;
     }
 
-    const updated = await saleService.updateSaleItemStatus(req.params.itemId, status, deliveryDate);
+    const updated = await saleService.updateSaleItemStatus(
+      req.params.itemId,
+      status,
+      req.user!.role,
+      req.user!.canWorkAtolye ?? false,
+      {
+        deliveryDate,
+        atolyeBranchId: typeof req.body?.atolyeBranchId === 'string' ? req.body.atolyeBranchId : undefined,
+        userId: req.user!.userId,
+      },
+    );
     return res.status(200).json(updated);
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+router.patch('/:id/draft-meta', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = UpdateDraftMetaInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({
+      error: 'VALIDATION_ERROR',
+      message: 'Geçersiz istek gövdesi.',
+      details: parsed.error.errors,
+    });
+    const sale = await saleService.updateDraftMeta(req.params.id, parsed.data);
+    return res.status(200).json(sale);
   } catch (err) {
     if (handleSaleError(err, res)) return;
     next(err);
@@ -149,6 +191,80 @@ router.post('/:id/void', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: 
     });
     const sale = await saleService.voidSale(req.params.id, req.user!.userId, req.user!.role, parsed.data);
     return res.status(200).json(sale);
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+router.get('/atolye-branches', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const branches = await saleService.getAtolyeBranches();
+    return res.status(200).json({ success: true, data: branches });
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+router.get('/atolye-kuyruk', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const branchId = typeof req.query.branchId === 'string' ? req.query.branchId.trim() : '';
+    if (!branchId) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'branchId zorunludur.' });
+    }
+
+    const durumRaw = typeof req.query.durum === 'string' ? req.query.durum.toUpperCase() : '';
+    if (durumRaw !== ItemStatus.IN_LAB && durumRaw !== ItemStatus.READY) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'durum IN_LAB veya READY olmalıdır.',
+      });
+    }
+
+    const items = await saleService.getAtolyeKuyruk(req.user!, branchId, durumRaw);
+    return res.status(200).json({ success: true, data: items });
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+router.post('/lab-incident', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const saleItemId = typeof req.body?.saleItemId === 'string' ? req.body.saleItemId.trim() : '';
+    const incidentType = typeof req.body?.incidentType === 'string' ? req.body.incidentType.trim().toUpperCase() : '';
+    const note = typeof req.body?.note === 'string' ? req.body.note : undefined;
+
+    if (!saleItemId || !incidentType) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'saleItemId ve incidentType zorunludur.' });
+    }
+
+    const result = await labIncidentService.reportLabIncident(req.user!, {
+      saleItemId,
+      incidentType: incidentType as labIncidentService.LabIncidentType,
+      note,
+    });
+    return res.status(200).json(result);
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+router.post('/lab-incident/:id/confirm-transfer', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const kaynakLokasyonId = Number(req.body?.kaynakLokasyonId);
+    if (!Number.isFinite(kaynakLokasyonId) || kaynakLokasyonId <= 0) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'kaynakLokasyonId zorunludur.' });
+    }
+
+    const result = await labIncidentService.confirmLabIncidentTransfer(
+      req.user!,
+      req.params.id,
+      kaynakLokasyonId,
+    );
+    return res.status(200).json(result);
   } catch (err) {
     if (handleSaleError(err, res)) return;
     next(err);

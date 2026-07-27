@@ -3,6 +3,7 @@ import { ItemStatus } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import { authenticate } from '../../middleware/authenticate';
 import {
+  allocateNextFaturaNo,
   eFaturaGonder,
   faturaNoUret,
   mukellefiyetSorgula,
@@ -50,11 +51,10 @@ router.post('/gonder', async (req: Request, res: Response, next: NextFunction) =
 
     let faturaNo = manuelNo as string | undefined;
     if (!faturaNo) {
-      const count = await prisma.fatura.count({ where: { sube: branchCode } });
-      faturaNo = faturaNoUret(branchCode, count + 1);
+      faturaNo = await allocateNextFaturaNo(branchCode);
     }
 
-    const faturaData = satistenFaturaData(satis, faturaNo, branchCode);
+    const faturaData = await satistenFaturaData(satis, faturaNo, branchCode, branch);
     const sonuc = await eFaturaGonder(faturaData, branch);
 
     if (sonuc.basarili) {
@@ -87,16 +87,25 @@ router.post('/gonder', async (req: Request, res: Response, next: NextFunction) =
 router.post('/satis-onay/:satisId', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { satisId } = req.params;
-    await tetikleSatisEFatura(satisId);
+    const sonuc = await tetikleSatisEFatura(satisId);
     const satis = await prisma.sale.findUnique({
       where: { id: satisId },
       select: { eFaturaDurum: true, eFaturaId: true },
     });
+    const lastKuyruk = await prisma.faturaKuyruk.findFirst({
+      where: { satisId },
+      orderBy: { createdAt: 'desc' },
+      select: { hata: true },
+    });
     return res.json({
       satisId,
       basarili: satis?.eFaturaDurum === 'GONDERILDI',
-      eFaturaDurum: satis?.eFaturaDurum,
+      eFaturaDurum: satis?.eFaturaDurum ?? sonuc.eFaturaDurum,
       eFaturaId: satis?.eFaturaId,
+      hata: sonuc.action === 'hata' || sonuc.action === 'kuyruk' ? (sonuc.mesaj ?? lastKuyruk?.hata ?? null) : (lastKuyruk?.hata ?? null),
+      mesaj: sonuc.mesaj ?? null,
+      processing: sonuc.processing ?? false,
+      action: sonuc.action,
     });
   } catch (err) {
     next(err);

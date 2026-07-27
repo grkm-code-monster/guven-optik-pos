@@ -31,6 +31,7 @@ function intOptions(min: number, max: number) {
 
 const SPH_OPTIONS = rangeOptions(-30, 30, 0.25, 2)
 const CYL_OPTIONS = rangeOptions(-9, 9, 0.25, 2)
+const DEFAULT_RX_SPH_CYL = '0.00'
 const AKS_OPTIONS = intOptions(0, 180)
 const BC_OPTIONS = (() => {
   const out: Array<{ value: string; label: string }> = [{ value: '', label: 'Değer Yok' }]
@@ -81,6 +82,9 @@ export default function CustomerStep({
   const [identityNo, setIdentityNo] = useState('')
   const [birthDate, setBirthDate] = useState('')
   const [email, setEmail] = useState('')
+  const [adres, setAdres] = useState('')
+  const [il, setIl] = useState('')
+  const [ilce, setIlce] = useState('')
   const [note, setNote] = useState('')
   const [hasPresciption, setHasPresciption] = useState(false)
 
@@ -91,40 +95,40 @@ export default function CustomerStep({
 
   // Daimi (Far)
   const [far_r_pd, setFar_r_pd] = useState('')
-  const [far_r_sph, setFar_r_sph] = useState('')
-  const [far_r_cyl, setFar_r_cyl] = useState('')
+  const [far_r_sph, setFar_r_sph] = useState(DEFAULT_RX_SPH_CYL)
+  const [far_r_cyl, setFar_r_cyl] = useState(DEFAULT_RX_SPH_CYL)
   const [far_r_aks, setFar_r_aks] = useState('')
   const [far_r_add, setFar_r_add] = useState('')
   const [far_r_diagnosis, setFar_r_diagnosis] = useState('')
   const [far_l_pd, setFar_l_pd] = useState('')
-  const [far_l_sph, setFar_l_sph] = useState('')
-  const [far_l_cyl, setFar_l_cyl] = useState('')
+  const [far_l_sph, setFar_l_sph] = useState(DEFAULT_RX_SPH_CYL)
+  const [far_l_cyl, setFar_l_cyl] = useState(DEFAULT_RX_SPH_CYL)
   const [far_l_aks, setFar_l_aks] = useState('')
   const [far_l_add, setFar_l_add] = useState('')
   const [far_l_diagnosis, setFar_l_diagnosis] = useState('')
 
   // Yakın
   const [near_r_pd, setNear_r_pd] = useState('')
-  const [near_r_sph, setNear_r_sph] = useState('')
-  const [near_r_cyl, setNear_r_cyl] = useState('')
+  const [near_r_sph, setNear_r_sph] = useState(DEFAULT_RX_SPH_CYL)
+  const [near_r_cyl, setNear_r_cyl] = useState(DEFAULT_RX_SPH_CYL)
   const [near_r_aks, setNear_r_aks] = useState('')
   const [near_r_diagnosis, setNear_r_diagnosis] = useState('')
   const [near_l_pd, setNear_l_pd] = useState('')
-  const [near_l_sph, setNear_l_sph] = useState('')
-  const [near_l_cyl, setNear_l_cyl] = useState('')
+  const [near_l_sph, setNear_l_sph] = useState(DEFAULT_RX_SPH_CYL)
+  const [near_l_cyl, setNear_l_cyl] = useState(DEFAULT_RX_SPH_CYL)
   const [near_l_aks, setNear_l_aks] = useState('')
   const [near_l_diagnosis, setNear_l_diagnosis] = useState('')
 
   // Lens
   const [lens_r_bc, setLens_r_bc] = useState('')
-  const [lens_r_sph, setLens_r_sph] = useState('')
-  const [lens_r_cyl, setLens_r_cyl] = useState('')
+  const [lens_r_sph, setLens_r_sph] = useState(DEFAULT_RX_SPH_CYL)
+  const [lens_r_cyl, setLens_r_cyl] = useState(DEFAULT_RX_SPH_CYL)
   const [lens_r_aks, setLens_r_aks] = useState('')
   const [lens_r_add, setLens_r_add] = useState('')
   const [lens_r_note, setLens_r_note] = useState('')
   const [lens_l_bc, setLens_l_bc] = useState('')
-  const [lens_l_sph, setLens_l_sph] = useState('')
-  const [lens_l_cyl, setLens_l_cyl] = useState('')
+  const [lens_l_sph, setLens_l_sph] = useState(DEFAULT_RX_SPH_CYL)
+  const [lens_l_cyl, setLens_l_cyl] = useState(DEFAULT_RX_SPH_CYL)
   const [lens_l_aks, setLens_l_aks] = useState('')
   const [lens_l_add, setLens_l_add] = useState('')
   const [lens_l_note, setLens_l_note] = useState('')
@@ -292,6 +296,9 @@ export default function CustomerStep({
         identityNo: identityNo.trim() || undefined,
         birthDate: birthDate ? new Date(birthDate).toISOString() : undefined,
         ePostaEmail: email.trim() || undefined,
+        adres: adres.trim() || undefined,
+        il: il.trim() || undefined,
+        ilce: ilce.trim() || undefined,
         hasPresciption,
         far_r_pd: far_r_pd || undefined,
         far_r_sph: far_r_sph || undefined,
@@ -335,6 +342,9 @@ export default function CustomerStep({
       setIdentityNo('')
       setBirthDate('')
       setEmail('')
+      setAdres('')
+      setIl('')
+      setIlce('')
       setNote('')
       setHasPresciption(false)
       onSelectCustomer(created)
@@ -588,6 +598,9 @@ export default function CustomerStep({
                 setIdentityNo(selectedCustomer.identityNo ?? '')
                 setBirthDate(selectedCustomer.birthDate ? String(selectedCustomer.birthDate).slice(0, 10) : '')
                 setEmail(selectedCustomer.ePostaEmail ?? '')
+                setAdres(selectedCustomer.adres ?? '')
+                setIl(selectedCustomer.il ?? '')
+                setIlce(selectedCustomer.ilce ?? '')
                 setNote(selectedCustomer.note ?? '')
                 setEditInfoOpen(true)
               }}
@@ -748,6 +761,11 @@ export default function CustomerStep({
               <Field label="TC Kimlik" value={identityNo} onChange={setIdentityNo} />
               <Field label="Doğum Tarihi" type="date" value={birthDate} onChange={setBirthDate} />
               <Field label="E-posta" value={email} onChange={setEmail} />
+              <Field label="Adres" value={adres} onChange={setAdres} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <Field label="İl" value={il} onChange={setIl} />
+                <Field label="İlçe" value={ilce} onChange={setIlce} />
+              </div>
               <Field label="Not" value={note} onChange={setNote} />
             </div>
 
@@ -976,6 +994,11 @@ export default function CustomerStep({
               <Field label="TC Kimlik" value={identityNo} onChange={setIdentityNo} />
               <Field label="Doğum Tarihi" type="date" value={birthDate} onChange={setBirthDate} />
               <Field label="E-posta" value={email} onChange={setEmail} />
+              <Field label="Adres" value={adres} onChange={setAdres} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <Field label="İl" value={il} onChange={setIl} />
+                <Field label="İlçe" value={ilce} onChange={setIlce} />
+              </div>
               <Field label="Not" value={note} onChange={setNote} />
             </div>
 
@@ -1009,6 +1032,9 @@ export default function CustomerStep({
                       identityNo: identityNo.trim() || undefined,
                       birthDate: birthDate ? new Date(birthDate).toISOString() : null,
                       ePostaEmail: email.trim() || undefined,
+                      adres: adres.trim() || undefined,
+                      il: il.trim() || undefined,
+                      ilce: ilce.trim() || undefined,
                       note: note.trim() || undefined,
                     })
                     setSelectedCustomer(updated)

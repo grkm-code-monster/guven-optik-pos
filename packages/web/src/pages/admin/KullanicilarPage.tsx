@@ -8,6 +8,7 @@ type AdminUser = {
   role: string
   branchId: string
   isActive: boolean
+  canWorkAtolye?: boolean
   createdAt: string
 }
 
@@ -23,6 +24,7 @@ export default function KullanicilarPage() {
   const [username, setUsername] = useState('')
   const [pin, setPin] = useState('')
   const [role, setRole] = useState<string>('SALES_STAFF')
+  const [canWorkAtolye, setCanWorkAtolye] = useState(false)
   const [branchId, setBranchId] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -49,6 +51,7 @@ export default function KullanicilarPage() {
     setUsername('')
     setPin('')
     setRole('SALES_STAFF')
+    setCanWorkAtolye(false)
     setBranchId(users[0]?.branchId ?? '')
     setModalOpen(true)
   }
@@ -59,6 +62,7 @@ export default function KullanicilarPage() {
     setUsername(u.username)
     setPin('')
     setRole(u.role)
+    setCanWorkAtolye(u.canWorkAtolye ?? false)
     setBranchId(u.branchId)
     setModalOpen(true)
   }
@@ -68,7 +72,7 @@ export default function KullanicilarPage() {
     setError(null)
     try {
       if (editing) {
-        const body: Record<string, unknown> = { name, username, role, branchId }
+        const body: Record<string, unknown> = { name, username, role, branchId, canWorkAtolye }
         if (pin.trim()) body.pin = pin.trim()
         await adminApi.put(`/admin/users/${editing.id}`, body)
       } else {
@@ -83,6 +87,7 @@ export default function KullanicilarPage() {
           pin: pin.trim(),
           role,
           branchId: branchId.trim(),
+          canWorkAtolye,
         })
       }
       setModalOpen(false)
@@ -240,6 +245,17 @@ export default function KullanicilarPage() {
                 onChange={(e) => setBranchId(e.target.value)}
                 style={inputStyle}
               />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={canWorkAtolye}
+                  onChange={(e) => setCanWorkAtolye(e.target.checked)}
+                />
+                🔧 Atölye Yetkisi Var
+              </label>
+              <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>
+                Bayrak değişince kullanıcının yeniden giriş yapması gerekir.
+              </p>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
               <button type="button" onClick={() => setModalOpen(false)} style={{ ...btnStyle, flex: 1, backgroundColor: '#f3f4f6', color: '#111' }}>

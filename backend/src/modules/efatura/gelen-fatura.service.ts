@@ -1,15 +1,25 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma';
+import { mapWithConcurrency } from '../../utils/map-with-concurrency';
 import {
   DEFAULT_SIRKET_ID,
   getInboxInvoice,
   getInboxInvoiceList,
+  resolveTaxExclusiveAmount,
   tipFromVkn,
   type InboxInvoiceDetail,
   type UyumsoftSupplierParty,
 } from '../uyumsoft/uyumsoft.service';
 
 const GIRIS_TIPI = 'UYUMSOFT_GELEN';
+const DETAY_CONCURRENCY = 6;
+
+const GECERLI_UYUMSOFT_SIRKETLER = new Set(['ng', 'adese', 'potential']);
+
+function resolveUyumsoftSirketId(raw?: string): string {
+  const id = (raw ?? DEFAULT_SIRKET_ID).trim().toLowerCase();
+  return GECERLI_UYUMSOFT_SIRKETLER.has(id) ? id : DEFAULT_SIRKET_ID;
+}
 
 export const UYUMSOFT_KOLON_ANAHTARLARI = [
   'stokKodu',
@@ -86,7 +96,35 @@ export interface GelenFaturaOzet {
   createdAt: Date;
 }
 
-function detaydanOzet(detay: InboxInvoiceDetail) {
+function normalizeFaturaTarihi(raw?: string | null, fallback?: Date): string {
+  const trimmed = String(raw ?? '').trim().slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  return (fallback ?? new Date()).toISOString().slice(0, 10);
+}
+
+/** Gerçek fatura tarihi (IssueDate) seçilen aralıkta mı — YYYY-MM-DD karşılaştırması. */
+export function faturaTarihiAralikta(
+  tarih: string | undefined | null,
+  baslangic: string,
+  bitis: string,
+): boolean {
+  const t = String(tarih ?? '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
+  const bas = baslangic.slice(0, 10);
+  const bit = bitis.slice(0, 10);
+  return t >= bas && t <= bit;
+}
+
+function dateAtStartOfDay(iso: string): Date {
+  return new Date(`${iso.slice(0, 10)}T00:00:00.000Z`);
+}
+
+function dateAtEndOfDay(iso: string): Date {
+  return new Date(`${iso.slice(0, 10)}T23:59:59.999Z`);
+}
+
+function detaydanOzet(detay: InboxInvoiceDetail, listExecutionDate?: string) {
+  const taxExclusiveAmount = resolveTaxExclusiveAmount(detay.taxExclusiveAmount, detay.lines);
   return {
     documentId: detay.documentId,
     invoiceNo: detay.invoiceNo,
@@ -94,8 +132,8 @@ function detaydanOzet(detay: InboxInvoiceDetail) {
     supplierVkn: detay.supplierVkn,
     supplier: detay.supplier,
     siparisNo: detay.siparisNo,
-    issueDate: detay.issueDate,
-    taxExclusiveAmount: detay.taxExclusiveAmount,
+    issueDate: normalizeFaturaTarihi(detay.issueDate || listExecutionDate),
+    taxExclusiveAmount,
     payableAmount: detay.payableAmount,
     currency: detay.currency,
     lines: detay.lines,
@@ -128,7 +166,7 @@ function kayittanOzet(kayit: {
     uyumsoftEttn: kayit.uyumsoftEttn,
     tedarikciAdi: kayit.tedarikciAdi ?? veri?.supplierTitle ?? null,
     tedarikciVkn: veri?.supplierVkn,
-    faturaTarihi: veri?.issueDate,
+    faturaTarihi: normalizeFaturaTarihi(veri?.issueDate, kayit.createdAt),
     tutarKdvHaric: veri?.taxExclusiveAmount,
     tutarToplam: veri?.payableAmount,
     paraBirimi: veri?.currency,
@@ -143,9 +181,15 @@ function kayittanOzet(kayit: {
 export async function listeleGelenFaturalar(opts?: {
   durum?: string;
   onlyUnread?: boolean;
+  sirketId?: string;
+  faturaTarihi?: string;
+  faturaBaslangic?: string;
+  faturaBitis?: string;
 }): Promise<GelenFaturaOzet[]> {
+  const uyumsoftSirketId = resolveUyumsoftSirketId(opts?.sirketId);
   const where: Prisma.BekleyenFaturaWhereInput = {
     girisTipi: GIRIS_TIPI,
+    uyumsoftSirketId,
   };
   if (opts?.durum) {
     where.durum = opts.durum;
@@ -159,10 +203,30 @@ export async function listeleGelenFaturalar(opts?: {
   const kayitlar = await prisma.bekleyenFatura.findMany({
     where,
     orderBy: { createdAt: 'desc' },
-    take: 100,
+    take: 200,
   });
 
-  return kayitlar.map(kayittanOzet);
+  let ozetler = kayitlar.map(kayittanOzet);
+
+  if (opts?.faturaTarihi) {
+    const hedef = opts.faturaTarihi.slice(0, 10);
+    ozetler = ozetler.filter((o) => o.faturaTarihi?.slice(0, 10) === hedef);
+  }
+
+  if (opts?.faturaBaslangic && opts?.faturaBitis) {
+    ozetler = ozetler.filter((o) =>
+      faturaTarihiAralikta(o.faturaTarihi, opts.faturaBaslangic!, opts.faturaBitis!),
+    );
+  }
+
+  ozetler.sort((a, b) => {
+    const ta = a.faturaTarihi ?? '';
+    const tb = b.faturaTarihi ?? '';
+    if (ta !== tb) return tb.localeCompare(ta);
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
+
+  return ozetler.slice(0, 100);
 }
 
 export async function cekGelenFaturalar(opts?: {
@@ -170,32 +234,80 @@ export async function cekGelenFaturalar(opts?: {
   bitis?: string;
   onlyUnread?: boolean;
   pageSize?: number;
-}): Promise<{ eklenen: number; guncellenen: number; toplam: number }> {
-  const baslangic = opts?.baslangic ? new Date(opts.baslangic) : new Date(Date.now() - 30 * 86400000);
-  const bitis = opts?.bitis ? new Date(opts.bitis) : new Date();
-  const pageSize = opts?.pageSize ?? 30;
+  pageIndex?: number;
+  sirketId?: string;
+}): Promise<{
+  eklenen: number;
+  guncellenen: number;
+  toplam: number;
+  pageIndex: number;
+  pageSize: number;
+  totalCount: number;
+  hasMore: boolean;
+  sureMs: number;
+  aralikDisiSayisi: number;
+}> {
+  const startedAt = Date.now();
+  const uyumsoftSirketId = resolveUyumsoftSirketId(opts?.sirketId);
+  const faturaBasStr = (opts?.baslangic ?? new Date(Date.now() - 30 * 86400000).toISOString()).slice(0, 10);
+  const faturaBitStr = (opts?.bitis ?? new Date().toISOString()).slice(0, 10);
+  const faturaBas = dateAtStartOfDay(faturaBasStr);
+  const faturaBit = dateAtEndOfDay(faturaBitStr);
+  const pageSize = Math.min(Math.max(opts?.pageSize ?? 50, 1), 100);
+  const pageIndex = Math.max(opts?.pageIndex ?? 0, 0);
 
-  const liste = await getInboxInvoiceList(DEFAULT_SIRKET_ID, {
-    createStartDate: baslangic,
-    createEndDate: bitis,
+  // Uyumsoft: ExecutionDate ≈ fatura tarihi; CreateDate = kayıt tarihi (geniş pencere)
+  const createBas = new Date(faturaBas.getTime() - 120 * 86400000);
+  const createBit = new Date(Math.max(faturaBit.getTime(), Date.now()) + 7 * 86400000);
+
+  const liste = await getInboxInvoiceList(uyumsoftSirketId, {
+    executionStartDate: faturaBas,
+    executionEndDate: faturaBit,
+    createStartDate: createBas,
+    createEndDate: createBit,
     pageSize,
+    pageIndex,
     onlyUnread: opts?.onlyUnread ?? true,
   });
 
   let eklenen = 0;
   let guncellenen = 0;
+  let aralikDisiSayisi = 0;
 
-  for (const item of liste.items) {
-    if (!item.documentId) continue;
+  const validItems = liste.items.filter((item) => item.documentId);
+  const documentIds = validItems.map((item) => item.documentId);
 
-    const mevcut = await prisma.bekleyenFatura.findUnique({
-      where: { uyumsoftEttn: item.documentId },
-    });
+  const mevcutKayitlar = documentIds.length
+    ? await prisma.bekleyenFatura.findMany({
+        where: { uyumsoftEttn: { in: documentIds } },
+      })
+    : [];
+  const mevcutByEttn = new Map(
+    mevcutKayitlar
+      .filter((k) => k.uyumsoftEttn)
+      .map((k) => [k.uyumsoftEttn as string, k]),
+  );
 
-    const detay = await getInboxInvoice(DEFAULT_SIRKET_ID, item.documentId);
+  const detaySonuclari = await mapWithConcurrency(validItems, DETAY_CONCURRENCY, async (item) => {
+    try {
+      const detay = await getInboxInvoice(uyumsoftSirketId, item.documentId);
+      return { item, detay };
+    } catch (err) {
+      console.warn(`[gelen-fatura] detay alınamadı (${item.documentId}):`, err);
+      return { item, detay: null as InboxInvoiceDetail | null };
+    }
+  });
+
+  for (const { item, detay } of detaySonuclari) {
     if (!detay) continue;
 
-    const ozet = detaydanOzet(detay);
+    const ozet = detaydanOzet(detay, item.issueDate);
+    if (!faturaTarihiAralikta(ozet.issueDate, faturaBasStr, faturaBitStr)) {
+      aralikDisiSayisi += 1;
+      continue;
+    }
+
+    const mevcut = mevcutByEttn.get(item.documentId);
     const kalemlerJson = JSON.stringify(
       detay.lines.map((k) => ({
         stokKodu: k.stokKodu,
@@ -216,6 +328,7 @@ export async function cekGelenFaturalar(opts?: {
           tedarikciAdi: detay.supplierTitle,
           uyumsoftVeri: JSON.stringify(ozet),
           uyumsoftDurum: item.status,
+          uyumsoftSirketId,
           kalemler: kalemlerJson,
           aciklama: `Uyumsoft gelen fatura — ${detay.supplierTitle}`,
         },
@@ -230,6 +343,7 @@ export async function cekGelenFaturalar(opts?: {
           tedarikciAdi: detay.supplierTitle,
           uyumsoftVeri: JSON.stringify(ozet),
           uyumsoftDurum: item.status,
+          uyumsoftSirketId,
           hedefDepo: 'ANADEPO',
           subeAdi: 'ANADEPO',
           kalemler: kalemlerJson,
@@ -241,7 +355,20 @@ export async function cekGelenFaturalar(opts?: {
     }
   }
 
-  return { eklenen, guncellenen, toplam: liste.items.length };
+  const hasMore = (pageIndex + 1) * pageSize < liste.totalCount;
+  const sureMs = Date.now() - startedAt;
+
+  return {
+    eklenen,
+    guncellenen,
+    toplam: liste.items.length,
+    pageIndex: liste.pageIndex,
+    pageSize: liste.pageSize,
+    totalCount: liste.totalCount,
+    hasMore,
+    sureMs,
+    aralikDisiSayisi,
+  };
 }
 
 export interface UrunGirisFormVerisi {
@@ -411,7 +538,8 @@ export async function urunGirisineAktar(
   const supplierEksik = !detay?.supplier;
   const linesEksik = !detay?.lines?.length || detay.lines.some((l) => l.malzemeHizmet === undefined);
   if ((!detay || supplierEksik || linesEksik) && kayit.uyumsoftEttn) {
-    const fresh = await getInboxInvoice(DEFAULT_SIRKET_ID, kayit.uyumsoftEttn);
+    const uyumsoftSirketId = resolveUyumsoftSirketId(kayit.uyumsoftSirketId ?? undefined);
+    const fresh = await getInboxInvoice(uyumsoftSirketId, kayit.uyumsoftEttn);
     if (fresh) {
       detay = detaydanOzet(fresh);
       await prisma.bekleyenFatura.update({
@@ -428,6 +556,13 @@ export async function urunGirisineAktar(
 
   if (!detay) {
     throw new Error('Fatura detayı okunamadı');
+  }
+
+  if (detay.lines?.length) {
+    const corrected = resolveTaxExclusiveAmount(detay.taxExclusiveAmount, detay.lines);
+    if (corrected !== detay.taxExclusiveAmount) {
+      detay = { ...detay, taxExclusiveAmount: corrected };
+    }
   }
 
   const supplier: UyumsoftSupplierParty = detay.supplier ?? {

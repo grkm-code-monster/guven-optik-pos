@@ -1,176 +1,190 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 07.07.2026
-
-## Son commitler (güncellendi)
-- [03.07.2026 — commit 540f859] — Satışlar listesi, Müşteriler sayfası, DRAFT satışa devam, reçete 2 sekme (Gözlük/Lens), stok cam SPH+CYL öneri + transpoze, Şirket Tanımları sayfası, İYS modal + SirketAyar DB, Patron login fix (adminApi), PDKS şube mekan ID eşleşmesi, iade flow altyapısı (WarrantyClaim 6 yeni alan), Odoo müşteri arama birleşik, kampanya tabloları oluşturuldu, DB reset sonrası şubeler + personeller yeniden kuruldu
-- [bugün] — Varyant import tamamlandı: mevcut varyantlar Odoo'dan çekiliyor, duplicate koruması, PTAV model/renk/ölçü parse
-- [bugün] — Personel şube ataması tamamlandı (22 otomatik + 3 manuel)
-- [bugün] — IK belge yönetimi: eksik gösterimi, WhatsApp link, public belge yükleme formu
-- [bugün] — Branch tablosu: GVN1-10 eklendi, prisma generate düzeltildi
-- [bugün] — Branch tablosu genişletildi: GVN1-10 eklendi, şirket/Odoo/PDKS/Uyumsoft bağlantı alanları, şube CRUD ekranı
-- [bugün] — IK personel bağlantı yönetimi: PDKS/Odoo/POS üçlü panel
-- [bugün] — Patron PDKS API v4 entegrasyonu bağlantısı kuruldu
-- [bugün] — Uyumsoft e-fatura SOAP entegrasyonu bağlantısı kuruldu
-- [bugün] — Varyant import sistemi: Excel yapıştır, önizle, sadece gerçek kombinasyonlar oluştur
-- [bugün] — Nitelik değer uygula: eşleştir+ekle+seç tek akış, mükerrer koruma
-- [bugün] — Nitelik toplu değer ekleme: textarea, Excel yapıştırma desteği
-- [bugün] — Ürün Yapılandırma akış düzeltmesi: adım sırası, tablo nitelik, şablona özel değer
-- [bugün] — Nitelik değer ekleme: inline input, odoo-nitelik-deger-ekle endpoint
-- [bugün] — Ürün Yapılandırma: kategori scroll, indentation düzeltmesi
-- [bugün] — Ürün Yapılandırma sayfası: kategori, nitelik, şablon, varyant (Odoo entegreli)
-- [bugün] — Görevli & vekalet atama sistemi kuruldu
-- [bugün] — SGK & İK belge upload sistemi kuruldu
-- [bugün] — User↔Personel↔Odoo hr.employee üçlü bağlantı kuruldu
-- [bugün] — Personel aylık hedef altyapısı: aylikHedef alanı, IK formu, dashboard hedef çubuğu
-- [bugün] — Dashboard prim placeholder → gerçek veri, yetki düzeltmesi
-- [bugün] — Prim hesaplama Odoo→Prisma geçişi, Branch eşleştirme düzeltildi
-- [bugün] — Bölge müdürü ekranı: 6 sekme, patron API REGIONAL_MANAGER yetkisi, subeBreakdown UUID düzeltmesi
-- e4c8ac0 — Patron Paneli grafikleri react-chartjs-2 ile düzeltildi
-- 4df65b7 — Dashboard refactor: rol bazlı ekranlar, salesDetail, deliveryDate migration, kasa yetkilendirme
-- d0464a8 — SaleItem.deliveryDate: PATCH status endpoint'ine persist eklendi
-- aa351bd — Görevler sekmesi gerçek API: delivery, warranty, open-account
-- d174a8c — Garanti yönetim: şube adı, iade akışı, PDF formları
-- c2c1404 — Garanti & İade sistemi: DB modeli, API, POS akışı, depo ekranı
-- acea288 — Satış akışı: ödeme state korunuyor, durum ekranı
-- eb12b1b — Satış akışı geri dön fix: müşteri korunuyor, VOID filtresi
-- 91f65c4 — Fiyatlandırma: SGK state, Vakıf ekle, kampanya sadeleşti
-- 68d0031 — Kasa indirimi satır dağıtımı
-- 9ef7d6c — Patron Paneli: Rapor Dashboard + Şirket Dashboard
+Son güncelleme: 13.07.2026
 
 ## Kural: Önce tasarım, sonra kod
 Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra kodlanır.
 
-## Kısa vadeli — tamamlananlar
-- [x] Satış akışında geri dön sorunu — TAMAMLANDI
-- [x] Fiyatlandırma düzeltmeleri — TAMAMLANDI
-- [x] Garanti & İade sistemi — TAMAMLANDI (temel)
-- [x] Görevler sekmesi gerçek veriye bağlandı — TAMAMLANDI
-- [x] Teslim tarihi şemaya eklendi ve akışa bağlandı (deliveryDate)
-- [x] Dashboard rol bazlı tamamlandı (SALES_STAFF / STORE_MANAGER)
-- [x] GET /reports/personal endpoint eklendi
-- [x] CashMovement POST yetkisi düzeltildi
-- [x] Günlük kasa tablosu tüm kolonlarla çalışıyor
-- [x] Patron Paneli grafikleri (Chart.js npm kuruldu, 4 grafik çalışıyor)
-- [x] Bölge müdürü ekranı (REGIONAL_MANAGER — placeholder'dan çıktı)
-- [x] subeBreakdown UUID bug düzeltildi
-- [x] Excel dışa aktar REGIONAL_MANAGER yetkisi
-- [x] Prim hesaplama Prisma'ya geçirildi (Odoo bağımlılığı kaldırıldı)
-- [x] Branch kod↔UUID eşleştirme düzeltildi
-- [x] Dashboard prim verisi gerçek API'ye bağlandı
-- [x] Debug console.log temizlendi
-- [x] Personel aylık hedef (Personel tablosundan — aylikHedef)
-- [x] Personel↔User eşleştirmesi (FK ile — ad/soyad string match kaldırıldı)
-- [x] odooEmployeeId User ve Personel tablolarına eklendi
-- [x] TanimlamalarPage Odoo çalışan bağlama UI
-- [x] SGK belgeleri upload (IK modülü — PersonelBelge, base64, onay akışı)
-- [x] Görevli/vekalet atama (günlük görevli + kalıcı yedek sorumlu)
-- [x] Ürün yapılandırma ekranı (4 adımlı, Odoo sync)
-- [x] PDKS bağlantısı kuruldu (Patron API v4 — personel, konum endpoint'leri)
-- [x] Personel PDKS/Odoo/POS bağlantı yönetimi
-- [x] Personel bağlantı özet kartları
-- [x] Branch tablosuna şirket/VKN bilgileri eklendi
-- [x] GVN1-GVN10 şubeleri seed ile eklendi
-- [x] Tanımlamalar şube CRUD ekranı (Odoo/PDKS/Uyumsoft bağlantı)
-- [x] Personelleri şubelere ata
-- [x] Odoo departman yapısından otomatik şube eşleştirme
-- [x] Varyant import: Excel yapıştır, önizle, duplicate koruması
-- [x] Mevcut varyantlar Odoo'dan çekiliyor (model/renk/ölçü PTAV parse)
-- [x] Uyumsoft SendInvoice — e-fatura gönderme
-- [x] Satış onayında otomatik fatura tetikleme
-- [x] Kontakt lens stok önerisi
-- [x] Uyumsoft multi-şirket credential ALTYAPISI kuruldu (SirketAyar tablosu üzerinden şirket bazlı kullanıcı/şifre/gönderen birim + unvan/adres yönetimi, admin panelinden düzenlenebilir). AÇIK KALAN: ADESE ve POTENTIAL için GERÇEK Uyumsoft hesap bilgileri henüz girilmedi (admin panelinden Tanımlamalar → Şirket Tanımları → Uyumsoft kartından girilecek).
-- [x] PDF çıktısı jsPDF ile — TAMAMLANDI (Satış Belgesi + Resmi Fatura Uyumsoft'tan canlı çekilen PDF mevcut)
+---
 
-## Kısa vadeli — açık
+## Bu oturumda / son günlerde tamamlanan büyük işler (07–13.07.2026)
+
+### Transfer & muhasebe güvenliği
+- [x] **Şirketler arası transfer güvenliği** — `executeSirketlerArasiTransfer()`: satış/alım faturası, kaynak çıkış + hedef giriş picking, adım adım log, hata durumunda rollback
+- [x] **e-İrsaliye Uyumsoft entegrasyonu** — `trySendEirsaliyeForTransfer()` + `sendDespatch()` teknik olarak hazır (`E_IRSALIYE_TRANSFER_ENABLED=true` ile); NG hesabında Uyumsoft yetkisi eksik → gönderim başarısız (destek: EFT-IST-SRVS12)
+- [x] **ADESE/POTENTIAL kendi depo erişim hatası** — süregelen bug düzeltildi (şirket bazlı Odoo credential/context)
+- [x] **Sayım ekranı gerçek Odoo yazımı** — `stock-adjustment` (`applyStockAdjustment`, inventory_mode) ile quant gerçekten yazılıyor
+- [x] **Özel Sipariş şirketler arası düzeltmesi** — özel sipariş stok girişi `executeSirketlerArasiTransfer` kullanıyor
+- [x] **Garanti/İade transferi** — gerçek Odoo `transfer-olustur` bağlantısı
+
+### Satış & mali güvenlik
+- [x] **confirmSale race koşulu koruması** — kritik mali güvenlik (çift onay / yarış durumu koruması)
+- [x] **Taslak satış veri kaybı düzeltmesi** — `draftMeta` ile ödeme/adım state korunuyor
+- [x] **Açık Hesap toplu ödeme + FIFO dağıtımı** — birden fazla satışa kısmi ödeme dağıtımı
+
+### Fiyat & stok
+- [x] **Fiyatı Değişen Ürünler** — 5 faz (bildirim, hatırlatma cron, etiket basımı, admin paneli, okundu/etiket takibi)
+
+### Laboratuvar
+- [x] **Laboratuvar İş Süreci sistemi** — 5 faz: rol/atama, atölye ekranı, kırılma bildirimi (`LabIncident`), rapor entegrasyonu, test scriptleri
+
+### Ürün yapılandırma & varyant
+- [x] **Not #29 — Kontrolsüz varyant patlaması** — yeni nitelikler `create_variant: dynamic`; FAZ 2: 1.383 gereksiz varyant silindi (MUSTANG 1350→3); FAZ 3: import sonrası otomatik temizlik (`varyant-import-temizlik.service.ts`)
+
+### Excel Toplu Envanter (Not #42)
+- [x] **FAZ A** — şablon indir + önizleme (`envanter-import.service.ts`, read-only Odoo)
+- [x] **FAZ B** — gerçek yazma: şablon + varyant + lot + `stock-adjustment` (`envanter-import-uygula.service.ts`, satır bazlı rollback)
+- [x] **FAZ C** — Depo → **📊 Excel Envanter** sekmesi (önizleme tablosu, lokasyon seçici, onay, sonuç raporu)
+- [x] **Not #45–47** — Marka sütunu kaldırıldı; Barkod/UTS Metin formatı (`@`); aynı barkod + farklı UTS geçerli; lot adı UTS ile ayrıştırılıyor
+
+### Lot Transfer teşhisi (13.07.2026 — salt okuma)
+- Depo → Transferler → **Lot Transfer** → `POST /admin/transfer-olustur` → `olusturTransfer()`
+- Farklı şirket (NG→ADESE): **`executeSirketlerArasiTransfer()` ÇAĞRILIYOR** — güvenli yol
+- Gerçek transfer doğrulandı: `TRANSFER-1783969474452` → NG `INV/2026/00017` + ADESE `BILL/2026/07/0015` (Odoo posted), picking NG/OUT/00007 + ADESE/IN/00024
+
+---
+
+## KRİTİK — Bugün bulunan, henüz düzeltilmemiş sorunlar
+
+### Not #48 — Stok Kontrol transferinde lot/UTS seçimi yok
+Stok Kontrol'den transfer başlatılınca hangi UTS/lot'un gideceği sorulmuyor → Odoo *"Lot/Seri numarası sağlamanız gerekir"* hatası.
+**Çözüm yönü:** Çalışan **Depo Yönetimi → Transferler → Lot Transfer** ekranındaki arama + lot seçim mekanizmasını referans al / Stok Kontrol'e bağla.
+
+### Not #49 — Transfer akışında UTS bildirimi yok
+Aynı şirket içi VE şirketler arası transferlerde TITCK UTS'ye alma/verme bildirimi **hiç gönderilmiyor**.
+Lot Transfer → `transfer-olustur` → UTS API çağrısı yok. Şube transfer kabulünde yalnızca Odoo `x_uts_durumu: MAGAZADA` yazılıyor (harici UTS değil).
+**Risk:** UTS'deki kayıtlı konum ≠ gerçek fiziksel konum.
+
+### Not #50 — EN KRİTİK: Şirketler arası transfer e-Fatura Uyumsoft'a gitmiyor
+`executeSirketlerArasiTransfer()` Odoo'da NG satış + ADESE alım faturası oluşturup `posted` yapıyor; ancak:
+- `eFaturaGonder()` / `kuyrugaAl()` / `FaturaKuyruk` **hiç tetiklenmiyor**
+- `Fatura` tablosunda `transferId` dolu kayıt: **0**
+- `INV/2026/00017` için Uyumsoft/GİB karşılığı **yok** — yalnızca Odoo iç muhasebe kaydı
+
+**Sonuç:** Resmi e-Fatura oluşmuyor; yasal/muhasebe açısından eksik belge riski.
+
+### Açık soru (teyit edilmedi)
+- **Aynı şirket içi transfer (NG→NG):** e-İrsaliye kesiliyor mu? **Kontrol edilmedi.**
+- **Şirketler arası:** e-İrsaliye deneniyor (`trySendEirsaliyeForTransfer`) ama NG Uyumsoft yetkisi olmadığı için başarısız olabilir (önceki oturum bulgusu, hâlâ çözülmemiş olabilir).
+
+---
+
+## Sistemin genel prensibi — Transfer anında olması gereken 4 şey
+
+Herhangi bir transfer (aynı şirket içi **veya** şirketler arası) olduğunda aşağıdakilerin **hepsi** tetiklenmeli. Şu an **hiçbiri merkezi bir yerden yönetilmiyor**; her biri ayrı köşede kurulmuş:
+
+| # | Adım | Durum |
+|---|------|--------|
+| 1 | Lot/UTS/envanter kaydının taşınması (Odoo stok hareketi) | **ÇALIŞIYOR** |
+| 2 | e-İrsaliye kesilmesi (Uyumsoft) | **KISMEN** — sadece şirketler arası yolda deneniyor; yetki/teyit eksik |
+| 3 | e-Fatura kesilmesi (yalnızca şirketler arası, maliyet+%5) | Odoo'da **OLUŞUYOR**, Uyumsoft/GİB'e **GİTMİYOR** (Not #50) |
+| 4 | UTS'ye bildirim (alma/verme) | **HİÇ YOK** (Not #49) |
+
+**Öneri (sonraki oturum):** Bu 4 parçayı tek bir merkezi **"transfer sonrası aksiyonlar"** fonksiyonunda birleştir — POS transfer, Lot Transfer, şirketler arası yol ayrı ayrı çağırmak yerine tek ortak noktadan tetiklensin.
+
+**→ Tasarım onaylandı:** `TRANSFER_BIRLESIK_MOTOR_TALIMATI.md` (13.07.2026, 7 faz). Uygulama devam ediyor.
+
+### Transfer motor birleştirme — uygulama durumu
+
+| Faz | Konu | Durum |
+|-----|------|--------|
+| 1 | Veri modeli: `utsKodu`/`utsFirmaKodu` kalemlerde, `getUtsKurumNo`, `TransferAksiyonLog` | **TAMAM** |
+| 2 | `transfer-post-actions.service.ts` merkezi 4-aksiyon | **TAMAM** (henüz giriş noktalarına bağlanmadı) |
+| 3 | İki adımlı çekirdek (baslat/kabul) | **TAMAM** |
+| 4 | Garanti/İade + Özel Sipariş → `olusturTransfer({ hemenKabul: true })` | **TAMAM** |
+| 5 | e-Fatura gerçek kalem + Uyumsoft (Not #50) | **TAMAM** |
+| 6 | UTS otomatik VERME/ALMA (Not #49) + UtsDisFirma seed | **TAMAM** |
+| 7 | Test senaryoları | Bekliyor |
+
+**Faz 1 dosyalar:** `uts-kurum.service.ts`, `transfer-kalem.util.ts`, `transfer-aksiyon-log.service.ts`, Prisma `TransferAksiyonLog`.
+
+**Faz 2 dosyalar:** `transfer-post-actions.service.ts`, `transfer-bildirim.util.ts`, test: `scripts/test-transfer-post-actions-faz2.ts`.
+
+**Faz 3 dosyalar:** `transfer-core.service.ts` (`baslatTransfer` / `kabulEtTransfer`), `baslatSirketlerArasiTransfer` + `kabulSirketlerArasiTransfer`, `POST /admin/transfer-kabul`, POS `/transfer/olustur`+`/transfer/kabul` çekirdeğe bağlandı.
+
+**Faz 4:** `warranty.service.ts` (`startClaimTransfer`) ve `ozel-siparis.service.ts` (`runOzelSiparisStokTransfer`) artık `olusturTransfer({ hemenKabul: true })` kullanıyor — `executeSirketlerArasiTransfer` doğrudan çağrılmıyor. `executeSirketlerArasiTransfer` yalnızca legacy wrapper olarak dosyada duruyor.
+
+**Faz 5:** `tetikleTransferEFatura(transferRef, kaynakSube, hedefVkn, hedefAd, kalemler)` — gerçek ürün adı/miktar/maliyet×1.05; Uyumsoft resmi `faturaNo` + `Fatura.transferId=transferRef`; başarısızda `FaturaKuyruk`. `runEFatura` post-actions'a bağlandı. Test: `scripts/test-transfer-efatura-faz5.ts`.
+
+**Faz 6:** `uts.service.ts` — `gondermeBildiriminiYap`, `bildirimOlusturVeGonder`, `transferUtsBildirimGonder`, `ensureUtsDisFirmaSirketlerSeed`. Admin UTS rotaları servise taşındı; `runUtsBildirimi` VERME (başlat) / ALMA (kabul) otomatik. DB'de 3 `UtsDisFirma` seed (NG/ADESE/POTENTIAL). Test: `scripts/test-transfer-uts-faz6.ts`.
+
+### Bölüm 6 kararları (13.07.2026 — çözüldü)
+
+- **Garanti/İade + Özel Sipariş:** `baslatTransfer` + `kabulEtTransfer` arka arkaya otomatik; kullanıcıya ekstra kabul ekranı yok; UTS VERME/ALMA iki ayrı adım olarak kalır.
+- **Mağaza duyurusu:** Gerek yok.
+- **UtsDisFirma:** Seed yok; Faz 6 öncesi DB sorgulanacak, boşsa NG/ADESE/POTENTIAL VKN'leriyle otomatik seed.
+
+---
+
+## Açık notlar (henüz düzeltilmedi)
+
+| Not | Konu |
+|-----|------|
+| **#48** | Stok Kontrol transfer — lot/UTS seçimi |
+| **#49** | Transfer UTS bildirimi |
+| **#50** | Şirketler arası e-Fatura → Uyumsoft/FaturaKuyruk |
+| **#44** | Eski Odoo'dan veri aktarımı (URL/kullanıcı bekleniyor) |
+
+Not #28–47 arası büyük kısmı tamamlandı (varyant patlaması #29, Excel envanter #42/#45–47, sayım, özel sipariş, fiyat değişikliği, laboratuvar vb.). Yukarıdaki dört not **açık**.
+
+---
+
+## Dış bağımlılıklar (bizim elimizde değil, cevap bekleniyor)
+
+- **PROMAX** etiket test basımı (mağazada)
+- **POTENTIAL** Uyumsoft kimlik bilgisi (kullanıcıdan)
+- **UTS Envanteri Excel'i** (kullanıcıdan)
+- **e-İrsaliye Uyumsoft yetkisi** — NG hesabı (destek: EFT-IST-SRVS12)
+- **Patron PDKS 403** — GVN6/7/8 (destek: EFT-IST-SRVS12, ayrı konu)
+- **Not #44** — Eski Odoo veri aktarımı (URL/kullanıcı adı bekleniyor)
+- **ADESE Uyumsoft** credential (admin panelinden girilecek — altyapı hazır)
+
+---
+
+## Kısa vadeli — açık (önceki + güncel)
+
+- [x] **Not #50** — `runTransferPostActions` → `tetikleTransferEFatura` gerçek kalem + `Fatura.transferId`
+- [x] **Not #49** — Transfer UTS VERME/ALMA otomasyonu (`uts.service.ts`)
+- [ ] **Not #48** — Stok Kontrol → lot seçimli transfer (Lot Transfer referans)
+- [ ] Merkezi "transfer sonrası aksiyonlar" birleştirme (4'lü paket)
 - [ ] Uyumsoft e-arşiv gönderme
-- [ ] Her şube için Odoo lokasyon ID bağlantısı (Tanımlamalar'dan)
-- [ ] Her şube için PDKS place ID bağlantısı (Tanımlamalar'dan)
-- [ ] GVN6, GVN7, GVN8, GVN10 için PDKS konum eklenmesi lazım
-  (Patron PDKS panel → Konumlar → + Yeni Ekle)
-  Bu şubeler için şu an PDKS giriş/çıkış takibi yapılamıyor
-- [ ] Bölge müdürü kasa tablosu (şu an placeholder)
-- [ ] Mevcut personelleri Odoo ile eşleştir (link-employee endpoint ile)
-- [ ] report.service.ts buildPersonelHedefMap — string match yerine userId FK kullanacak şekilde güncelle (sonraki sprint)
-- [ ] Personel.subeId → Branch.code standartlaştırma
-- [ ] Personel kaydı oluşturulunca WhatsApp belge talep akışı
-- [ ] Eğitim modülü (personel profilim sekmesi)
-- [ ] Personel↔PDKS id eşleştirmesi (pdksId alanı ile)
-- [ ] PDKS giriş/çıkış → dashboard görevli otomatik atama
-- [ ] Puantaj raporu IK modülüne entegrasyon
+- [ ] Her şube için Odoo lokasyon ID / PDKS place ID (Tanımlamalar)
+- [ ] GVN6, GVN7, GVN8, GVN10 PDKS konum
+- [ ] Bölge müdürü kasa tablosu (placeholder)
+- [ ] Mevcut personelleri Odoo ile eşleştir
+- [ ] Personel kaydı → WhatsApp belge talep akışı
 - [ ] Ürün yapılandırma — Barkod yazdırma
-- [ ] Depo ürün girişi akışı (stok miktarı tanımlama)
 - [ ] Açık hesap vade tarihi
-- [ ] PersonelDashboard: laboratuvara gönderilmedi gerçek veri (warranty userId filtresi eklenince)
 - [ ] Karlılık analizi + drill-down
-- [ ] "Patron Görünümü · Yakında" etiketi kaldır, isim güncelle
 - [ ] Ürün maliyet girişi ekranı
 
-## Garanti & İade — sonraki adımlar
-- [x] Garanti & İade admin ekranı — TAMAMLANDI (rol bazlı onay akışı, transfer, depo yöneticisi onayı, ödeme iadesi/stoka alma dahil tüm akış kuruldu)
-- [ ] Şube adları satış sırasında branchId yerine name olarak kaydedilmeli
-- [ ] Tedarikçi bilgisi lot/seri'den otomatik çekilmeli (Odoo entegrasyonu)
-- [ ] Ürün girişi → garanti no otomatik not düşülmeli
-- [ ] Odoo iade faturası otomasyonu (büyük iş)
-
-## Orta vadeli
-- [ ] SGK ekranı
-- [ ] Ürün etiket tasarımları ve basımları
-- [ ] Ürün kartlarına barkod/UTS/lot tanımlama akışı
-- [ ] Doğum tarihi Odoo formunda görünmüyor (view inheritance sorunu)
-- [ ] Açık hesap / kısmi ödeme eşleştirme mantığı — müşteri birden fazla satış + kısmi ödeme yaptığında, sonraki büyük ödemenin hangi satış(lar)a düştüğü netleşmeli (aciliyeti yok)
-- [ ] Onaylı (PAID) satışta kalem/fiyat/müşteri düzenleme — muhasebe etkisi olan hassas bir konu, henüz tasarlanmadı
-- [ ] Komisyon Oranları'na gerçek bankalar (Akbank, Garanti vb.) eklenmesi gerekiyor (admin panelinden, kullanıcı tarafından)
-
-## Büyük maddeler
-- [ ] Ingenico Worldline POS entegrasyonu
-- [ ] Uyumsoft entegrasyonu
-- [ ] Finans yönetimi & muhasebe modülleri (gider girişi)
-- [ ] Bilanço/KDV/komisyon → finans modülü tamamlanınca gerçek veriye bağlanacak
-
-## Bu oturumda tamamlanan büyük işler (07.07.2026)
-- SGK/Vakıf artık gerçek Payment kaydı oluşturuyor, Odoo'ya doğru journal'dan (SGK:20, Vakıf:21) account.payment olarak gidiyor
-- Odoo fatura arama hatası düzeltildi (confirmSale VE açık hesap kapatma — ikisinde de aynı bug vardı, ikisi de düzeltildi)
-- e-Fatura kuyruk → Sale senkron hatası düzeltildi (fatura numarası çakışması nedeniyle sessizce başarısız oluyordu)
-- Resmi Fatura PDF'i Uyumsoft'tan canlı çekilebiliyor (StatusStep + SaleDetailPage → Belgeler sekmesi)
-- Lens ölçüm bilgisi artık kalıcı kaydediliyor (SaleItem.lensOrderMeasurement JSON alanı)
-- Ölçüm ekranı gruplama — sağ+sol cam eşleştirilip tek "gözlük" formu olarak gösterilebiliyor (SaleItem.pairedItemId)
-- Bakım kategorisi eklendi (hizmet ürünleri — KAYNAK, TAMİR vb.), stok kontrolünden muaf
-- Stok Kontrol sekmesi (filtre + çoklu seçim + transfer talebi)
-- Güneş Gözlüğü / Kontakt Lens Odoo kategori ID karışıklığı düzeltildi
-- İptal (VOID) işlemi Odoo'yu güvenli şekilde temizliyor — faturasızsa gerçek iptal, faturalıysa Admin/Muhasebe bildirimi
-- Satışta "Fatura Kesme" seçeneği (Yeni Nesil ÖKÇ için, varsayılan açık)
-- Komisyon Oranları'na "Banka Ekle" formu
-- Güvenlik: kod içindeki yedek şifreler (Uyumsoft/Odoo/PDKS) temizlendi, sadece .env kullanılıyor
+---
 
 ## Teknik notlar
-- Backend: localhost:3000 (NestJS/Express, Prisma, PostgreSQL optikpos port 5432)
+
+- Backend: localhost:3000 (Express, Prisma, PostgreSQL optikpos port 5432)
 - Frontend: localhost:5173 (React/Vite)
-- Odoo: localhost:8069 (Docker odoo-odoo-1, DB: guvenoptik, port 5433, admin/admin123)
-- Patron Paneli: /admin/patron (ADMIN rolü gerekli)
-- Chart.js: chart.js + react-chartjs-2 kurulu (PatronPage.tsx)
+- Odoo: localhost:8069 (Docker, DB: guvenoptik)
+- Patron Paneli: /admin/patron (ADMIN rolü)
+- **Excel Envanter:** `/admin/depo` → 📊 Excel Envanter; API: `/api/admin/envanter-import/*`
+- **Lot Transfer:** `POST /admin/transfer-olustur` → `transfer-olustur.service.ts`
+- **Şirketler arası:** `sirketler-arasi-transfer.service.ts` (fatura+picking; e-Fatura eksik)
+- **e-Fatura kuyruk:** `efatura.cron.ts` (15 dk) — yalnızca `FaturaKuyruk` BEKLIYOR kayıtları; POS satış + şube transfer kabul tetikler
 
-## Kritik Notlar (03.07.2026)
+---
 
-### DB Durumu
-- Migration reset yapıldı — Campaign, CampaignBranchOverride, CampaignLog, SirketAyar tabloları direkt SQL ile oluşturuldu (migration history dışında)
-- WarrantyClaim tablosuna 6 alan eklendi: returnBranchId, supplierId, returnDeadline, cargoTrackingNo, adminApprovedAt, adminApprovedBy
-- Şubeler yeniden oluşturuldu: ANADEPO, GVN1-3, GVN5-10
-- PDKS mekan ID'leri: GVN1=5732, GVN2=5727, GVN3=5733, GVN5=5735, GVN6=5781, GVN7=5779, GVN8=8026, GVN9=5734, ANADEPO=8027, GVN10=eksik
+## Önceki oturum özeti (07.07.2026 — korundu)
 
-### Bekleyen İşler (Öncelik Sırası)
-1. Kullanıcı ve personel kurulumu — tüm şubeler için user oluşturma
-2. İYS entegrasyonu — credentials gelince aktif edilecek (iys.org.tr API)
-3. ADESE/POTENTIAL Uyumsoft — credentials bekleniyor
-4. GVN6/7/8 Patron PDKS — 403 hatası, destek bekleniyor
-5. GVN10 PDKS mekan ID — eksik
-6. Worldline POS terminal — haber bekleniyor
-7. WhatsApp Business API — henüz entegre değil
-8. Tedarikçi ürün adı kaydı (satış kaleminde)
+- SGK/Vakıf gerçek Payment + Odoo journal
+- Odoo fatura arama hatası (confirmSale + açık hesap) düzeltildi
+- e-Fatura kuyruk → Sale senkron hatası düzeltildi
+- Resmi Fatura PDF Uyumsoft'tan canlı
+- Lens ölçüm kalıcı (`lensOrderMeasurement`, `pairedItemId`)
+- Stok Kontrol sekmesi, Bakım kategorisi, VOID Odoo güvenliği
+- Güvenlik: hardcoded şifreler temizlendi
 
-### Önemli Teknik Notlar
-- PatronPage artık adminApi kullanıyor (apiClient değil) — login sorunu çözüldü
-- Ürün araması tüm şirketlerde yapılıyor (NG company 2, ADESE 3, POTENTIAL 4)
-- Müşteri araması POS DB + Odoo birleşik — Odoo'da olup POS'ta olmayan müşteriler de geliyor
-- DRAFT satışa devam: /sales/new?saleId=... URL parametresi ile
-- Stok cam öneri: SPH+CYL parse (-2750=−27.50) + transpoze formülü (SPH+CYL, -CYL, AKS±90)
-- SatislarPage varsayılan filtre: PAID (tamamlanmış satışlar)
+## Kritik Notlar — DB / PDKS (03–07.2026 — korundu)
+
+- PDKS mekan ID: GVN1=5732, GVN2=5727, GVN3=5733, GVN5=5735, GVN6=5781, GVN7=5779, GVN8=8026, GVN9=5734, ANADEPO=8027, GVN10=eksik
+- PatronPage → adminApi (login fix)
+- Ürün araması tüm şirketlerde (NG/ADESE/POTENTIAL)
+- DRAFT devam: `/sales/new?saleId=...`

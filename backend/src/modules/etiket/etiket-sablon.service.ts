@@ -14,22 +14,53 @@ export async function getSablon(id: string) {
   return prisma.etiketSablonu.findUnique({ where: { id } });
 }
 
+export async function getSablonBySlug(slug: string) {
+  return prisma.etiketSablonu.findUnique({ where: { slug } });
+}
+
 export async function createSablon(data: {
   ad: string;
   kategori: string;
   elemanlar: unknown;
   etiketGenislik: number;
   etiketYukseklik: number;
+  slug?: string;
 }) {
   return prisma.etiketSablonu.create({
     data: {
       ad: data.ad,
+      slug: data.slug,
       kategori: data.kategori,
       elemanlar: data.elemanlar as Prisma.InputJsonValue,
       etiketGenislik: data.etiketGenislik,
       etiketYukseklik: data.etiketYukseklik,
     },
   });
+}
+
+export async function upsertSablonBySlug(data: {
+  ad: string;
+  slug: string;
+  kategori: string;
+  elemanlar: unknown;
+  etiketGenislik: number;
+  etiketYukseklik: number;
+}) {
+  const existing = await prisma.etiketSablonu.findUnique({ where: { slug: data.slug } });
+  if (existing) {
+    return prisma.etiketSablonu.update({
+      where: { slug: data.slug },
+      data: {
+        ad: data.ad,
+        kategori: data.kategori,
+        elemanlar: data.elemanlar as Prisma.InputJsonValue,
+        etiketGenislik: data.etiketGenislik,
+        etiketYukseklik: data.etiketYukseklik,
+        aktif: true,
+      },
+    });
+  }
+  return createSablon(data);
 }
 
 export async function updateSablon(

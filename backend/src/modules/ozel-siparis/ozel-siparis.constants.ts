@@ -34,3 +34,12 @@ export function normalizeOzelSiparisDurum(durum: string): string {
 export function ozelSiparisDurumLabel(durum: string): string {
   return OZEL_SIPARIS_DURUM_LABEL[durum] ?? OZEL_SIPARIS_DURUM_LABEL[normalizeOzelSiparisDurum(durum)] ?? durum
 }
+
+/** İptal/teslim sonrası yeni sipariş verilebilir */
+export const OZEL_SIPARIS_KAPALI_DURUMLAR = ['IPTAL', 'TESLIM_EDILDI', 'MUSTERIYE_TESLIM'] as const
+
+export function isOzelSiparisAktif(durum: string): boolean {
+  const norm = normalizeOzelSiparisDurum(durum)
+  return !(OZEL_SIPARIS_KAPALI_DURUMLAR as readonly string[]).includes(norm)
+    && !(OZEL_SIPARIS_KAPALI_DURUMLAR as readonly string[]).includes(durum)
+}

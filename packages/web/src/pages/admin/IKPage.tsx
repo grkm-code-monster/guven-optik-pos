@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { adminApi } from './AdminLayout'
+import { EK_YETKI_LABELS, EK_YETKI_SECILEBILIR } from '../../constants/ekYetki'
 
 const inp: React.CSSProperties = { padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, outline: 'none', backgroundColor: 'white', width: '100%', boxSizing: 'border-box' }
 const btn: React.CSSProperties = { padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700 }
@@ -82,7 +83,8 @@ type Personel = {
   email: string | null; pozisyon: string; subeAdi: string | null; subeId?: string | null
   sirketAdi: string | null; maas: number; aktif: boolean
   pdksId: string | null; odooEmployeeId?: number | null; userId?: string | null
-  user?: { id: string; username: string; role: string } | null
+  ekYetkiler?: string[]
+  user?: { id: string; username: string; role: string; canWorkAtolye?: boolean } | null
 }
 
 type BaglantiOzet = {
@@ -91,7 +93,7 @@ type BaglantiOzet = {
 }
 
 type OdooEmployee = { id: number; name: string }
-type PdksPersonel = { id: number; name: string }
+type PdksPersonel = { id: number; name: string; status?: number }
 type PosKullanici = {
   id: string; name: string; username: string; role: string
   personel: { id: string; ad: string; soyad: string } | null
@@ -165,7 +167,8 @@ export default function IKPage() {
   const [posDegistir, setPosDegistir] = useState<string | null>(null)
   const [pdksPersoneller, setPdksPersoneller] = useState<PdksPersonel[]>([])
   const [pdksForm, setPdksForm] = useState<Record<string, { pdksId: string; adSoyad: string }>>({})
-  const [posForm, setPosForm] = useState<Record<string, { username: string; pin: string; role: string }>>({})
+  const [posForm, setPosForm] = useState<Record<string, { username: string; pin: string; role: string; canWorkAtolye: boolean; ekYetkiler: string[] }>>({})
+  const [ekYetkiForm, setEkYetkiForm] = useState<Record<string, string[]>>({})
   const [personelBelgeler, setPersonelBelgeler] = useState<Record<string, string[]>>({})
 
   useEffect(() => { void yuklePersonelSekmesi() }, [])
@@ -244,6 +247,12 @@ export default function IKPage() {
     return pdksPersoneller.find((x) => String(x.id) === pdksId)?.name ?? ''
   }
 
+  function pdksPatronHalaAktif(p: Personel): boolean {
+    if (p.aktif !== false || !p.pdksId) return false
+    const pdks = pdksPersoneller.find((x) => String(x.id) === p.pdksId)
+    return pdks?.status === 1
+  }
+
   function pdksFormAc(p: Personel) {
     const acik = pdksDegistir === p.id
     if (acik) {
@@ -288,6 +297,42 @@ export default function IKPage() {
     } finally { setBaglamaYukleniyor(false) }
   }
 
+  function ekYetkiFormAc(p: Personel) {
+    setEkYetkiForm((m) => ({
+      ...m,
+      [p.id]: [...(p.ekYetkiler ?? [])],
+    }))
+  }
+
+  function ekYetkiToggle(personelId: string, key: string, checked: boolean) {
+    setEkYetkiForm((m) => {
+      const cur = m[personelId] ?? []
+      const next = checked ? [...cur, key] : cur.filter((k) => k !== key)
+      return { ...m, [personelId]: next }
+    })
+    setPosForm((m) => {
+      const cur = m[personelId]
+      if (!cur) return m
+      const ek = cur.ekYetkiler ?? []
+      const nextEk = checked ? [...ek, key] : ek.filter((k) => k !== key)
+      return { ...m, [personelId]: { ...cur, ekYetkiler: nextEk } }
+    })
+  }
+
+  async function ekYetkiKaydet(personelId: string) {
+    setBaglamaYukleniyor(true)
+    try {
+      const ekYetkiler = ekYetkiForm[personelId] ?? []
+      await adminApi.put(`/admin/personel-guncelle/${personelId}`, { ekYetkiler })
+      await yuklePersonelSekmesi()
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } } }
+      alert(err?.response?.data?.error ?? 'Ek yetki kaydedilemedi')
+    } finally {
+      setBaglamaYukleniyor(false)
+    }
+  }
+
   function posFormAc(p: Personel) {
     const acik = posDegistir === p.id
     if (acik) {
@@ -300,8 +345,11 @@ export default function IKPage() {
         username: p.user?.username ?? '',
         pin: '',
         role: p.user?.role ?? 'SALES_STAFF',
+        canWorkAtolye: p.user?.canWorkAtolye ?? false,
+        ekYetkiler: [...(p.ekYetkiler ?? [])],
       },
     }))
+    ekYetkiFormAc(p)
     setPosDegistir(p.id)
   }
 
@@ -313,9 +361,17 @@ export default function IKPage() {
     }
     setBaglamaYukleniyor(true)
     try {
-      const body: { username: string; role: string; pin?: string } = {
+      const body: {
+        username: string
+        role: string
+        pin?: string
+        canWorkAtolye: boolean
+        ekYetkiler: string[]
+      } = {
         username: form.username.trim(),
         role: form.role,
+        canWorkAtolye: form.canWorkAtolye,
+        ekYetkiler: form.ekYetkiler ?? ekYetkiForm[personelId] ?? [],
       }
       if (form.pin.trim()) body.pin = form.pin.trim()
       await adminApi.put(`/admin/personel-pos-guncelle/${personelId}`, body)
@@ -489,22 +545,45 @@ export default function IKPage() {
   }
 
   async function istenCikar(personelId: string, ad: string) {
-    if (!window.confirm(`${ad} işten çıkarılacak. Onaylıyor musunuz?\n\nPOS girişi, Odoo kaydı pasif edilecek.\nPDKS'ten manuel olarak çıkarın.`)) return
+    if (!window.confirm(
+      `${ad} işten çıkarılacak. Onaylıyor musunuz?\n\n`
+      + '• Personel kaydı pasif edilir\n'
+      + '• POS girişi kapatılır\n'
+      + '• Odoo çalışanı arşivlenir\n'
+      + '• PDKS kullanıcısı pasif edilir',
+    )) return
     setIslemYukleniyor(personelId)
     try {
-      await adminApi.post(`/admin/personel-isten-cikar/${personelId}`, {
+      const res = await adminApi.post(`/admin/personel-isten-cikar/${personelId}`, {
         sebep: 'İşten çıkarıldı',
       })
+      const d = res.data ?? {}
+      if (d.pdksManuelGerekli) {
+        alert(
+          `${ad} — POS ve Personel pasif edildi.\n\n`
+          + `⚠ PDKS otomatik pasif edilemedi: ${d.pdksHata ?? 'bilinmeyen hata'}\n\n`
+          + 'Patron PDKS panelinden kullanıcıyı manuel pasif hale getirin.',
+        )
+      } else {
+        setMesaj({ tip: 'ok', text: `${ad} işten çıkarıldı (POS, Odoo, PDKS pasif)` })
+      }
       await yuklePersonelSekmesi()
     } catch {
       alert('İşlem başarısız')
     } finally { setIslemYukleniyor(null) }
   }
 
-  async function aktifles(personelId: string) {
+  async function aktifles(personelId: string, ad: string) {
+    if (!window.confirm(`${ad} tekrar aktifleştirilecek. POS, Odoo ve PDKS erişimi açılacak.`)) return
     setIslemYukleniyor(personelId)
     try {
-      await adminApi.post(`/admin/personel-aktifles/${personelId}`)
+      const res = await adminApi.post(`/admin/personel-aktifles/${personelId}`)
+      const d = res.data ?? {}
+      if (d.pdksManuelGerekli) {
+        alert(`Personel aktif edildi.\n\n⚠ PDKS otomatik açılamadı — Patron panelinden manuel aktifleştirin.`)
+      } else {
+        setMesaj({ tip: 'ok', text: `${ad} tekrar aktifleştirildi` })
+      }
       await yuklePersonelSekmesi()
     } catch {
       alert('İşlem başarısız')
@@ -746,6 +825,7 @@ export default function IKPage() {
                   <th style={th}>Durum</th>
                   <th style={th}>Belgeler</th>
                   <th style={th}>Bağla</th>
+                  <th style={th}>İşlem</th>
                   <th style={th}></th>
                 </tr>
               </thead>
@@ -766,7 +846,14 @@ export default function IKPage() {
                         <td style={{ ...td, color: '#374151' }}>{p.subeAdi ?? p.subeId ?? '—'}</td>
                         <td style={td}>
                           {p.pdksId ? (
-                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: '#dcfce7', color: '#166534', fontWeight: 700 }}>✓ {p.pdksId}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: '#dcfce7', color: '#166534', fontWeight: 700 }}>✓ {p.pdksId}</span>
+                              {pdksPatronHalaAktif(p) ? (
+                                <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 20, background: '#fee2e2', color: '#991b1b', fontWeight: 700 }}>
+                                  PDKS&apos;te hâlâ aktif olabilir
+                                </span>
+                              ) : null}
+                            </div>
                           ) : (
                             <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: '#f3f4f6', color: '#9ca3af' }}>—</span>
                           )}
@@ -820,11 +907,39 @@ export default function IKPage() {
                         <td style={td}>
                           <button
                             type="button"
-                            onClick={() => setSecilenBaglanti(panelAcik ? null : p.id)}
+                            onClick={() => {
+                              if (panelAcik) {
+                                setSecilenBaglanti(null)
+                              } else {
+                                setSecilenBaglanti(p.id)
+                                ekYetkiFormAc(p)
+                              }
+                            }}
                             style={{ ...btnSmall, backgroundColor: panelAcik ? '#1a1a2e' : '#f3f4f6', color: panelAcik ? 'white' : '#374151', fontSize: 11 }}
                           >
                             {panelAcik ? 'Kapat' : tam ? 'Düzenle' : 'Bağla'}
                           </button>
+                        </td>
+                        <td style={td}>
+                          {p.aktif !== false ? (
+                            <button
+                              type="button"
+                              disabled={islemYukleniyor === p.id}
+                              onClick={() => void istenCikar(p.id, `${p.ad} ${p.soyad}`)}
+                              style={{ ...btnSmall, fontSize: 11, color: '#991b1b', border: '1px solid #fecaca', backgroundColor: '#fff' }}
+                            >
+                              {islemYukleniyor === p.id ? '...' : 'İşten Çıkar'}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={islemYukleniyor === p.id}
+                              onClick={() => void aktifles(p.id, `${p.ad} ${p.soyad}`)}
+                              style={{ ...btnSmall, fontSize: 11, color: '#166534', border: '1px solid #86efac', backgroundColor: '#fff' }}
+                            >
+                              {islemYukleniyor === p.id ? '...' : 'Tekrar Aktifleştir'}
+                            </button>
+                          )}
                         </td>
                         <td style={td}>
                           <button type="button" onClick={() => personelBelgelerAc(p.id)} style={{ ...btnSmall, backgroundColor: secilenPersonel === p.id ? '#1a1a2e' : '#f3f4f6', color: secilenPersonel === p.id ? 'white' : '#374151' }}>
@@ -835,7 +950,7 @@ export default function IKPage() {
 
                       {panelAcik && (
                         <tr key={`${p.id}-panel`}>
-                          <td colSpan={10} style={{ ...td, backgroundColor: '#fafafa' }}>
+                          <td colSpan={11} style={{ ...td, backgroundColor: '#fafafa' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                               {/* PDKS */}
                               <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
@@ -978,6 +1093,9 @@ export default function IKPage() {
                                     <div style={{ fontWeight: 900 }}>✓ Bağlı</div>
                                     <div style={{ marginTop: 6 }}>Kullanıcı: <strong>{p.user?.username ?? p.userId}</strong></div>
                                     <div style={{ marginTop: 2, color: '#6b7280' }}>Rol: {p.user?.role ?? '—'}</div>
+                                    {p.user?.canWorkAtolye ? (
+                                      <div style={{ marginTop: 2, color: '#1d4ed8', fontSize: 11 }}>🔧 Atölye yetkisi var</div>
+                                    ) : null}
                                   </div>
                                 ) : posDegistir === p.id ? (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -985,7 +1103,7 @@ export default function IKPage() {
                                       <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Kullanıcı Adı</label>
                                       <input
                                         value={posForm[p.id]?.username ?? ''}
-                                        onChange={(e) => setPosForm((m) => ({ ...m, [p.id]: { ...m[p.id], username: e.target.value, pin: m[p.id]?.pin ?? '', role: m[p.id]?.role ?? 'SALES_STAFF' } }))}
+                                        onChange={(e) => setPosForm((m) => ({ ...m, [p.id]: { ...m[p.id], username: e.target.value, pin: m[p.id]?.pin ?? '', role: m[p.id]?.role ?? 'SALES_STAFF', canWorkAtolye: m[p.id]?.canWorkAtolye ?? false, ekYetkiler: m[p.id]?.ekYetkiler ?? ekYetkiForm[p.id] ?? [] } }))}
                                         style={inp}
                                       />
                                     </div>
@@ -994,7 +1112,7 @@ export default function IKPage() {
                                       <input
                                         type="password"
                                         value={posForm[p.id]?.pin ?? ''}
-                                        onChange={(e) => setPosForm((m) => ({ ...m, [p.id]: { ...m[p.id], pin: e.target.value, username: m[p.id]?.username ?? '', role: m[p.id]?.role ?? 'SALES_STAFF' } }))}
+                                        onChange={(e) => setPosForm((m) => ({ ...m, [p.id]: { ...m[p.id], pin: e.target.value, username: m[p.id]?.username ?? '', role: m[p.id]?.role ?? 'SALES_STAFF', canWorkAtolye: m[p.id]?.canWorkAtolye ?? false, ekYetkiler: m[p.id]?.ekYetkiler ?? ekYetkiForm[p.id] ?? [] } }))}
                                         placeholder="Değiştirmek istemiyorsanız boş bırakın"
                                         maxLength={6}
                                         style={inp}
@@ -1004,7 +1122,7 @@ export default function IKPage() {
                                       <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Rol</label>
                                       <select
                                         value={posForm[p.id]?.role ?? 'SALES_STAFF'}
-                                        onChange={(e) => setPosForm((m) => ({ ...m, [p.id]: { ...m[p.id], role: e.target.value, username: m[p.id]?.username ?? '', pin: m[p.id]?.pin ?? '' } }))}
+                                        onChange={(e) => setPosForm((m) => ({ ...m, [p.id]: { ...m[p.id], role: e.target.value, username: m[p.id]?.username ?? '', pin: m[p.id]?.pin ?? '', canWorkAtolye: m[p.id]?.canWorkAtolye ?? false, ekYetkiler: m[p.id]?.ekYetkiler ?? ekYetkiForm[p.id] ?? [] } }))}
                                         style={inp}
                                       >
                                         <option value="SALES_STAFF">Satış Personeli</option>
@@ -1012,6 +1130,41 @@ export default function IKPage() {
                                         <option value="WAREHOUSE_MANAGER">Depo Müdürü</option>
                                         <option value="ADMIN">Admin</option>
                                       </select>
+                                    </div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={posForm[p.id]?.canWorkAtolye ?? false}
+                                        onChange={(e) => setPosForm((m) => ({
+                                          ...m,
+                                          [p.id]: {
+                                            username: m[p.id]?.username ?? '',
+                                            pin: m[p.id]?.pin ?? '',
+                                            role: m[p.id]?.role ?? 'SALES_STAFF',
+                                            canWorkAtolye: e.target.checked,
+                                            ekYetkiler: m[p.id]?.ekYetkiler ?? ekYetkiForm[p.id] ?? [],
+                                          },
+                                        }))}
+                                      />
+                                      🔧 Atölye Yetkisi Var
+                                    </label>
+                                    <p style={{ margin: 0, fontSize: 11, color: '#6b7280' }}>
+                                      Atölye bayrağı veya ek yetki değişince kullanıcının yeniden giriş yapması gerekir.
+                                    </p>
+                                    <div>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Ek Yetkiler (Yönetim Paneli)</div>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}>
+                                        {EK_YETKI_SECILEBILIR.map((key) => (
+                                          <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                                            <input
+                                              type="checkbox"
+                                              checked={(posForm[p.id]?.ekYetkiler ?? ekYetkiForm[p.id] ?? []).includes(key)}
+                                              onChange={(e) => ekYetkiToggle(p.id, key, e.target.checked)}
+                                            />
+                                            {EK_YETKI_LABELS[key]}
+                                          </label>
+                                        ))}
+                                      </div>
                                     </div>
                                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                                       <button type="button" onClick={() => void posGuncelle(p.id)} disabled={baglamaYukleniyor} style={btnPrimary}>
@@ -1108,6 +1261,39 @@ export default function IKPage() {
                                 )}
                               </div>
                             </div>
+
+                            <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginTop: 12 }}>
+                              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>Ek Yetkiler (Yönetim Paneli)</div>
+                              <p style={{ margin: '0 0 10px', fontSize: 11, color: '#6b7280' }}>
+                                Yeni yetki bir sonraki girişte aktif olur. POS bağlıysa kullanıcı kaydıyla senkron edilir.
+                              </p>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflowY: 'auto', marginBottom: 10 }}>
+                                {EK_YETKI_SECILEBILIR.map((key) => (
+                                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={(ekYetkiForm[p.id] ?? p.ekYetkiler ?? []).includes(key)}
+                                      onChange={(e) => ekYetkiToggle(p.id, key, e.target.checked)}
+                                    />
+                                    {EK_YETKI_LABELS[key]}
+                                  </label>
+                                ))}
+                              </div>
+                              {(p.ekYetkiler?.length ?? 0) > 0 && posDegistir !== p.id ? (
+                                <div style={{ fontSize: 11, color: '#166534', marginBottom: 8 }}>
+                                  Aktif: {(p.ekYetkiler ?? []).map((k) => EK_YETKI_LABELS[k as keyof typeof EK_YETKI_LABELS] ?? k).join(', ')}
+                                </div>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => void ekYetkiKaydet(p.id)}
+                                disabled={baglamaYukleniyor}
+                                style={btnPrimary}
+                              >
+                                {baglamaYukleniyor ? '...' : 'Ek Yetkileri Kaydet'}
+                              </button>
+                            </div>
+
                             <div style={{
                               marginTop: 12,
                               padding: '10px 12px',
@@ -1150,7 +1336,7 @@ export default function IKPage() {
                                   onClick={() => {
                                     const link = `${window.location.origin}/belge-yukle/${p.id}`
                                     const msg = `Merhaba ${p.ad}, belge yükleme linkiniz: ${link}`
-                                    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`)
+                                    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, 'guven-optik-whatsapp')
                                   }}
                                   style={{
                                     fontSize: 11,
@@ -1172,7 +1358,7 @@ export default function IKPage() {
                     </>
                   )
                 })}
-                {filtreliPersoneller.length === 0 && <tr><td colSpan={10} style={{ ...td, textAlign: 'center' as const, color: '#9ca3af', padding: 30 }}>Henüz personel eklenmemiş</td></tr>}
+                {filtreliPersoneller.length === 0 && <tr><td colSpan={11} style={{ ...td, textAlign: 'center' as const, color: '#9ca3af', padding: 30 }}>Henüz personel eklenmemiş</td></tr>}
               </tbody>
             </table>
           </div>

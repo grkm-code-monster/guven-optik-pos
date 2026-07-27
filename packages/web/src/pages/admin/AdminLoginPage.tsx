@@ -23,7 +23,13 @@ export default function AdminLoginPage() {
         pin,
       })
       const { token, user } = res.data
-      if (user.role !== 'ADMIN' && user.role !== 'STORE_MANAGER' && user.role !== 'WAREHOUSE_MANAGER') {
+      const hasEkYetki = Array.isArray(user.ekYetkiler) && user.ekYetkiler.length > 0
+      const allowedRole =
+        user.role === 'ADMIN' ||
+        user.role === 'STORE_MANAGER' ||
+        user.role === 'WAREHOUSE_MANAGER' ||
+        hasEkYetki
+      if (!allowedRole) {
         setError('Yetkisiz erişim')
         return
       }

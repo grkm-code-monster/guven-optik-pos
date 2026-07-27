@@ -15,10 +15,14 @@ router.use(authenticate);
 
 router.get('/listele', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { durum, onlyUnread } = req.query;
+    const { durum, onlyUnread, sirketId, faturaTarihi, faturaBaslangic, faturaBitis } = req.query;
     const data = await listeleGelenFaturalar({
       durum: typeof durum === 'string' ? durum : undefined,
       onlyUnread: onlyUnread === 'true',
+      sirketId: typeof sirketId === 'string' ? sirketId : undefined,
+      faturaTarihi: typeof faturaTarihi === 'string' ? faturaTarihi : undefined,
+      faturaBaslangic: typeof faturaBaslangic === 'string' ? faturaBaslangic : undefined,
+      faturaBitis: typeof faturaBitis === 'string' ? faturaBitis : undefined,
     });
     return res.json({ data });
   } catch (err) {
@@ -28,14 +32,20 @@ router.get('/listele', async (req: Request, res: Response, next: NextFunction) =
 
 router.post('/cek', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { baslangic, bitis, onlyUnread, pageSize } = req.body ?? {};
+    const { baslangic, bitis, onlyUnread, pageSize, pageIndex, sirketId } = req.body ?? {};
     const sonuc = await cekGelenFaturalar({
       baslangic,
       bitis,
       onlyUnread: onlyUnread ?? true,
       pageSize,
+      pageIndex,
+      sirketId,
     });
-    const data = await listeleGelenFaturalar();
+    const data = await listeleGelenFaturalar({
+      sirketId,
+      faturaBaslangic: baslangic,
+      faturaBitis: bitis,
+    });
     return res.json({ ...sonuc, data });
   } catch (err) {
     next(err);

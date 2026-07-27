@@ -35,6 +35,54 @@ const SIRKETLER = [
   { id: 4, ad: 'POTENTIAL' },
 ]
 
+const SABLON_EXCEL_HEDEF_ALANLARI = [
+  'kategori',
+  'urunSablonAdi',
+  'model',
+  'renk',
+  'olcu',
+  'barkod',
+  'icReferans',
+  'kdvOrani',
+  'satisFiyati',
+  'maliyet',
+  'sirket',
+  'izleme',
+] as const
+
+type SablonExcelHedefAlan = (typeof SABLON_EXCEL_HEDEF_ALANLARI)[number]
+type SablonExcelKolonMap = Record<SablonExcelHedefAlan, number | 'yoksay'>
+
+const SABLON_EXCEL_HEDEF_ETIKETLER: Record<SablonExcelHedefAlan, string> = {
+  kategori: 'Kategori *',
+  urunSablonAdi: 'Ürün Şablon Adı *',
+  model: 'Model',
+  renk: 'Renk',
+  olcu: 'Ölçü',
+  barkod: 'Barkod',
+  icReferans: 'İç Referans',
+  kdvOrani: 'KDV Oranı',
+  satisFiyati: 'Satış Fiyatı',
+  maliyet: 'Maliyet',
+  sirket: 'Şirket',
+  izleme: 'İzleme',
+}
+
+const VARSAYILAN_SABLON_EXCEL_KOLON_MAP: SablonExcelKolonMap = {
+  kategori: 0,
+  urunSablonAdi: 1,
+  model: 2,
+  renk: 3,
+  olcu: 4,
+  barkod: 5,
+  icReferans: 6,
+  kdvOrani: 7,
+  satisFiyati: 8,
+  maliyet: 9,
+  sirket: 10,
+  izleme: 11,
+}
+
 const ADIMLAR = ['Kategori', 'Ürün şablonu', 'Nitelik & değer', 'Varyantlar']
 
 type OdooKategori = { id: number; name: string; parent_id: false | [number, string]; complete_name: string }
@@ -120,7 +168,7 @@ export default function UrunYapilandirmaPage() {
   const [varyantlar, setVaryantlar] = useState<VaryantRow[]>([])
   const [tmplId, setTmplId] = useState<number | null>(null)
 
-  const [sablonModu, setSablonModu] = useState<'sec' | 'yeni'>('sec')
+  const [sablonModu, setSablonModu] = useState<'sec' | 'yeni' | 'excel'>('sec')
   const [sablonListesi, setSablonListesi] = useState<OdooSablonListItem[]>([])
   const [sablonArama, setSablonArama] = useState('')
   const [sablonKategoriFiltre, setSablonKategoriFiltre] = useState('')
@@ -135,6 +183,16 @@ export default function UrunYapilandirmaPage() {
   const [onizleme, setOnizleme] = useState<any>(null)
   const [importYukleniyor, setImportYukleniyor] = useState(false)
   const [importSonuc, setImportSonuc] = useState<any>(null)
+
+  const [excelSutunlar, setExcelSutunlar] = useState<string[]>([])
+  const [excelSatirlar, setExcelSatirlar] = useState<string[][]>([])
+  const [excelOrnekSatirlar, setExcelOrnekSatirlar] = useState<string[][]>([])
+  const [excelKolonMap, setExcelKolonMap] = useState<SablonExcelKolonMap>({ ...VARSAYILAN_SABLON_EXCEL_KOLON_MAP })
+  const [excelDosyaAdi, setExcelDosyaAdi] = useState('')
+  const [excelYukleniyor, setExcelYukleniyor] = useState(false)
+  const [excelDogrulama, setExcelDogrulama] = useState<any>(null)
+  const [excelAktarimSonuc, setExcelAktarimSonuc] = useState<any>(null)
+  const [excelAdim, setExcelAdim] = useState<'yukle' | 'eslestir' | 'onizle' | 'sonuc'>('yukle')
 
   const yukle = useCallback(async () => {
     const [katRes, nitRes, nitValRes] = await Promise.all([
@@ -300,7 +358,7 @@ export default function UrunYapilandirmaPage() {
     }
   }
 
-  async function kategoriKaydet() {
+  async function kategoriKaydet(forceCreate = false) {
     if (!yeniKategori.ad.trim()) {
       setMesaj({ tip: 'err', text: 'Kategori adı zorunlu' })
       return
@@ -311,12 +369,31 @@ export default function UrunYapilandirmaPage() {
       await adminApi.post('/admin/odoo-kategori-ekle', {
         ad: yeniKategori.ad,
         parentId: yeniKategori.parentId || undefined,
+        ...(forceCreate ? { forceCreate: true } : {}),
       })
       setMesaj({ tip: 'ok', text: 'Kategori Odoo\'ya kaydedildi' })
       setYeniKategori({ ad: '', parentId: '', sirket: '' })
       await yukle()
     } catch (e: any) {
-      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Kayıt hatası' })
+      const data = e?.response?.data
+      if (data?.code === 'category-exists' && !forceCreate) {
+        const onay = window.confirm(
+          `${data.error ?? 'Benzer bir kategori zaten var.'}\n\nYine de yeni kategori oluşturulsun mu?`,
+        )
+        if (onay) {
+          setLoading(false)
+          await kategoriKaydet(true)
+          return
+        }
+        setMesaj({ tip: 'err', text: data.error ?? 'Benzer kategori zaten mevcut' })
+      } else if (data?.code === 'category-ambiguous') {
+        setMesaj({
+          tip: 'err',
+          text: data.error ?? 'Kategori adı birden fazla olası eşleşmeye sahip, tam adını netleştirin.',
+        })
+      } else {
+        setMesaj({ tip: 'err', text: data?.error ?? 'Kayıt hatası' })
+      }
     } finally {
       setLoading(false)
     }
@@ -344,6 +421,93 @@ export default function UrunYapilandirmaPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function excelSablonIndir() {
+    const res = await adminApi.get('/admin/odoo-sablon-excel/ornek-indir', { responseType: 'blob' })
+    const url = URL.createObjectURL(res.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'urun-sablon-toplu-aktar-ornek.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function excelDosyaYukle(file: File) {
+    setExcelYukleniyor(true)
+    setExcelAktarimSonuc(null)
+    setExcelDogrulama(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await adminApi.post('/admin/odoo-sablon-excel/yukle', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setExcelSutunlar(res.data?.sutunlar ?? [])
+      setExcelSatirlar(res.data?.satirlar ?? [])
+      setExcelOrnekSatirlar(res.data?.ornekSatirlar ?? [])
+      setExcelKolonMap(res.data?.varsayilanMap ?? { ...VARSAYILAN_SABLON_EXCEL_KOLON_MAP })
+      setExcelDosyaAdi(file.name)
+      setExcelAdim('eslestir')
+      setMesaj({ tip: 'ok', text: `${res.data?.satirlar?.length ?? 0} satır yüklendi` })
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Excel yüklenemedi' })
+    } finally {
+      setExcelYukleniyor(false)
+    }
+  }
+
+  async function excelDogrula() {
+    if (!excelSatirlar.length) return
+    setExcelYukleniyor(true)
+    try {
+      const res = await adminApi.post('/admin/odoo-sablon-excel/dogrula', {
+        satirlar: excelSatirlar,
+        kolonMap: excelKolonMap,
+      })
+      setExcelDogrulama(res.data)
+      setExcelAdim('onizle')
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Doğrulama başarısız' })
+    } finally {
+      setExcelYukleniyor(false)
+    }
+  }
+
+  async function excelAktar() {
+    if (!excelDogrulama?.aktarilabilir) return
+    const onay = window.confirm(
+      `${excelDogrulama.ozet.gecerliSatir} satır aktarılacak. Devam?`,
+    )
+    if (!onay) return
+    setExcelYukleniyor(true)
+    try {
+      const res = await adminApi.post('/admin/odoo-sablon-excel/aktar', {
+        satirlar: excelSatirlar,
+        kolonMap: excelKolonMap,
+      })
+      setExcelAktarimSonuc(res.data)
+      setExcelAdim('sonuc')
+      setMesaj({
+        tip: 'ok',
+        text: `${res.data?.aktarildi ?? 0} aktarıldı, ${res.data?.atlandi ?? 0} atlandı, ${res.data?.hata ?? 0} hata`,
+      })
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Aktarım başarısız' })
+    } finally {
+      setExcelYukleniyor(false)
+    }
+  }
+
+  function excelSifirla() {
+    setExcelSutunlar([])
+    setExcelSatirlar([])
+    setExcelOrnekSatirlar([])
+    setExcelKolonMap({ ...VARSAYILAN_SABLON_EXCEL_KOLON_MAP })
+    setExcelDosyaAdi('')
+    setExcelDogrulama(null)
+    setExcelAktarimSonuc(null)
+    setExcelAdim('yukle')
   }
 
   async function sablonKaydet() {
@@ -424,39 +588,6 @@ export default function UrunYapilandirmaPage() {
       setAdim(3)
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.response?.data?.message ?? 'Şablon yüklenemedi' })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function sablonNitelikAta() {
-    if (!tmplId) {
-      setMesaj({ tip: 'err', text: 'Önce şablon kaydedilmeli' })
-      return
-    }
-    const nitelikPayload = aktifNitelikler
-      .map((attrId) => ({
-        attributeId: attrId,
-        valueIds: seciliDegerler[attrId] ?? [],
-      }))
-      .filter((n) => n.valueIds.length > 0)
-    if (nitelikPayload.length === 0) {
-      setMesaj({ tip: 'err', text: 'En az bir nitelik ve değer seçin' })
-      return
-    }
-    setLoading(true)
-    setMesaj(null)
-    try {
-      const res = await adminApi.post('/admin/odoo-sablon-nitelik-ata', {
-        tmplId,
-        nitelikler: nitelikPayload,
-      })
-      const raw = res.data?.variants ?? []
-      setVaryantlar(mapVariantsToRows(raw))
-      setMesaj({ tip: 'ok', text: `${raw.length} varyant oluşturuldu` })
-      setAdim(4)
-    } catch (e: any) {
-      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.response?.data?.message ?? 'Varyant oluşturulamadı' })
     } finally {
       setLoading(false)
     }
@@ -738,7 +869,240 @@ export default function UrunYapilandirmaPage() {
             >
               Yeni şablon oluştur
             </button>
+            <button
+              type="button"
+              onClick={() => { setSablonModu('excel'); excelSifirla() }}
+              style={{
+                flex: 1,
+                padding: '10px 16px',
+                border: sablonModu === 'excel' ? `2px solid ${BLUE}` : '1px solid #e5e7eb',
+                borderRadius: 8,
+                backgroundColor: sablonModu === 'excel' ? '#eff6ff' : '#f9fafb',
+                color: sablonModu === 'excel' ? BLUE : '#6b7280',
+                fontWeight: sablonModu === 'excel' ? 800 : 500,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Excel&apos;den Toplu Aktar
+            </button>
           </div>
+
+          {sablonModu === 'excel' ? (
+            <div>
+              <div style={{
+                marginBottom: 16,
+                padding: '12px 14px',
+                borderRadius: 10,
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fde68a',
+                fontSize: 12,
+                color: '#92400e',
+                lineHeight: 1.5,
+              }}>
+                Renk/ölçü varyantlı ürünler için <strong>Model</strong>, <strong>Renk</strong> ve <strong>Ölçü</strong> sütunlarının
+                hepsini doldurun — aynı şablon adı altında tek ürün + varyantlar oluşur.
+                Boş bırakırsanız her satır için ayrı, varyantsız bir şablon oluşturulur.
+                Zaten varyantlı bir ürünün adını/barkodunu düz satırla aktarmaya çalışırsanız satır atlanır.
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button type="button" onClick={() => void excelSablonIndir()} style={{ ...btnPrimary, backgroundColor: BLUE }}>
+                  Örnek şablonu indir
+                </button>
+                <label style={{ ...btnSmall, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  Excel yükle
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) void excelDosyaYukle(f)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                {excelDosyaAdi ? (
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>
+                    {excelDosyaAdi} · {excelSatirlar.length} satır
+                  </span>
+                ) : null}
+                {excelDosyaAdi ? (
+                  <button type="button" onClick={excelSifirla} style={btnSmall}>Sıfırla</button>
+                ) : null}
+              </div>
+
+              {excelAdim !== 'yukle' && excelSutunlar.length > 0 ? (
+                <div style={{ marginBottom: 20, border: '1px solid #bfdbfe', borderRadius: 12, overflow: 'hidden', backgroundColor: '#eff6ff' }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid #bfdbfe' }}>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: '#1e40af' }}>Sütun Eşleştirme</div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                      Her hedef alan için Excel&apos;deki sütunu seçin (* zorunlu)
+                    </div>
+                  </div>
+                  <div style={{ padding: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                    {SABLON_EXCEL_HEDEF_ALANLARI.map((alan) => (
+                      <label key={alan} style={{ fontSize: 12 }}>
+                        <span style={{ fontWeight: 700, color: '#374151' }}>{SABLON_EXCEL_HEDEF_ETIKETLER[alan]}</span>
+                        <select
+                          value={excelKolonMap[alan] === 'yoksay' ? 'yoksay' : String(excelKolonMap[alan])}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setExcelKolonMap((prev) => ({
+                              ...prev,
+                              [alan]: v === 'yoksay' ? 'yoksay' : Number(v),
+                            }))
+                            setExcelDogrulama(null)
+                          }}
+                          style={{ ...inp, marginTop: 4, fontSize: 12 }}
+                        >
+                          <option value="yoksay">— Yoksay —</option>
+                          {excelSutunlar.map((sutun, idx) => (
+                            <option key={idx} value={idx}>
+                              Sütun {idx + 1}: {sutun || '(boş başlık)'}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                  {excelOrnekSatirlar.length > 0 ? (
+                    <div style={{ overflowX: 'auto', padding: 12, borderTop: '1px solid #bfdbfe' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, backgroundColor: '#fff', borderRadius: 8 }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#dbeafe' }}>
+                            {excelSutunlar.map((s, i) => (
+                              <th key={i} style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 700 }}>{s || `#${i + 1}`}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {excelOrnekSatirlar.map((row, ri) => (
+                            <tr key={ri} style={{ borderTop: '1px solid #f3f4f6' }}>
+                              {excelSutunlar.map((_, ci) => (
+                                <td key={ci} style={{ padding: '5px 8px' }}>{row[ci] || '—'}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                  <div style={{ padding: '12px 16px', borderTop: '1px solid #bfdbfe' }}>
+                    <button
+                      type="button"
+                      disabled={excelYukleniyor}
+                      onClick={() => void excelDogrula()}
+                      style={{ ...btnPrimary, backgroundColor: BLUE }}
+                    >
+                      {excelYukleniyor ? 'Doğrulanıyor...' : 'Doğrula ve önizle →'}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {excelDogrulama ? (
+                <div style={{ marginBottom: 20, border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, backgroundColor: '#fafafa' }}>
+                  <div style={{ fontWeight: 800, marginBottom: 12 }}>Önizleme / Doğrulama</div>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, marginBottom: 12 }}>
+                    <span>Toplam: <strong>{excelDogrulama.ozet?.toplamSatir ?? 0}</strong></span>
+                    <span style={{ color: GREEN }}>Geçerli: <strong>{excelDogrulama.ozet?.gecerliSatir ?? 0}</strong></span>
+                    <span style={{ color: AMBER }}>Zorunlu boş: <strong>{excelDogrulama.ozet?.atlanacakZorunluBos ?? 0}</strong></span>
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Kategoriler</div>
+                    {(excelDogrulama.kategoriler ?? []).map((k: any) => (
+                      <div key={k.yol} style={{ fontSize: 12, color: k.bulundu ? GREEN : RED, marginBottom: 4 }}>
+                        {k.bulundu ? '✓' : '✗'} {k.yol} ({k.satirlar?.length ?? 0} satır)
+                      </div>
+                    ))}
+                  </div>
+
+                  {(excelDogrulama.kdvOranlari ?? []).length > 0 ? (
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>KDV oranları</div>
+                      {excelDogrulama.kdvOranlari.map((k: any) => (
+                        <div key={k.oran} style={{ fontSize: 12, color: k.bulundu ? GREEN : RED, marginBottom: 4 }}>
+                          {k.bulundu ? '✓' : '✗'} %{k.oran} ({k.satirlar?.length ?? 0} satır)
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {(excelDogrulama.zorunluBosSatirlar ?? []).length > 0 ? (
+                    <div style={{ marginBottom: 12, fontSize: 12, color: RED }}>
+                      Zorunlu alanı boş satırlar (aktarılmayacak):{' '}
+                      {excelDogrulama.zorunluBosSatirlar.map((z: any) => `#${z.satirNo}`).join(', ')}
+                    </div>
+                  ) : null}
+
+                  {(excelDogrulama.gecersizKdvSatirlar ?? []).length > 0 ? (
+                    <div style={{ marginBottom: 12, fontSize: 12, color: RED }}>
+                      Geçersiz KDV değeri: satır {excelDogrulama.gecersizKdvSatirlar.join(', ')}
+                    </div>
+                  ) : null}
+
+                  {(excelDogrulama.varyantKismiDoluSatirlar ?? []).length > 0 ? (
+                    <div style={{ marginBottom: 12, fontSize: 12, color: RED }}>
+                      Model/Renk/Ölçü kısmen dolu: satır {excelDogrulama.varyantKismiDoluSatirlar.join(', ')}
+                    </div>
+                  ) : null}
+
+                  {(excelDogrulama.varyantGuvenlikAtlamalari ?? []).length > 0 ? (
+                    <div style={{ marginBottom: 12, fontSize: 12, color: AMBER }}>
+                      Varyantlı ürün — düz satır atlanacak:{' '}
+                      {(excelDogrulama.varyantGuvenlikAtlamalari ?? []).map((v: any) => `#${v.satirNo}`).join(', ')}
+                    </div>
+                  ) : null}
+
+                  {excelDogrulama.niteliklerHazir === false ? (
+                    <div style={{ marginBottom: 12, fontSize: 12, color: RED }}>
+                      Odoo&apos;da MODEL / RENK / ÖLÇÜ nitelikleri bulunamadı — varyantlı satırlar aktarılamaz.
+                    </div>
+                  ) : null}
+
+                  {excelDogrulama.aktarilabilir ? (
+                    <button
+                      type="button"
+                      disabled={excelYukleniyor}
+                      onClick={() => void excelAktar()}
+                      style={{ ...btnPrimary, backgroundColor: GREEN }}
+                    >
+                      {excelYukleniyor ? 'Aktarılıyor...' : `${excelDogrulama.ozet?.gecerliSatir ?? 0} satırı aktar →`}
+                    </button>
+                  ) : (
+                    <div style={{ fontSize: 12, color: RED, fontWeight: 700 }}>
+                      Aktarım engellendi — kategori/KDV doğrulamasını düzeltin
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {excelAktarimSonuc ? (
+                <div style={{
+                  padding: 16,
+                  borderRadius: 12,
+                  backgroundColor: '#dcfce7',
+                  border: '1px solid #bbf7d0',
+                  marginBottom: 16,
+                }}>
+                  <div style={{ fontWeight: 900, fontSize: 16, color: GREEN, marginBottom: 8 }}>
+                    {excelAktarimSonuc.aktarildi} aktarıldı · {excelAktarimSonuc.atlandi} atlandı · {excelAktarimSonuc.hata} hata
+                  </div>
+                  {(excelAktarimSonuc.detay ?? []).filter((d: any) => !['created', 'variant-created', 'variant-updated'].includes(d.durum)).slice(0, 20).map((d: any) => (
+                    <div key={`${d.satirNo}-${d.ad}`} style={{ fontSize: 11, color: '#374151', marginBottom: 2 }}>
+                      Satır {d.satirNo}: {d.ad} — {d.durum}{d.sebep ? ` (${d.sebep})` : ''}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button type="button" onClick={() => setAdim(1)} style={btnSmall}>← Kategori</button>
+              </div>
+            </div>
+          ) : null}
 
           {sablonModu === 'sec' ? (
             <div>
@@ -850,7 +1214,7 @@ export default function UrunYapilandirmaPage() {
                 </button>
               </div>
             </div>
-          ) : (
+          ) : sablonModu === 'yeni' ? (
             <>
               <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
                 {[
@@ -954,7 +1318,7 @@ export default function UrunYapilandirmaPage() {
                 </button>
               </div>
             </>
-          )}
+          ) : null}
         </div>
       ) : null}
 
@@ -1356,6 +1720,12 @@ export default function UrunYapilandirmaPage() {
                     ) : null}
                     {importSonuc.hatalar > 0 ? (
                       <div>{importSonuc.hatalar} satır atlandı (hata/duplicate)</div>
+                    ) : null}
+                    {importSonuc.otomatikTemizlenen > 0 ? (
+                      <div>
+                        {importSonuc.otomatikTemizlenen} gereksiz varyant otomatik temizlendi
+                        {importSonuc.kalanVaryant != null ? ` (kalan: ${importSonuc.kalanVaryant})` : ''}
+                      </div>
                     ) : null}
                   </div>
                   <button

@@ -34,6 +34,8 @@ export default function EtiketTasarimciPage() {
   const sablon = sablonBul(seciliId)!
   const ayar = ayarlar[seciliId]
   const Preview = sablon.Preview
+  const canliPreviewW = 460
+  const canliPreviewH = Math.round(canliPreviewW * (sablon.etiketYukseklik / sablon.etiketGenislik))
 
   const canliZpl = useMemo(
     () => uretSablonZpl(seciliId, veri, ayar),
@@ -133,8 +135,8 @@ export default function EtiketTasarimciPage() {
             <Preview
               data={veri}
               ayar={ayar}
-              width={460}
-              height={sablon.id === 'depo-kutu' ? 345 : 230}
+              width={canliPreviewW}
+              height={canliPreviewH}
             />
           </div>
           <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8, textAlign: 'center' }}>

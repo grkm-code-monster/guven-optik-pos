@@ -4,6 +4,7 @@ import { apiClient as api } from '../api/client'
 
 type Satis = {
   id: string
+  referansNo?: string | null
   status: string
   createdAt: string
   totalAmount: number
@@ -60,6 +61,7 @@ export default function SatislarPage() {
     return (
       s.customer?.name?.toLowerCase().includes(q) ||
       s.customer?.phone?.includes(q) ||
+      s.referansNo?.toLowerCase().includes(q) ||
       s.id.toLowerCase().includes(q)
     )
   })
@@ -81,7 +83,7 @@ export default function SatislarPage() {
         <input
           value={aramaMetin}
           onChange={(e) => setAramaMetin(e.target.value)}
-          placeholder="Müşteri adı, telefon veya ID ara..."
+          placeholder="Müşteri adı, telefon, referans no veya ID ara..."
           style={{ flex: 1, minWidth: 200, padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}
         />
         <select
@@ -122,6 +124,7 @@ export default function SatislarPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#6b7280' }}>Referans</th>
                 <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#6b7280' }}>Tarih</th>
                 <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#6b7280' }}>Müşteri</th>
                 <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#6b7280' }}>Ürün Sayısı</th>
@@ -135,6 +138,9 @@ export default function SatislarPage() {
                 const st = STATUS_LABEL[s.status] ?? { label: s.status, bg: '#f3f4f6', color: '#374151' }
                 return (
                   <tr key={s.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#374151', fontWeight: 700 }}>
+                      {s.referansNo ?? '—'}
+                    </td>
                     <td style={{ padding: '10px 14px', color: '#374151' }}>
                       {new Date(s.createdAt).toLocaleDateString('tr-TR')}
                     </td>

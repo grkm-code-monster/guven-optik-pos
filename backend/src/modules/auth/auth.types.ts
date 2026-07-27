@@ -20,4 +20,6 @@ export type JwtPayload = {
   role: Role;
   branchId: string;
   shiftId: string | null;
+  canWorkAtolye: boolean;
+  ekYetkiler: string[];
 };

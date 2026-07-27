@@ -4,7 +4,7 @@ import type { User } from '../api/types'
 
 interface AuthState {
   token: string | null
-  user: Pick<User, 'id' | 'name' | 'role' | 'branchId'> | null
+  user: Pick<User, 'id' | 'name' | 'role' | 'branchId' | 'branchCode' | 'canWorkAtolye'> | null
   shiftId: string | null
   setAuth: (token: string, user: AuthState['user'], shiftId: string | null) => void
   setShiftId: (id: string) => void

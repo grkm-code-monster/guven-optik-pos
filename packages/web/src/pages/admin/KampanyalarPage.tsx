@@ -52,6 +52,19 @@ type FormState = {
   isActive: boolean
 }
 
+function localYMD(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** endDate dolu ve bugünden önceyse (client-side, sadece görsel uyarı) */
+function isCampaignExpired(endDate: string | null | undefined): boolean {
+  if (!endDate) return false
+  return endDate.slice(0, 10) < localYMD()
+}
+
 function emptyForm(): FormState {
   return {
     name: '',
@@ -273,6 +286,9 @@ export default function KampanyalarPage() {
                   <span style={badge(c.isActive ? '#dcfce7' : '#f3f4f6', c.isActive ? '#166534' : '#6b7280')}>
                     {c.isActive ? 'Aktif' : 'Pasif'}
                   </span>
+                  {c.isActive && isCampaignExpired(c.endDate) ? (
+                    <span style={badge('#ffedd5', '#c2410c')}>⏰ Süresi Doldu</span>
+                  ) : null}
                   <span style={badge('#ede9fe', '#5b21b6')}>{typeLabel(c.type)}</span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>Öncelik: {c.priority}</span>
                 </div>

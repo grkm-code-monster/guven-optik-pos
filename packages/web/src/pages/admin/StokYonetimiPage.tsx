@@ -1,19 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  disaAktarStokUrunleri,
+  disaAktarStokVaryantlari,
   getOdooKategoriler,
+  getSablonVaryantlari,
   getStokUrunleri,
   getUrunLotlari,
+  getVaryantLotBilgisi,
+  guncelleOdooVaryant,
   guncelleStokFiyat,
   topluStokFiyatGuncelle,
+  topluStokUrunArsivdenCikar,
+  topluStokUrunArsivle,
+  topluVaryantArsivdenCikar as apiVaryantArsivdenCikar,
+  topluVaryantArsivle as apiVaryantArsivle,
+  type SablonVaryant,
+  type StokDisaAktarFormat,
   type StokUrun,
 } from '../../api/stok.api'
+import EtiketBasModal, { type EtiketModalUrun } from '../../components/etiket/EtiketBasModal'
 import EtiketSablonSecici from '../../components/etiket/EtiketSablonSecici'
-import { otomatikSablonSec, uretCokluEtiketZpl } from '../../components/etiket/etiket-sablon-helpers'
+import { otomatikSablonSec, uretEtiketZplTercihli } from '../../components/etiket/etiket-sablon-helpers'
 import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
 import StokKontrolTab from './StokKontrolTab'
 
 const TABS = [
   { id: 'yonetim', label: '🏷️ Stok Yönetimi' },
+  { id: 'arsiv', label: '🗄️ Arşivlenmiş Ürünler' },
   { id: 'kontrol', label: '📊 Stok Kontrol' },
 ] as const
 
@@ -39,6 +52,13 @@ const btn: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 700,
 }
+const btnExport: React.CSSProperties = {
+  ...btn,
+  backgroundColor: '#6366f1',
+  color: 'white',
+  padding: '8px 12px',
+  minWidth: 120,
+}
 const btnPrimary: React.CSSProperties = { ...btn, backgroundColor: '#1a1a2e', color: 'white' }
 const th: React.CSSProperties = {
   padding: '10px 12px',
@@ -50,9 +70,45 @@ const th: React.CSSProperties = {
   letterSpacing: '0.04em',
 }
 const td: React.CSSProperties = { padding: '10px 12px', fontSize: 13, verticalAlign: 'middle' }
+const subTh: React.CSSProperties = {
+  padding: '6px 12px',
+  textAlign: 'left',
+  fontSize: 10,
+  fontWeight: 800,
+  color: '#9ca3af',
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+}
+const subTd: React.CSSProperties = { padding: '6px 12px', fontSize: 12, verticalAlign: 'middle' }
 
 function fmtFiyat(n: number) {
   return n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function varyantEtiketi(v: SablonVaryant): string {
+  const parts = [v.model, v.renk, v.olcu].filter((s) => s?.trim())
+  if (parts.length) return parts.join(' / ')
+  const attrs = v.attrs ?? {}
+  const fromAttrs = [attrs.MODEL, attrs.RENK, attrs['ÖLÇÜ']].filter(Boolean)
+  if (fromAttrs.length) return fromAttrs.join(' / ')
+  return '—'
+}
+
+function varyantKey(tmplId: number, variantId: number) {
+  return `${tmplId}-${variantId}`
+}
+
+type SecilenVaryantKayit = {
+  key: string
+  tmplId: number
+  urunAdi: string
+  kategori: string
+  kategoriId: number | null
+  odooId: number
+  nitelikEtiketi: string
+  barkod: string
+  satisFiyati: number
+  maliyet: number
 }
 
 export default function StokYonetimiPage() {
@@ -69,6 +125,7 @@ export default function StokYonetimiPage() {
   const [fiyatMin, setFiyatMin] = useState('')
   const [fiyatMax, setFiyatMax] = useState('')
   const [stokDurumu, setStokDurumu] = useState<'tumu' | 'var' | 'sifir'>('tumu')
+  const [urunDurumu, setUrunDurumu] = useState<'aktif' | 'arsiv' | 'hepsi'>('aktif')
   const [lokasyon, setLokasyon] = useState('')
   const [kdv, setKdv] = useState('')
 
@@ -81,6 +138,8 @@ export default function StokYonetimiPage() {
   const [topluDeger, setTopluDeger] = useState('10')
   const [topluHedef, setTopluHedef] = useState<'satis' | 'alis' | 'her_ikisi'>('satis')
   const [topluYukleniyor, setTopluYukleniyor] = useState(false)
+  const [arsivYukleniyor, setArsivYukleniyor] = useState(false)
+  const [disaAktarYukleniyor, setDisaAktarYukleniyor] = useState<'urun' | 'varyant' | null>(null)
 
   const [etiketAcik, setEtiketAcik] = useState(false)
   const [etiketUrun, setEtiketUrun] = useState<StokUrun | null>(null)
@@ -90,10 +149,38 @@ export default function StokYonetimiPage() {
   const [etiketYukleniyor, setEtiketYukleniyor] = useState(false)
   const [etiketSablonId, setEtiketSablonId] = useState<SablonId>('gunes-aksesuar')
 
+  const [expandedTmplIds, setExpandedTmplIds] = useState<Set<number>>(new Set())
+  const [varyantCache, setVaryantCache] = useState<Map<number, SablonVaryant[]>>(new Map())
+  const [varyantYukleniyor, setVaryantYukleniyor] = useState<Set<number>>(new Set())
+
+  const [secilenVaryantlar, setSecilenVaryantlar] = useState<Map<string, SecilenVaryantKayit>>(new Map())
+  const [duzenlenenVaryant, setDuzenlenenVaryant] = useState<{ key: string; alan: 'satis' | 'maliyet'; deger: string } | null>(null)
+  const [varyantKaydediliyor, setVaryantKaydediliyor] = useState<string | null>(null)
+
+  const [varyantEtiketAcik, setVaryantEtiketAcik] = useState(false)
+  const [varyantEtiketUrunleri, setVaryantEtiketUrunleri] = useState<EtiketModalUrun[]>([])
+  const [varyantEtiketLotYukleniyor, setVaryantEtiketLotYukleniyor] = useState(false)
+
   const seciliUrunler = useMemo(
     () => urunler.filter((u) => secili.has(u.id)),
     [urunler, secili],
   )
+
+  const isYonetimView = activeTab === 'yonetim' || activeTab === 'arsiv'
+  const arsivModu = activeTab === 'arsiv' || urunDurumu === 'arsiv'
+  const effectiveUrunDurumu = activeTab === 'arsiv' ? 'arsiv' : urunDurumu
+
+  function handleTabChange(tabId: TabId) {
+    setActiveTab(tabId)
+    setPage(1)
+    setSecili(new Set())
+    setSecilenVaryantlar(new Map())
+    if (tabId === 'arsiv') {
+      setUrunDurumu('arsiv')
+    } else if (tabId === 'yonetim') {
+      setUrunDurumu('aktif')
+    }
+  }
 
   const yukle = useCallback(async () => {
     setLoading(true)
@@ -107,6 +194,7 @@ export default function StokYonetimiPage() {
         stokDurumu: stokDurumu !== 'tumu' ? stokDurumu : undefined,
         lokasyon: lokasyon || undefined,
         kdv: kdv ? Number(kdv) : undefined,
+        durum: effectiveUrunDurumu !== 'aktif' ? effectiveUrunDurumu : undefined,
         page,
         limit: 50,
       })
@@ -117,7 +205,7 @@ export default function StokYonetimiPage() {
     } finally {
       setLoading(false)
     }
-  }, [arama, kategoriId, fiyatMin, fiyatMax, stokDurumu, lokasyon, kdv, page])
+  }, [arama, kategoriId, fiyatMin, fiyatMax, stokDurumu, effectiveUrunDurumu, lokasyon, kdv, page])
 
   useEffect(() => {
     getOdooKategoriler().then((k) => setKategoriler(k)).catch(() => {})
@@ -139,6 +227,196 @@ export default function StokYonetimiPage() {
   function toggleTumu() {
     if (secili.size === urunler.length) setSecili(new Set())
     else setSecili(new Set(urunler.map((u) => u.id)))
+  }
+
+  async function yukleVaryantlar(tmplId: number) {
+    setVaryantYukleniyor((prev) => new Set(prev).add(tmplId))
+    try {
+      const data = await getSablonVaryantlari(tmplId)
+      setVaryantCache((prev) => new Map(prev).set(tmplId, data))
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Varyantlar yüklenemedi' })
+      setExpandedTmplIds((prev) => {
+        const next = new Set(prev)
+        next.delete(tmplId)
+        return next
+      })
+    } finally {
+      setVaryantYukleniyor((prev) => {
+        const next = new Set(prev)
+        next.delete(tmplId)
+        return next
+      })
+    }
+  }
+
+  function toggleExpand(tmplId: number) {
+    const willExpand = !expandedTmplIds.has(tmplId)
+    setExpandedTmplIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(tmplId)) next.delete(tmplId)
+      else next.add(tmplId)
+      return next
+    })
+    if (willExpand && !varyantCache.has(tmplId)) {
+      void yukleVaryantlar(tmplId)
+    }
+  }
+
+  function toggleVaryantSec(u: StokUrun, v: SablonVaryant) {
+    const key = varyantKey(u.id, v.id)
+    setSecilenVaryantlar((prev) => {
+      const next = new Map(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.set(key, {
+          key,
+          tmplId: u.id,
+          urunAdi: u.urunAdi,
+          kategori: u.kategori,
+          kategoriId: u.kategoriId,
+          odooId: v.id,
+          nitelikEtiketi: varyantEtiketi(v),
+          barkod: v.barcode || '',
+          satisFiyati: v.lst_price,
+          maliyet: v.standard_price,
+        })
+      }
+      return next
+    })
+  }
+
+  function varyantCacheGuncelle(tmplId: number, variantId: number, patch: Partial<SablonVaryant>) {
+    setVaryantCache((prev) => {
+      const list = prev.get(tmplId)
+      if (!list) return prev
+      const next = new Map(prev)
+      next.set(tmplId, list.map((v) => (v.id === variantId ? { ...v, ...patch } : v)))
+      return next
+    })
+    const key = varyantKey(tmplId, variantId)
+    setSecilenVaryantlar((prev) => {
+      const kayit = prev.get(key)
+      if (!kayit) return prev
+      const next = new Map(prev)
+      next.set(key, {
+        ...kayit,
+        ...(patch.lst_price != null ? { satisFiyati: patch.lst_price } : {}),
+        ...(patch.standard_price != null ? { maliyet: patch.standard_price } : {}),
+        ...(patch.barcode != null ? { barkod: patch.barcode } : {}),
+      })
+      return next
+    })
+  }
+
+  async function varyantFiyatKaydet(tmplId: number, v: SablonVaryant) {
+    if (!duzenlenenVaryant) return
+    const key = varyantKey(tmplId, v.id)
+    if (duzenlenenVaryant.key !== key) return
+    const val = Number(duzenlenenVaryant.deger)
+    if (!Number.isFinite(val) || val < 0) {
+      setMesaj({ tip: 'err', text: 'Geçersiz fiyat' })
+      return
+    }
+    const satisFiyati = duzenlenenVaryant.alan === 'satis' ? val : v.lst_price
+    const maliyet = duzenlenenVaryant.alan === 'maliyet' ? val : v.standard_price
+    setVaryantKaydediliyor(key)
+    try {
+      await guncelleOdooVaryant({
+        odooId: v.id,
+        icReferans: v.default_code,
+        barkod: v.barcode,
+        satisFiyati,
+        maliyet,
+      })
+      varyantCacheGuncelle(tmplId, v.id, {
+        lst_price: satisFiyati,
+        standard_price: maliyet,
+      })
+      setDuzenlenenVaryant(null)
+      setMesaj({ tip: 'ok', text: 'Varyant fiyatı güncellendi.' })
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Varyant fiyatı güncellenemedi' })
+    } finally {
+      setVaryantKaydediliyor(null)
+    }
+  }
+
+  async function varyantEtiketListesiOlustur(
+    tmpl: StokUrun,
+    kaynaklar: Array<{ key: string; odooId: number; nitelikEtiketi: string; barkod: string; satisFiyati: number; kategoriId: number | null }>,
+  ): Promise<EtiketModalUrun[]> {
+    const lotMap = new Map<string, Awaited<ReturnType<typeof getVaryantLotBilgisi>>>();
+    await Promise.all(
+      kaynaklar.map(async (k) => {
+        try {
+          lotMap.set(k.key, await getVaryantLotBilgisi(k.odooId));
+        } catch {
+          lotMap.set(k.key, {
+            productId: k.odooId,
+            kategoriId: k.kategoriId,
+            utsKodu: null,
+            lotNo: null,
+            lotId: null,
+          });
+        }
+      }),
+    );
+
+    return kaynaklar.map((k) => {
+      const bilgi = lotMap.get(k.key);
+      return {
+        key: k.key,
+        urunAdi: tmpl.urunAdi,
+        seriNo: bilgi?.lotNo || '-',
+        fiyat: k.satisFiyati,
+        barkod: k.barkod || null,
+        secili: true,
+        categAdi: tmpl.kategori,
+        renkVaryant: k.nitelikEtiketi,
+        utsKodu: bilgi?.utsKodu ?? null,
+        utsKodlu: Boolean(bilgi?.utsKodu),
+        lotNo: bilgi?.lotNo ?? undefined,
+        kategoriId: bilgi?.kategoriId ?? k.kategoriId ?? null,
+      };
+    });
+  }
+
+  async function acVaryantEtiketModal() {
+    const secili = [...secilenVaryantlar.values()]
+    if (!secili.length) return
+
+    setVaryantEtiketLotYukleniyor(true)
+    try {
+      const tmpl = urunler.find((u) => u.id === secili[0].tmplId) ?? {
+        id: secili[0].tmplId,
+        urunAdi: secili[0].urunAdi,
+        kategori: secili[0].kategori,
+        kategoriId: secili[0].kategoriId,
+        icReferans: '',
+        satisFiyati: 0,
+        alisFiyati: 0,
+        kdvOrani: 0,
+        toplamStok: 0,
+        aktif: true,
+        varyantSayisi: secili.length,
+      }
+      const liste = await varyantEtiketListesiOlustur(tmpl, secili.map((k) => ({
+        key: k.key,
+        odooId: k.odooId,
+        nitelikEtiketi: k.nitelikEtiketi,
+        barkod: k.barkod,
+        satisFiyati: k.satisFiyati,
+        kategoriId: k.kategoriId,
+      })))
+      setVaryantEtiketUrunleri(liste)
+      setVaryantEtiketAcik(true)
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.message ?? 'Varyant etiket listesi oluşturulamadı' })
+    } finally {
+      setVaryantEtiketLotYukleniyor(false)
+    }
   }
 
   async function fiyatKaydet(u: StokUrun) {
@@ -185,6 +463,132 @@ export default function StokYonetimiPage() {
     }
   }
 
+  async function topluArsivle() {
+    if (!seciliUrunler.length) return
+    const onay = window.confirm(
+      `${seciliUrunler.length} ürün arşivlenecek. Aktif listeden/katalogdan/satıştan kaybolacak ama silinmeyecek; istediğinizde geri çıkarabilirsiniz. Devam edilsin mi?`,
+    )
+    if (!onay) return
+    setArsivYukleniyor(true)
+    try {
+      const res = await topluStokUrunArsivle(seciliUrunler.map((u) => u.id))
+      setSecili(new Set())
+      setMesaj({ tip: 'ok', text: `${res.basarili}/${res.toplam} ürün arşivlendi.` })
+      void yukle()
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Arşivleme başarısız' })
+    } finally {
+      setArsivYukleniyor(false)
+    }
+  }
+
+  async function topluArsivdenCikar() {
+    if (!seciliUrunler.length) return
+    setArsivYukleniyor(true)
+    try {
+      const res = await topluStokUrunArsivdenCikar(seciliUrunler.map((u) => u.id))
+      setSecili(new Set())
+      setMesaj({ tip: 'ok', text: `${res.basarili}/${res.toplam} ürün arşivden çıkarıldı.` })
+      void yukle()
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Arşivden çıkarma başarısız' })
+    } finally {
+      setArsivYukleniyor(false)
+    }
+  }
+
+  async function varyantListeleriniYenile(tmplIds: number[]) {
+    for (const tmplId of tmplIds) {
+      await yukleVaryantlar(tmplId)
+    }
+  }
+
+  function blobIndir(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function disaAktarDosyaAdi(prefix: string, format: StokDisaAktarFormat) {
+    const tarih = new Date().toISOString().slice(0, 10)
+    const ext = format === 'xlsx' ? 'xlsx' : format
+    return `${prefix}-${tarih}.${ext}`
+  }
+
+  async function disaAktarUrun(format: StokDisaAktarFormat) {
+    if (!seciliUrunler.length) return
+    setDisaAktarYukleniyor('urun')
+    setMesaj(null)
+    try {
+      const res = await disaAktarStokUrunleri(seciliUrunler.map((u) => u.id), format)
+      blobIndir(res.data, disaAktarDosyaAdi('stok-urunleri', format))
+      setMesaj({ tip: 'ok', text: `${seciliUrunler.length} ürün ${format.toUpperCase()} olarak indirildi.` })
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Dışa aktarma başarısız' })
+    } finally {
+      setDisaAktarYukleniyor(null)
+    }
+  }
+
+  async function disaAktarVaryant(format: StokDisaAktarFormat) {
+    if (!secilenVaryantlar.size) return
+    setDisaAktarYukleniyor('varyant')
+    setMesaj(null)
+    try {
+      const variantIds = [...secilenVaryantlar.values()].map((v) => v.odooId)
+      const res = await disaAktarStokVaryantlari(variantIds, format)
+      blobIndir(res.data, disaAktarDosyaAdi('stok-varyantlari', format))
+      setMesaj({ tip: 'ok', text: `${variantIds.length} varyant ${format.toUpperCase()} olarak indirildi.` })
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Dışa aktarma başarısız' })
+    } finally {
+      setDisaAktarYukleniyor(null)
+    }
+  }
+
+  async function topluVaryantArsivle() {
+    if (!secilenVaryantlar.size) return
+    const onay = window.confirm(
+      `${secilenVaryantlar.size} varyant arşivlenecek. Ürün/şablon ve diğer varyantlar etkilenmeyecek; istediğinizde geri çıkarabilirsiniz. Devam edilsin mi?`,
+    )
+    if (!onay) return
+    setArsivYukleniyor(true)
+    try {
+      const kayitlar = [...secilenVaryantlar.values()]
+      const variantIds = kayitlar.map((v) => v.odooId)
+      const tmplIds = [...new Set(kayitlar.map((v) => v.tmplId))]
+      const res = await apiVaryantArsivle(variantIds)
+      setSecilenVaryantlar(new Map())
+      setMesaj({ tip: 'ok', text: `${res.basarili}/${res.toplam} varyant arşivlendi.` })
+      await varyantListeleriniYenile(tmplIds)
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Varyant arşivleme başarısız' })
+    } finally {
+      setArsivYukleniyor(false)
+    }
+  }
+
+  async function topluVaryantArsivdenCikar() {
+    if (!secilenVaryantlar.size) return
+    setArsivYukleniyor(true)
+    try {
+      const kayitlar = [...secilenVaryantlar.values()]
+      const variantIds = kayitlar.map((v) => v.odooId)
+      const tmplIds = [...new Set(kayitlar.map((v) => v.tmplId))]
+      const res = await apiVaryantArsivdenCikar(variantIds)
+      setSecilenVaryantlar(new Map())
+      setMesaj({ tip: 'ok', text: `${res.basarili}/${res.toplam} varyant arşivden çıkarıldı.` })
+      await varyantListeleriniYenile(tmplIds)
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Varyant arşivden çıkarma başarısız' })
+    } finally {
+      setArsivYukleniyor(false)
+    }
+  }
+
   function onizlemeFiyat(eski: number) {
     const d = Number(topluDeger) || 0
     if (topluTip === 'yuzde') return Math.round(eski * (1 + d / 100) * 100) / 100
@@ -193,6 +597,36 @@ export default function StokYonetimiPage() {
   }
 
   async function etiketBas(u: StokUrun) {
+    if ((u.varyantSayisi ?? 1) > 1) {
+      setExpandedTmplIds((prev) => new Set(prev).add(u.id))
+      setVaryantEtiketLotYukleniyor(true)
+      setMesaj(null)
+      try {
+        const varyantlar = await getSablonVaryantlari(u.id)
+        setVaryantCache((prev) => new Map(prev).set(u.id, varyantlar))
+        const aktif = varyantlar.filter((v) => v.active !== false)
+        if (!aktif.length) {
+          setMesaj({ tip: 'err', text: 'Etiket basılacak aktif varyant bulunamadı.' })
+          return
+        }
+        const liste = await varyantEtiketListesiOlustur(u, aktif.map((v) => ({
+          key: varyantKey(u.id, v.id),
+          odooId: v.id,
+          nitelikEtiketi: varyantEtiketi(v),
+          barkod: v.barcode || '',
+          satisFiyati: v.lst_price,
+          kategoriId: u.kategoriId,
+        })))
+        setVaryantEtiketUrunleri(liste)
+        setVaryantEtiketAcik(true)
+      } catch (e: any) {
+        setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.message ?? 'Varyant etiket listesi açılamadı' })
+      } finally {
+        setVaryantEtiketLotYukleniyor(false)
+      }
+      return
+    }
+
     setEtiketUrun(u)
     setEtiketAcik(true)
     setEtiketZpl('')
@@ -203,29 +637,74 @@ export default function StokYonetimiPage() {
 
   async function etiketUret() {
     if (!etiketUrun) return
+    if ((etiketUrun.varyantSayisi ?? 1) > 1) {
+      setMesaj({ tip: 'err', text: 'Çok varyantlı ürünlerde varyant seçerek etiket basın.' })
+      return
+    }
     setEtiketYukleniyor(true)
     try {
+      let variantProductId: number | null = null
+      let variantBarkod: string | null = null
+
+      if (etiketUrun.varyantSayisi === 1) {
+        const varyantlar = await getSablonVaryantlari(etiketUrun.id)
+        const tek = varyantlar[0]
+        if (tek) {
+          variantProductId = tek.id
+          variantBarkod = tek.barcode?.trim() || null
+        }
+      }
+
+      let lotBilgi: Awaited<ReturnType<typeof getVaryantLotBilgisi>> | null = null
+      if (variantProductId) {
+        try {
+          lotBilgi = await getVaryantLotBilgisi(variantProductId)
+        } catch {
+          lotBilgi = null
+        }
+      }
+
       const lotlar = await getUrunLotlari(etiketUrun.id, etiketLokasyon)
       const maxStok = Math.max(1, etiketUrun.toplamStok)
       const adet = Math.max(1, Math.min(etiketAdet, maxStok, lotlar.length || maxStok))
+      let varsayilanBarkod = variantBarkod || etiketUrun.icReferans || null
+      let tekVaryantFiyat = etiketUrun.satisFiyati
+
+      if (!lotlar.length) {
+        const varyantlar = await getSablonVaryantlari(etiketUrun.id)
+        const aktif = varyantlar.filter((v) => v.active !== false)
+        if (aktif.length > 1) {
+          setMesaj({ tip: 'err', text: 'Lot kaydı yok — çok varyantlı üründe varyant seçerek etiket basın.' })
+          return
+        }
+        if (aktif[0]) {
+          tekVaryantFiyat = aktif[0].lst_price
+          varsayilanBarkod = aktif[0].barcode?.trim() || varsayilanBarkod
+        }
+      }
+
       const kaynak = lotlar.length
         ? lotlar.slice(0, adet)
         : Array.from({ length: adet }, () => ({
-          seriNo: '-',
-          fiyat: etiketUrun.satisFiyati,
-          barkod: etiketUrun.icReferans || null,
+          seriNo: lotBilgi?.lotNo || '-',
+          fiyat: tekVaryantFiyat,
+          barkod: varsayilanBarkod,
         }))
+
       const items = kaynak.map((l) => ({
         urunAdi: etiketUrun.urunAdi,
-        seriNo: l.seriNo || '-',
+        seriNo: (l.seriNo && l.seriNo !== '-') ? l.seriNo : (lotBilgi?.lotNo || '-'),
         fiyat: l.fiyat ?? etiketUrun.satisFiyati,
-        barkod: l.barkod ?? etiketUrun.icReferans,
-        icReferans: etiketUrun.icReferans,
+        barkod: l.barkod ?? varsayilanBarkod,
+        icReferans: etiketUrun.icReferans || undefined,
+        categAdi: etiketUrun.kategori,
         lokasyon: etiketLokasyon,
         miktar: etiketUrun.toplamStok,
-        lotNo: l.seriNo || undefined,
+        lotNo: (l.seriNo && l.seriNo !== '-') ? l.seriNo : (lotBilgi?.lotNo ?? undefined),
+        utsKodu: lotBilgi?.utsKodu ?? null,
       }))
-      setEtiketZpl(uretCokluEtiketZpl(etiketSablonId, items))
+
+      setEtiketZpl(await uretEtiketZplTercihli(etiketSablonId, items, etiketUrun.kategori))
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.message ?? 'ZPL üretilemedi' })
     } finally {
@@ -239,7 +718,7 @@ export default function StokYonetimiPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900 }}>Stok Yönetimi</h1>
-        {activeTab === 'yonetim' ? (
+        {isYonetimView ? (
           <button type="button" onClick={() => void yukle()} style={btnPrimary}>Yenile</button>
         ) : null}
       </div>
@@ -249,7 +728,7 @@ export default function StokYonetimiPage() {
           <button
             key={t.id}
             type="button"
-            onClick={() => setActiveTab(t.id)}
+            onClick={() => handleTabChange(t.id)}
             style={{
               padding: '10px 18px',
               fontSize: 13,
@@ -269,7 +748,7 @@ export default function StokYonetimiPage() {
 
       {activeTab === 'kontrol' ? <StokKontrolTab /> : null}
 
-      {activeTab === 'yonetim' ? (
+      {isYonetimView ? (
         <>
 
       {mesaj ? (
@@ -317,6 +796,17 @@ export default function StokYonetimiPage() {
             </label>
           </div>
 
+          {activeTab !== 'arsiv' ? (
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Ürün durumu</span>
+              <select value={urunDurumu} onChange={(e) => { setUrunDurumu(e.target.value as 'aktif' | 'arsiv' | 'hepsi'); setPage(1); setSecili(new Set()) }} style={{ ...inp, marginTop: 4 }}>
+                <option value="aktif">Aktif Ürünler</option>
+                <option value="arsiv">Arşiv</option>
+                <option value="hepsi">Hepsi</option>
+              </select>
+            </label>
+          ) : null}
+
           <label style={{ display: 'block', marginBottom: 12 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Stok durumu</span>
             <select value={stokDurumu} onChange={(e) => { setStokDurumu(e.target.value as any); setPage(1) }} style={{ ...inp, marginTop: 4 }}>
@@ -352,10 +842,93 @@ export default function StokYonetimiPage() {
               padding: '10px 14px', backgroundColor: '#eff6ff', borderRadius: 10, border: '1px solid #bfdbfe',
             }}>
               <span style={{ fontSize: 13, fontWeight: 700 }}>{secili.size} ürün seçildi</span>
-              <button type="button" onClick={() => setTopluAcik(true)} style={{ ...btn, backgroundColor: '#2563eb', color: 'white' }}>
-                Toplu Fiyat Güncelle
-              </button>
+              {arsivModu ? (
+                <button
+                  type="button"
+                  onClick={() => void topluArsivdenCikar()}
+                  disabled={arsivYukleniyor}
+                  style={{ ...btn, backgroundColor: '#059669', color: 'white', opacity: arsivYukleniyor ? 0.7 : 1 }}
+                >
+                  {arsivYukleniyor ? 'İşleniyor…' : 'Arşivden Çıkar'}
+                </button>
+              ) : (
+                <>
+                  <button type="button" onClick={() => setTopluAcik(true)} style={{ ...btn, backgroundColor: '#2563eb', color: 'white' }}>
+                    Toplu Fiyat Güncelle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void topluArsivle()}
+                    disabled={arsivYukleniyor}
+                    style={{ ...btn, backgroundColor: '#b45309', color: 'white', opacity: arsivYukleniyor ? 0.7 : 1 }}
+                  >
+                    {arsivYukleniyor ? 'Arşivleniyor…' : 'Seçili Ürünleri Arşivle'}
+                  </button>
+                </>
+              )}
+              <select
+                value=""
+                disabled={disaAktarYukleniyor === 'urun'}
+                onChange={(e) => {
+                  const fmt = e.target.value as StokDisaAktarFormat | ''
+                  if (fmt) void disaAktarUrun(fmt)
+                }}
+                style={btnExport}
+              >
+                <option value="" hidden>{disaAktarYukleniyor === 'urun' ? 'İndiriliyor…' : 'Dışa Aktar'}</option>
+                <option value="pdf">PDF</option>
+                <option value="xlsx">Excel</option>
+                <option value="csv">CSV</option>
+              </select>
               <button type="button" onClick={() => setSecili(new Set())} style={btn}>Seçimi Temizle</button>
+            </div>
+          ) : null}
+
+          {secilenVaryantlar.size > 0 ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12,
+              padding: '10px 14px', backgroundColor: '#f0fdf4', borderRadius: 10, border: '1px solid #bbf7d0',
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{secilenVaryantlar.size} varyant seçildi</span>
+              <button
+                type="button"
+                onClick={() => void acVaryantEtiketModal()}
+                disabled={varyantEtiketLotYukleniyor}
+                style={{ ...btn, backgroundColor: '#059669', color: 'white', opacity: varyantEtiketLotYukleniyor ? 0.7 : 1 }}
+              >
+                {varyantEtiketLotYukleniyor ? 'Lot/UTS yükleniyor…' : 'Seçili Varyantlara Etiket Bas'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void topluVaryantArsivle()}
+                disabled={arsivYukleniyor}
+                style={{ ...btn, backgroundColor: '#b45309', color: 'white', opacity: arsivYukleniyor ? 0.7 : 1 }}
+              >
+                {arsivYukleniyor ? 'Arşivleniyor…' : 'Seçili Varyantları Arşivle'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void topluVaryantArsivdenCikar()}
+                disabled={arsivYukleniyor}
+                style={{ ...btn, backgroundColor: '#059669', color: 'white', opacity: arsivYukleniyor ? 0.7 : 1 }}
+              >
+                {arsivYukleniyor ? 'İşleniyor…' : 'Seçili Varyantları Arşivden Çıkar'}
+              </button>
+              <select
+                value=""
+                disabled={disaAktarYukleniyor === 'varyant'}
+                onChange={(e) => {
+                  const fmt = e.target.value as StokDisaAktarFormat | ''
+                  if (fmt) void disaAktarVaryant(fmt)
+                }}
+                style={btnExport}
+              >
+                <option value="" hidden>{disaAktarYukleniyor === 'varyant' ? 'İndiriliyor…' : 'Dışa Aktar'}</option>
+                <option value="pdf">PDF</option>
+                <option value="xlsx">Excel</option>
+                <option value="csv">CSV</option>
+              </select>
+              <button type="button" onClick={() => setSecilenVaryantlar(new Map())} style={btn}>Varyant Seçimini Temizle</button>
             </div>
           ) : null}
 
@@ -366,6 +939,7 @@ export default function StokYonetimiPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                    <th style={{ ...th, width: 28 }}></th>
                     <th style={{ ...th, width: 36 }}>
                       <input type="checkbox" checked={secili.size === urunler.length && urunler.length > 0} onChange={toggleTumu} />
                     </th>
@@ -380,67 +954,207 @@ export default function StokYonetimiPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {urunler.map((u) => (
-                    <tr key={u.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                      <td style={td}>
-                        <input type="checkbox" checked={secili.has(u.id)} onChange={() => toggleSec(u.id)} />
-                      </td>
-                      <td style={{ ...td, fontFamily: 'monospace', fontSize: 12 }}>{u.icReferans || '—'}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>{u.urunAdi}</td>
-                      <td style={{ ...td, fontSize: 12, color: '#6b7280' }}>{u.kategori}</td>
-                      <td style={td}>
-                        {duzenlenen?.id === u.id && duzenlenen.alan === 'satis' ? (
-                          <input
-                            autoFocus
-                            type="number"
-                            value={duzenlenen.deger}
-                            onChange={(e) => setDuzenlenen({ ...duzenlenen, deger: e.target.value })}
-                            onBlur={() => void fiyatKaydet(u)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') void fiyatKaydet(u) }}
-                            style={{ ...inp, width: 90, padding: '4px 8px' }}
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setDuzenlenen({ id: u.id, alan: 'satis', deger: String(u.satisFiyati) })}
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 700, color: '#059669', padding: 0 }}
-                          >
-                            {kaydediliyor === u.id ? '...' : fmtFiyat(u.satisFiyati)}
-                          </button>
-                        )}
-                      </td>
-                      <td style={td}>
-                        {duzenlenen?.id === u.id && duzenlenen.alan === 'alis' ? (
-                          <input
-                            autoFocus
-                            type="number"
-                            value={duzenlenen.deger}
-                            onChange={(e) => setDuzenlenen({ ...duzenlenen, deger: e.target.value })}
-                            onBlur={() => void fiyatKaydet(u)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') void fiyatKaydet(u) }}
-                            style={{ ...inp, width: 90, padding: '4px 8px' }}
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setDuzenlenen({ id: u.id, alan: 'alis', deger: String(u.alisFiyati) })}
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 600, color: '#6b7280', padding: 0 }}
-                          >
-                            {fmtFiyat(u.alisFiyati)}
-                          </button>
-                        )}
-                      </td>
-                      <td style={{ ...td, fontSize: 12 }}>%{Math.round(u.kdvOrani)}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>{u.toplamStok}</td>
-                      <td style={td}>
-                        <button type="button" onClick={() => void etiketBas(u)} style={{ ...btn, padding: '4px 10px', fontSize: 11, backgroundColor: '#f0fdf4', color: '#166534' }}>
-                          Etiket
-                        </button>
+                  {urunler.map((u) => {
+                    const cokluVaryant = (u.varyantSayisi ?? 1) > 1
+                    const expanded = expandedTmplIds.has(u.id)
+                    const varyantlar = varyantCache.get(u.id)
+                    const varyantLoading = varyantYukleniyor.has(u.id)
+
+                    return (
+                      <Fragment key={u.id}>
+                        <tr key={u.id} style={{ borderBottom: expanded ? 'none' : '1px solid #f3f4f6' }}>
+                          <td style={{ ...td, width: 28, padding: '10px 4px' }}>
+                            {cokluVaryant ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleExpand(u.id)}
+                                aria-label={expanded ? 'Varyantları gizle' : 'Varyantları göster'}
+                                style={{
+                                  border: 'none',
+                                  background: 'none',
+                                  cursor: 'pointer',
+                                  padding: '2px 4px',
+                                  fontSize: 11,
+                                  color: '#6b7280',
+                                  lineHeight: 1,
+                                }}
+                              >
+                                {expanded ? '▼' : '▶'}
+                              </button>
+                            ) : null}
+                          </td>
+                          <td style={td}>
+                            <input type="checkbox" checked={secili.has(u.id)} onChange={() => toggleSec(u.id)} />
+                          </td>
+                          <td style={{ ...td, fontFamily: 'monospace', fontSize: 12 }}>{u.icReferans || '—'}</td>
+                          <td style={{ ...td, fontWeight: 700 }}>{u.urunAdi}</td>
+                          <td style={{ ...td, fontSize: 12, color: '#6b7280' }}>{u.kategori}</td>
+                          <td style={td}>
+                            {duzenlenen?.id === u.id && duzenlenen.alan === 'satis' ? (
+                              <input
+                                autoFocus
+                                type="number"
+                                value={duzenlenen.deger}
+                                onChange={(e) => setDuzenlenen({ ...duzenlenen, deger: e.target.value })}
+                                onBlur={() => void fiyatKaydet(u)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') void fiyatKaydet(u) }}
+                                style={{ ...inp, width: 90, padding: '4px 8px' }}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setDuzenlenen({ id: u.id, alan: 'satis', deger: String(u.satisFiyati) })}
+                                style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 700, color: '#059669', padding: 0 }}
+                              >
+                                {kaydediliyor === u.id ? '...' : fmtFiyat(u.satisFiyati)}
+                              </button>
+                            )}
+                          </td>
+                          <td style={td}>
+                            {duzenlenen?.id === u.id && duzenlenen.alan === 'alis' ? (
+                              <input
+                                autoFocus
+                                type="number"
+                                value={duzenlenen.deger}
+                                onChange={(e) => setDuzenlenen({ ...duzenlenen, deger: e.target.value })}
+                                onBlur={() => void fiyatKaydet(u)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') void fiyatKaydet(u) }}
+                                style={{ ...inp, width: 90, padding: '4px 8px' }}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setDuzenlenen({ id: u.id, alan: 'alis', deger: String(u.alisFiyati) })}
+                                style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 600, color: '#6b7280', padding: 0 }}
+                              >
+                                {fmtFiyat(u.alisFiyati)}
+                              </button>
+                            )}
+                          </td>
+                          <td style={{ ...td, fontSize: 12 }}>%{Math.round(u.kdvOrani)}</td>
+                          <td style={{ ...td, fontWeight: 700 }}>{u.toplamStok}</td>
+                          <td style={td}>
+                            <button type="button" onClick={() => void etiketBas(u)} style={{ ...btn, padding: '4px 10px', fontSize: 11, backgroundColor: '#f0fdf4', color: '#166534' }}>
+                              Etiket
+                            </button>
+                          </td>
+                        </tr>
+                        {expanded && cokluVaryant ? (
+                          <tr key={`${u.id}-varyantlar`} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                            <td colSpan={10} style={{ padding: 0, backgroundColor: '#f9fafb' }}>
+                              {varyantLoading ? (
+                                <div style={{ padding: '12px 16px', fontSize: 12, color: '#6b7280' }}>Varyantlar yükleniyor...</div>
+                              ) : (
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                  <thead>
+                                    <tr>
+                                      <th style={{ ...subTh, width: 32, paddingLeft: 44 }}></th>
+                                      <th style={subTh}>Nitelik Etiketi</th>
+                                      <th style={subTh}>Barkod</th>
+                                      <th style={subTh}>Satış ₺</th>
+                                      <th style={subTh}>Maliyet ₺</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(varyantlar ?? []).map((v) => {
+                                      const vKey = varyantKey(u.id, v.id)
+                                      const vSecili = secilenVaryantlar.has(vKey)
+                                      const vDuzenleniyor = duzenlenenVaryant?.key === vKey
+                                      const vKaydediliyor = varyantKaydediliyor === vKey
+                                      const arsivli = v.active === false
+                                      return (
+                                        <tr key={v.id} style={arsivli ? { opacity: 0.55 } : undefined}>
+                                          <td style={{ ...subTd, paddingLeft: 44 }}>
+                                            <input
+                                              type="checkbox"
+                                              checked={vSecili}
+                                              onChange={() => toggleVaryantSec(u, v)}
+                                            />
+                                          </td>
+                                          <td style={{ ...subTd, fontWeight: 600, color: arsivli ? '#9ca3af' : '#374151' }}>
+                                            {varyantEtiketi(v)}
+                                            {arsivli ? (
+                                              <span style={{
+                                                marginLeft: 8,
+                                                fontSize: 10,
+                                                fontWeight: 800,
+                                                padding: '2px 6px',
+                                                borderRadius: 6,
+                                                backgroundColor: '#f3f4f6',
+                                                color: '#6b7280',
+                                              }}>
+                                                Arşivde
+                                              </span>
+                                            ) : null}
+                                          </td>
+                                          <td style={{ ...subTd, fontFamily: 'monospace', fontSize: 11, color: arsivli ? '#9ca3af' : '#6b7280' }}>
+                                            {v.barcode || '—'}
+                                          </td>
+                                          <td style={subTd}>
+                                            {vDuzenleniyor && duzenlenenVaryant?.alan === 'satis' ? (
+                                              <input
+                                                autoFocus
+                                                type="number"
+                                                value={duzenlenenVaryant.deger}
+                                                onChange={(e) => setDuzenlenenVaryant({ ...duzenlenenVaryant, deger: e.target.value })}
+                                                onBlur={() => void varyantFiyatKaydet(u.id, v)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') void varyantFiyatKaydet(u.id, v) }}
+                                                style={{ ...inp, width: 90, padding: '4px 8px', fontSize: 12 }}
+                                              />
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => setDuzenlenenVaryant({ key: vKey, alan: 'satis', deger: String(v.lst_price) })}
+                                                style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 700, color: '#059669', padding: 0, fontSize: 12 }}
+                                              >
+                                                {vKaydediliyor ? '...' : fmtFiyat(v.lst_price)}
+                                              </button>
+                                            )}
+                                          </td>
+                                          <td style={subTd}>
+                                            {vDuzenleniyor && duzenlenenVaryant?.alan === 'maliyet' ? (
+                                              <input
+                                                autoFocus
+                                                type="number"
+                                                value={duzenlenenVaryant.deger}
+                                                onChange={(e) => setDuzenlenenVaryant({ ...duzenlenenVaryant, deger: e.target.value })}
+                                                onBlur={() => void varyantFiyatKaydet(u.id, v)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') void varyantFiyatKaydet(u.id, v) }}
+                                                style={{ ...inp, width: 90, padding: '4px 8px', fontSize: 12 }}
+                                              />
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => setDuzenlenenVaryant({ key: vKey, alan: 'maliyet', deger: String(v.standard_price) })}
+                                                style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 600, color: '#6b7280', padding: 0, fontSize: 12 }}
+                                              >
+                                                {fmtFiyat(v.standard_price)}
+                                              </button>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      )
+                                    })}
+                                    {!varyantlar?.length ? (
+                                      <tr>
+                                        <td colSpan={5} style={{ ...subTd, color: '#9ca3af', paddingLeft: 44 }}>Varyant bulunamadı</td>
+                                      </tr>
+                                    ) : null}
+                                  </tbody>
+                                </table>
+                              )}
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    )
+                  })}
+                  {!urunler.length ? (
+                    <tr>
+                      <td colSpan={10} style={{ ...td, textAlign: 'center', color: '#9ca3af', padding: 32 }}>
+                        {activeTab === 'arsiv' ? 'Arşivde ürün yok' : 'Ürün bulunamadı'}
                       </td>
                     </tr>
-                  ))}
-                  {!urunler.length ? (
-                    <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#9ca3af', padding: 32 }}>Ürün bulunamadı</td></tr>
                   ) : null}
                 </tbody>
               </table>
@@ -574,6 +1288,13 @@ export default function StokYonetimiPage() {
           </div>
         </div>
       ) : null}
+
+      <EtiketBasModal
+        acik={varyantEtiketAcik}
+        urunler={varyantEtiketUrunleri}
+        source="admin"
+        onKapat={() => setVaryantEtiketAcik(false)}
+      />
         </>
       ) : null}
     </div>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   bildirimOkundu,
+  fiyatBildirimEtiketBasildi,
   getFiyatBildirimleri,
   getUrunLotlari,
   tumBildirimleriOkundu,
@@ -67,6 +68,9 @@ export default function FiyatBildirimPanel({ acik, onKapat, onSayacGuncelle }: P
       }))
       const res = await generateZpl(items, 'admin')
       setEtiketZpl(res.zpl)
+      await fiyatBildirimEtiketBasildi(b.id)
+      onSayacGuncelle()
+      void yukle()
     } finally {
       setEtiketYukleniyor(null)
     }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { apiClient } from '../api/client'
+import { useAuthStore } from '../store/auth.store'
 
 type ExpenseCategory = { id: number; name: string }
 
@@ -89,6 +90,8 @@ export default function MasraflarPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [warning, setWarning] = useState<string | null>(null)
+  const shiftId = useAuthStore((s) => s.shiftId)
 
   const searchSuppliers = async (query: string) => {
     try {
@@ -171,6 +174,7 @@ export default function MasraflarPage() {
     e.preventDefault()
     setError(null)
     setSuccess(null)
+    setWarning(null)
 
     if (!categoryId || !aciklama.trim() || !tutar.trim() || !tedarikci.trim()) {
       setError('Zorunlu alanları doldurun.')
@@ -195,11 +199,37 @@ export default function MasraflarPage() {
         name: aciklama.trim(),
         product_id: Number(categoryId),
         total_amount: amount,
-        employee_id: 1,
         payment_mode: paymentMode,
+        odeme_yontemi: odemeYontemi,
         description: descriptionParts.join('\n'),
       })
       setSuccess('Masraf kaydı başarıyla oluşturuldu.')
+
+      if (odemeYontemi === 'Nakit') {
+        if (!shiftId) {
+          setWarning(
+            'Masraf kaydedildi ancak açık vardiya olmadığı için kasadan otomatik düşülemedi. Lütfen vardiya açıksa Kasa Hareketi\'nden elle girin.',
+          )
+        } else {
+          try {
+            await apiClient.post('/cash-movements', {
+              type: 'CASH_OUT',
+              amount: String(amount),
+              description: `Masraf: ${aciklama.trim()}`,
+            })
+          } catch (cashErr: any) {
+            const cashMsg =
+              cashErr?.response?.data?.message ??
+              cashErr?.response?.data?.error ??
+              cashErr?.message ??
+              'Kasa hareketi oluşturulamadı'
+            setWarning(
+              `Masraf kaydedildi ancak kasadan otomatik düşülemedi: ${cashMsg}. Lütfen Kasa Hareketi'nden elle girin.`,
+            )
+          }
+        }
+      }
+
       resetForm()
     } catch (e: any) {
       const msg =
@@ -230,6 +260,22 @@ export default function MasraflarPage() {
           }}
         >
           {success}
+        </div>
+      ) : null}
+
+      {warning ? (
+        <div
+          style={{
+            padding: '12px 16px',
+            borderRadius: '10px',
+            backgroundColor: '#fffbeb',
+            border: '1px solid #fcd34d',
+            color: '#92400e',
+            fontSize: '14px',
+            fontWeight: 600,
+          }}
+        >
+          {warning}
         </div>
       ) : null}
 

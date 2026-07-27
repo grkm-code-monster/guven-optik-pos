@@ -2,11 +2,18 @@ import { Role } from '@prisma/client'
 import { prisma } from '../../database/prisma'
 import { createBildirimler } from '../bildirim/bildirim.service'
 import { execute } from '../odoo/odoo.service'
-import { createTransfer } from '../transfer/transfer.service'
+import {
+  getCompanyIdFromLokasyon,
+  getLokasyonId,
+  getLokasyonSirket,
+} from '../odoo/odooLocations'
+import { olusturTransfer } from '../admin/transfer-olustur.service'
+import type { SirketlerArasiTransferSonuc } from '../admin/sirketler-arasi-transfer.service'
 import {
   normalizeOzelSiparisDurum,
   ozelSiparisDurumLabel,
   OZEL_SIPARIS_DURUM_SIRASI,
+  isOzelSiparisAktif,
 } from './ozel-siparis.constants'
 
 export async function getOzelSiparisLoglari(siparisId: string) {
@@ -242,6 +249,129 @@ export async function getOzelSiparisStokGirisDetay(siparisId: string) {
   return { siparis, eslestirmeler }
 }
 
+const OZEL_SIPARIS_CIKIS_LOKASYON = 'ANADEPO'
+
+type OzelSiparisTransferSonuc =
+  | { success: true; yontem: 'sirket-ici'; transferId?: number; refNo?: string; odooPickingId?: number; pickingName?: string }
+  | { success: true; yontem: 'sirketler-arasi'; transfer: SirketlerArasiTransferSonuc }
+  | { success: false; message: string }
+
+async function resolveLotIdInCompany(
+  lotName: string,
+  productId: number,
+  companyId: number,
+): Promise<number | undefined> {
+  const lots = await execute(
+    'stock.lot',
+    'search_read',
+    [[['name', '=', lotName], ['product_id', '=', productId]]],
+    { fields: ['id'], limit: 1 },
+    companyId,
+  )
+  return lots[0]?.id as number | undefined
+}
+
+async function runOzelSiparisStokTransfer(input: {
+  siparis: { id: string; urunAdi: string; musteriAdi: string; subeId: string }
+  kalemler: Array<{
+    odooProductId: number
+    lotAdi: string
+    urunAdi: string | null
+    odooLotId: number | null
+  }>
+  userId?: string | null
+}): Promise<OzelSiparisTransferSonuc> {
+  const { siparis, kalemler } = input
+  const cikisLokasyon = OZEL_SIPARIS_CIKIS_LOKASYON
+  const girisLokasyon = siparis.subeId
+
+  const cikisSirket = getLokasyonSirket(cikisLokasyon)
+  const girisSirket = getLokasyonSirket(girisLokasyon)
+  if (!cikisSirket || !girisSirket) {
+    return {
+      success: false,
+      message: `Lokasyon şirketi tanımsız: ${!cikisSirket ? cikisLokasyon : girisLokasyon}`,
+    }
+  }
+
+  const kaynakId = await getLokasyonId(cikisLokasyon)
+  const hedefId = await getLokasyonId(girisLokasyon)
+  const kaynakSirketId = getCompanyIdFromLokasyon(cikisLokasyon)
+  if (!kaynakId || !hedefId || !kaynakSirketId) {
+    return { success: false, message: 'Transfer lokasyon/şirket bilgisi çözülemedi' }
+  }
+
+  const transferKalemler = []
+  for (const kalem of kalemler) {
+    let lotId = kalem.odooLotId ?? undefined
+    if (kalem.lotAdi) {
+      const kaynakLotId = await resolveLotIdInCompany(kalem.lotAdi, kalem.odooProductId, kaynakSirketId)
+      if (kaynakLotId) lotId = kaynakLotId
+    }
+    transferKalemler.push({
+      kaynak: kaynakId,
+      hedef: hedefId,
+      productId: kalem.odooProductId,
+      resolvedProductId: kalem.odooProductId,
+      miktar: 1,
+      urunAdi: kalem.urunAdi ?? siparis.urunAdi,
+      lotId,
+    })
+  }
+
+  const result = await olusturTransfer({
+    kalemler: transferKalemler,
+    notlar: `OzelSiparis:${siparis.id} — ${siparis.musteriAdi} — ${siparis.urunAdi}`,
+    hemenKabul: true,
+  })
+
+  if (!result.success) {
+    return { success: false, message: result.message ?? 'Transfer başarısız' }
+  }
+
+  const row = result.transferler[0] as {
+    tip?: string
+    transferRef?: string
+    pickingId?: number
+    kabulPickingId?: number
+    pickingName?: string
+    fatura?: string
+    alimFatura?: string
+    hedefStokGirisi?: string
+    stokHareketi?: string
+    kalemSayisi?: number
+    adimlar?: unknown[]
+  } | undefined
+
+  const pickingId = row?.kabulPickingId ?? row?.pickingId
+
+  if (row?.tip === 'sirketler-arasi') {
+    const transfer: SirketlerArasiTransferSonuc = {
+      tip: 'sirketler-arasi',
+      durum: 'basarili',
+      transferRef: row.transferRef ?? `OZEL-${siparis.id}`,
+      satisSiparisi: row.transferRef ?? `OZEL-${siparis.id}`,
+      kalemSayisi: row.kalemSayisi ?? kalemler.length,
+      fatura: row.fatura,
+      alimFatura: row.alimFatura,
+      hedefStokGirisi: row.hedefStokGirisi,
+      stokHareketi: row.stokHareketi,
+      kabulPickingId: row.kabulPickingId,
+      adimlar: (row.adimlar as SirketlerArasiTransferSonuc['adimlar']) ?? [],
+    }
+    return { success: true, yontem: 'sirketler-arasi', transfer }
+  }
+
+  return {
+    success: true,
+    yontem: 'sirket-ici',
+    transferId: pickingId,
+    odooPickingId: pickingId,
+    refNo: row?.pickingName ?? (pickingId ? String(pickingId) : undefined),
+    pickingName: row?.pickingName,
+  }
+}
+
 export async function stokaAlOzelSiparis(
   siparisId: string,
   input: { userId?: string | null; bekleyenFaturaId?: string },
@@ -259,28 +389,30 @@ export async function stokaAlOzelSiparis(
     throw new Error('Sipariş şube bilgisi eksik')
   }
 
-  const transferUrunler = eslestirmeler
-    .filter((e) => e.lotAdi && e.odooProductId)
-    .map((e) => ({
-      id: String(e.odooProductId),
-      ad: e.urunAdi ?? siparis.urunAdi,
-      adet: 1,
-      lotNo: e.lotAdi!,
-    }))
+  const eslesmeyen = eslestirmeler.filter((e) => !e.lotAdi || !e.odooProductId)
+  if (eslesmeyen.length > 0) {
+    throw new Error(`${eslesmeyen.length} karekod Odoo lot/ürün ile eşleşmedi — stok transferi yapılamaz`)
+  }
 
-  let transferSonuc: { success?: boolean; pickingName?: string; message?: string } | null = null
-  if (transferUrunler.length) {
-    transferSonuc = await createTransfer({
-      cikisLokasyon: 'ANADEPO',
-      girisLokasyon: siparis.subeId,
-      tarih: new Date().toISOString().slice(0, 10),
-      referans: `OzelSiparis:${siparis.id}`,
-      personel: input.userId ?? 'DYSE',
-      not: `${siparis.musteriAdi} — ${siparis.urunAdi}`,
-      urunler: transferUrunler,
+  let transferSonuc: OzelSiparisTransferSonuc | null = null
+  if (eslestirmeler.length > 0) {
+    transferSonuc = await runOzelSiparisStokTransfer({
+      siparis: {
+        id: siparis.id,
+        urunAdi: siparis.urunAdi,
+        musteriAdi: siparis.musteriAdi,
+        subeId: siparis.subeId,
+      },
+      kalemler: eslestirmeler.map((e) => ({
+        odooProductId: e.odooProductId!,
+        lotAdi: e.lotAdi!,
+        urunAdi: e.urunAdi,
+        odooLotId: e.odooLotId,
+      })),
+      userId: input.userId,
     })
-    if (transferSonuc && transferSonuc.success === false) {
-      throw new Error(transferSonuc.message ?? 'Odoo transfer başarısız')
+    if (!transferSonuc.success) {
+      throw new Error(transferSonuc.message)
     }
   }
 
@@ -334,4 +466,142 @@ export async function stokaAlOzelSiparis(
     utsBildirimId,
     eslestirmeler,
   }
+}
+
+export function parseOzelSiparisReceteNum(v: unknown): number | null {
+  if (v == null || v === '') return null
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  const s = String(v).trim().replace(',', '.')
+  if (!s) return null
+  const n = Number(s.replace(/^\+/, ''))
+  return Number.isFinite(n) ? n : null
+}
+
+export type CreateOzelSiparisInput = {
+  musteriAdi?: string
+  musteriTelefon?: string
+  musteriId?: string
+  satisSiparisId?: string
+  saleItemId?: string
+  subeId?: string
+  subeAdi?: string
+  sirketId?: number | string
+  tip?: string
+  urunAdi?: string
+  urunKodu?: string
+  miktar?: number | string
+  sagSph?: unknown
+  sagCyl?: unknown
+  sagAks?: unknown
+  sagAdd?: unknown
+  sagPd?: unknown
+  solSph?: unknown
+  solCyl?: unknown
+  solAks?: unknown
+  solAdd?: unknown
+  solPd?: unknown
+  camTipi?: string
+  camIndeksi?: string
+  kaplama?: string
+  cerceveBilgisi?: string
+  tedarikciId?: number | string
+  tedarikciAdi?: string
+  tahminiMaliyet?: number | string
+  satisFiyati?: number | string
+  notlar?: string
+  tahminiGelisTarihi?: string | Date
+  olusturanKullanici?: string
+  olcumBilgisi?: unknown
+  satisTemsilcisi?: string
+}
+
+export type CreateOzelSiparisResult =
+  | { success: true; data: Awaited<ReturnType<typeof prisma.ozelSiparis.create>>; zatenVar?: false }
+  | {
+      success: true
+      zatenVar: true
+      mevcutSiparis: Awaited<ReturnType<typeof prisma.ozelSiparis.create>>
+      data: Awaited<ReturnType<typeof prisma.ozelSiparis.create>>
+    }
+
+/** Mevcut POST /admin/ozel-siparis-ekle mantığı — davranış değiştirilmedi */
+export async function createOzelSiparis(
+  input: CreateOzelSiparisInput,
+  olusturanUserId?: string | null,
+): Promise<CreateOzelSiparisResult> {
+  const {
+    musteriAdi, musteriTelefon, musteriId,
+    satisSiparisId, saleItemId, subeId, subeAdi, sirketId,
+    tip, urunAdi, urunKodu, miktar,
+    sagSph, sagCyl, sagAks, sagAdd, sagPd,
+    solSph, solCyl, solAks, solAdd, solPd,
+    camTipi, camIndeksi, kaplama, cerceveBilgisi,
+    tedarikciId, tedarikciAdi,
+    tahminiMaliyet, satisFiyati,
+    notlar, tahminiGelisTarihi, olusturanKullanici, olcumBilgisi, satisTemsilcisi,
+  } = input
+
+  if (!musteriAdi?.trim() || !urunAdi?.trim() || !tip) {
+    throw new Error('musteriAdi, urunAdi, tip zorunlu')
+  }
+
+  if (saleItemId) {
+    const mevcutKayitlar = await prisma.ozelSiparis.findMany({
+      where: { saleItemId: String(saleItemId) },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    })
+    const mevcutAktif = mevcutKayitlar.find((s) => isOzelSiparisAktif(s.durum))
+    if (mevcutAktif) {
+      return {
+        success: true,
+        zatenVar: true,
+        mevcutSiparis: mevcutAktif,
+        data: mevcutAktif,
+      }
+    }
+  }
+
+  const siparis = await prisma.ozelSiparis.create({
+    data: {
+      musteriAdi,
+      musteriTelefon,
+      musteriId,
+      satisSiparisId,
+      saleItemId: saleItemId ? String(saleItemId) : null,
+      subeId,
+      subeAdi,
+      sirketId: sirketId ? Number(sirketId) : null,
+      tip,
+      urunAdi,
+      urunKodu,
+      miktar: Number(miktar) || 1,
+      sagSph: parseOzelSiparisReceteNum(sagSph),
+      sagCyl: parseOzelSiparisReceteNum(sagCyl),
+      sagAks: parseOzelSiparisReceteNum(sagAks),
+      sagAdd: parseOzelSiparisReceteNum(sagAdd),
+      sagPd: parseOzelSiparisReceteNum(sagPd),
+      solSph: parseOzelSiparisReceteNum(solSph),
+      solCyl: parseOzelSiparisReceteNum(solCyl),
+      solAks: parseOzelSiparisReceteNum(solAks),
+      solAdd: parseOzelSiparisReceteNum(solAdd),
+      solPd: parseOzelSiparisReceteNum(solPd),
+      camTipi,
+      camIndeksi,
+      kaplama,
+      cerceveBilgisi,
+      tedarikciId: tedarikciId ? Number(tedarikciId) : null,
+      tedarikciAdi,
+      tahminiMaliyet: tahminiMaliyet ? Number(tahminiMaliyet) : null,
+      satisFiyati: satisFiyati ? Number(satisFiyati) : null,
+      notlar,
+      olusturanKullanici,
+      olusturanUserId: olusturanUserId ?? undefined,
+      olcumBilgisi: olcumBilgisi ?? undefined,
+      satisTemsilcisi: satisTemsilcisi ?? undefined,
+      tahminiGelisTarihi: tahminiGelisTarihi ? new Date(tahminiGelisTarihi) : null,
+    },
+  })
+
+  return { success: true, data: siparis }
 }

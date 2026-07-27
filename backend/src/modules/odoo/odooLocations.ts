@@ -46,6 +46,18 @@ export const SIRKET_COMPANY_ID: Record<string, number> = {
   POTENTIAL: 4,
 };
 
+/** Şirket → ana depo (stock.location id) */
+export const SIRKET_ANADEPO_MAP: Record<number, number> = {
+  1: 8,   // GÜVEN OPTİK → WH/Stok
+  2: 61,  // NG → NG/Stok/ANA-DEPO
+  3: 32,  // ADESE → ADESE/Stok
+  4: 42,  // POTENTIAL → POTEN/Stok
+};
+
+export function getAnaDepoLocationId(companyId: number): number {
+  return SIRKET_ANADEPO_MAP[companyId] ?? SIRKET_ANADEPO_MAP[1];
+}
+
 const BRANCH_CODE_ALIASES: Record<string, string> = {
   PILOT01: 'GVN1',
 };
@@ -81,6 +93,13 @@ export function getCompanyIdFromBranchCode(branchCode: string): number {
     if (fromAlias != null) return fromAlias;
   }
   return SIRKET_COMPANY_ID.ADESE;
+}
+
+export function resolveBranchStockLocationId(branchCode: string): number {
+  const key = normalizeKey(branchCode);
+  const fromMap = LOKASYON_ID_MAP[key];
+  if (fromMap != null) return fromMap;
+  return getAnaDepoLocationId(getCompanyIdFromBranchCode(branchCode));
 }
 
 export function getLokasyonMap(_force = false): Promise<Record<string, number>> {

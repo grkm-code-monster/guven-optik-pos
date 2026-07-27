@@ -4,6 +4,7 @@ import { Role } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import { isDevMockEnabled } from './transfer.mock';
 import * as transferService from './transfer.service';
+import { listTransferAksiyonLogs, summarizeTransferAksiyonLogs } from './transfer-aksiyon-log.service';
 
 const router = Router();
 
@@ -21,12 +22,14 @@ function handleOdooFailure(res: Response, err: unknown) {
   if (isDevMockEnabled()) {
     return res.status(503).json({
       error: 'Odoo bağlantısı kurulamadı',
+      message: detail || 'Odoo bağlantısı kurulamadı',
       detail,
       hint: 'NODE_ENV=development — mock verisi endpoint içinde döndürülür',
     });
   }
   return res.status(503).json({
     error: 'Odoo bağlantısı kurulamadı',
+    message: detail || 'Odoo bağlantısı kurulamadı',
     detail,
   });
 }
@@ -54,6 +57,34 @@ router.get('/urun-ara', async (req, res) => {
     return res.status(200).json(rows);
   } catch (err) {
     return handleOdooFailure(res, err);
+  }
+});
+
+router.get('/urun-lotlari', async (req, res) => {
+  try {
+    const productId = Number(req.query.productId);
+    const lokasyon = String(req.query.lokasyon ?? '');
+    if (!Number.isFinite(productId) || productId <= 0 || !lokasyon.trim()) {
+      return res.status(400).json({ error: 'productId ve lokasyon zorunlu' });
+    }
+    const rows = await transferService.searchUrunLotsByProduct(productId, lokasyon);
+    return res.status(200).json(rows);
+  } catch (err) {
+    return handleOdooFailure(res, err);
+  }
+});
+
+router.get('/aksiyon-log', async (req, res) => {
+  try {
+    const transferRef = typeof req.query.transferRef === 'string' ? req.query.transferRef.trim() : undefined;
+    const refsRaw = typeof req.query.transferRefs === 'string' ? req.query.transferRefs : '';
+    const transferRefs = refsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+    const logs = await listTransferAksiyonLogs({ transferRef, transferRefs, limit: 200 });
+    const ozet = summarizeTransferAksiyonLogs(logs);
+    return res.json({ logs, ozet });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: msg });
   }
 });
 

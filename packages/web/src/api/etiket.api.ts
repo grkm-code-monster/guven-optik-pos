@@ -8,9 +8,12 @@ export type EtiketItem = {
   barkod?: string | null
 }
 
+export type EtiketDil = 'zpl' | 'ppla'
+
 export type EtiketSablonKayit = {
   id: string
   ad: string
+  slug?: string | null
   kategori: string
   elemanlar: unknown
   etiketGenislik: number
@@ -40,17 +43,19 @@ export async function generateZpl(
 
 export async function generateZplFromSablon(
   payload: {
-    elemanlar: unknown[]
-    etiketGenislik: number
-    etiketYukseklik: number
+    elemanlar?: unknown[]
+    etiketGenislik?: number
+    etiketYukseklik?: number
     veri?: Record<string, unknown>
     etiketler?: Record<string, unknown>[]
     sablonId?: string
+    dil?: EtiketDil
   },
   source: 'pos' | 'admin' = 'admin',
 ): Promise<{ zpl: string; count: number }> {
   const client = clientFor(source)
-  const res = await client.post('/etiket/zpl', payload)
+  const { dil = 'ppla', ...rest } = payload
+  const res = await client.post('/etiket/zpl', { dil, ...rest })
   return res.data
 }
 
@@ -58,6 +63,12 @@ export async function getEtiketSablonlari(kategori?: string) {
   const client = clientFor('admin')
   const res = await client.get('/etiket/sablonlar', { params: kategori ? { kategori } : undefined })
   return (res.data?.data ?? []) as EtiketSablonKayit[]
+}
+
+export async function getEtiketSablonBySlug(slug: string) {
+  const client = clientFor('admin')
+  const res = await client.get(`/etiket/sablon/slug/${encodeURIComponent(slug)}`)
+  return res.data?.data as EtiketSablonKayit
 }
 
 export async function kaydetEtiketSablon(payload: {

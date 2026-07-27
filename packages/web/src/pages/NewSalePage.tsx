@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import { useAuthStore } from '../store/auth.store'
-import { confirmSale, createSale, getSaleById } from '../api/sales.api'
+import { confirmSale, createSale, getSaleById, saveDraftMeta } from '../api/sales.api'
+import { apiClient } from '../api/client'
 import { getCurrentShift } from '../api/shifts.api'
 import { getCustomerById, getLatestPrescription } from '../api/customers.api'
 import CustomerStep from '../components/sale/CustomerStep'
@@ -30,6 +31,22 @@ function formatMoney(v?: string) {
 
 type Step = 1 | 2 | 3 | 4 | 5 | 5.5 | 6
 
+type SaleDraftMeta = {
+  step?: Step
+  pricing?: PricingOverview
+  payments?: PendingPaymentPayload
+  measurements?: LensMeasurementDraft[]
+}
+
+function parseDraftMeta(raw: unknown): SaleDraftMeta | null {
+  if (!raw || typeof raw !== 'object') return null
+  return raw as SaleDraftMeta
+}
+
+function isValidStep(value: unknown): value is Step {
+  return value === 1 || value === 2 || value === 3 || value === 4 || value === 5 || value === 5.5 || value === 6
+}
+
 export default function NewSalePage() {
   const storedShiftId = useAuthStore((s) => s.shiftId)
   const [searchParams] = useSearchParams()
@@ -46,6 +63,7 @@ export default function NewSalePage() {
   const [pendingPayments, setPendingPayments] = useState<PendingPaymentPayload | null>(null)
   const [lensMeasurementDrafts, setLensMeasurementDrafts] = useState<LensMeasurementDraft[]>([])
   const [saleConfirmed, setSaleConfirmed] = useState(false)
+  const [confirmSaving, setConfirmSaving] = useState(false)
 
   const [shiftId, setShiftId] = useState<string | null>(storedShiftId ?? null)
   const [shiftLoading, setShiftLoading] = useState(false)
@@ -88,10 +106,35 @@ export default function NewSalePage() {
           ;(window as any).__aktifMusteriAdi = s.customer.name ?? ''
         }
         getLatestPrescription(s.customerId).then(setLatestPrescription).catch(() => null)
-        setStep(2)
+        const meta = parseDraftMeta(s.draftMeta)
+        if (meta) {
+          if (meta.pricing) setPricingOverview(meta.pricing)
+          if (meta.payments) setPendingPayments(meta.payments)
+          if (meta.measurements?.length) setLensMeasurementDrafts(meta.measurements)
+          setStep(isValidStep(meta.step) ? meta.step : 2)
+        } else {
+          setStep(2)
+        }
       })
       .catch((e: any) => console.error('Resume sale error', e))
   }, [resumeSaleId])
+
+  const saveDraftMetaQuiet = useCallback((
+    saleId: string,
+    payload: {
+      step?: Step
+      pricing?: PricingOverview | null
+      payments?: PendingPaymentPayload | null
+      measurements?: LensMeasurementDraft[]
+    },
+  ) => {
+    void saveDraftMeta(saleId, {
+      step: payload.step,
+      pricing: payload.pricing ?? undefined,
+      payments: payload.payments ?? undefined,
+      measurements: payload.measurements?.length ? payload.measurements : undefined,
+    }).catch((e) => console.error('[draft-meta] save error', e))
+  }, [])
 
   useEffect(() => {
     if (currentStep !== 3 && currentStep !== 4 && currentStep !== 5 && currentStep !== 5.5 && currentStep !== 6) return
@@ -123,6 +166,7 @@ export default function NewSalePage() {
     if (!ayniMusteri) {
       setSale(null)
       setPendingPayments(null)
+      setPricingOverview(null)
       setSaleConfirmed(false)
       setLensMeasurementDrafts([])
     }
@@ -158,15 +202,26 @@ export default function NewSalePage() {
     }
     setError(null)
     setPendingPayments(payload)
-    setCurrentStep(saleNeedsLensMeasurementStep(sale) ? 5 : 5.5)
-  }, [sale])
+    const nextStep: Step = saleNeedsLensMeasurementStep(sale) ? 5 : 5.5
+    if (sale?.id && sale.status === 'DRAFT') {
+      saveDraftMetaQuiet(sale.id, {
+        step: nextStep,
+        pricing: pricingOverview,
+        payments: payload,
+        measurements: lensMeasurementDrafts,
+      })
+    }
+    setCurrentStep(nextStep)
+  }, [sale, pricingOverview, lensMeasurementDrafts, saveDraftMetaQuiet])
 
   const handleConfirmSale = useCallback(async () => {
     if (!sale?.id || !pendingPayments) {
       setError('Onay için önce ödeme adımını tamamlayın.')
       return
     }
+    if (confirmSaving) return
     setError(null)
+    setConfirmSaving(true)
     try {
       await confirmSale(sale.id, {
         ...pendingPayments,
@@ -186,13 +241,20 @@ export default function NewSalePage() {
       setSaleConfirmed(true)
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Satış onaylanamadı')
+    } finally {
+      setConfirmSaving(false)
     }
-  }, [sale?.id, pendingPayments, pricingOverview?.mode, pricingOverview?.thirdPartyCoverageTRY, pricingOverview?.kasaIndirimTutar, pricingOverview?.pricingInvoiceNote, lensMeasurementDrafts])
+  }, [sale?.id, pendingPayments, confirmSaving, pricingOverview?.mode, pricingOverview?.thirdPartyCoverageTRY, pricingOverview?.kasaIndirimTutar, pricingOverview?.pricingInvoiceNote, lensMeasurementDrafts])
 
   const handleRefreshSale = useCallback(async () => {
     if (!sale?.id) return
+    const res = await apiClient.post(`/efatura/satis-onay/${sale.id}`)
     const refreshed = await getSaleById(sale.id)
     setSale(refreshed)
+    return {
+      mesaj: res.data?.mesaj ?? undefined,
+      processing: res.data?.processing ?? false,
+    }
   }, [sale?.id])
 
   const canGoToStep = (target: Step): boolean => {
@@ -298,8 +360,19 @@ export default function NewSalePage() {
               <PricingStep
                 sale={sale}
                 customerPrescription={latestPrescription}
+                restoredOverview={pricingOverview}
                 onOverviewChange={setPricingOverview}
-                onNext={() => setCurrentStep(4)}
+                onNext={() => {
+                  if (sale?.id && sale.status === 'DRAFT') {
+                    saveDraftMetaQuiet(sale.id, {
+                      step: 4,
+                      pricing: pricingOverview,
+                      payments: pendingPayments,
+                      measurements: lensMeasurementDrafts,
+                    })
+                  }
+                  setCurrentStep(4)
+                }}
                 onBack={() => setCurrentStep(2)}
               />
             </div>
@@ -308,6 +381,7 @@ export default function NewSalePage() {
                 sale={sale}
                 deferConfirm
                 pricingOverview={pricingOverview}
+                initialPayload={pendingPayments}
                 onBack={() => setCurrentStep(3)}
                 onNext={handlePaymentContinue}
               />
@@ -321,8 +395,17 @@ export default function NewSalePage() {
               <LensMeasurementStep
                 sale={sale}
                 customerPrescription={latestPrescription}
+                initialDrafts={lensMeasurementDrafts.length > 0 ? lensMeasurementDrafts : undefined}
                 onComplete={(drafts) => {
                   setLensMeasurementDrafts(drafts)
+                  if (sale?.id && sale.status === 'DRAFT') {
+                    saveDraftMetaQuiet(sale.id, {
+                      step: 5.5,
+                      pricing: pricingOverview,
+                      payments: pendingPayments,
+                      measurements: drafts,
+                    })
+                  }
                   setStep(5.5)
                 }}
                 onBack={() => setStep(4)}
@@ -371,10 +454,12 @@ export default function NewSalePage() {
               ) : null}
             </div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <Button variant="secondary" onClick={() => setCurrentStep(5)}>
+              <Button variant="secondary" onClick={() => setCurrentStep(5)} disabled={confirmSaving}>
                 ← Ölçüler
               </Button>
-              <Button onClick={() => void handleConfirmSale()}>Satışı onayla ve tamamla</Button>
+              <Button disabled={confirmSaving} onClick={() => void handleConfirmSale()}>
+                {confirmSaving ? 'Onaylanıyor...' : 'Satışı onayla ve tamamla'}
+              </Button>
             </div>
           </div>
         ) : null}
@@ -495,12 +580,18 @@ export default function NewSalePage() {
           ) : (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Ara Toplam</span>
+                <span>Ara Toplam (KDV dahil)</span>
                 <span style={{ fontWeight: 800 }}>{formatMoney(sale?.grossTotal)}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>KDV</span>
-                <span style={{ fontWeight: 800 }}>{formatMoney(sale?.taxTotal)}</span>
+              {Number(sale?.discountTotal ?? 0) > 0 ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>İndirim</span>
+                  <span style={{ fontWeight: 800 }}>{formatMoney(sale?.discountTotal)}</span>
+                </div>
+              ) : null}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280' }}>
+                <span>KDV (dahil olan)</span>
+                <span>{formatMoney(sale?.taxTotal)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Genel Toplam</span>

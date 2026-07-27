@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuthStore } from './store/auth.store'
+import AuthSessionHandler from './components/AuthSessionHandler'
 import AppLayout from './components/layout/AppLayout'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
@@ -12,6 +13,7 @@ import MasraflarPage from './pages/MasraflarPage'
 import AcikHesapPage from './pages/AcikHesapPage'
 import StokSorgulaPage from './pages/StokSorgulaPage'
 import TeslimatPage from './pages/TeslimatPage'
+import AtolyePage from './pages/AtolyePage'
 import GarantiPage from './pages/GarantiPage'
 import SaleDetailPage from './pages/SaleDetailPage'
 import AdminLoginPage from './pages/admin/AdminLoginPage'
@@ -28,11 +30,14 @@ import GarantiYonetimPage from './pages/admin/GarantiYonetimPage'
 import UrunYapilandirmaPage from './pages/admin/UrunYapilandirmaPage'
 import StokYonetimiPage from './pages/admin/StokYonetimiPage'
 import EtiketTasarimciPage from './pages/admin/EtiketTasarimciPage'
+import EtiketSablonDuzenleyici from './pages/admin/EtiketSablonDuzenleyici'
+import DeployPage from './pages/admin/DeployPage'
 import UtsYonetimiPage from './pages/admin/UtsYonetimiPage'
 import BelgeYuklePage from './pages/BelgeYuklePage'
 import SatislarPage from './pages/SatislarPage'
 import MusterilerPage from './pages/MusterilerPage'
 import RaporlarimPage from './pages/RaporlarimPage'
+import { canAccessAtolye } from './utils/atolyeAccess'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -44,9 +49,15 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return user?.role === 'ADMIN' ? <>{children}</> : <Navigate to="/" replace />
 }
 
+function AtolyeRoute({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user)
+  return canAccessAtolye(user) ? <>{children}</> : <Navigate to="/" replace />
+}
+
 export default function App() {
   return (
     <BrowserRouter>
+      <AuthSessionHandler />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/belge-yukle/:personelId" element={<BelgeYuklePage />} />
@@ -61,6 +72,7 @@ export default function App() {
           <Route path="depo" element={<DepoPage />} />
           <Route path="stok-yonetimi" element={<StokYonetimiPage />} />
           <Route path="etiket-tasarimci" element={<EtiketTasarimciPage />} />
+          <Route path="etiket-sablon-duzenleyici" element={<EtiketSablonDuzenleyici />} />
           <Route path="urun-yapilandirma" element={<UrunYapilandirmaPage />} />
           <Route path="garanti" element={<GarantiYonetimPage />} />
           <Route path="uts" element={<UtsYonetimiPage />} />
@@ -69,6 +81,7 @@ export default function App() {
           <Route path="finans" element={<FinansPage />} />
           <Route path="patron" element={<PatronPage />} />
           <Route path="rapor-matris" element={<RaporMatrisPage />} />
+          <Route path="deploy" element={<DeployPage />} />
         </Route>
         <Route
           path="/shift/open"
@@ -97,6 +110,14 @@ export default function App() {
           <Route path="masraflar" element={<MasraflarPage />} />
           <Route path="acik-hesap" element={<AcikHesapPage />} />
           <Route path="teslimat" element={<TeslimatPage />} />
+          <Route
+            path="atolye"
+            element={
+              <AtolyeRoute>
+                <AtolyePage />
+              </AtolyeRoute>
+            }
+          />
           <Route path="garanti" element={<GarantiPage />} />
           <Route path="stok-sorgula" element={<StokSorgulaPage />} />
           <Route
