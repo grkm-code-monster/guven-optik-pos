@@ -8,7 +8,8 @@
     "migrate": "prisma migrate dev",
     "seed": "prisma db seed",
     "import-urun-toplu": "ts-node --transpile-only scripts/import-urun-toplu.ts",
-    "fix-tracking-serial": "ts-node --transpile-only scripts/fix-tracking-serial.ts"
+    "fix-tracking-serial": "ts-node --transpile-only scripts/fix-tracking-serial.ts",
+    "list-odoo-kategoriler": "ts-node --transpile-only scripts/list-odoo-kategoriler.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
