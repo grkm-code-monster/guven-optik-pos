@@ -1128,6 +1128,8 @@ export default function IKPage() {
                                         <option value="SALES_STAFF">Satış Personeli</option>
                                         <option value="STORE_MANAGER">Mağaza Müdürü</option>
                                         <option value="WAREHOUSE_MANAGER">Depo Müdürü</option>
+                                        <option value="REGIONAL_MANAGER">Bölge Müdürü</option>
+                                        <option value="ACCOUNTANT">Muhasebe</option>
                                         <option value="ADMIN">Admin</option>
                                       </select>
                                     </div>
