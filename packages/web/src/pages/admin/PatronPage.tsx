@@ -44,6 +44,12 @@ function fmt(v: number, doviz: string) {
   return sym + Math.round(v / gun).toLocaleString('tr-TR')
 }
 
+const KATEGORI_KEYS = ['GUNES_GOZLUGU', 'CAM', 'LENS', 'OPTIK_CERCEVE', 'AKSESUAR', 'SOLUSYON'] as const
+const KATEGORI_LABELS = ['Güneş', 'Cam', 'Lens', 'Çerçeve', 'Aksesuar', 'Solüsyon']
+const KATEGORI_RENKLER = ['#A32D2D', '#185FA5', '#3B6D11', '#BA7517', '#6B3FA0', '#888780']
+
+type AltKirilimSatir = { ad: string; ciro: number; adet: number; yuzde: number }
+
 function MetricCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
     <div style={{ background: 'var(--color-background-secondary)', borderRadius: 8, padding: '12px 14px' }}>
@@ -67,9 +73,35 @@ export default function PatronPage() {
   const [kategori, setKategori] = useState<any>(null)
   const [gunluk, setGunluk] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [seciliAnaKategori, setSeciliAnaKategori] = useState<string | null>(null)
+  const [altKirilim, setAltKirilim] = useState<AltKirilimSatir[]>([])
+  const [altYukleniyor, setAltYukleniyor] = useState(false)
+
+  async function kategoriTikla(index: number) {
+    const anaKategori = KATEGORI_KEYS[index]
+    if (!anaKategori) return
+    setSeciliAnaKategori(anaKategori)
+    setAltYukleniyor(true)
+    try {
+      const params = `?baslangic=${baslangic}&bitis=${bitis}${subeId ? '&subeId=' + subeId : ''}&anaKategori=${anaKategori}`
+      const res = await apiClient.get('/reports/patron/kategori-alt' + params)
+      setAltKirilim(res.data ?? [])
+    } catch (e) {
+      console.error(e)
+      setAltKirilim([])
+    } finally {
+      setAltYukleniyor(false)
+    }
+  }
+
+  function kategoriGeri() {
+    setSeciliAnaKategori(null)
+    setAltKirilim([])
+  }
 
   async function loadData() {
     setLoading(true)
+    kategoriGeri()
     try {
       const params = `?baslangic=${baslangic}&bitis=${bitis}${subeId ? '&subeId=' + subeId : ''}`
       const [o, p, k, g] = await Promise.all([
@@ -214,34 +246,118 @@ export default function PatronPage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1.5rem' }}>
             <div style={card}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Kategori dağılımı</div>
-              <div style={{ position: 'relative', height: 160 }}>
-                <Doughnut
-                  data={{
-                    labels: ['Güneş', 'Cam', 'Lens', 'Çerçeve', 'Aksesuar', 'Solüsyon'],
-                    datasets: [{
-                      data: [
-                        Number(kategori?.GUNES_GOZLUGU?.ciro ?? kategori?.GUNES_GOZLUGU ?? 0),
-                        Number(kategori?.CAM?.ciro ?? kategori?.CAM ?? 0),
-                        Number(kategori?.LENS?.ciro ?? kategori?.LENS ?? 0),
-                        Number(kategori?.OPTIK_CERCEVE?.ciro ?? kategori?.OPTIK_CERCEVE ?? 0),
-                        Number(kategori?.AKSESUAR?.ciro ?? kategori?.AKSESUAR ?? 0),
-                        Number(kategori?.SOLUSYON?.ciro ?? kategori?.SOLUSYON ?? 0),
-                      ],
-                      backgroundColor: [
-                        '#A32D2D', '#185FA5', '#3B6D11',
-                        '#BA7517', '#6B3FA0', '#888780',
-                      ],
-                      borderWidth: 0,
-                    }],
-                  }}
-                  options={{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
-                  }}
-                />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  {seciliAnaKategori
+                    ? `Kategori dağılımı — ${KATEGORI_LABELS[KATEGORI_KEYS.indexOf(seciliAnaKategori as any)]} alt kırılımı`
+                    : 'Kategori dağılımı'}
+                </div>
+                {seciliAnaKategori && (
+                  <button
+                    type="button"
+                    onClick={kategoriGeri}
+                    style={{ fontSize: 11, fontWeight: 700, color: '#374151', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}
+                  >
+                    ← Geri
+                  </button>
+                )}
               </div>
+
+              {!seciliAnaKategori ? (
+                <>
+                  <div style={{ position: 'relative', height: 160 }}>
+                    <Doughnut
+                      data={{
+                        labels: KATEGORI_LABELS,
+                        datasets: [{
+                          data: KATEGORI_KEYS.map((key) =>
+                            Number((kategori as any)?.[key]?.ciro ?? (kategori as any)?.[key] ?? 0),
+                          ),
+                          backgroundColor: KATEGORI_RENKLER,
+                          borderWidth: 0,
+                        }],
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        onClick: (_evt, elements) => {
+                          if (elements.length) void kategoriTikla(elements[0].index)
+                        },
+                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 10, color: '#9ca3af', textAlign: 'center', marginTop: 6 }}>
+                    Alt kırılımı görmek için bir dilime tıklayın
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ position: 'relative', height: 160 }}>
+                    {altYukleniyor ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 12, color: '#6b7280' }}>
+                        Yükleniyor...
+                      </div>
+                    ) : altKirilim.length === 0 ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 12, color: '#6b7280' }}>
+                        Bu kategoride veri yok
+                      </div>
+                    ) : (
+                      <Doughnut
+                        data={{
+                          labels: [KATEGORI_LABELS[KATEGORI_KEYS.indexOf(seciliAnaKategori as any)], ...altKirilim.map((a) => a.ad)],
+                          datasets: [
+                            {
+                              // İç halka: seçili ana kategorinin kendisi (hub)
+                              data: [1],
+                              backgroundColor: [KATEGORI_RENKLER[KATEGORI_KEYS.indexOf(seciliAnaKategori as any)]],
+                              borderWidth: 0,
+                              weight: 0.5,
+                            },
+                            {
+                              // Dış halka: alt kategori kırılımı (yüzdesel)
+                              data: altKirilim.map((a) => a.yuzde),
+                              backgroundColor: altKirilim.map((_, i) =>
+                                ['#A32D2D', '#185FA5', '#3B6D11', '#BA7517', '#6B3FA0', '#888780', '#D97706', '#0E7490'][i % 8],
+                              ),
+                              borderWidth: 0,
+                              weight: 1,
+                            },
+                          ] as any,
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                              callbacks: {
+                                label: (ctx: any) => {
+                                  if (ctx.datasetIndex === 0) return ` ${ctx.label}`
+                                  const row = altKirilim[ctx.dataIndex]
+                                  return ` ${row?.ad}: %${row?.yuzde.toFixed(1)}`
+                                },
+                              },
+                            },
+                          },
+                        }}
+                      />
+                    )}
+                  </div>
+                  {altKirilim.length > 0 && (
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {altKirilim.map((row, i) => (
+                        <div key={row.ad} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, backgroundColor: ['#A32D2D', '#185FA5', '#3B6D11', '#BA7517', '#6B3FA0', '#888780', '#D97706', '#0E7490'][i % 8] }} />
+                          <span style={{ flex: 1, color: '#374151' }}>{row.ad}</span>
+                          <span style={{ fontWeight: 700 }}>%{row.yuzde.toFixed(1)}</span>
+                          <span style={{ color: '#9ca3af', minWidth: 60, textAlign: 'right' }}>{fmt(row.ciro, doviz)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Ödeme yöntemleri</div>

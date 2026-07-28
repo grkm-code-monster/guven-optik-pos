@@ -10,7 +10,7 @@ import {
 import ExcelJS from 'exceljs';
 import { prisma } from '../../database/prisma';
 import { execute } from '../odoo/odoo.service';
-import { kategoriTespit } from '../../utils/kategoriTespit';
+import { kategoriTespit, kategoriAltKirilimTespit } from '../../utils/kategoriTespit';
 
 type DashboardKategori =
   | 'GUNES_GOZLUGU'
@@ -1335,6 +1335,70 @@ export async function getKategoriBreakdown({ baslangic, bitis, subeId }: { basla
   }
 
   return breakdown;
+}
+
+export type KategoriAltKirilimSatir = { ad: string; ciro: number; adet: number; yuzde: number };
+
+/**
+ * Bir ana kategorinin (Güneş, Cam, Lens, Çerçeve, Aksesuar, Solüsyon) Odoo'daki
+ * gerçek alt kategori kırılımını (Güneş/Çerçeve → Alt/Orta/Orta Üst/Üst,
+ * Lens/Aksesuar/Solüsyon → ürün tipi, Cam → ürün grubu) döner.
+ * Patron paneli "Kategori dağılımı" grafiğinde bir dilime tıklanınca çağrılır.
+ */
+export async function getKategoriAltKirilim({
+  baslangic,
+  bitis,
+  subeId,
+  anaKategori,
+}: {
+  baslangic: Date;
+  bitis: Date;
+  subeId?: string;
+  anaKategori: string;
+}): Promise<KategoriAltKirilimSatir[]> {
+  const where: any = {
+    sale: { status: SaleStatus.PAID, createdAt: { gte: baslangic, lte: bitis } },
+    status: { not: ItemStatus.VOID },
+  };
+  if (subeId) where.sale.branchId = subeId;
+
+  const items = await prisma.saleItem.findMany({
+    where,
+    include: { product: true },
+  });
+
+  const pathMap = await loadOdooCategoryPaths(items.map((item) => item.odooCategoryId));
+  const altBreakdown: Record<string, { ciro: number; adet: number }> = {};
+  let toplamCiro = 0;
+
+  for (const item of items) {
+    const kat = resolveItemKategori(item as any, pathMap);
+    if (kat !== anaKategori) continue;
+
+    let altAd = 'Diğer';
+    const catId = item.odooCategoryId;
+    if (catId != null) {
+      const path = pathMap.get(catId);
+      if (path) {
+        const { altKategori } = kategoriAltKirilimTespit(path);
+        if (altKategori) altAd = altKategori;
+      }
+    }
+
+    if (!altBreakdown[altAd]) altBreakdown[altAd] = { ciro: 0, adet: 0 };
+    altBreakdown[altAd].ciro += Number(item.lineTotal);
+    altBreakdown[altAd].adet += Number(item.qty);
+    toplamCiro += Number(item.lineTotal);
+  }
+
+  return Object.entries(altBreakdown)
+    .map(([ad, val]) => ({
+      ad,
+      ciro: val.ciro,
+      adet: val.adet,
+      yuzde: toplamCiro > 0 ? (val.ciro / toplamCiro) * 100 : 0,
+    }))
+    .sort((a, b) => b.ciro - a.ciro);
 }
 
 export async function getGunlukSeri({ baslangic, bitis, subeId }: { baslangic: Date; bitis: Date; subeId?: string }) {

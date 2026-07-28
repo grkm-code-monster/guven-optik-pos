@@ -474,7 +474,7 @@ router.get('/daily/excel', authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, 
   }
 });
 
-router.get('/patron/ozet', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/ozet', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getPatronOzet({
@@ -488,7 +488,7 @@ router.get('/patron/ozet', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN
   }
 });
 
-router.get('/patron/personel', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/personel', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getPersonelPerformans({
@@ -502,7 +502,7 @@ router.get('/patron/personel', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.A
   }
 });
 
-router.get('/patron/kategori', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/kategori', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getKategoriBreakdown({
@@ -516,7 +516,25 @@ router.get('/patron/kategori', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.A
   }
 });
 
-router.get('/patron/gunluk-seri', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/kategori-alt', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { baslangic, bitis, subeId, anaKategori } = req.query;
+    if (!anaKategori || typeof anaKategori !== 'string') {
+      return res.status(400).json({ error: 'anaKategori zorunlu' });
+    }
+    const result = await reportService.getKategoriAltKirilim({
+      baslangic: baslangic ? new Date(String(baslangic)) : new Date(new Date().setDate(1)),
+      bitis: bitis ? new Date(String(bitis)) : new Date(),
+      subeId: subeId ? String(subeId) : undefined,
+      anaKategori,
+    });
+    return res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/patron/gunluk-seri', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getGunlukSeri({
