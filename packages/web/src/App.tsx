@@ -71,6 +71,39 @@ function AdminYetkiRoute({ to, children }: { to: string; children: React.ReactNo
   )
 }
 
+/** Giriş sonrası yönlendirme sırası — kullanıcının erişebildiği ilk sayfaya düşer */
+const ADMIN_DASHBOARD_CANDIDATES = [
+  '/admin/tanimlamalar',
+  '/admin/kampanyalar',
+  '/admin/depo',
+  '/admin/stok-yonetimi',
+  '/admin/etiket-tasarimci',
+  '/admin/urun-yapilandirma',
+  '/admin/garanti',
+  '/admin/uts',
+  '/admin/muhasebe',
+  '/admin/finans',
+  '/admin/ik',
+  '/admin/patron',
+  '/admin/rapor-matris',
+  '/admin/deploy',
+]
+
+function AdminDashboardRedirect() {
+  const adminUser = (() => {
+    try {
+      const raw = localStorage.getItem('admin-user')
+      return raw ? (JSON.parse(raw) as AdminUserLite) : null
+    } catch {
+      return null
+    }
+  })()
+  const target = adminUser
+    ? ADMIN_DASHBOARD_CANDIDATES.find((to) => canSeeAdminMenuItem(adminUser, to))
+    : null
+  return <Navigate to={target ?? '/admin/tanimlamalar'} replace />
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -80,7 +113,7 @@ export default function App() {
         <Route path="/belge-yukle/:personelId" element={<BelgeYuklePage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin" element={<AdminLayout />}>
-          <Route path="dashboard" element={<Navigate to="/admin/tanimlamalar" replace />} />
+          <Route path="dashboard" element={<AdminDashboardRedirect />} />
           <Route path="tanimlamalar" element={<TanimlamalarPage />} />
           <Route path="komisyon" element={<Navigate to="/admin/tanimlamalar" replace />} />
           <Route path="kullanicilar" element={<Navigate to="/admin/tanimlamalar" replace />} />
