@@ -19,7 +19,14 @@ import { StockQueryPanel } from '../StokSorgulaPage'
 import YeniTransfer from '../../components/transfer/YeniTransfer'
 import BekleyenTransferler from '../../components/transfer/BekleyenTransferler'
 import EtiketSablonSecici from '../../components/etiket/EtiketSablonSecici'
-import { otomatikSablonSec, uretEtiketZplTercihli } from '../../components/etiket/etiket-sablon-helpers'
+import {
+  otomatikSablonSec,
+  uretEtiketZplTercihli,
+  etiketUrunToRenderVeri,
+  getPilotEtiketSablon,
+} from '../../components/etiket/etiket-sablon-helpers'
+import { renderEtiketBatchToDataUrls } from '../../components/etiket/etiket-canvas-render'
+import { etiketleriPdfOlustur } from '../../components/etiket/etiket-pdf-yazdir'
 import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
 import {
   OZEL_SIPARIS_AKIS,
@@ -2443,6 +2450,11 @@ function UrunGirisTab() {
   const [etiketAdetler, setEtiketAdetler] = useState<Record<string, number>>({})
   const [etiketZpl, setEtiketZpl] = useState('')
   const [etiketKopyalandi, setEtiketKopyalandi] = useState(false)
+  const [etiketPdfUretiliyor, setEtiketPdfUretiliyor] = useState(false)
+  const [etiketPdfOlusturuldu, setEtiketPdfOlusturuldu] = useState(false)
+
+  // Ürün arama popup'ında varyant çoklu seçimi
+  const [varyantSecili, setVaryantSecili] = useState<Set<number>>(new Set())
 
   // Uyumsoft gelen fatura
   const [gelenModalAcik, setGelenModalAcik] = useState(false)
@@ -2782,10 +2794,12 @@ function UrunGirisTab() {
     setEtiketZpl('')
     setEtiketAdetler({})
     setEtiketKopyalandi(false)
+    setEtiketPdfUretiliyor(false)
+    setEtiketPdfOlusturuldu(false)
     setGirisTipi(null)
   }
 
-  async function etiketZplUret() {
+  async function etiketUret() {
     const items = lotlar.flatMap((lot) => {
       const adet = Math.max(1, etiketAdetler[lot.id] ?? 1)
       const veri = {
@@ -2804,6 +2818,29 @@ function UrunGirisTab() {
     const kategori = lotlar[0]
       ? urunAdindanKategori(lotlar[0].bizimUrunAdi || lotlar[0].tedarikciUrunAdi)
       : undefined
+
+    setError(null)
+
+    // Görsel motoru olan şablonlar (ör. depo-kutu) için normal yazıcıdan PDF çıktısı —
+    // etiket yazıcısı/Argox sürücüsüne hiç gerek kalmaz.
+    const sablonRender = await getPilotEtiketSablon(etiketSablonId, kategori).catch(() => null)
+    if (sablonRender) {
+      setEtiketPdfUretiliyor(true)
+      try {
+        const veriler = items.map(etiketUrunToRenderVeri)
+        const sayfalar = renderEtiketBatchToDataUrls(sablonRender, veriler)
+        await etiketleriPdfOlustur(sayfalar, `depo-etiketleri-${new Date().toISOString().slice(0, 10)}.pdf`)
+        setEtiketPdfOlusturuldu(true)
+      } catch (e: unknown) {
+        const err = e as { message?: string }
+        setError(err?.message ?? 'PDF oluşturulamadı')
+      } finally {
+        setEtiketPdfUretiliyor(false)
+      }
+      return
+    }
+
+    // Görsel motoru olmayan şablonlar için eski ham ZPL/PPLA metni (yedek yol)
     const zpl = await uretEtiketZplTercihli(etiketSablonId, items, kategori)
     setEtiketZpl(zpl)
   }
@@ -3263,6 +3300,7 @@ function UrunGirisTab() {
         setVaryantPopup(null)
         urunSec(u)
       } else {
+        setVaryantSecili(new Set())
         setVaryantlar(data)
       }
     } catch (e: unknown) {
@@ -3274,6 +3312,59 @@ function UrunGirisTab() {
     } finally {
       setVaryantYukleniyor(false)
     }
+  }
+
+  /** Varyant popup'ında birden fazla varyant işaretlenip tek seferde eklenmesi
+   * için: ilki aktif satırı doldurur, geri kalanı yeni satır olarak eklenir. */
+  function varyantlariEkle(secilenler: typeof varyantlar) {
+    if (!varyantPopup || secilenler.length === 0) return
+    const [ilk, ...digerleri] = secilenler
+    const tmplId = varyantPopup.templateId
+    const tmplAdi = varyantPopup.templateAdi
+
+    urunSec(
+      {
+        id: tmplId,
+        name: tmplAdi,
+        default_code: ilk.defaultCode ?? '',
+        barcode: ilk.barcode ?? '',
+        type: 'product',
+        list_price: 0,
+        standard_price: 0,
+      },
+      { productVariantId: ilk.id, displayName: ilk.name, barcode: ilk.barcode ?? '', nitelikler: ilk.nitelikler ?? [] },
+    )
+
+    if (digerleri.length > 0) {
+      setSatirlar((prev) => [
+        ...prev,
+        ...digerleri.map((v) => {
+          const etiket = varyantEtiketiOlustur(v.nitelikler)
+          const rawBarkod = v.barcode ?? ''
+          const barkod = typeof rawBarkod === 'string' ? rawBarkod.trim() : ''
+          return {
+            id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            tedarikciUrunAdi: '',
+            uretici: topluUretici,
+            bizimUrunId: String(tmplId),
+            bizimUrunAdi: v.name,
+            bizimUrunOdooId: tmplId,
+            bizimUrunProductId: v.id,
+            bizimUrunBarkod: barkod || undefined,
+            varyantEtiketi: etiket || undefined,
+            miktar: 1,
+            birimFiyat: '',
+            iskonto: '0',
+            kdvOrani: '10',
+            eslesti: true,
+          }
+        }),
+      ])
+    }
+
+    setVaryantPopup(null)
+    setVaryantFiltre('')
+    setVaryantSecili(new Set())
   }
 
   function urunSec(
@@ -3704,6 +3795,8 @@ function UrunGirisTab() {
         setEtiketSablonId(varsayilanSablonLotlardan(lotlar))
         setEtiketZpl('')
         setEtiketKopyalandi(false)
+        setEtiketPdfUretiliyor(false)
+        setEtiketPdfOlusturuldu(false)
 
         if (girisTipi === 'FATURA_SONRA' || girisTipi === 'IRSALIYELI') {
           const hedefLokasyon = lotlar[0]?.lokasyon ?? 'ANADEPO'
@@ -3876,7 +3969,9 @@ function UrunGirisTab() {
               <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: 500, maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
                   <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 4 }}>Varyant Seçin</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>{varyantPopup.templateAdi}</div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+                    {varyantPopup.templateAdi} — birden fazla varyant işaretleyip tek seferde ekleyebilirsiniz.
+                  </div>
                   {!varyantYukleniyor && varyantlar.length > 0 ? (
                     <input
                       type="search"
@@ -3898,36 +3993,47 @@ function UrunGirisTab() {
                     <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: 20 }}>Yükleniyor...</div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {varyantlar.filter((v) => varyantFiltreEslesir(v, varyantFiltre)).map(v => (
-                        <div key={v.id} onClick={() => {
-                          if (!varyantPopup) return
-                          setVaryantPopup(null)
-                          urunSec(
-                            {
-                              id: varyantPopup.templateId,
-                              name: varyantPopup.templateAdi,
-                              default_code: v.defaultCode ?? '',
-                              barcode: v.barcode ?? '',
-                              type: 'product',
-                              list_price: 0,
-                              standard_price: 0,
-                            },
-                            { productVariantId: v.id, displayName: v.name, barcode: v.barcode ?? '', nitelikler: v.nitelikler ?? [] },
-                          )
-                        }}
-                          style={{ padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                          onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f0f9ff')}
-                          onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'white')}>
-                          <div>
-                            <div style={{ fontSize: 13, fontWeight: 700 }}>{v.name}</div>
-                            <div style={{ fontSize: 11, color: '#9ca3af' }}>
-                              {v.defaultCode && <span>Kod: {v.defaultCode} · </span>}
-                              {v.nitelikler.map(n => `${n.nitelikAdi}: ${n.degerAdi}`).join(' · ')}
+                      {varyantlar.filter((v) => varyantFiltreEslesir(v, varyantFiltre)).map(v => {
+                        const secili = varyantSecili.has(v.id)
+                        return (
+                          <div
+                            key={v.id}
+                            onClick={() => {
+                              setVaryantSecili((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(v.id)) next.delete(v.id)
+                                else next.add(v.id)
+                                return next
+                              })
+                            }}
+                            style={{
+                              padding: '10px 14px',
+                              border: secili ? '1px solid #059669' : '1px solid #e5e7eb',
+                              backgroundColor: secili ? '#f0fdf4' : 'white',
+                              borderRadius: 8,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: 10,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={secili}
+                              onChange={() => {}}
+                              style={{ flexShrink: 0, width: 16, height: 16 }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 13, fontWeight: 700 }}>{v.name}</div>
+                              <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                                {v.defaultCode && <span>Kod: {v.defaultCode} · </span>}
+                                {v.nitelikler.map(n => `${n.nitelikAdi}: ${n.degerAdi}`).join(' · ')}
+                              </div>
                             </div>
                           </div>
-                          <button type="button" style={{ padding: '4px 12px', backgroundColor: '#dcfce7', color: '#166534', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Seç</button>
-                        </div>
-                      ))}
+                        )
+                      })}
                       {!varyantYukleniyor && varyantFiltre.trim() && varyantlar.filter((v) => varyantFiltreEslesir(v, varyantFiltre)).length === 0 ? (
                         <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: 16 }}>
                           Eşleşen varyant bulunamadı.
@@ -3935,7 +4041,27 @@ function UrunGirisTab() {
                       ) : null}
                     </div>
                   )}
-                  <button type="button" onClick={() => { setVaryantPopup(null); setVaryantFiltre('') }} style={{ marginTop: 16, padding: '8px 16px', backgroundColor: '#f3f4f6', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>İptal</button>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                    <button type="button" onClick={() => { setVaryantPopup(null); setVaryantFiltre(''); setVaryantSecili(new Set()) }} style={{ padding: '8px 16px', backgroundColor: '#f3f4f6', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>İptal</button>
+                    <button
+                      type="button"
+                      disabled={varyantSecili.size === 0}
+                      onClick={() => varyantlariEkle(varyantlar.filter((v) => varyantSecili.has(v.id)))}
+                      style={{
+                        flex: 1,
+                        padding: '8px 16px',
+                        backgroundColor: varyantSecili.size === 0 ? '#e5e7eb' : '#059669',
+                        color: varyantSecili.size === 0 ? '#9ca3af' : 'white',
+                        border: 'none',
+                        borderRadius: 8,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        cursor: varyantSecili.size === 0 ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      Seçilenleri Ekle {varyantSecili.size > 0 ? `(${varyantSecili.size})` : ''}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -5322,7 +5448,7 @@ function UrunGirisTab() {
                 ))}
               </div>
 
-              {!etiketZpl ? (
+              {!etiketZpl && !etiketPdfOlusturuldu ? (
                 <div style={{ marginBottom: 16 }}>
                   <EtiketSablonSecici
                     urunKategori={urunAdindanKategori(lotlar[0]?.bizimUrunAdi || lotlar[0]?.tedarikciUrunAdi || '')}
@@ -5330,6 +5456,13 @@ function UrunGirisTab() {
                     secilenId={etiketSablonId}
                     onSecim={(id) => setEtiketSablonId(id as SablonId)}
                   />
+                </div>
+              ) : null}
+
+              {etiketPdfOlusturuldu ? (
+                <div style={{ backgroundColor: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#166534' }}>
+                  ✓ PDF indirildi (İndirilenler klasörü) — açıp normal yazıcınızdan çıktı alabilirsiniz.
+                  Etiketler A4 sayfaya dizilmiş halde geldi, makasla kesin.
                 </div>
               ) : null}
 
@@ -5361,9 +5494,14 @@ function UrunGirisTab() {
                 <button type="button" onClick={sihirbaziSifirla} style={btnSmall}>
                   Atla
                 </button>
-                {!etiketZpl ? (
-                  <button type="button" onClick={() => void etiketZplUret()} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
-                    ZPL Üret
+                {!etiketZpl && !etiketPdfOlusturuldu ? (
+                  <button
+                    type="button"
+                    disabled={etiketPdfUretiliyor}
+                    onClick={() => void etiketUret()}
+                    style={{ ...btnPrimary, backgroundColor: '#059669', opacity: etiketPdfUretiliyor ? 0.6 : 1 }}
+                  >
+                    {etiketPdfUretiliyor ? 'PDF hazırlanıyor...' : 'Etiket Oluştur'}
                   </button>
                 ) : (
                   <button type="button" onClick={sihirbaziSifirla} style={btnPrimary}>

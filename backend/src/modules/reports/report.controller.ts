@@ -2,7 +2,8 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import multer from 'multer';
 import { Role } from '@prisma/client';
 import { authenticate } from '../../middleware/authenticate';
-import { authorize } from '../../middleware/authorize';
+import { authorize, authorizeOrYetki } from '../../middleware/authorize';
+import { EK_YETKI } from '../admin/ek-yetki';
 import * as reportService from './report.service';
 import * as reportEngine from './report-engine.service';
 import * as reportExport from './report-export.service';
@@ -473,7 +474,7 @@ router.get('/daily/excel', authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, 
   }
 });
 
-router.get('/patron/ozet', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/ozet', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getPatronOzet({
@@ -487,7 +488,7 @@ router.get('/patron/ozet', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), async (
   }
 });
 
-router.get('/patron/personel', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/personel', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getPersonelPerformans({
@@ -501,7 +502,7 @@ router.get('/patron/personel', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), asy
   }
 });
 
-router.get('/patron/kategori', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/kategori', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getKategoriBreakdown({
@@ -515,7 +516,7 @@ router.get('/patron/kategori', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), asy
   }
 });
 
-router.get('/patron/gunluk-seri', authorize(Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/patron/gunluk-seri', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getGunlukSeri({

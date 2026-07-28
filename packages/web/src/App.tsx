@@ -38,6 +38,7 @@ import SatislarPage from './pages/SatislarPage'
 import MusterilerPage from './pages/MusterilerPage'
 import RaporlarimPage from './pages/RaporlarimPage'
 import { canAccessAtolye } from './utils/atolyeAccess'
+import { canSeeAdminMenuItem, type AdminUserLite } from './constants/ekYetki'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -52,6 +53,22 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 function AtolyeRoute({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user)
   return canAccessAtolye(user) ? <>{children}</> : <Navigate to="/" replace />
+}
+
+function AdminYetkiRoute({ to, children }: { to: string; children: React.ReactNode }) {
+  const adminUser = (() => {
+    try {
+      const raw = localStorage.getItem('admin-user')
+      return raw ? (JSON.parse(raw) as AdminUserLite) : null
+    } catch {
+      return null
+    }
+  })()
+  return adminUser && canSeeAdminMenuItem(adminUser, to) ? (
+    <>{children}</>
+  ) : (
+    <Navigate to="/admin/tanimlamalar" replace />
+  )
 }
 
 export default function App() {
@@ -79,7 +96,14 @@ export default function App() {
           <Route path="muhasebe" element={<MuhasebePage />} />
           <Route path="ik" element={<IKPage />} />
           <Route path="finans" element={<FinansPage />} />
-          <Route path="patron" element={<PatronPage />} />
+          <Route
+            path="patron"
+            element={
+              <AdminYetkiRoute to="/admin/patron">
+                <PatronPage />
+              </AdminYetkiRoute>
+            }
+          />
           <Route path="rapor-matris" element={<RaporMatrisPage />} />
           <Route path="deploy" element={<DeployPage />} />
         </Route>

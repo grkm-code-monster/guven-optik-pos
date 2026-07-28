@@ -21,6 +21,7 @@ export const EK_YETKI = {
   MUHASEBE: 'MUHASEBE',
   FINANS: 'FINANS',
   IK_PRIM: 'IK_PRIM',
+  PATRON_PANELI: 'PATRON_PANELI',
 } as const;
 
 export type EkYetkiKey = (typeof EK_YETKI)[keyof typeof EK_YETKI];

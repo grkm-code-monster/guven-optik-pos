@@ -4,6 +4,7 @@ import { startEfaturaCron } from './modules/efatura/efatura.cron';
 import { startOzelSiparisCron } from './modules/ozel-siparis/ozel-siparis.cron';
 import { startReportCron } from './modules/reports/report.cron';
 import { startFiyatBildirimHatirlatmaCron } from './modules/admin/fiyat-bildirim-hatirlatma.cron';
+import { startShiftAutoCloseCron } from './modules/shifts/shift-auto-close.cron';
 
 const port = Number(process.env.PORT) || 3000;
 const app = createApp();
@@ -16,3 +17,4 @@ startEfaturaCron();
 startOzelSiparisCron();
 startReportCron();
 startFiyatBildirimHatirlatmaCron();
+startShiftAutoCloseCron();

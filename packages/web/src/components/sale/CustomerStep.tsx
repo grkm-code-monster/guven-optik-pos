@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useIsMobile } from '../../hooks/useSidebarResponsive'
 import {
   addPrescription,
   createCustomer,
@@ -63,6 +64,7 @@ export default function CustomerStep({
   onApplyPrescription?: (rx: any) => void
   initialCustomer?: any | null
 }) {
+  const mobil = useIsMobile()
   const [q, setQ] = useState('')
   const [results, setResults] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -1085,7 +1087,7 @@ export default function CustomerStep({
               margin: 'auto',
               backgroundColor: 'white',
               borderRadius: '16px',
-              padding: '24px',
+              padding: mobil ? '16px' : '24px',
             }}
           >
             <div style={{ fontWeight: 800, fontSize: '16px', marginBottom: '12px' }}>Gözlük Reçetesi Ekle</div>
@@ -1250,7 +1252,7 @@ export default function CustomerStep({
             style={{
               backgroundColor: 'white',
               borderRadius: 16,
-              padding: 24,
+              padding: mobil ? 16 : 24,
               width: '100%',
               maxWidth: 600,
               maxHeight: '85vh',
@@ -1480,10 +1482,20 @@ function RxRow({
   r: RxSideFields
   l: RxSideFields
 }) {
+  const mobil = useIsMobile()
+
   return (
     <div style={{ marginBottom: '10px' }}>
       <div style={{ fontWeight: 900, marginBottom: '10px' }}>{title}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '12px', alignItems: 'center' }}>
+      <div
+        style={{
+          display: mobil ? 'flex' : 'grid',
+          flexDirection: mobil ? 'column' : undefined,
+          gridTemplateColumns: mobil ? undefined : '1fr auto 1fr',
+          gap: '12px',
+          alignItems: mobil ? 'stretch' : 'center',
+        }}
+      >
         {/* SAĞ GÖZ (R) */}
         <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px', overflow: 'hidden', minWidth: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
@@ -1509,7 +1521,7 @@ function RxRow({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: r.add ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr',
+              gridTemplateColumns: mobil ? '1fr 1fr' : (r.add ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr'),
               gap: '6px',
               marginTop: '10px',
             }}
@@ -1546,19 +1558,20 @@ function RxRow({
           onClick={onCopySame}
           type="button"
           style={{
-            padding: '8px 10px',
+            padding: mobil ? '10px 12px' : '8px 10px',
             borderRadius: '8px',
             border: '1px solid #C8102E',
             backgroundColor: '#fdf2f4',
             color: '#C8102E',
-            fontSize: '11px',
+            fontSize: mobil ? '13px' : '11px',
             fontWeight: '700',
             cursor: 'pointer',
             whiteSpace: 'nowrap',
-            writingMode: 'vertical-rl',
+            writingMode: mobil ? 'horizontal-tb' : 'vertical-rl',
+            width: mobil ? '100%' : undefined,
           }}
         >
-          Aynı →
+          {mobil ? 'Sağı Sola Kopyala →' : 'Aynı →'}
         </button>
 
         {/* SOL GÖZ (L) */}
@@ -1586,7 +1599,7 @@ function RxRow({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: l.add ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr',
+              gridTemplateColumns: mobil ? '1fr 1fr' : (l.add ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr'),
               gap: '6px',
               marginTop: '10px',
             }}
@@ -1645,9 +1658,19 @@ function LensRow({
     note: [string, (v: string) => void]
   }
 }) {
+  const mobil = useIsMobile()
+
   return (
     <div style={{ marginBottom: '10px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '12px', alignItems: 'center' }}>
+      <div
+        style={{
+          display: mobil ? 'flex' : 'grid',
+          flexDirection: mobil ? 'column' : undefined,
+          gridTemplateColumns: mobil ? undefined : '1fr auto 1fr',
+          gap: '12px',
+          alignItems: mobil ? 'stretch' : 'center',
+        }}
+      >
         {/* SAĞ GÖZ (R) */}
         <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px', overflow: 'hidden', minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -1657,7 +1680,14 @@ function LensRow({
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginTop: '10px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: mobil ? '1fr 1fr' : '1fr 1fr 1fr',
+              gap: '6px',
+              marginTop: '10px',
+            }}
+          >
             <SelectField label="SPH" value={r.sph[0]} onChange={r.sph[1]} options={SPH_OPTIONS} />
             <SelectField label="CYL" value={r.cyl[0]} onChange={r.cyl[1]} options={CYL_OPTIONS} />
             <SelectField label="AKS" value={r.aks[0]} onChange={r.aks[1]} options={AKS_OPTIONS} />
@@ -1693,19 +1723,20 @@ function LensRow({
           onClick={onCopySame}
           type="button"
           style={{
-            padding: '8px 10px',
+            padding: mobil ? '10px 12px' : '8px 10px',
             borderRadius: '8px',
             border: '1px solid #C8102E',
             backgroundColor: '#fdf2f4',
             color: '#C8102E',
-            fontSize: '11px',
+            fontSize: mobil ? '13px' : '11px',
             fontWeight: '700',
             cursor: 'pointer',
             whiteSpace: 'nowrap',
-            writingMode: 'vertical-rl',
+            writingMode: mobil ? 'horizontal-tb' : 'vertical-rl',
+            width: mobil ? '100%' : undefined,
           }}
         >
-          Aynı →
+          {mobil ? 'Sağı Sola Kopyala →' : 'Aynı →'}
         </button>
 
         {/* SOL GÖZ (L) */}
@@ -1720,7 +1751,7 @@ function LensRow({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr 1fr',
+              gridTemplateColumns: mobil ? '1fr 1fr' : '1fr 1fr 1fr',
               gap: '6px',
               marginTop: '10px',
             }}

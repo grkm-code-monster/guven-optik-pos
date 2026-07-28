@@ -19,6 +19,7 @@ export const EK_YETKI = {
   MUHASEBE: 'MUHASEBE',
   FINANS: 'FINANS',
   IK_PRIM: 'IK_PRIM',
+  PATRON_PANELI: 'PATRON_PANELI',
 } as const
 
 export type EkYetkiKey = (typeof EK_YETKI)[keyof typeof EK_YETKI]
@@ -44,6 +45,7 @@ export const EK_YETKI_LABELS: Record<EkYetkiKey, string> = {
   MUHASEBE: 'Muhasebe',
   FINANS: 'Finans Yönetimi',
   IK_PRIM: 'İK & Prim',
+  PATRON_PANELI: 'Patron Paneli Görüntüleme',
 }
 
 export type AdminUserLite = {
@@ -86,7 +88,8 @@ export function canSeeAdminMenuItem(user: AdminUserLite, to: string): boolean {
   const role = user.role ?? ''
 
   if (to === '/admin/patron') {
-    return role === 'ADMIN' || role === 'REGIONAL_MANAGER'
+    if (role === 'ADMIN') return true
+    return hasEkYetki(user, EK_YETKI.PATRON_PANELI)
   }
   if (to === '/admin/rapor-matris') {
     return role === 'ADMIN'
