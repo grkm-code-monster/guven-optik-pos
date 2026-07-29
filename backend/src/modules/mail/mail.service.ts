@@ -1,22 +1,20 @@
-import nodemailer from 'nodemailer';
+import axios from 'axios';
 
-function getMailConfig() {
-  const user = process.env.GMAIL_USER?.trim();
-  const pass = process.env.GMAIL_APP_PASSWORD?.trim();
-  if (!user || !pass) return null;
-  return { user, pass };
-}
+/**
+ * Mail gönderimi Resend HTTP API'si üzerinden yapılır (https://api.resend.com/emails).
+ * Bu servis 443 (HTTPS) portunu kullanır — sunucu hosting sağlayıcısının (ilkbyte)
+ * giden 465/587 (SMTP) portlarını engellemesi sorun olmaz.
+ *
+ * Gerekli env değişkenleri:
+ *  - RESEND_API_KEY: Resend hesabından alınan API anahtarı
+ *  - RESEND_FROM: doğrulanmış alan adına ait gönderici adresi (ör: pos@guvenoptik.net.tr)
+ */
 
-function getTransporter() {
-  const config = getMailConfig();
-  if (!config) return null;
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: config.user,
-      pass: config.pass,
-    },
-  });
+function getResendConfig() {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const from = process.env.RESEND_FROM?.trim();
+  if (!apiKey || !from) return null;
+  return { apiKey, from };
 }
 
 export async function sendReportEmail(
@@ -30,27 +28,36 @@ export async function sendReportEmail(
     return { success: false, error: 'Alıcı e-posta adresi yok.' };
   }
 
-  const from = process.env.GMAIL_USER?.trim();
-  if (!from) {
-    return { success: false, error: 'GMAIL_USER tanımlı değil.' };
-  }
-
-  const transporter = getTransporter();
-  if (!transporter) {
-    return { success: false, error: 'Gmail SMTP yapılandırması eksik.' };
+  const config = getResendConfig();
+  if (!config) {
+    return { success: false, error: 'RESEND_API_KEY / RESEND_FROM tanımlı değil.' };
   }
 
   try {
-    await transporter.sendMail({
-      from,
-      to: recipients.join(','),
-      subject,
-      text: body,
-      attachments,
-    });
+    await axios.post(
+      'https://api.resend.com/emails',
+      {
+        from: config.from,
+        to: recipients,
+        subject,
+        text: body,
+        attachments: attachments.map((a) => ({
+          filename: a.filename,
+          content: a.content.toString('base64'),
+        })),
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 20000,
+      },
+    );
     return { success: true as const };
-  } catch (e) {
-    console.error('[Mail] Gönderim hatası:', e instanceof Error ? e.message : e);
-    return { success: false as const, error: String(e) };
+  } catch (e: any) {
+    const msg = e?.response?.data?.message ?? (e instanceof Error ? e.message : String(e));
+    console.error('[Mail] Gönderim hatası:', msg);
+    return { success: false as const, error: String(msg) };
   }
 }
