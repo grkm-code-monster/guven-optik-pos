@@ -52,6 +52,7 @@ import {
 import envanterImportRouter from './envanter-import.controller';
 import sablonExcelImportRouter from './sablon-excel-import.controller';
 import deployRouter from './deploy.controller';
+import { sendReportEmail } from '../mail/mail.service';
 import { applyStockAdjustment } from './stock-adjustment.service';
 import { getOrCreateStockLot, isLotAvailableForReceipt } from './stock-lot.service';
 import { syncPersonelSubeFromUserId, syncOdooEmployeeIdFromPersonel, syncOdooEmployeeIdFromUser, syncEkYetkilerFromPersonel } from './personel-sube-sync';
@@ -4843,6 +4844,94 @@ router.get('/personel-belgeler-ozet', async (req, res, next) => {
     }
     return res.json({ success: true, data: ozet });
   } catch (err) { next(err); }
+});
+
+// ── PERSONEL BELGE → MUHASEBEYE GÖNDER ────────────────────────────
+const MUHASEBE_EPOSTA_ANAHTAR = { sirketId: 'genel', anahtar: 'muhasebe_eposta' } as const;
+
+router.get('/personel-muhasebe-eposta', async (req, res, next) => {
+  try {
+    const ayar = await prisma.sirketAyar.findUnique({
+      where: { sirketId_anahtar: MUHASEBE_EPOSTA_ANAHTAR },
+    });
+    return res.json({ success: true, data: { eposta: ayar?.deger ?? '' } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/personel-muhasebe-eposta', async (req, res, next) => {
+  try {
+    const { eposta } = req.body as { eposta?: string };
+    if (!eposta || !eposta.trim()) {
+      return res.status(400).json({ error: 'EPOSTA_GEREKLI' });
+    }
+    await prisma.sirketAyar.upsert({
+      where: { sirketId_anahtar: MUHASEBE_EPOSTA_ANAHTAR },
+      create: { ...MUHASEBE_EPOSTA_ANAHTAR, deger: eposta.trim() },
+      update: { deger: eposta.trim() },
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/personel/:id/belgeler-muhasebeye-gonder', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { alici, not: durumNotu } = req.body as { alici?: string; not?: string };
+    if (!alici || !alici.trim()) {
+      return res.status(400).json({ error: 'ALICI_GEREKLI', message: 'Alıcı e-posta adresi girilmedi.' });
+    }
+
+    const personel = await prisma.personel.findUnique({ where: { id } });
+    if (!personel) return res.status(404).json({ error: 'PERSONEL_BULUNAMADI' });
+
+    const belgeler = await prisma.personelBelge.findMany({
+      where: { personelId: id, onaylandi: true },
+    });
+    if (!belgeler.length) {
+      return res.status(400).json({ error: 'BELGE_YOK', message: 'Bu personelin onaylı belgesi yok.' });
+    }
+
+    const attachments = belgeler.map((b) => ({
+      filename: b.dosyaAdi || `${b.ad || b.tip}.pdf`,
+      content: Buffer.from(b.icerik, 'base64'),
+    }));
+
+    const belgeTipListesi = belgeler.map((b) => `- ${b.ad} (${b.tip})`).join('\n');
+    const subject = `${personel.ad} ${personel.soyad} - Personel Evrakları`;
+    const bodyParts = [
+      `${personel.ad} ${personel.soyad} için gönderilen evraklar ektedir.`,
+      '',
+      'Ekli belgeler:',
+      belgeTipListesi,
+    ];
+    if (durumNotu && durumNotu.trim()) {
+      bodyParts.push('', 'Not:', durumNotu.trim());
+    }
+    const body = bodyParts.join('\n');
+
+    const sonuc = await sendReportEmail([alici.trim()], subject, body, attachments);
+    if (!sonuc.success) {
+      return res.status(500).json({ error: 'GONDERIM_BASARISIZ', message: sonuc.error });
+    }
+
+    // Gönderilen adresi bir sonraki sefer için varsayılan yap
+    await prisma.sirketAyar.upsert({
+      where: { sirketId_anahtar: MUHASEBE_EPOSTA_ANAHTAR },
+      create: { ...MUHASEBE_EPOSTA_ANAHTAR, deger: alici.trim() },
+      update: { deger: alici.trim() },
+    });
+
+    return res.json({
+      success: true,
+      data: { gonderilenBelgeSayisi: belgeler.length, alici: alici.trim() },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── PRİM KURAL CRUD ───────────────────────────────────────────────

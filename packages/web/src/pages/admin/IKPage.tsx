@@ -144,6 +144,10 @@ export default function IKPage() {
   const [belgeler, setBelgeler] = useState<PersonelBelge[]>([])
   const [belgeYukleniyor, setBelgeYukleniyor] = useState(false)
   const [yeniBelge, setYeniBelge] = useState({ tip: 'SGK_GIRIS', ad: '', notlar: '' })
+  const [muhasebeGonderAcik, setMuhasebeGonderAcik] = useState(false)
+  const [muhasebeEposta, setMuhasebeEposta] = useState('')
+  const [muhasebeNot, setMuhasebeNot] = useState('')
+  const [muhasebeGonderiliyor, setMuhasebeGonderiliyor] = useState(false)
 
   const [iseAlMod, setIseAlMod] = useState(false)
   const [yeniPosUser, setYeniPosUser] = useState({
@@ -439,7 +443,52 @@ export default function IKPage() {
   function personelBelgelerAc(personelId: string) {
     setSecilenPersonel(personelId)
     setYeniBelge({ tip: 'SGK_GIRIS', ad: '', notlar: '' })
+    setMuhasebeGonderAcik(false)
+    setMuhasebeNot('')
     void belgeleriYukle(personelId)
+  }
+
+  async function muhasebeEpostaYukle() {
+    try {
+      const res = await adminApi.get('/admin/personel-muhasebe-eposta')
+      setMuhasebeEposta(res.data?.data?.eposta ?? '')
+    } catch {
+      // sessiz geç — kullanıcı manuel girer
+    }
+  }
+
+  function muhasebeGonderPaneliniAc() {
+    setMuhasebeGonderAcik(true)
+    if (!muhasebeEposta) void muhasebeEpostaYukle()
+  }
+
+  async function belgeleriMuhasebeyeGonder() {
+    if (!secilenPersonel) return
+    if (!muhasebeEposta.trim()) {
+      setMesaj({ tip: 'err', text: 'Alıcı e-posta adresi girin' })
+      return
+    }
+    const onayliSayisi = belgeler.filter((b) => b.onaylandi).length
+    if (onayliSayisi === 0) {
+      setMesaj({ tip: 'err', text: 'Onaylı belge yok — göndermeden önce belgeleri onaylayın' })
+      return
+    }
+    setMuhasebeGonderiliyor(true)
+    setMesaj(null)
+    try {
+      const res = await adminApi.post(`/admin/personel/${secilenPersonel}/belgeler-muhasebeye-gonder`, {
+        alici: muhasebeEposta.trim(),
+        not: muhasebeNot,
+      })
+      const sayi = res.data?.data?.gonderilenBelgeSayisi ?? onayliSayisi
+      setMesaj({ tip: 'ok', text: `${sayi} belge ${muhasebeEposta.trim()} adresine gönderildi` })
+      setMuhasebeGonderAcik(false)
+      setMuhasebeNot('')
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.message ?? e?.response?.data?.error ?? 'Gönderim hatası' })
+    } finally {
+      setMuhasebeGonderiliyor(false)
+    }
   }
 
   async function belgeYukle(file: File) {
@@ -1413,7 +1462,50 @@ export default function IKPage() {
               </div>
             </div>
 
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Yüklenen Belgeler ({belgeler.length})</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>Yüklenen Belgeler ({belgeler.length})</div>
+              {belgeler.length > 0 ? (
+                <button type="button" onClick={muhasebeGonderPaneliniAc} style={{ ...btnSmall, backgroundColor: '#eef2ff', color: '#3730a3', fontWeight: 700 }}>
+                  Muhasebeye Gönder
+                </button>
+              ) : null}
+            </div>
+
+            {muhasebeGonderAcik ? (
+              <div style={{ backgroundColor: 'white', border: '1px solid #c7d2fe', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Muhasebeye Gönder</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>
+                  {belgeler.filter((b) => b.onaylandi).length} onaylı belge ek olarak gönderilecek.
+                  {belgeler.some((b) => !b.onaylandi) ? ' (Onaylanmamış belgeler dahil edilmez.)' : ''}
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Alıcı e-posta</label>
+                  <input value={muhasebeEposta} onChange={(e) => setMuhasebeEposta(e.target.value)} placeholder="mergenmuhasebe@hotmail.com" style={inp} />
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>Durum Notu</label>
+                  <textarea
+                    value={muhasebeNot}
+                    onChange={(e) => setMuhasebeNot(e.target.value)}
+                    placeholder="ör: 01.08.2026 tarihinde SGK girişi yapılsın"
+                    rows={3}
+                    style={{ ...inp, resize: 'vertical' as const }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={() => setMuhasebeGonderAcik(false)} style={btnSmall}>Vazgeç</button>
+                  <button
+                    type="button"
+                    disabled={muhasebeGonderiliyor}
+                    onClick={() => void belgeleriMuhasebeyeGonder()}
+                    style={{ ...btnPrimary, opacity: muhasebeGonderiliyor ? 0.6 : 1, cursor: muhasebeGonderiliyor ? 'wait' : 'pointer' }}
+                  >
+                    {muhasebeGonderiliyor ? 'Gönderiliyor...' : 'Gönder'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             {belgeler.length === 0 ? (
               <div style={{ fontSize: 12, color: '#9ca3af', padding: 16, textAlign: 'center' }}>Henüz belge yok</div>
             ) : (
