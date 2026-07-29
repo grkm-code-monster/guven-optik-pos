@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { adminApi } from './AdminLayout'
 import { EK_YETKI_LABELS, EK_YETKI_SECILEBILIR } from '../../constants/ekYetki'
+import PersonelOzlukModulu from './PersonelOzlukModulu'
+import PersonelAyarlarModulu from './PersonelAyarlarModulu'
 
 const inp: React.CSSProperties = { padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, outline: 'none', backgroundColor: 'white', width: '100%', boxSizing: 'border-box' }
 const btn: React.CSSProperties = { padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700 }
@@ -55,10 +57,21 @@ type PersonelBelge = {
   mimeType: string
   boyut: number
   onaylandi: boolean
+  durum?: string
+  versiyon?: number
   onayTarihi: string | null
   notlar: string | null
   createdAt: string
   yukleyenId: string
+}
+
+const BELGE_DURUM_ETIKET: Record<string, { label: string; bg: string; fg: string }> = {
+  BEKLIYO: { label: '⏳ Bekliyor', bg: '#fef3c7', fg: '#92400e' },
+  BEKLIYOR: { label: '⏳ Bekliyor', bg: '#fef3c7', fg: '#92400e' },
+  YUKLENDI: { label: '⏳ İncelemede', bg: '#fef3c7', fg: '#92400e' },
+  REVIZYON_ISTENDI: { label: '✎ Revizyon İstendi', bg: '#fee2e2', fg: '#dc2626' },
+  EKSIK: { label: '⚠ Eksik', bg: '#fee2e2', fg: '#dc2626' },
+  ONAYLANDI: { label: '✓ Onaylı', bg: '#dcfce7', fg: '#166534' },
 }
 
 function belgeTipLabel(tip: string) {
@@ -114,7 +127,7 @@ type PrimSonuc = {
 }
 
 export default function IKPage() {
-  const [sekme, setSekme] = useState<'personeller' | 'prim-kurallar' | 'prim-hesap'>('personeller')
+  const [sekme, setSekme] = useState<'personeller' | 'prim-kurallar' | 'prim-hesap' | 'ozluk-ayarlari'>('personeller')
 
   const [personeller, setPersoneller] = useState<Personel[]>([])
   const [personelFormu, setPersonelFormu] = useState(false)
@@ -589,6 +602,29 @@ export default function IKPage() {
     }
   }
 
+  async function belgeRevizyonIste(belgeId: string) {
+    const aciklama = prompt('Revizyon açıklaması (personel görecek):')
+    if (aciklama === null) return
+    try {
+      await adminApi.patch(`/admin/personel-belge/${belgeId}/revizyon-iste`, { aciklama })
+      if (secilenPersonel) void belgeleriYukle(secilenPersonel)
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'İşlem hatası' })
+    }
+  }
+
+  async function belgeHatirlatmaGonder() {
+    if (!secilenPersonel) return
+    try {
+      await adminApi.post(`/admin/personel/${secilenPersonel}/hatirlatma-gonder`, {
+        tur: 'EKSIK_BELGE',
+      })
+      setMesaj({ tip: 'ok', text: 'Hatırlatma e-postası gönderildi' })
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.message ?? e?.response?.data?.error ?? 'Gönderim hatası' })
+    }
+  }
+
   async function personelKaydet() {
     setLoading(true); setMesaj(null)
     try {
@@ -738,7 +774,7 @@ export default function IKPage() {
 
       {/* Sekmeler */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #e5e7eb', marginBottom: 24 }}>
-        {([['personeller', '👤 Personeller'], ['prim-kurallar', '📋 Prim Kuralları'], ['prim-hesap', '💰 Prim Hesapla']] as const).map(([s, label]) => (
+        {([['personeller', '👤 Personeller'], ['prim-kurallar', '📋 Prim Kuralları'], ['prim-hesap', '💰 Prim Hesapla'], ['ozluk-ayarlari', '⚙ Özlük Ayarları']] as const).map(([s, label]) => (
           <button key={s} type="button" onClick={() => setSekme(s)}
             style={{ padding: '10px 20px', fontSize: 13, fontWeight: sekme === s ? 900 : 600, color: sekme === s ? '#1a1a2e' : '#9ca3af', background: 'none', border: 'none', borderBottom: sekme === s ? '2px solid #1a1a2e' : '2px solid transparent', marginBottom: -2, cursor: 'pointer' }}>
             {label}
@@ -1559,11 +1595,16 @@ export default function IKPage() {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 700 }}>Yüklenen Belgeler ({belgeler.length})</div>
-              {belgeler.length > 0 ? (
-                <button type="button" onClick={muhasebeGonderPaneliniAc} style={{ ...btnSmall, backgroundColor: '#eef2ff', color: '#3730a3', fontWeight: 700 }}>
-                  Muhasebeye Gönder
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" onClick={() => void belgeHatirlatmaGonder()} style={{ ...btnSmall, backgroundColor: '#fff7ed', color: '#c2410c', fontWeight: 700 }}>
+                  Hatırlatma Gönder
                 </button>
-              ) : null}
+                {belgeler.length > 0 ? (
+                  <button type="button" onClick={muhasebeGonderPaneliniAc} style={{ ...btnSmall, backgroundColor: '#eef2ff', color: '#3730a3', fontWeight: 700 }}>
+                    Muhasebeye Gönder
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             {muhasebeGonderAcik ? (
@@ -1615,16 +1656,24 @@ export default function IKPage() {
                       </div>
                       <span style={{
                         fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
-                        backgroundColor: b.onaylandi ? '#dcfce7' : '#fef3c7',
-                        color: b.onaylandi ? '#166534' : '#92400e',
+                        backgroundColor: (BELGE_DURUM_ETIKET[b.durum ?? (b.onaylandi ? 'ONAYLANDI' : 'YUKLENDI')] ?? BELGE_DURUM_ETIKET.YUKLENDI).bg,
+                        color: (BELGE_DURUM_ETIKET[b.durum ?? (b.onaylandi ? 'ONAYLANDI' : 'YUKLENDI')] ?? BELGE_DURUM_ETIKET.YUKLENDI).fg,
                       }}>
-                        {b.onaylandi ? '✓ Onaylı' : '⏳ Bekliyor'}
+                        {(BELGE_DURUM_ETIKET[b.durum ?? (b.onaylandi ? 'ONAYLANDI' : 'YUKLENDI')] ?? BELGE_DURUM_ETIKET.YUKLENDI).label}
                       </span>
                     </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                    {b.notlar && b.durum === 'REVIZYON_ISTENDI' ? (
+                      <div style={{ fontSize: 11, color: '#dc2626', backgroundColor: '#fef2f2', borderRadius: 6, padding: '4px 8px', marginBottom: 4 }}>
+                        Revizyon notu: {b.notlar}
+                      </div>
+                    ) : null}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                       <button type="button" onClick={() => void belgeIndir(b.id)} style={btnSmall}>İndir</button>
                       {!b.onaylandi ? (
                         <button type="button" onClick={() => void belgeOnayla(b.id)} style={{ ...btnSmall, backgroundColor: '#dcfce7', color: '#166534' }}>Onayla</button>
+                      ) : null}
+                      {b.durum !== 'REVIZYON_ISTENDI' ? (
+                        <button type="button" onClick={() => void belgeRevizyonIste(b.id)} style={{ ...btnSmall, backgroundColor: '#fee2e2', color: '#dc2626' }}>Revizyon İste</button>
                       ) : null}
                       <button type="button" onClick={() => void belgeSil(b.id)} style={{ ...btnSmall, color: '#ef4444' }}>Sil</button>
                     </div>
@@ -1634,6 +1683,8 @@ export default function IKPage() {
             )}
           </div>
         ) : null}
+
+        {secilenPersonel ? <PersonelOzlukModulu personelId={secilenPersonel} /> : null}
         </div>
       )}
 
@@ -1822,6 +1873,9 @@ export default function IKPage() {
           )}
         </div>
       )}
+
+      {/* ÖZLÜK AYARLARI (Belge Kategorileri + Sözleşme Şablonları) */}
+      {sekme === 'ozluk-ayarlari' && <PersonelAyarlarModulu />}
     </div>
   )
 }

@@ -766,25 +766,204 @@ model Personel {
   linkedUser      User?    @relation("UserPersonelLink")
   primKazanimlari PrimKazanim[]
   belgeler        PersonelBelge[]
+  ozgecmis        PersonelOzgecmis?
+  sertifikalar    PersonelSertifika[]
+  sozlesmeler     PersonelSozlesme[]
+  bordrolar       PersonelBordro[]
+  hastalikRaporlari PersonelHastalikRaporu[]
+  belgeLoglari    PersonelBelgeLog[]
 }
 
 model PersonelBelge {
-  id          String    @id @default(cuid())
+  id               String    @id @default(cuid())
+  personelId       String
+  tip              String    // bkz PersonelBelgeKategorisi.kod — IS_SOZLESMESI | SGK_GIRIS | MAAS_BORDROSU | KIMLIK | IKAMETGAH | SAGLIK | DIGER ...
+  ad               String
+  dosyaAdi         String
+  icerik           String    @db.Text
+  mimeType         String
+  boyut            Int
+  yukleyenId       String
+  onaylandi        Boolean   @default(false) // geriye uyumluluk — durum === ONAYLANDI ile senkron tutulur
+  onaylayanId      String?
+  onayTarihi       DateTime?
+  notlar           String?
+  durum            String    @default("YUKLENDI") // BEKLIYOR | YUKLENDI | REVIZYON_ISTENDI | ONAYLANDI
+  versiyon         Int       @default(1)
+  oncekiVersiyonId String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  personel         Personel  @relation(fields: [personelId], references: [id])
+}
+
+// ── PERSONEL BİLGİ FORMU (CV) ──────────────────────────────────────
+model PersonelOzgecmis {
+  id        String   @id @default(cuid())
+  personelId String  @unique
+
+  // Kişisel Bilgiler
+  tcKimlikNo   String?
+  dogumTarihi  DateTime?
+  dogumYeri    String?
+  cinsiyet     String? // ERKEK | KADIN
+  medeniDurum  String? // BEKAR | EVLI
+  uyruk        String?
+  kanGrubu     String?
+
+  // İletişim Bilgileri (telefon/e-posta zaten Personel'de; ek alanlar burada)
+  alternatifTelefon String?
+  ikametAdresi      String?  @db.Text
+  il                String?
+  ilce              String?
+  postaKodu         String?
+
+  // Acil Durum Bilgileri
+  acilYakinlikDerecesi   String?
+  acilAdSoyad            String?
+  acilTelefon            String?
+  acilAlternatifTelefon  String?
+
+  // Ehliyet
+  ehliyetSinifi        String?
+  ehliyetVerilisTarihi DateTime?
+  aktifAracKullaniyor  Boolean?
+
+  // Askerlik
+  askerlikDurumu String?   // YAPILDI | TECILLI | MUAF | YAPILMADI
+  tecilTarihi    DateTime?
+
+  // Kısa Özgeçmiş
+  kisaOzgecmis String? @db.Text
+
+  // Ek Bilgiler
+  sigaraKullaniyor      Boolean?
+  seyahatEngeliVar      Boolean?
+  vardiyaliCalisabilir  Boolean?
+  kullanilanProgramlar  String? @db.Text
+  hobiler               String? @db.Text
+  digerAciklamalar      String? @db.Text
+
+  // Çoklu-kayıt bölümleri (serbest sayıda alt kayıt — JSON dizi olarak tutulur)
+  egitimler           Json? // [{seviye, okulAdi, bolum, baslangic, mezuniyet, mezuniyetDurumu}]
+  isDeneyimleri       Json? // [{firmaAdi, gorevi, baslangic, ayrilis, ayrilisNedeni, isTanimi}]
+  yabanciDiller       Json? // [{dil, okuma, yazma, konusma}]
+  bilgisayarBilgileri Json? // [{program, seviye}]
+  referanslar         Json? // [{adSoyad, firma, gorevi, telefon, yakinlikDerecesi}]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  personel Personel @relation(fields: [personelId], references: [id])
+}
+
+model PersonelSertifika {
+  id         String    @id @default(cuid())
+  personelId String
+  ad         String
+  kurum      String?
+  tarih      DateTime?
+  dosyaAdi   String?
+  mimeType   String?
+  icerik     String?   @db.Text
+  createdAt  DateTime  @default(now())
+  personel   Personel  @relation(fields: [personelId], references: [id])
+}
+
+// ── BELGE KATEGORİLERİ (yönetici tarafından açık/kapalı, zorunlu ayarı) ──
+model PersonelBelgeKategorisi {
+  id            String   @id @default(cuid())
+  kod           String   @unique
+  ad            String
+  grup          String   // KIMLIK_KISISEL | EGITIM_MESLEKI | SAGLIK_YASAL | DIGER
+  zorunlu       Boolean  @default(false)
+  aktif         Boolean  @default(true)
+  siraNo        Int      @default(0)
+  hedefGruplar  String[] @default([]) // boşsa tüm pozisyonlar; doluysa yalnızca listelenen pozisyon kodları
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ── SÖZLEŞME ŞABLONLARI ─────────────────────────────────────────────
+model SozlesmeSablonu {
+  id        String   @id @default(cuid())
+  ad        String
+  tur       String   // TAM_ZAMANLI | YARI_ZAMANLI | OPTISYEN | DIGER
+  versiyon  Int      @default(1)
+  dosyaAdi  String
+  mimeType  String
+  icerik    String   @db.Text
+  aktif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  atamalar  PersonelSozlesme[]
+}
+
+model PersonelSozlesme {
+  id                 String    @id @default(cuid())
+  personelId         String
+  sablonId           String
+  sablonAdi          String
+  sablonVersiyon     Int
+  durum              String    @default("BEKLIYOR") // BEKLIYOR | YUKLENDI | REVIZYON_ISTENDI | ONAYLANDI
+  indirilmeTarihi    DateTime?
+  yuklenmeTarihi     DateTime?
+  onayTarihi         DateTime?
+  onaylayanId        String?
+  yuklenenDosyaAdi   String?
+  yuklenenMimeType   String?
+  yuklenenIcerik     String?   @db.Text
+  aciklama           String?   @db.Text
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  personel           Personel  @relation(fields: [personelId], references: [id])
+  sablon             SozlesmeSablonu @relation(fields: [sablonId], references: [id])
+}
+
+// ── BORDROLAR (aylık, çoklu kayıt) ──────────────────────────────────
+model PersonelBordro {
+  id             String   @id @default(cuid())
+  personelId     String
+  ay             Int      // 1-12
+  yil            Int
+  dosyaAdi       String
+  mimeType       String
+  icerik         String   @db.Text
+  aciklama       String?
+  yukleyenId     String?
+  yuklenmeTarihi DateTime @default(now())
+  createdAt      DateTime @default(now())
+  personel       Personel @relation(fields: [personelId], references: [id])
+
+  @@unique([personelId, ay, yil])
+}
+
+// ── HASTALIK RAPORLARI (sınırsız kayıt) ─────────────────────────────
+model PersonelHastalikRaporu {
+  id              String    @id @default(cuid())
+  personelId      String
+  baslangicTarihi DateTime
+  bitisTarihi     DateTime
+  gunSayisi       Int
+  saglikKurumu    String?
+  aciklama        String?   @db.Text
+  dosyaAdi        String?
+  mimeType        String?
+  icerik          String?   @db.Text
+  createdAt       DateTime  @default(now())
+  personel        Personel  @relation(fields: [personelId], references: [id])
+}
+
+// ── BELGE/ÖZLÜK İŞLEM LOGU ──────────────────────────────────────────
+model PersonelBelgeLog {
+  id          String   @id @default(cuid())
   personelId  String
-  tip         String    // IS_SOZLESMESI | SGK_GIRIS | MAAS_BORDROSU | KIMLIK | IKAMETGAH | SAGLIK | DIGER
-  ad          String
-  dosyaAdi    String
-  icerik      String    @db.Text
-  mimeType    String
-  boyut       Int
-  yukleyenId  String
-  onaylandi   Boolean   @default(false)
-  onaylayanId String?
-  onayTarihi  DateTime?
-  notlar      String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  personel    Personel  @relation(fields: [personelId], references: [id])
+  belgeId     String?
+  sozlesmeId  String?
+  islem       String   // YUKLENDI | ONAYLANDI | REVIZYON_ISTENDI | EKSIK_ISARETLENDI | HATIRLATMA_GONDERILDI | SILINDI
+  yapanId     String?  // userId ya da 'PUBLIC'
+  aciklama    String?
+  createdAt   DateTime @default(now())
+  personel    Personel @relation(fields: [personelId], references: [id])
 }
 
 // ── PRİM KURALI ───────────────────────────────────────────────────

@@ -119,6 +119,170 @@ router.post('/public/personel-belge-yukle/:personelId', async (req, res, next) =
   } catch (err) { next(err); }
 });
 
+// ── PERSONEL BİLGİ FORMU (CV) — public ────────────────────────────
+const OZGECMIS_ALANLAR = [
+  'tcKimlikNo', 'dogumTarihi', 'dogumYeri', 'cinsiyet', 'medeniDurum', 'uyruk', 'kanGrubu',
+  'alternatifTelefon', 'ikametAdresi', 'il', 'ilce', 'postaKodu',
+  'acilYakinlikDerecesi', 'acilAdSoyad', 'acilTelefon', 'acilAlternatifTelefon',
+  'ehliyetSinifi', 'ehliyetVerilisTarihi', 'aktifAracKullaniyor',
+  'askerlikDurumu', 'tecilTarihi', 'kisaOzgecmis',
+  'sigaraKullaniyor', 'seyahatEngeliVar', 'vardiyaliCalisabilir',
+  'kullanilanProgramlar', 'hobiler', 'digerAciklamalar',
+  'egitimler', 'isDeneyimleri', 'yabanciDiller', 'bilgisayarBilgileri', 'referanslar',
+] as const;
+
+function ozgecmisVeriTemizle(body: Record<string, any>) {
+  const data: Record<string, any> = {};
+  for (const alan of OZGECMIS_ALANLAR) {
+    if (body[alan] === undefined) continue;
+    if (alan === 'dogumTarihi' || alan === 'ehliyetVerilisTarihi' || alan === 'tecilTarihi') {
+      data[alan] = body[alan] ? new Date(body[alan]) : null;
+    } else {
+      data[alan] = body[alan];
+    }
+  }
+  return data;
+}
+
+router.get('/public/personel-ozgecmis/:personelId', async (req, res, next) => {
+  try {
+    const personel = await prisma.personel.findUnique({
+      where: { id: req.params.personelId },
+      select: { id: true, ad: true, soyad: true, telefon: true, email: true },
+    });
+    if (!personel) return res.status(404).json({ error: 'Personel bulunamadı' });
+    const [ozgecmis, sertifikalar] = await Promise.all([
+      prisma.personelOzgecmis.findUnique({ where: { personelId: req.params.personelId } }),
+      prisma.personelSertifika.findMany({
+        where: { personelId: req.params.personelId },
+        select: { id: true, ad: true, kurum: true, tarih: true, dosyaAdi: true, mimeType: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    return res.json({ success: true, data: { personel, ozgecmis, sertifikalar } });
+  } catch (err) { next(err); }
+});
+
+router.post('/public/personel-ozgecmis/:personelId', async (req, res, next) => {
+  try {
+    const personel = await prisma.personel.findUnique({ where: { id: req.params.personelId }, select: { id: true } });
+    if (!personel) return res.status(404).json({ error: 'Personel bulunamadı' });
+    const data = ozgecmisVeriTemizle(req.body ?? {});
+    const ozgecmis = await prisma.personelOzgecmis.upsert({
+      where: { personelId: req.params.personelId },
+      create: { personelId: req.params.personelId, ...data },
+      update: data,
+    });
+    return res.json({ success: true, data: ozgecmis });
+  } catch (err) { next(err); }
+});
+
+router.post('/public/personel-sertifika-yukle/:personelId', async (req, res, next) => {
+  try {
+    const { ad, kurum, tarih, base64, mimeType, dosyaAdi } = req.body ?? {};
+    if (!ad) return res.status(400).json({ error: 'ad zorunlu' });
+    const personel = await prisma.personel.findUnique({ where: { id: req.params.personelId }, select: { id: true } });
+    if (!personel) return res.status(404).json({ error: 'Personel bulunamadı' });
+    const sertifika = await prisma.personelSertifika.create({
+      data: {
+        personelId: req.params.personelId,
+        ad,
+        kurum: kurum || null,
+        tarih: tarih ? new Date(tarih) : null,
+        dosyaAdi: dosyaAdi || null,
+        mimeType: mimeType || null,
+        icerik: base64 || null,
+      },
+    });
+    return res.json({ success: true, id: sertifika.id });
+  } catch (err) { next(err); }
+});
+
+router.delete('/public/personel-sertifika/:sertifikaId', async (req, res, next) => {
+  try {
+    await prisma.personelSertifika.delete({ where: { id: req.params.sertifikaId } });
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── BELGE KATEGORİLERİ — public (yalnızca aktif olanlar) ──────────
+router.get('/public/belge-kategorileri', async (req, res, next) => {
+  try {
+    const kategoriler = await prisma.personelBelgeKategorisi.findMany({
+      where: { aktif: true },
+      orderBy: [{ grup: 'asc' }, { siraNo: 'asc' }],
+    });
+    return res.json({ success: true, data: kategoriler });
+  } catch (err) { next(err); }
+});
+
+// ── SÖZLEŞMELER — public (personelin indir/imzala/yükle akışı) ────
+router.get('/public/personel-sozlesmeler/:personelId', async (req, res, next) => {
+  try {
+    const sozlesmeler = await prisma.personelSozlesme.findMany({
+      where: { personelId: req.params.personelId },
+      select: {
+        id: true, sablonAdi: true, sablonVersiyon: true, durum: true,
+        indirilmeTarihi: true, yuklenmeTarihi: true, onayTarihi: true, aciklama: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return res.json({ success: true, data: sozlesmeler });
+  } catch (err) { next(err); }
+});
+
+router.get('/public/sozlesme-dosya/:sozlesmeId', async (req, res, next) => {
+  try {
+    const sozlesme = await prisma.personelSozlesme.findUnique({
+      where: { id: req.params.sozlesmeId },
+      include: { sablon: true },
+    });
+    if (!sozlesme) return res.status(404).json({ error: 'NOT_FOUND' });
+    if (!sozlesme.indirilmeTarihi) {
+      await prisma.personelSozlesme.update({
+        where: { id: sozlesme.id },
+        data: { indirilmeTarihi: new Date() },
+      });
+    }
+    return res.json({
+      success: true,
+      data: {
+        dosyaAdi: sozlesme.sablon.dosyaAdi,
+        mimeType: sozlesme.sablon.mimeType,
+        icerik: sozlesme.sablon.icerik,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/public/personel-sozlesme-yukle/:sozlesmeId', async (req, res, next) => {
+  try {
+    const { base64, mimeType, dosyaAdi } = req.body ?? {};
+    if (!base64) return res.status(400).json({ error: 'base64 zorunlu' });
+    const sozlesme = await prisma.personelSozlesme.update({
+      where: { id: req.params.sozlesmeId },
+      data: {
+        yuklenenIcerik: base64,
+        yuklenenMimeType: mimeType || 'application/octet-stream',
+        yuklenenDosyaAdi: dosyaAdi || 'sozlesme.pdf',
+        durum: 'YUKLENDI',
+        yuklenmeTarihi: new Date(),
+      },
+    });
+    await prisma.personelBelgeLog.create({
+      data: {
+        personelId: sozlesme.personelId,
+        sozlesmeId: sozlesme.id,
+        islem: 'YUKLENDI',
+        yapanId: 'PUBLIC',
+        aciklama: `Sözleşme yüklendi: ${sozlesme.sablonAdi}`,
+      },
+    });
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
 router.use(authenticate);
 
 router.get('/campaigns/branch/:branchId', async (req: Request, res: Response, next: NextFunction) => {
@@ -236,6 +400,8 @@ router.get(
           mimeType: true,
           boyut: true,
           onaylandi: true,
+          durum: true,
+          versiyon: true,
           onayTarihi: true,
           notlar: true,
           createdAt: true,
@@ -4810,8 +4976,72 @@ router.patch('/personel-belge/:belgeId/onayla', async (req, res, next) => {
       where: { id: req.params.belgeId },
       data: {
         onaylandi: true,
+        durum: 'ONAYLANDI',
         onaylayanId: req.user!.userId,
         onayTarihi: new Date(),
+      },
+    });
+    await prisma.personelBelgeLog.create({
+      data: {
+        personelId: belge.personelId,
+        belgeId: belge.id,
+        islem: 'ONAYLANDI',
+        yapanId: req.user!.userId,
+        aciklama: belge.ad,
+      },
+    });
+    const { icerik: _icerik, ...belgeSafe } = belge;
+    return res.json({ success: true, data: belgeSafe });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Revizyon iste — belgeyi personele geri gönder, açıklama ile
+router.patch('/personel-belge/:belgeId/revizyon-iste', async (req, res, next) => {
+  try {
+    const { aciklama } = req.body as { aciklama?: string };
+    const belge = await prisma.personelBelge.update({
+      where: { id: req.params.belgeId },
+      data: {
+        onaylandi: false,
+        durum: 'REVIZYON_ISTENDI',
+        notlar: aciklama || null,
+        onaylayanId: null,
+        onayTarihi: null,
+      },
+    });
+    await prisma.personelBelgeLog.create({
+      data: {
+        personelId: belge.personelId,
+        belgeId: belge.id,
+        islem: 'REVIZYON_ISTENDI',
+        yapanId: req.user!.userId,
+        aciklama: aciklama || belge.ad,
+      },
+    });
+    const { icerik: _icerik, ...belgeSafe } = belge;
+    return res.json({ success: true, data: belgeSafe });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Eksik olarak işaretle
+router.patch('/personel-belge/:belgeId/eksik-isaretle', async (req, res, next) => {
+  try {
+    const { aciklama } = req.body as { aciklama?: string };
+    const belge = await prisma.personelBelge.update({
+      where: { id: req.params.belgeId },
+      data: { onaylandi: false, durum: 'EKSIK', notlar: aciklama || null },
+    });
+    await prisma.personelBelgeLog.create({
+      data: {
+        personelId: belge.personelId,
+        belgeId: belge.id,
+        islem: 'EKSIK_ISARETLENDI',
+        yapanId: req.user!.userId,
+        aciklama: aciklama || belge.ad,
       },
     });
     const { icerik: _icerik, ...belgeSafe } = belge;
@@ -4823,7 +5053,15 @@ router.patch('/personel-belge/:belgeId/onayla', async (req, res, next) => {
 
 router.delete('/personel-belge/:belgeId', async (req, res, next) => {
   try {
-    await prisma.personelBelge.delete({ where: { id: req.params.belgeId } });
+    const belge = await prisma.personelBelge.delete({ where: { id: req.params.belgeId } });
+    await prisma.personelBelgeLog.create({
+      data: {
+        personelId: belge.personelId,
+        islem: 'SILINDI',
+        yapanId: req.user!.userId,
+        aciklama: belge.ad,
+      },
+    });
     return res.json({ success: true });
   } catch (err) {
     next(err);
@@ -7127,6 +7365,431 @@ router.post('/sirket-ayar/:sirketId', async (req, res) => {
     return res.status(500).json({ error: err?.message })
   }
 })
+
+// ── PERSONEL CV (ÖZGEÇMİŞ) — yönetici görünümü ────────────────────
+router.get('/personel/:id/ozgecmis', async (req, res, next) => {
+  try {
+    const [ozgecmis, sertifikalar] = await Promise.all([
+      prisma.personelOzgecmis.findUnique({ where: { personelId: req.params.id } }),
+      prisma.personelSertifika.findMany({
+        where: { personelId: req.params.id },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    return res.json({ success: true, data: { ozgecmis, sertifikalar } });
+  } catch (err) { next(err); }
+});
+
+router.put('/personel/:id/ozgecmis', async (req, res, next) => {
+  try {
+    const data = ozgecmisVeriTemizle(req.body ?? {});
+    const ozgecmis = await prisma.personelOzgecmis.upsert({
+      where: { personelId: req.params.id },
+      create: { personelId: req.params.id, ...data },
+      update: data,
+    });
+    return res.json({ success: true, data: ozgecmis });
+  } catch (err) { next(err); }
+});
+
+router.delete('/personel-sertifika/:sertifikaId', async (req, res, next) => {
+  try {
+    await prisma.personelSertifika.delete({ where: { id: req.params.sertifikaId } });
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── BELGE KATEGORİLERİ — yönetici CRUD ─────────────────────────────
+router.get('/personel-belge-kategorileri', async (req, res, next) => {
+  try {
+    const kategoriler = await prisma.personelBelgeKategorisi.findMany({
+      orderBy: [{ grup: 'asc' }, { siraNo: 'asc' }],
+    });
+    return res.json({ success: true, data: kategoriler });
+  } catch (err) { next(err); }
+});
+
+router.post('/personel-belge-kategorileri', async (req, res, next) => {
+  try {
+    const { kod, ad, grup, zorunlu, siraNo, hedefGruplar } = req.body ?? {};
+    if (!kod || !ad || !grup) return res.status(400).json({ error: 'kod, ad ve grup zorunlu' });
+    const kategori = await prisma.personelBelgeKategorisi.create({
+      data: {
+        kod: String(kod).toUpperCase().trim(),
+        ad,
+        grup,
+        zorunlu: Boolean(zorunlu),
+        siraNo: Number(siraNo) || 0,
+        hedefGruplar: Array.isArray(hedefGruplar) ? hedefGruplar : [],
+      },
+    });
+    return res.json({ success: true, data: kategori });
+  } catch (err) { next(err); }
+});
+
+router.put('/personel-belge-kategorileri/:id', async (req, res, next) => {
+  try {
+    const { ad, grup, zorunlu, aktif, siraNo, hedefGruplar } = req.body ?? {};
+    const data: Record<string, any> = {};
+    if (ad !== undefined) data.ad = ad;
+    if (grup !== undefined) data.grup = grup;
+    if (zorunlu !== undefined) data.zorunlu = Boolean(zorunlu);
+    if (aktif !== undefined) data.aktif = Boolean(aktif);
+    if (siraNo !== undefined) data.siraNo = Number(siraNo);
+    if (hedefGruplar !== undefined) data.hedefGruplar = Array.isArray(hedefGruplar) ? hedefGruplar : [];
+    const kategori = await prisma.personelBelgeKategorisi.update({
+      where: { id: req.params.id },
+      data,
+    });
+    return res.json({ success: true, data: kategori });
+  } catch (err) { next(err); }
+});
+
+router.delete('/personel-belge-kategorileri/:id', async (req, res, next) => {
+  try {
+    await prisma.personelBelgeKategorisi.delete({ where: { id: req.params.id } });
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── SÖZLEŞME ŞABLONLARI — yönetici CRUD ────────────────────────────
+router.get('/personel-sozlesme-sablonlari', async (req, res, next) => {
+  try {
+    const sablonlar = await prisma.sozlesmeSablonu.findMany({
+      select: {
+        id: true, ad: true, tur: true, versiyon: true, dosyaAdi: true,
+        mimeType: true, aktif: true, createdAt: true, updatedAt: true,
+      },
+      orderBy: [{ ad: 'asc' }, { versiyon: 'desc' }],
+    });
+    return res.json({ success: true, data: sablonlar });
+  } catch (err) { next(err); }
+});
+
+router.post('/personel-sozlesme-sablonlari', async (req, res, next) => {
+  try {
+    const { ad, tur, base64, mimeType, dosyaAdi } = req.body ?? {};
+    if (!ad || !tur || !base64) return res.status(400).json({ error: 'ad, tur ve base64 zorunlu' });
+    const oncekiler = await prisma.sozlesmeSablonu.findMany({ where: { ad } });
+    const yeniVersiyon = oncekiler.length ? Math.max(...oncekiler.map((s) => s.versiyon)) + 1 : 1;
+    if (oncekiler.length) {
+      await prisma.sozlesmeSablonu.updateMany({ where: { ad }, data: { aktif: false } });
+    }
+    const sablon = await prisma.sozlesmeSablonu.create({
+      data: {
+        ad, tur, versiyon: yeniVersiyon,
+        dosyaAdi: dosyaAdi || `${ad}.pdf`,
+        mimeType: mimeType || 'application/pdf',
+        icerik: base64,
+        aktif: true,
+      },
+    });
+    const { icerik: _icerik, ...safe } = sablon;
+    return res.json({ success: true, data: safe });
+  } catch (err) { next(err); }
+});
+
+router.put('/personel-sozlesme-sablonlari/:id', async (req, res, next) => {
+  try {
+    const { aktif } = req.body ?? {};
+    const sablon = await prisma.sozlesmeSablonu.update({
+      where: { id: req.params.id },
+      data: { aktif: aktif !== undefined ? Boolean(aktif) : undefined },
+    });
+    const { icerik: _icerik, ...safe } = sablon;
+    return res.json({ success: true, data: safe });
+  } catch (err) { next(err); }
+});
+
+router.delete('/personel-sozlesme-sablonlari/:id', async (req, res, next) => {
+  try {
+    await prisma.sozlesmeSablonu.delete({ where: { id: req.params.id } });
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+router.get('/personel-sozlesme-sablonlari/:id/dosya', async (req, res, next) => {
+  try {
+    const sablon = await prisma.sozlesmeSablonu.findUnique({ where: { id: req.params.id } });
+    if (!sablon) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json({ success: true, data: sablon });
+  } catch (err) { next(err); }
+});
+
+// ── PERSONEL SÖZLEŞME — atama / onay akışı ─────────────────────────
+router.get('/personel/:id/sozlesmeler', async (req, res, next) => {
+  try {
+    const sozlesmeler = await prisma.personelSozlesme.findMany({
+      where: { personelId: req.params.id },
+      select: {
+        id: true, sablonAdi: true, sablonVersiyon: true, durum: true,
+        indirilmeTarihi: true, yuklenmeTarihi: true, onayTarihi: true,
+        yuklenenDosyaAdi: true, yuklenenMimeType: true, aciklama: true, createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return res.json({ success: true, data: sozlesmeler });
+  } catch (err) { next(err); }
+});
+
+router.post('/personel/:id/sozlesme-ata', async (req, res, next) => {
+  try {
+    const { sablonId } = req.body ?? {};
+    if (!sablonId) return res.status(400).json({ error: 'sablonId zorunlu' });
+    const sablon = await prisma.sozlesmeSablonu.findUnique({ where: { id: sablonId } });
+    if (!sablon) return res.status(404).json({ error: 'SABLON_BULUNAMADI' });
+    const sozlesme = await prisma.personelSozlesme.create({
+      data: {
+        personelId: req.params.id,
+        sablonId: sablon.id,
+        sablonAdi: sablon.ad,
+        sablonVersiyon: sablon.versiyon,
+        durum: 'BEKLIYOR',
+      },
+    });
+    await prisma.personelBelgeLog.create({
+      data: {
+        personelId: req.params.id,
+        sozlesmeId: sozlesme.id,
+        islem: 'HATIRLATMA_GONDERILDI',
+        yapanId: req.user!.userId,
+        aciklama: `Sözleşme atandı: ${sablon.ad}`,
+      },
+    });
+    return res.json({ success: true, data: sozlesme });
+  } catch (err) { next(err); }
+});
+
+router.get('/personel-sozlesme/:id/dosya', async (req, res, next) => {
+  try {
+    const sozlesme = await prisma.personelSozlesme.findUnique({ where: { id: req.params.id } });
+    if (!sozlesme || !sozlesme.yuklenenIcerik) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json({
+      success: true,
+      data: {
+        dosyaAdi: sozlesme.yuklenenDosyaAdi,
+        mimeType: sozlesme.yuklenenMimeType,
+        icerik: sozlesme.yuklenenIcerik,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+router.patch('/personel-sozlesme/:id/onayla', async (req, res, next) => {
+  try {
+    const sozlesme = await prisma.personelSozlesme.update({
+      where: { id: req.params.id },
+      data: { durum: 'ONAYLANDI', onayTarihi: new Date(), onaylayanId: req.user!.userId },
+    });
+    await prisma.personelBelgeLog.create({
+      data: {
+        personelId: sozlesme.personelId,
+        sozlesmeId: sozlesme.id,
+        islem: 'ONAYLANDI',
+        yapanId: req.user!.userId,
+        aciklama: sozlesme.sablonAdi,
+      },
+    });
+    return res.json({ success: true, data: sozlesme });
+  } catch (err) { next(err); }
+});
+
+router.patch('/personel-sozlesme/:id/revizyon-iste', async (req, res, next) => {
+  try {
+    const { aciklama } = req.body ?? {};
+    const sozlesme = await prisma.personelSozlesme.update({
+      where: { id: req.params.id },
+      data: { durum: 'REVIZYON_ISTENDI', aciklama: aciklama || null },
+    });
+    await prisma.personelBelgeLog.create({
+      data: {
+        personelId: sozlesme.personelId,
+        sozlesmeId: sozlesme.id,
+        islem: 'REVIZYON_ISTENDI',
+        yapanId: req.user!.userId,
+        aciklama: aciklama || sozlesme.sablonAdi,
+      },
+    });
+    return res.json({ success: true, data: sozlesme });
+  } catch (err) { next(err); }
+});
+
+router.delete('/personel-sozlesme/:id', async (req, res, next) => {
+  try {
+    await prisma.personelSozlesme.delete({ where: { id: req.params.id } });
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── BORDROLAR — yönetici, aylık çoklu kayıt ────────────────────────
+router.get('/personel/:id/bordrolar', async (req, res, next) => {
+  try {
+    const bordrolar = await prisma.personelBordro.findMany({
+      where: { personelId: req.params.id },
+      select: {
+        id: true, ay: true, yil: true, dosyaAdi: true, mimeType: true,
+        aciklama: true, yuklenmeTarihi: true, createdAt: true,
+      },
+      orderBy: [{ yil: 'desc' }, { ay: 'desc' }],
+    });
+    return res.json({ success: true, data: bordrolar });
+  } catch (err) { next(err); }
+});
+
+router.post('/personel/:id/bordro-yukle', async (req, res, next) => {
+  try {
+    const { ay, yil, base64, mimeType, dosyaAdi, aciklama } = req.body ?? {};
+    if (!ay || !yil || !base64) return res.status(400).json({ error: 'ay, yil ve base64 zorunlu' });
+    const bordro = await prisma.personelBordro.upsert({
+      where: { personelId_ay_yil: { personelId: req.params.id, ay: Number(ay), yil: Number(yil) } },
+      create: {
+        personelId: req.params.id, ay: Number(ay), yil: Number(yil),
+        dosyaAdi: dosyaAdi || `Bordro-${ay}-${yil}.pdf`,
+        mimeType: mimeType || 'application/pdf',
+        icerik: base64, aciklama: aciklama || null,
+        yukleyenId: req.user!.userId,
+      },
+      update: {
+        dosyaAdi: dosyaAdi || `Bordro-${ay}-${yil}.pdf`,
+        mimeType: mimeType || 'application/pdf',
+        icerik: base64, aciklama: aciklama || null,
+        yukleyenId: req.user!.userId,
+        yuklenmeTarihi: new Date(),
+      },
+    });
+    return res.json({ success: true, data: { id: bordro.id } });
+  } catch (err) { next(err); }
+});
+
+router.get('/personel-bordro/:id/indir', async (req, res, next) => {
+  try {
+    const bordro = await prisma.personelBordro.findUnique({ where: { id: req.params.id } });
+    if (!bordro) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json({ success: true, data: bordro });
+  } catch (err) { next(err); }
+});
+
+router.delete('/personel-bordro/:id', async (req, res, next) => {
+  try {
+    await prisma.personelBordro.delete({ where: { id: req.params.id } });
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── HASTALIK RAPORLARI — yönetici, sınırsız kayıt ──────────────────
+router.get('/personel/:id/hastalik-raporlari', async (req, res, next) => {
+  try {
+    const raporlar = await prisma.personelHastalikRaporu.findMany({
+      where: { personelId: req.params.id },
+      select: {
+        id: true, baslangicTarihi: true, bitisTarihi: true, gunSayisi: true,
+        saglikKurumu: true, aciklama: true, dosyaAdi: true, mimeType: true, createdAt: true,
+      },
+      orderBy: { baslangicTarihi: 'desc' },
+    });
+    return res.json({ success: true, data: raporlar });
+  } catch (err) { next(err); }
+});
+
+router.post('/personel/:id/hastalik-raporu-ekle', async (req, res, next) => {
+  try {
+    const { baslangicTarihi, bitisTarihi, saglikKurumu, aciklama, base64, mimeType, dosyaAdi } = req.body ?? {};
+    if (!baslangicTarihi || !bitisTarihi) {
+      return res.status(400).json({ error: 'baslangicTarihi ve bitisTarihi zorunlu' });
+    }
+    const basTarih = new Date(baslangicTarihi);
+    const bitTarih = new Date(bitisTarihi);
+    const gunSayisi = Math.max(1, Math.round((bitTarih.getTime() - basTarih.getTime()) / 86400000) + 1);
+    const rapor = await prisma.personelHastalikRaporu.create({
+      data: {
+        personelId: req.params.id,
+        baslangicTarihi: basTarih,
+        bitisTarihi: bitTarih,
+        gunSayisi,
+        saglikKurumu: saglikKurumu || null,
+        aciklama: aciklama || null,
+        dosyaAdi: dosyaAdi || null,
+        mimeType: mimeType || null,
+        icerik: base64 || null,
+      },
+    });
+    return res.json({ success: true, data: { id: rapor.id, gunSayisi } });
+  } catch (err) { next(err); }
+});
+
+router.get('/personel-hastalik-raporu/:id/indir', async (req, res, next) => {
+  try {
+    const rapor = await prisma.personelHastalikRaporu.findUnique({ where: { id: req.params.id } });
+    if (!rapor || !rapor.icerik) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json({
+      success: true,
+      data: { dosyaAdi: rapor.dosyaAdi, mimeType: rapor.mimeType, icerik: rapor.icerik },
+    });
+  } catch (err) { next(err); }
+});
+
+router.delete('/personel-hastalik-raporu/:id', async (req, res, next) => {
+  try {
+    await prisma.personelHastalikRaporu.delete({ where: { id: req.params.id } });
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── BELGE LOGU (özlük dosyası işlem geçmişi) ───────────────────────
+router.get('/personel/:id/belge-loglari', async (req, res, next) => {
+  try {
+    const loglar = await prisma.personelBelgeLog.findMany({
+      where: { personelId: req.params.id },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    return res.json({ success: true, data: loglar });
+  } catch (err) { next(err); }
+});
+
+// ── HATIRLATMA GÖNDER (e-posta) ────────────────────────────────────
+router.post('/personel/:id/hatirlatma-gonder', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { tur, mesaj } = req.body as { tur?: string; mesaj?: string };
+    const personel = await prisma.personel.findUnique({ where: { id } });
+    if (!personel) return res.status(404).json({ error: 'PERSONEL_BULUNAMADI' });
+    if (!personel.email) {
+      return res.status(400).json({ error: 'EPOSTA_YOK', message: 'Bu personelin kayıtlı e-posta adresi yok.' });
+    }
+
+    let baslikMap: Record<string, string> = {
+      EKSIK_BELGE: 'Eksik Belge Hatırlatması',
+      REVIZYON: 'Belge Revizyon Talebi',
+      FORM_EKSIK: 'Bilgi Formu Tamamlama Hatırlatması',
+      GENEL: 'Hatırlatma',
+    };
+    const baslik = baslikMap[tur || 'GENEL'] || baslikMap.GENEL;
+    const subject = `${baslik} — Güven Optik İnsan Kaynakları`;
+    const body = [
+      `Merhaba ${personel.ad} ${personel.soyad},`,
+      '',
+      mesaj || 'Personel bilgi formunuzda / belgelerinizde eksik veya revizyon bekleyen kalemler bulunmaktadır. Lütfen kısa süre içinde tamamlayınız.',
+      '',
+      'Güven Optik 1959 — İnsan Kaynakları',
+    ].join('\n');
+
+    const sonuc = await sendReportEmail([personel.email], subject, body, []);
+    if (!sonuc.success) {
+      return res.status(502).json({ error: 'GONDERIM_HATASI', message: sonuc.error });
+    }
+
+    await prisma.personelBelgeLog.create({
+      data: {
+        personelId: id,
+        islem: 'HATIRLATMA_GONDERILDI',
+        yapanId: req.user!.userId,
+        aciklama: `${baslik} (${personel.email})`,
+      },
+    });
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
 
 router.use('/envanter-import', envanterImportRouter);
 router.use('/odoo-sablon-excel', sablonExcelImportRouter);
