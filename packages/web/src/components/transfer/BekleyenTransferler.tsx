@@ -13,6 +13,7 @@ import EtiketBasModal, { type EtiketModalUrun } from '../etiket/EtiketBasModal'
 import { getAktifLokasyon } from '../../utils/aktifLokasyon'
 import { extractApiErrorMessage } from '../../utils/extractApiErrorMessage'
 import { transferHataMesaji } from '../../utils/transferError'
+import { downloadKutuCiktisiPdf } from '../../utils/kutuCiktisiPdf'
 
 const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVN2', 'GVN10', 'ANADEPO', 'GVN5']
 
@@ -207,6 +208,28 @@ export default function BekleyenTransferler({
     }
   }
 
+  async function kutuCiktisiYazdir(t: any) {
+    try {
+      await downloadKutuCiktisiPdf({
+        refNo: t.refNo ?? String(t.transferId),
+        gonderen: t.gonderen,
+        alici: t.alici ?? aktifLokasyon,
+        personel: t.personel,
+        tarih: t.atanmaTarihi ?? t.tarih,
+        items: (t.urunler ?? []).map((u: any) => ({
+          ad: u.ad,
+          varyant: u.varyant,
+          seriNo: u.seriNo,
+          lotNo: u.lotNo,
+          barkod: u.barkod,
+          beklenenAdet: u.beklenenAdet,
+        })),
+      })
+    } catch (e: unknown) {
+      setError(extractApiErrorMessage(e, 'Kutu çıktısı oluşturulamadı'))
+    }
+  }
+
   async function sorunBildir(t: any) {
     setError(null)
     try {
@@ -313,7 +336,15 @@ export default function BekleyenTransferler({
                 ) : null}
               </div>
             </div>
-            <div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                type="button"
+                className="btn-detay"
+                onClick={() => void kutuCiktisiYazdir(t)}
+                title="Kutuda ne var — lojistik için sevkiyat listesi PDF"
+              >
+                📦 Kutu Çıktısı
+              </button>
               <button type="button" className="btn-detay" onClick={() => detayAc(t)}>
                 Detay
               </button>
