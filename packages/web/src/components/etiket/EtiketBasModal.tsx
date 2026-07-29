@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { SablonId } from '../etiket-tasarimci/sablon-types'
 import { renderEtiketBatchToDataUrls, type EtiketSablonRender } from './etiket-canvas-render'
 import { yazdirEtiketGorselleri } from './etiket-gorsel-yazdir'
+import { etiketleriPdfOlustur } from './etiket-pdf-yazdir'
 import EtiketSablonSecici from './EtiketSablonSecici'
 import {
   etiketUrunToRenderVeri,
@@ -125,7 +126,15 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
       try {
         const veriler = uretilenItems.map(etiketUrunToRenderVeri)
         const sayfalar = renderEtiketBatchToDataUrls(sablonRender, veriler)
-        yazdirEtiketGorselleri(sayfalar)
+        if (sablonId === 'depo-kutu') {
+          // Depo Etiketi normal (A4) yazıcı içindir: tek etiket/sayfa yerine
+          // A4'e kesim çizgili grid halinde dizilmiş bir PDF indirilir.
+          await etiketleriPdfOlustur(sayfalar)
+        } else {
+          // Zebra/Argox termal şablonlar: her etiket kendi fiziksel
+          // boyutunda tek "sayfa" — etiket yazıcısı sürücüsüne gider.
+          yazdirEtiketGorselleri(sayfalar)
+        }
       } catch (e: unknown) {
         const err = e as { message?: string }
         setError(err?.message ?? 'Görsel yazdırma başarısız')
@@ -211,7 +220,9 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
               style={{ width: '100%', fontFamily: 'monospace', fontSize: 11, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', boxSizing: 'border-box' }}
             />
             <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-              {gorselYazdirma
+              {sablonId === 'depo-kutu'
+                ? 'Yazdır butonu, etiketleri A4 sayfaya kesim çizgili grid halinde dizilmiş bir PDF olarak indirir — normal yazıcıdan (lazer/mürekkep püskürtmeli) bastırıp makasla kesin.'
+                : gorselYazdirma
                 ? 'PPLA ham komutu (yedek/kopya). Yazdır butonu etiketi PNG görseli olarak gönderir — macOS yazıcı ayarlarında özel kağıt boyutu ve Label Sensor: Gap seçili olmalı.'
                 : 'Ham komut metni (eski şablon). Görsel yazdırma bu şablon için henüz yok.'}
             </div>
@@ -225,7 +236,7 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
                 onClick={() => void yazdir()}
                 style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e5e7eb', fontWeight: 700, cursor: 'pointer', opacity: yazdiriliyor ? 0.6 : 1 }}
               >
-                {yazdiriliyor ? 'Hazırlanıyor...' : 'Yazdır'}
+                {yazdiriliyor ? 'Hazırlanıyor...' : sablonId === 'depo-kutu' ? 'PDF İndir' : 'Yazdır'}
               </button>
             </div>
           </div>
