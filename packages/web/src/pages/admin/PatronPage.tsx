@@ -47,6 +47,7 @@ function fmt(v: number, doviz: string) {
 const KATEGORI_KEYS = ['GUNES_GOZLUGU', 'CAM', 'LENS', 'OPTIK_CERCEVE', 'AKSESUAR', 'SOLUSYON'] as const
 const KATEGORI_LABELS = ['Güneş', 'Cam', 'Lens', 'Çerçeve', 'Aksesuar', 'Solüsyon']
 const KATEGORI_RENKLER = ['#A32D2D', '#185FA5', '#3B6D11', '#BA7517', '#6B3FA0', '#888780']
+const ALT_RENKLER = ['#A32D2D', '#185FA5', '#3B6D11', '#BA7517', '#6B3FA0', '#888780', '#D97706', '#0E7490']
 
 type AltKirilimSatir = { ad: string; ciro: number; adet: number; yuzde: number }
 
@@ -79,6 +80,7 @@ export default function PatronPage() {
   const kategoriChartRef = useRef<any>(null)
 
   function handleKategoriChartClick(event: React.MouseEvent<HTMLCanvasElement>) {
+    if (seciliAnaKategori) return // alt kırılım görünümündeyken ana dilim tıklaması pasif
     try {
       const chart = kategoriChartRef.current
       if (!chart) {
@@ -282,48 +284,28 @@ export default function PatronPage() {
                 )}
               </div>
 
-              {!seciliAnaKategori ? (
-                <>
-                  <div style={{ position: 'relative', height: 160 }}>
-                    <Doughnut
-                      ref={kategoriChartRef}
-                      onClick={handleKategoriChartClick}
-                      data={{
-                        labels: KATEGORI_LABELS,
-                        datasets: [{
-                          data: KATEGORI_KEYS.map((key) =>
-                            Number((kategori as any)?.[key]?.ciro ?? (kategori as any)?.[key] ?? 0),
-                          ),
-                          backgroundColor: KATEGORI_RENKLER,
-                          borderWidth: 0,
-                        }],
-                      }}
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
-                      }}
-                      style={{ cursor: 'pointer' }}
-                    />
+              <div style={{ position: 'relative', height: 160 }}>
+                {seciliAnaKategori && (altYukleniyor || altKirilim.length === 0) && (
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#6b7280', background: 'rgba(255,255,255,0.85)', zIndex: 1 }}>
+                    {altYukleniyor ? 'Yükleniyor...' : 'Bu kategoride veri yok'}
                   </div>
-                  <div style={{ fontSize: 10, color: '#9ca3af', textAlign: 'center', marginTop: 6 }}>
-                    Alt kırılımı görmek için bir dilime tıklayın
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ position: 'relative', height: 160 }}>
-                    {altYukleniyor ? (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 12, color: '#6b7280' }}>
-                        Yükleniyor...
-                      </div>
-                    ) : altKirilim.length === 0 ? (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 12, color: '#6b7280' }}>
-                        Bu kategoride veri yok
-                      </div>
-                    ) : (
-                      <Doughnut
-                        data={{
+                )}
+                <Doughnut
+                  ref={kategoriChartRef}
+                  onClick={handleKategoriChartClick}
+                  data={
+                    !seciliAnaKategori
+                      ? {
+                          labels: KATEGORI_LABELS,
+                          datasets: [{
+                            data: KATEGORI_KEYS.map((key) =>
+                              Number((kategori as any)?.[key]?.ciro ?? (kategori as any)?.[key] ?? 0),
+                            ),
+                            backgroundColor: KATEGORI_RENKLER,
+                            borderWidth: 0,
+                          }],
+                        }
+                      : {
                           labels: [KATEGORI_LABELS[KATEGORI_KEYS.indexOf(seciliAnaKategori as any)], ...altKirilim.map((a) => a.ad)],
                           datasets: [
                             {
@@ -336,15 +318,21 @@ export default function PatronPage() {
                             {
                               // Dış halka: alt kategori kırılımı (yüzdesel)
                               data: altKirilim.map((a) => a.yuzde),
-                              backgroundColor: altKirilim.map((_, i) =>
-                                ['#A32D2D', '#185FA5', '#3B6D11', '#BA7517', '#6B3FA0', '#888780', '#D97706', '#0E7490'][i % 8],
-                              ),
+                              backgroundColor: altKirilim.map((_, i) => ALT_RENKLER[i % ALT_RENKLER.length]),
                               borderWidth: 0,
                               weight: 1,
                             },
                           ] as any,
-                        }}
-                        options={{
+                        }
+                  }
+                  options={
+                    !seciliAnaKategori
+                      ? {
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: { legend: { position: 'bottom' as const, labels: { boxWidth: 12, font: { size: 11 } } } },
+                        }
+                      : {
                           responsive: true,
                           maintainAspectRatio: false,
                           plugins: {
@@ -359,24 +347,27 @@ export default function PatronPage() {
                               },
                             },
                           },
-                        }}
-                      />
-                    )}
-                  </div>
-                  {altKirilim.length > 0 && (
-                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {altKirilim.map((row, i) => (
-                        <div key={row.ad} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, backgroundColor: ['#A32D2D', '#185FA5', '#3B6D11', '#BA7517', '#6B3FA0', '#888780', '#D97706', '#0E7490'][i % 8] }} />
-                          <span style={{ flex: 1, color: '#374151' }}>{row.ad}</span>
-                          <span style={{ fontWeight: 700 }}>%{row.yuzde.toFixed(1)}</span>
-                          <span style={{ color: '#9ca3af', minWidth: 60, textAlign: 'right' }}>{fmt(row.ciro, doviz)}</span>
-                        </div>
-                      ))}
+                        }
+                  }
+                  style={{ cursor: seciliAnaKategori ? 'default' : 'pointer' }}
+                />
+              </div>
+              {!seciliAnaKategori ? (
+                <div style={{ fontSize: 10, color: '#9ca3af', textAlign: 'center', marginTop: 6 }}>
+                  Alt kırılımı görmek için bir dilime tıklayın
+                </div>
+              ) : altKirilim.length > 0 ? (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {altKirilim.map((row, i) => (
+                    <div key={row.ad} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, backgroundColor: ALT_RENKLER[i % ALT_RENKLER.length] }} />
+                      <span style={{ flex: 1, color: '#374151' }}>{row.ad}</span>
+                      <span style={{ fontWeight: 700 }}>%{row.yuzde.toFixed(1)}</span>
+                      <span style={{ color: '#9ca3af', minWidth: 60, textAlign: 'right' }}>{fmt(row.ciro, doviz)}</span>
                     </div>
-                  )}
-                </>
-              )}
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Ödeme yöntemleri</div>
