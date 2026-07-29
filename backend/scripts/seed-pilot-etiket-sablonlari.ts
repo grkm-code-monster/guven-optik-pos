@@ -6,21 +6,21 @@ import 'dotenv/config';
 import { upsertSablonBySlug, getSablonBySlug } from '../src/modules/etiket/etiket-sablon.service';
 
 const DEPO_ETIKETI = {
-  ad: 'Depo Etiketi (30x50mm)',
+  ad: 'Depo Etiketi (50x30mm)',
   kategori: 'GENEL',
   slug: 'depo-etiketi',
-  etiketGenislik: 30,
-  etiketYukseklik: 50,
+  etiketGenislik: 50,
+  etiketYukseklik: 30,
   elemanlar: [
-    { id: 'barkod', type: 'barcode128', x: 10, y: 8, width: 220, height: 90 },
-    { id: 'barkodNo', type: 'barkodMetin', x: 10, y: 104, fontSize: 13 },
-    { id: 'urunAdi', type: 'urunAdi', x: 10, y: 130, fontSize: 16, fontWeight: 'bold' },
-    { id: 'nitelik', type: 'nitelik', x: 10, y: 158, fontSize: 11, width: 106 },
-    { id: 'sonSayim', type: 'sonGuncelleme', x: 124, y: 158, fontSize: 9 },
-    { id: 'cerceveTuruLabel', type: 'serbestMetin', text: 'Çerçeve Türü', x: 10, y: 180, fontSize: 8 },
-    { id: 'cerceveTuruKutu', type: 'kutu', x: 10, y: 190, width: 106, height: 34 },
-    { id: 'materyalLabel', type: 'serbestMetin', text: 'Materyal', x: 124, y: 180, fontSize: 8 },
-    { id: 'materyalKutu', type: 'kutu', x: 124, y: 190, width: 106, height: 34 },
+    { id: 'barkod', type: 'barcode128', x: 16, y: 10, width: 200, height: 56 },
+    { id: 'barkodNo', type: 'barkodMetin', x: 16, y: 70, fontSize: 10 },
+    { id: 'urunAdi', type: 'urunAdi', x: 16, y: 88, fontSize: 13, fontWeight: 'bold' },
+    { id: 'nitelik', type: 'nitelik', x: 16, y: 104, fontSize: 9, width: 368 },
+    { id: 'sonSayim', type: 'sonGuncelleme', x: 16, y: 120, fontSize: 8 },
+    { id: 'cerceveTuruLabel', type: 'serbestMetin', text: 'Çerçeve Türü', x: 16, y: 136, fontSize: 7 },
+    { id: 'cerceveTuruKutu', type: 'kutu', x: 16, y: 144, width: 180, height: 88 },
+    { id: 'materyalLabel', type: 'serbestMetin', text: 'Materyal', x: 204, y: 136, fontSize: 7 },
+    { id: 'materyalKutu', type: 'kutu', x: 204, y: 144, width: 180, height: 88 },
   ],
 } as const;
 
