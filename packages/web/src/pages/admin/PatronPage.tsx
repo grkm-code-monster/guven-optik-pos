@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -76,6 +76,14 @@ export default function PatronPage() {
   const [seciliAnaKategori, setSeciliAnaKategori] = useState<string | null>(null)
   const [altKirilim, setAltKirilim] = useState<AltKirilimSatir[]>([])
   const [altYukleniyor, setAltYukleniyor] = useState(false)
+  const kategoriChartRef = useRef<any>(null)
+
+  function handleKategoriChartClick(event: React.MouseEvent<HTMLCanvasElement>) {
+    const chart = kategoriChartRef.current
+    if (!chart) return
+    const elements = chart.getElementsAtEventForMode(event.nativeEvent, 'nearest', { intersect: true }, false)
+    if (elements.length) void kategoriTikla(elements[0].index)
+  }
 
   async function kategoriTikla(index: number) {
     const anaKategori = KATEGORI_KEYS[index]
@@ -267,6 +275,8 @@ export default function PatronPage() {
                 <>
                   <div style={{ position: 'relative', height: 160 }}>
                     <Doughnut
+                      ref={kategoriChartRef}
+                      onClick={handleKategoriChartClick}
                       data={{
                         labels: KATEGORI_LABELS,
                         datasets: [{
@@ -280,11 +290,9 @@ export default function PatronPage() {
                       options={{
                         responsive: true,
                         maintainAspectRatio: false,
-                        onClick: (_evt, elements) => {
-                          if (elements.length) void kategoriTikla(elements[0].index)
-                        },
                         plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
                       }}
+                      style={{ cursor: 'pointer' }}
                     />
                   </div>
                   <div style={{ fontSize: 10, color: '#9ca3af', textAlign: 'center', marginTop: 6 }}>
