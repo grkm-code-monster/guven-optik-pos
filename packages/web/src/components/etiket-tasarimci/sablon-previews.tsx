@@ -589,110 +589,169 @@ export function SablonDepoKutu({ data, ayar, width, height }: PreviewProps) {
   )
 }
 
-/** 4. Kampanya — Yüzde İndirim */
-export function SablonKampanyaYuzde({ data, ayar, width, height }: PreviewProps) {
-  const s = scale2(width, height)
-  const yuzde = ayar.indirimYuzdesi ?? data.indirimYuzdesi ?? 25
-  const pad = s.x(15)
+/**
+ * Kampanya şablonları — Güneş Gözlüğü/Aksesuar (102×20mm katlanır paddle) ile
+ * BİREBİR AYNI şekil/boyut ve yerleşim. Kampanya tanımlanınca etiket boyutu
+ * değişmesin diye barkod/ürün adı/model-renk/GS1 alanları SablonGunesGozlugu
+ * ile aynı koordinatları kullanır; sadece fiyat satırının üstündeki (normalde
+ * "fiyat değişim tarihi" olan) satır kampanya rozetine dönüşür.
+ */
+function KampanyaPaddleTaban({
+  data,
+  ayar,
+  width,
+  height,
+  ustSatir,
+  fiyatSatiri,
+}: PreviewProps & { ustSatir: React.ReactNode; fiyatSatiri: React.ReactNode }) {
+  const s = scaleGunes(width, height)
+  const barkodVal = data.barkod?.trim() || data.icReferans?.trim() || '8693283900499'
+  const nitelikRaw = data.renkVaryant?.trim() || data.icReferans || ''
+  const { model, renk } = modelVeRenk(nitelikRaw)
+  const refSatirlari = gs1ReferansSatirlari(data)
 
   return (
-    <div style={{ ...base, width, height }}>
-      <div
-        style={{
-          position: 'absolute',
-          left: pad,
-          top: s.y(12),
-          fontSize: s.f(32),
-          fontWeight: 'bold',
-          color: ayar.renkKampanya,
-          lineHeight: 1,
-        }}
+    <div style={{ ...base, width, height, border: 'none', backgroundColor: 'transparent' }}>
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${GUNES_DOT_W} ${GUNES_DOT_H}`}
+        style={{ display: 'block', overflow: 'visible' }}
       >
-        %{yuzde} İNDİRİM
-      </div>
-      <div style={{ position: 'absolute', left: pad, top: s.y(58), fontSize: s.f(14), fontWeight: 'bold', color: ayar.renkBaslik }}>
-        {data.urunAdi}
-      </div>
-      {ayar.gosterIcReferans ? (
-        <div style={{ position: 'absolute', left: pad, top: s.y(80), fontSize: s.f(11), color: '#333' }}>
-          {data.icReferans}
+        <path d={gunesPaddlePath()} fill="white" stroke="#374151" strokeWidth={1.5} />
+        <line
+          x1={GUNES_FOLD_X}
+          y1={4}
+          x2={GUNES_FOLD_X}
+          y2={GUNES_DOT_H - 4}
+          stroke="#d1d5db"
+          strokeWidth={1}
+          strokeDasharray="4 3"
+        />
+      </svg>
+
+      {ayar.gosterBarkod ? (
+        <div
+          style={{
+            position: 'absolute', left: s.dX(GUNES_BAR_X), top: s.dY(GUNES_BAR_Y),
+            width: s.dW(180), height: s.dH(GUNES_BAR_H),
+            backgroundColor: '#f9fafb', border: '1px solid #374151',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: s.f(7), color: '#374151', fontWeight: 600,
+          }}
+        >
+          CODE128
         </div>
       ) : null}
-      <div style={{ position: 'absolute', left: pad, top: s.y(102), fontSize: s.f(22), fontWeight: 'bold', color: ayar.renkFiyat }}>
-        {formatFiyat(data.fiyat)}
+
+      {ayar.gosterBarkod ? (
+        <div style={{ position: 'absolute', left: s.dX(GUNES_BAR_NO_X), top: s.dY(GUNES_BAR_NO_Y), fontSize: s.f(11), fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+          {barkodVal}
+        </div>
+      ) : null}
+
+      <div
+        style={{
+          position: 'absolute', left: s.dX(GUNES_URUN_X), top: s.dY(GUNES_URUN_Y),
+          fontSize: s.f(14), fontWeight: 'bold', color: ayar.renkBaslik,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: s.dW(240),
+        }}
+      >
+        {data.urunAdi}
       </div>
+
+      {ayar.gosterIcReferans && model ? (
+        <div style={{ position: 'absolute', left: s.dX(GUNES_MODEL_X), top: s.dY(GUNES_MODEL_Y), fontSize: s.f(13), whiteSpace: 'nowrap' }}>
+          {model}
+        </div>
+      ) : null}
+
+      {ayar.gosterRenk && renk ? (
+        <div style={{ position: 'absolute', left: s.dX(GUNES_RENK_X), top: s.dY(GUNES_RENK_Y), fontSize: s.f(13), whiteSpace: 'nowrap' }}>
+          {renk}
+        </div>
+      ) : null}
+
+      <div style={{ position: 'absolute', left: s.dX(GUNES_FIYAT_X), top: s.dY(GUNES_FIYAT_Y), whiteSpace: 'nowrap' }}>
+        {fiyatSatiri}
+      </div>
+
+      <div style={{ position: 'absolute', left: s.dX(GUNES_TARIH_X), top: s.dY(GUNES_TARIH_Y), whiteSpace: 'nowrap' }}>
+        {ustSatir}
+      </div>
+
       {ayar.gosterKdv ? (
-        <div style={{ position: 'absolute', left: pad, bottom: s.y(10), fontSize: s.f(8), color: '#999' }}>
+        <div style={{ position: 'absolute', left: s.dX(GUNES_KDV_X), top: s.dY(GUNES_KDV_Y), fontSize: s.f(10), color: '#666' }}>
           KDV DAHİLDİR
         </div>
       ) : null}
+
+      {ayar.gosterGs1 ? (
+        <div
+          style={{
+            position: 'absolute', left: s.dX(GUNES_GS1_X), top: s.dY(GUNES_GS1_Y),
+            width: s.dW(GUNES_GS1_SIZE), height: s.dH(GUNES_GS1_SIZE),
+            backgroundColor: '#888', border: '1px solid #666',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white', fontWeight: 'bold', fontSize: s.f(10),
+          }}
+        >
+          GS1
+        </div>
+      ) : null}
+
+      {ayar.gosterGs1Kodlari
+        ? refSatirlari.map((satir, i) => (
+            <div
+              key={satir}
+              style={{
+                position: 'absolute', left: s.dX(GUNES_REF_X), top: s.dY(GUNES_REF_Y + i * GUNES_REF_LINE),
+                fontSize: s.f(13), color: '#333', whiteSpace: 'nowrap', fontFamily: 'monospace',
+              }}
+            >
+              {satir}
+            </div>
+          ))
+        : null}
     </div>
+  )
+}
+
+/** 4. Kampanya — Yüzde İndirim */
+export function SablonKampanyaYuzde({ data, ayar, width, height }: PreviewProps) {
+  const s = scaleGunes(width, height)
+  const yuzde = ayar.indirimYuzdesi ?? data.indirimYuzdesi ?? 25
+  return (
+    <KampanyaPaddleTaban
+      data={data} ayar={ayar} width={width} height={height}
+      ustSatir={<span style={{ fontSize: s.f(14), fontWeight: 'bold', color: ayar.renkKampanya }}>%{yuzde} İNDİRİM</span>}
+      fiyatSatiri={<span style={{ fontSize: s.f(26), fontWeight: 'bold', color: ayar.renkFiyat }}>{formatFiyat(data.fiyat)}</span>}
+    />
   )
 }
 
 /** 5. Kampanya — Fiyat Düşüşü */
 export function SablonKampanyaFiyat({ data, ayar, width, height }: PreviewProps) {
-  const s = scale2(width, height)
-  const pad = s.x(15)
-
+  const s = scaleGunes(width, height)
   return (
-    <div style={{ ...base, width, height }}>
-      <div style={{ position: 'absolute', left: pad, top: s.y(12), fontSize: s.f(14), fontWeight: 'bold', color: ayar.renkBaslik }}>
-        {data.urunAdi}
-      </div>
-      {ayar.gosterIcReferans ? (
-        <div style={{ position: 'absolute', left: pad, top: s.y(32), fontSize: s.f(11), color: '#333' }}>
-          {data.icReferans}
-        </div>
-      ) : null}
-      <div style={{ position: 'absolute', left: pad, top: s.y(55), fontSize: s.f(16), color: '#999', textDecoration: 'line-through' }}>
-        ESKİ: {formatFiyat(data.eskiFiyat ?? data.fiyat)}
-      </div>
-      <div style={{ position: 'absolute', left: pad, top: s.y(88), fontSize: s.f(24), fontWeight: 'bold', color: ayar.renkKampanya }}>
-        YENİ: {formatFiyat(data.yeniFiyat ?? data.fiyat)}
-      </div>
-      <div style={{ position: 'absolute', left: pad, bottom: s.y(12), fontSize: s.f(14), color: ayar.renkKampanya, fontWeight: 'bold' }}>
-        FİYAT DÜŞTÜ!
-      </div>
-    </div>
+    <KampanyaPaddleTaban
+      data={data} ayar={ayar} width={width} height={height}
+      ustSatir={<span style={{ fontSize: s.f(10), color: '#999', textDecoration: 'line-through' }}>ESKİ: {formatFiyat(data.eskiFiyat ?? data.fiyat)}</span>}
+      fiyatSatiri={<span style={{ fontSize: s.f(22), fontWeight: 'bold', color: ayar.renkKampanya }}>YENİ: {formatFiyat(data.yeniFiyat ?? data.fiyat)}</span>}
+    />
   )
 }
 
 /** 6. Kampanya — İkinci Ürün */
 export function SablonKampanyaIkinci({ data, ayar, width, height }: PreviewProps) {
-  const s = scale2(width, height)
-  const pad = s.x(15)
+  const s = scaleGunes(width, height)
   const ind = ayar.ikinciUrunIndirim ?? 50
-
   return (
-    <div style={{ ...base, width, height }}>
-      <div
-        style={{
-          position: 'absolute',
-          left: pad,
-          top: s.y(15),
-          fontSize: s.f(30),
-          fontWeight: 'bold',
-          color: ayar.renkKampanya,
-          lineHeight: 1.05,
-        }}
-      >
-        2. ÜRÜN
-        <br />
-        %{ind}
-      </div>
-      <div style={{ position: 'absolute', left: pad, top: s.y(95), fontSize: s.f(14), fontWeight: 'bold', color: ayar.renkBaslik }}>
-        {data.urunAdi}
-      </div>
-      {ayar.gosterIcReferans ? (
-        <div style={{ position: 'absolute', left: pad, top: s.y(118), fontSize: s.f(11), color: '#333' }}>
-          {data.icReferans}
-        </div>
-      ) : null}
-      <div style={{ position: 'absolute', left: pad, bottom: s.y(12), fontSize: s.f(20), fontWeight: 'bold', color: ayar.renkFiyat }}>
-        {formatFiyat(data.fiyat)}
-      </div>
-    </div>
+    <KampanyaPaddleTaban
+      data={data} ayar={ayar} width={width} height={height}
+      ustSatir={<span style={{ fontSize: s.f(14), fontWeight: 'bold', color: ayar.renkKampanya }}>2. ÜRÜN %{ind}</span>}
+      fiyatSatiri={<span style={{ fontSize: s.f(26), fontWeight: 'bold', color: ayar.renkFiyat }}>{formatFiyat(data.fiyat)}</span>}
+    />
   )
 }
 

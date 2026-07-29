@@ -210,35 +210,90 @@ function zplDepoKutu(veri: SablonVeri, ayar: SablonAyar): string {
   return wrap(lines)
 }
 
-function zplKampanyaYuzde(veri: SablonVeri, ayar: SablonAyar): string {
-  const yuzde = ayar.indirimYuzdesi ?? veri.indirimYuzdesi ?? 25
+/**
+ * Kampanya şablonları — Güneş Gözlüğü/Aksesuar (102×20mm katlanır paddle) ile
+ * AYNI fiziksel boyut ve yerleşimi kullanır. Kampanya tanımlanınca etiketin
+ * boyutu/şekli değişmemeli; sadece fiyat alanı kampanya bilgisiyle değişir.
+ * Barkod / ürün adı / model-renk / GS1 alanları zplGunesAksesuar ile birebir
+ * aynı koordinatlardadır.
+ */
+function zplKampanyaOrtak(
+  veri: SablonVeri,
+  ayar: SablonAyar,
+  fiyatSatiri: () => string,
+  ustSatir?: () => string | null,
+): string {
   const lines: string[] = []
-  lines.push(textZpl(40, 30, 48, `%${yuzde} İNDİRİM`))
-  lines.push(textZpl(40, 120, ayar.fontUrunAdi, veri.urunAdi ?? ''))
-  if (ayar.gosterIcReferans) lines.push(textZpl(40, 165, ayar.fontKucuk, veri.icReferans ?? ''))
-  lines.push(textZpl(40, 220, ayar.fontFiyat, formatFiyat(veri.fiyat)))
-  if (ayar.gosterKdv) lines.push(textZpl(40, 300, 9, 'KDV DAHİLDİR'))
+  lines.push(`^PW${GUNES_LABEL_W}`)
+  lines.push(`^LL${GUNES_LABEL_H}`)
+
+  const barkodVal = qrIcerik(veri)
+  const nitelikRaw = veri.renkVaryant?.trim() || veri.icReferans || ''
+  const { model, renk } = modelVeRenk(nitelikRaw)
+
+  if (ayar.gosterBarkod) {
+    lines.push(barcodeZpl(GUNES_BAR_X, GUNES_BAR_Y, GUNES_BAR_H, barkodVal))
+    lines.push(textZpl(GUNES_BAR_NO_X, GUNES_BAR_NO_Y, 11, barkodVal))
+  }
+
+  lines.push(textFbZpl(GUNES_URUN_X, GUNES_URUN_Y, 14, 14, 250, 1, veri.urunAdi ?? ''))
+
+  if (ayar.gosterIcReferans && model) {
+    lines.push(textZpl(GUNES_MODEL_X, GUNES_MODEL_Y, GUNES_REF_F, model))
+  }
+  if (ayar.gosterRenk && renk) {
+    lines.push(textZpl(GUNES_RENK_X, GUNES_RENK_Y, GUNES_REF_F, renk))
+  }
+
+  lines.push(fiyatSatiri())
+
+  const ust = ustSatir?.()
+  if (ust) lines.push(ust)
+
+  if (ayar.gosterKdv) {
+    lines.push(textZpl(GUNES_KDV_X, GUNES_KDV_Y, 10, 'KDV DAHILDIR'))
+  }
+
+  if (ayar.gosterGs1) {
+    lines.push(gs1Zpl(GUNES_GS1_X, GUNES_GS1_Y, GUNES_GS1_MOD, buildGs1(veri)))
+  }
+
+  if (ayar.gosterGs1Kodlari) {
+    gs1ReferansSatirlari(veri).forEach((satir, i) => {
+      lines.push(textZpl(GUNES_REF_X, GUNES_REF_Y + i * GUNES_REF_LINE, GUNES_REF_F, satir))
+    })
+  }
+
   return wrap(lines)
 }
 
+function zplKampanyaYuzde(veri: SablonVeri, ayar: SablonAyar): string {
+  const yuzde = ayar.indirimYuzdesi ?? veri.indirimYuzdesi ?? 25
+  return zplKampanyaOrtak(
+    veri,
+    ayar,
+    () => textZpl(GUNES_FIYAT_X, GUNES_FIYAT_Y, 26, 26, formatFiyat(veri.fiyat)),
+    () => textZpl(GUNES_TARIH_X, GUNES_TARIH_Y, 14, `%${yuzde} INDIRIM`),
+  )
+}
+
 function zplKampanyaFiyat(veri: SablonVeri, ayar: SablonAyar): string {
-  const lines: string[] = []
-  lines.push(textZpl(40, 25, ayar.fontUrunAdi, veri.urunAdi ?? ''))
-  if (ayar.gosterIcReferans) lines.push(textZpl(40, 70, ayar.fontKucuk, veri.icReferans ?? ''))
-  lines.push(textZpl(40, 130, 28, `ESKİ: ${formatFiyat(veri.eskiFiyat ?? veri.fiyat)}`))
-  lines.push(textZpl(40, 190, ayar.fontFiyat, `YENİ: ${formatFiyat(veri.yeniFiyat ?? veri.fiyat)}`))
-  lines.push(textZpl(40, 280, 16, 'FİYAT DÜŞTÜ!'))
-  return wrap(lines)
+  return zplKampanyaOrtak(
+    veri,
+    ayar,
+    () => textZpl(GUNES_FIYAT_X, GUNES_FIYAT_Y, 22, 22, `YENI: ${formatFiyat(veri.yeniFiyat ?? veri.fiyat)}`),
+    () => textZpl(GUNES_TARIH_X, GUNES_TARIH_Y, 10, `ESKI: ${formatFiyat(veri.eskiFiyat ?? veri.fiyat)}`),
+  )
 }
 
 function zplKampanyaIkinci(veri: SablonVeri, ayar: SablonAyar): string {
   const ind = ayar.ikinciUrunIndirim ?? 50
-  const lines: string[] = []
-  lines.push(textZpl(30, 40, 44, `2. ÜRÜN %${ind}`))
-  lines.push(textZpl(30, 200, ayar.fontUrunAdi, veri.urunAdi ?? ''))
-  if (ayar.gosterIcReferans) lines.push(textZpl(30, 260, ayar.fontKucuk, veri.icReferans ?? ''))
-  lines.push(textZpl(30, 310, ayar.fontFiyat, formatFiyat(veri.fiyat)))
-  return wrap(lines)
+  return zplKampanyaOrtak(
+    veri,
+    ayar,
+    () => textZpl(GUNES_FIYAT_X, GUNES_FIYAT_Y, 26, 26, formatFiyat(veri.fiyat)),
+    () => textZpl(GUNES_TARIH_X, GUNES_TARIH_Y, 14, `2. URUN %${ind}`),
+  )
 }
 
 const ZPL_MAP: Record<SablonId, (v: SablonVeri, a: SablonAyar) => string> = {
