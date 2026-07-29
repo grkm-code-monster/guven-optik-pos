@@ -79,10 +79,21 @@ export default function PatronPage() {
   const kategoriChartRef = useRef<any>(null)
 
   function handleKategoriChartClick(event: React.MouseEvent<HTMLCanvasElement>) {
-    const chart = kategoriChartRef.current
-    if (!chart) return
-    const elements = chart.getElementsAtEventForMode(event.nativeEvent, 'nearest', { intersect: true }, false)
-    if (elements.length) void kategoriTikla(elements[0].index)
+    try {
+      const chart = kategoriChartRef.current
+      if (!chart) {
+        console.warn('[patron] kategori grafiği referansı henüz hazır değil')
+        return
+      }
+      const elements = chart.getElementsAtEventForMode(event.nativeEvent, 'nearest', { intersect: true }, false)
+      if (elements.length) {
+        void kategoriTikla(elements[0].index)
+      } else {
+        console.warn('[patron] tıklanan noktada dilim bulunamadı')
+      }
+    } catch (e) {
+      console.error('[patron] kategori grafiği tıklama hatası', e)
+    }
   }
 
   async function kategoriTikla(index: number) {
