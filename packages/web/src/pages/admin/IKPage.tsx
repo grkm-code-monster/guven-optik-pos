@@ -168,6 +168,8 @@ export default function IKPage() {
   const [posSecim, setPosSecim] = useState<Record<string, string>>({})
   const [odooDegistir, setOdooDegistir] = useState<string | null>(null)
   const [pdksDegistir, setPdksDegistir] = useState<string | null>(null)
+  const [subeDegistir, setSubeDegistir] = useState<string | null>(null)
+  const [subeForm, setSubeForm] = useState<Record<string, string>>({})
   const [posDegistir, setPosDegistir] = useState<string | null>(null)
   const [pdksPersoneller, setPdksPersoneller] = useState<PdksPersonel[]>([])
   const [pdksForm, setPdksForm] = useState<Record<string, { pdksId: string; adSoyad: string }>>({})
@@ -251,6 +253,14 @@ export default function IKPage() {
     return pdksPersoneller.find((x) => String(x.id) === pdksId)?.name ?? ''
   }
 
+  function pdksIsimleAra(query: string): PdksPersonel[] {
+    const q = query.trim().toLocaleLowerCase('tr-TR')
+    if (q.length < 2) return []
+    return pdksPersoneller
+      .filter((x) => x.name?.toLocaleLowerCase('tr-TR').includes(q))
+      .slice(0, 6)
+  }
+
   function pdksPatronHalaAktif(p: Personel): boolean {
     if (p.aktif !== false || !p.pdksId) return false
     const pdks = pdksPersoneller.find((x) => String(x.id) === p.pdksId)
@@ -298,6 +308,32 @@ export default function IKPage() {
       await yuklePersonelSekmesi()
     } catch (e: any) {
       alert(e?.response?.data?.error ?? 'Bağlantı kaldırılamadı')
+    } finally { setBaglamaYukleniyor(false) }
+  }
+
+  function subeFormAc(p: Personel) {
+    const acik = subeDegistir === p.id
+    if (acik) {
+      setSubeDegistir(null)
+      return
+    }
+    setSubeForm((m) => ({ ...m, [p.id]: p.subeId ?? p.subeAdi ?? '' }))
+    setSubeDegistir(p.id)
+  }
+
+  async function subeKaydet(personelId: string) {
+    const kod = subeForm[personelId]
+    if (!kod) {
+      alert('Şube seçin')
+      return
+    }
+    setBaglamaYukleniyor(true)
+    try {
+      await adminApi.put(`/admin/personel-guncelle/${personelId}`, { subeId: kod, subeAdi: kod })
+      setSubeDegistir(null)
+      await yuklePersonelSekmesi()
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Şube güncellenemedi')
     } finally { setBaglamaYukleniyor(false) }
   }
 
@@ -1037,13 +1073,44 @@ export default function IKPage() {
                                         style={inp}
                                       />
                                     </div>
-                                    <div>
-                                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>PDKS&apos;te kayıtlı Ad Soyad</label>
+                                    <div style={{ position: 'relative' }}>
+                                      <label style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 3 }}>PDKS&apos;te isimle ara</label>
                                       <input
                                         value={pdksForm[p.id]?.adSoyad ?? ''}
-                                        readOnly
-                                        style={{ ...inp, backgroundColor: '#f9fafb', color: '#6b7280' }}
+                                        onChange={(e) => {
+                                          const adSoyad = e.target.value
+                                          setPdksForm((m) => ({ ...m, [p.id]: { pdksId: '', adSoyad } }))
+                                        }}
+                                        placeholder="Ad Soyad yazın, listeden seçin"
+                                        style={inp}
                                       />
+                                      {!pdksForm[p.id]?.pdksId && pdksIsimleAra(pdksForm[p.id]?.adSoyad ?? '').length > 0 ? (
+                                        <div style={{
+                                          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
+                                          backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 8,
+                                          boxShadow: '0 4px 12px rgba(0,0,0,0.08)', marginTop: 2, maxHeight: 200, overflowY: 'auto',
+                                        }}>
+                                          {pdksIsimleAra(pdksForm[p.id]?.adSoyad ?? '').map((match) => (
+                                            <button
+                                              key={match.id}
+                                              type="button"
+                                              onClick={() => setPdksForm((m) => ({ ...m, [p.id]: { pdksId: String(match.id), adSoyad: match.name } }))}
+                                              style={{
+                                                display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px',
+                                                border: 'none', borderBottom: '1px solid #f3f4f6', background: 'white',
+                                                cursor: 'pointer', fontSize: 12,
+                                              }}
+                                            >
+                                              {match.name} <span style={{ color: '#9ca3af' }}>· ID {match.id}</span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                      {pdksForm[p.id]?.pdksId ? (
+                                        <div style={{ fontSize: 11, color: '#166534', marginTop: 4 }}>
+                                          ✓ Seçildi — ID {pdksForm[p.id]?.pdksId}
+                                        </div>
+                                      ) : null}
                                     </div>
                                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                                       <button type="button" onClick={() => void pdksKaydet(p.id)} disabled={baglamaYukleniyor} style={btnPrimary}>
@@ -1311,6 +1378,34 @@ export default function IKPage() {
                                   </div>
                                 )}
                               </div>
+                            </div>
+
+                            <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginTop: 12 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                <div style={{ fontSize: 12, fontWeight: 900 }}>Şube</div>
+                                <button type="button" onClick={() => subeFormAc(p)} style={{ ...btnSmall, padding: '4px 8px', fontSize: 11 }}>
+                                  {subeDegistir === p.id ? 'Vazgeç' : 'Değiştir'}
+                                </button>
+                              </div>
+                              {subeDegistir === p.id ? (
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <select
+                                    value={subeForm[p.id] ?? ''}
+                                    onChange={(e) => setSubeForm((m) => ({ ...m, [p.id]: e.target.value }))}
+                                    style={{ ...inp, maxWidth: 220 }}
+                                  >
+                                    <option value="">— Şube seç —</option>
+                                    {subeler.map((s) => (
+                                      <option key={s.id} value={s.code}>{s.name} ({s.code})</option>
+                                    ))}
+                                  </select>
+                                  <button type="button" onClick={() => void subeKaydet(p.id)} disabled={baglamaYukleniyor} style={btnPrimary}>
+                                    {baglamaYukleniyor ? '...' : 'Kaydet'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: 12, color: '#374151' }}>{p.subeAdi ?? p.subeId ?? '—'}</div>
+                              )}
                             </div>
 
                             <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginTop: 12 }}>

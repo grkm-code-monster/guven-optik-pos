@@ -570,7 +570,7 @@ function SayimTab() {
         <div>
           <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Lokasyon</label>
           <select value={lokasyon} onChange={e => setLokasyon(e.target.value)} style={inp}>
-            {LOKASYONLAR.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+            {LOKASYONLAR.map(l => <option key={l.id} value={l.id}>{l.id} ({l.sirket})</option>)}
           </select>
         </div>
         <button type="button" onClick={loadStok} disabled={loading} style={btnPrimary}>
@@ -705,7 +705,7 @@ function AlimIadeTab() {
         <div>
           <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Hedef Lokasyon</label>
           <select value={lokasyon} onChange={e => setLokasyon(e.target.value)} style={inp}>
-            {LOKASYONLAR.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+            {LOKASYONLAR.map(l => <option key={l.id} value={l.id}>{l.id} ({l.sirket})</option>)}
           </select>
         </div>
       </div>

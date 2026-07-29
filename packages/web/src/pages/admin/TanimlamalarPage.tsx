@@ -1191,6 +1191,7 @@ function adminKayitHataMesaji(e: unknown): string {
 
 function SirketTanimlariTab() {
   const [aktifSirket, setAktifSirket] = useState<SirketId>('ng')
+  const [odooInfoModal, setOdooInfoModal] = useState(false)
   const [iysModal, setIysModal] = useState(false)
   const [iysForm, setIysForm] = useState({ iys_iys_code: '', iys_brand_code: '', iys_username: '', iys_password: '' })
   const [iysYukleniyor, setIysYukleniyor] = useState(false)
@@ -1357,10 +1358,9 @@ function SirketTanimlariTab() {
         />
         <EntegrasyonKarti
           icon="🏢" baslik="Odoo"
-          durum={aktifSirket === 'ng' ? 'aktif' : 'pasif'}
-          detay={aktifSirket === 'ng' ? 'localhost:8069 · odoo_ng' : '—'}
-          onTest={aktifSirket === 'ng' ? () => alert('Test ediliyor...') : undefined}
-          onDuzenle={() => alert('Düzenle')}
+          durum="aktif"
+          detay="Tüm şirketler aynı merkezi Odoo sunucusunu kullanır — bu şirkete özel ayrı bağlantı gerekmez."
+          onDuzenle={() => setOdooInfoModal(true)}
         />
         <EntegrasyonKarti
           icon="📨" baslik="İYS / KVKK"
@@ -1463,6 +1463,31 @@ function SirketTanimlariTab() {
               <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                 <button type="button" onClick={() => setUyumsoftModal(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', background: '#f3f4f6', cursor: 'pointer', fontWeight: 700 }}>İptal</button>
                 <button type="button" onClick={() => void uyumsoftKaydet()} disabled={uyumsoftKaydediliyor} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: '#1a1a2e', color: 'white', cursor: 'pointer', fontWeight: 700 }}>{uyumsoftKaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {odooInfoModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: 'white', borderRadius: 16, padding: 24, width: 460, maxWidth: '90vw' }}>
+              <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 12 }}>Odoo Bağlantısı — {sirket.label}</div>
+              <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.7 }}>
+                <p style={{ margin: '0 0 10px' }}>
+                  Tek bir merkezi Odoo sunucusu var; NG, ADESE ve POTENTIAL şirketlerinin hepsi aynı sunucuya bağlanır.
+                  Şirket ayrımı, Odoo içindeki <strong>company</strong> kaydıyla (şirket kimliği) yapılır — bu ekrandan ayrıca
+                  bağlantı kurulmasına veya kimlik bilgisi girilmesine gerek yoktur.
+                </p>
+                <p style={{ margin: '0 0 10px' }}>
+                  Bir satış veya stok hareketi yapıldığında, işlemin hangi şubeden geldiğine bakılıp otomatik olarak
+                  doğru Odoo şirket kaydına yazılır.
+                </p>
+                <p style={{ margin: 0 }}>
+                  Bir şubenin hangi Odoo lokasyonuna bağlı olduğunu değiştirmek isterseniz: <strong>Tanımlamalar → Şubeler</strong> →
+                  ilgili şubenin "Odoo Lokasyon ID" alanından yapılır.
+                </p>
+              </div>
+              <div style={{ display: 'flex', marginTop: 18 }}>
+                <button type="button" onClick={() => setOdooInfoModal(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: '#1a1a2e', color: 'white', cursor: 'pointer', fontWeight: 700 }}>Anladım</button>
               </div>
             </div>
           </div>
