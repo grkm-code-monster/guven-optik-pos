@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import axios from 'axios';
 import { Prisma, Role, SaleStatus, ShiftStatus, SyncStatus } from '@prisma/client';
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -7394,6 +7395,111 @@ router.post('/sirket-ayar/:sirketId', async (req, res) => {
       const { clearUyumsoftClientCache } = await import('../uyumsoft/uyumsoft.service')
       clearUyumsoftClientCache(req.params.sirketId)
     }
+    return res.json({ success: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
+// ── E-TİCARET ENTEGRASYONU (Tanımlamalar > E-Ticaret) ─────────────
+function maskSecret(v: string | null | undefined): string | null {
+  if (!v) return null
+  if (v.length <= 6) return '••••••'
+  return `${v.slice(0, 3)}••••${v.slice(-3)}`
+}
+
+async function getOrCreateEticaretAyar() {
+  const existing = await prisma.eticaretAyar.findFirst()
+  if (existing) return existing
+  return prisma.eticaretAyar.create({
+    data: { bizimApiAnahtari: crypto.randomBytes(24).toString('hex') },
+  })
+}
+
+router.get('/eticaret/ayarlar', async (_req: Request, res: Response) => {
+  try {
+    const ayar = await getOrCreateEticaretAyar()
+    const [subeler, kullanicilar] = await Promise.all([
+      prisma.branch.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true, code: true, sirketAdi: true, eticaretSubesiMi: true, eticaretOncelikSirasi: true },
+        orderBy: [{ eticaretOncelikSirasi: 'asc' }, { name: 'asc' }],
+      }),
+      prisma.user.findMany({
+        where: { isActive: true, role: Role.ADMIN },
+        select: { id: true, name: true, username: true },
+      }),
+    ])
+    return res.json({
+      data: {
+        ...ayar,
+        bizimApiAnahtari: maskSecret(ayar.bizimApiAnahtari),
+        partnerApiToken: maskSecret(ayar.partnerApiToken),
+      },
+      subeler,
+      kullanicilar,
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
+router.put('/eticaret/ayarlar', async (req: Request, res: Response) => {
+  try {
+    const ayar = await getOrCreateEticaretAyar()
+    const { partnerApiUrl, partnerApiToken, partnerDurumGuncelleUrl, eticaretSubeId, eticaretTemsilciUserId } = req.body ?? {}
+
+    const data: Record<string, any> = {}
+    if (partnerApiUrl !== undefined) data.partnerApiUrl = partnerApiUrl || null
+    if (partnerDurumGuncelleUrl !== undefined) data.partnerDurumGuncelleUrl = partnerDurumGuncelleUrl || null
+    if (partnerApiToken && !partnerApiToken.includes('••••')) data.partnerApiToken = partnerApiToken
+    if (eticaretTemsilciUserId !== undefined) data.eticaretTemsilciUserId = eticaretTemsilciUserId || null
+
+    if (eticaretSubeId !== undefined && eticaretSubeId !== ayar.eticaretSubeId) {
+      if (ayar.eticaretSubeId) {
+        await prisma.branch.update({ where: { id: ayar.eticaretSubeId }, data: { eticaretSubesiMi: false } }).catch(() => null)
+      }
+      if (eticaretSubeId) {
+        await prisma.branch.update({ where: { id: eticaretSubeId }, data: { eticaretSubesiMi: true } })
+      }
+      data.eticaretSubeId = eticaretSubeId || null
+    }
+
+    const updated = await prisma.eticaretAyar.update({ where: { id: ayar.id }, data })
+    return res.json({
+      success: true,
+      data: { ...updated, bizimApiAnahtari: maskSecret(updated.bizimApiAnahtari), partnerApiToken: maskSecret(updated.partnerApiToken) },
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
+// Anahtarı sadece üretim anında tam olarak döner — sonrasında hep maskeli görünür.
+router.post('/eticaret/api-anahtari-yenile', async (_req: Request, res: Response) => {
+  try {
+    const ayar = await getOrCreateEticaretAyar()
+    const yeniAnahtar = crypto.randomBytes(24).toString('hex')
+    await prisma.eticaretAyar.update({ where: { id: ayar.id }, data: { bizimApiAnahtari: yeniAnahtar } })
+    return res.json({ success: true, bizimApiAnahtari: yeniAnahtar })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
+// Öncelik sırasını tek seferde günceller — subeIds dizisindeki sıra = öncelik sırası.
+router.put('/eticaret/oncelik-sirasi', async (req: Request, res: Response) => {
+  try {
+    const { subeIds } = req.body ?? {}
+    if (!Array.isArray(subeIds)) {
+      return res.status(400).json({ error: 'subeIds bir dizi olmalı' })
+    }
+    await prisma.$transaction([
+      prisma.branch.updateMany({ data: { eticaretOncelikSirasi: null } }),
+      ...subeIds.map((id: string, index: number) =>
+        prisma.branch.update({ where: { id }, data: { eticaretOncelikSirasi: index + 1 } }),
+      ),
+    ])
     return res.json({ success: true })
   } catch (err: any) {
     return res.status(500).json({ error: err?.message })

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { adminApi } from './AdminLayout'
 
-type TabId = 'komisyon' | 'personeller' | 'subeler' | 'sirket-tanimlari'
+type TabId = 'komisyon' | 'personeller' | 'subeler' | 'sirket-tanimlari' | 'eticaret'
 
 const INSTALLMENTS = [1, 2, 3, 6, 9, 12] as const
 
@@ -127,6 +127,13 @@ export default function TanimlamalarPage() {
         >
           <span style={{ fontFamily: 'system-ui, sans-serif' }}>Şirket Tanımları</span>
         </button>
+        <button
+          type="button"
+          style={{ ...tabBtn(tab === 'eticaret'), flexShrink: 0, whiteSpace: 'nowrap' }}
+          onClick={() => setTab('eticaret')}
+        >
+          <span style={{ fontFamily: 'system-ui, sans-serif' }}>E-Ticaret</span>
+        </button>
       </div>
 
       <div style={{ backgroundColor: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20 }}>
@@ -134,6 +141,7 @@ export default function TanimlamalarPage() {
         {tab === 'personeller' ? <PersonellerTab /> : null}
         {tab === 'subeler' ? <SubelerTab /> : null}
         {tab === 'sirket-tanimlari' ? <SirketTanimlariTab /> : null}
+        {tab === 'eticaret' ? <EticaretTab /> : null}
       </div>
     </div>
   )
@@ -1557,6 +1565,197 @@ function SirketTanimlariTab() {
       </div>
 
       <EntegrasyonYonlendirmeNotu />
+    </div>
+  )
+}
+
+type EticaretSube = {
+  id: string
+  name: string
+  code: string
+  sirketAdi: string | null
+  eticaretSubesiMi: boolean
+  eticaretOncelikSirasi: number | null
+}
+
+function EticaretTab() {
+  const [loading, setLoading] = useState(true)
+  const [ayar, setAyar] = useState<any>(null)
+  const [subeler, setSubeler] = useState<EticaretSube[]>([])
+  const [kullanicilar, setKullanicilar] = useState<any[]>([])
+  const [oncelikSirasi, setOncelikSirasi] = useState<EticaretSube[]>([])
+  const [havuzDisi, setHavuzDisi] = useState<EticaretSube[]>([])
+  const [form, setForm] = useState({ partnerApiUrl: '', partnerApiToken: '', partnerDurumGuncelleUrl: '', eticaretSubeId: '', eticaretTemsilciUserId: '' })
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+  const [yeniAnahtar, setYeniAnahtar] = useState<string | null>(null)
+  const [mesaj, setMesaj] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await adminApi.get('/admin/eticaret/ayarlar')
+      const d = res.data?.data
+      setAyar(d)
+      setSubeler(res.data?.subeler ?? [])
+      setKullanicilar(res.data?.kullanicilar ?? [])
+      setForm({
+        partnerApiUrl: d?.partnerApiUrl ?? '',
+        partnerApiToken: '',
+        partnerDurumGuncelleUrl: d?.partnerDurumGuncelleUrl ?? '',
+        eticaretSubeId: d?.eticaretSubeId ?? '',
+        eticaretTemsilciUserId: d?.eticaretTemsilciUserId ?? '',
+      })
+      const list: EticaretSube[] = res.data?.subeler ?? []
+      setOncelikSirasi(list.filter((s) => s.eticaretOncelikSirasi != null))
+      setHavuzDisi(list.filter((s) => s.eticaretOncelikSirasi == null))
+    } catch {
+      setAyar(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  async function kaydet() {
+    setKaydediliyor(true)
+    setMesaj(null)
+    try {
+      await adminApi.put('/admin/eticaret/ayarlar', form)
+      setMesaj('Kaydedildi.')
+      await load()
+    } catch (e: any) {
+      setMesaj(e?.response?.data?.error ?? 'Kaydedilemedi')
+    } finally {
+      setKaydediliyor(false)
+    }
+  }
+
+  async function anahtarYenile() {
+    if (!confirm('Yeni bir API anahtarı üretilecek, eskisi geçersiz olacak. Emin misin?')) return
+    try {
+      const res = await adminApi.post('/admin/eticaret/api-anahtari-yenile')
+      setYeniAnahtar(res.data?.bizimApiAnahtari ?? null)
+      await load()
+    } catch (e: any) {
+      setMesaj(e?.response?.data?.error ?? 'Anahtar üretilemedi')
+    }
+  }
+
+  function havuzaEkle(sube: EticaretSube) {
+    setHavuzDisi((p) => p.filter((s) => s.id !== sube.id))
+    setOncelikSirasi((p) => [...p, sube])
+  }
+  function havuzdanCikar(sube: EticaretSube) {
+    setOncelikSirasi((p) => p.filter((s) => s.id !== sube.id))
+    setHavuzDisi((p) => [...p, sube])
+  }
+  function yerDegistir(index: number, yon: -1 | 1) {
+    setOncelikSirasi((p) => {
+      const next = [...p]
+      const hedef = index + yon
+      if (hedef < 0 || hedef >= next.length) return next
+      ;[next[index], next[hedef]] = [next[hedef], next[index]]
+      return next
+    })
+  }
+  async function oncelikKaydet() {
+    setKaydediliyor(true)
+    try {
+      await adminApi.put('/admin/eticaret/oncelik-sirasi', { subeIds: oncelikSirasi.map((s) => s.id) })
+      setMesaj('Öncelik sırası kaydedildi.')
+      await load()
+    } catch (e: any) {
+      setMesaj(e?.response?.data?.error ?? 'Kaydedilemedi')
+    } finally {
+      setKaydediliyor(false)
+    }
+  }
+
+  if (loading) return <div style={{ padding: 20, color: '#6b7280' }}>Yükleniyor...</div>
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>E-Ticaret şubesi ve satış temsilcisi</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+          E-ticaret siparişleri bu sanal şube adına, bu kullanıcı "satış temsilcisi" olarak kaydedilir. Bu şubenin kendi fiziki stoğu yoktur.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <select value={form.eticaretSubeId} onChange={(e) => setForm((p) => ({ ...p, eticaretSubeId: e.target.value }))} style={inputStyle}>
+            <option value="">E-Ticaret şubesi seçin...</option>
+            {subeler.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+          </select>
+          <select value={form.eticaretTemsilciUserId} onChange={(e) => setForm((p) => ({ ...p, eticaretTemsilciUserId: e.target.value }))} style={inputStyle}>
+            <option value="">Satış temsilcisi (admin) seçin...</option>
+            {kullanicilar.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 24, borderTop: '1px solid #f3f4f6', paddingTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Stok karşılama öncelik sırası</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+          Sipariş geldiğinde şubeler bu sırayla kontrol edilir, stoğu olan ilk şube siparişi karşılar. Zamanla değişebilir.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Öncelik sırası</div>
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, minHeight: 120 }}>
+              {oncelikSirasi.map((s, i) => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid #f3f4f6', fontSize: 13 }}>
+                  <span style={{ fontWeight: 700, color: '#9ca3af', minWidth: 18 }}>{i + 1}</span>
+                  <span style={{ flex: 1 }}>{s.name} <span style={{ color: '#9ca3af' }}>({s.sirketAdi ?? '—'})</span></span>
+                  <button type="button" onClick={() => yerDegistir(i, -1)} disabled={i === 0} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>↑</button>
+                  <button type="button" onClick={() => yerDegistir(i, 1)} disabled={i === oncelikSirasi.length - 1} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>↓</button>
+                  <button type="button" onClick={() => havuzdanCikar(s)} style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer' }}>Çıkar</button>
+                </div>
+              ))}
+              {oncelikSirasi.length === 0 && <div style={{ padding: 16, fontSize: 12, color: '#9ca3af' }}>Henüz şube eklenmedi.</div>}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Havuz dışı şubeler</div>
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, minHeight: 120 }}>
+              {havuzDisi.filter((s) => !s.eticaretSubesiMi).map((s) => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid #f3f4f6', fontSize: 13 }}>
+                  <span style={{ flex: 1 }}>{s.name} <span style={{ color: '#9ca3af' }}>({s.sirketAdi ?? '—'})</span></span>
+                  <button type="button" onClick={() => havuzaEkle(s)} style={{ border: 'none', background: 'none', color: '#1a1a2e', fontWeight: 700, cursor: 'pointer' }}>Ekle →</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <button type="button" onClick={() => void oncelikKaydet()} disabled={kaydediliyor} style={{ ...btnStyle, marginTop: 12, width: 220 }}>
+          {kaydediliyor ? 'Kaydediliyor...' : 'Öncelik sırasını kaydet'}
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 24, borderTop: '1px solid #f3f4f6', paddingTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Bize verilen API anahtarı (partner buradan stok/ürün çeker)</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <code style={{ background: '#f3f4f6', padding: '8px 12px', borderRadius: 8, fontSize: 13 }}>{ayar?.bizimApiAnahtari ?? '—'}</code>
+          <button type="button" onClick={() => void anahtarYenile()} style={{ ...btnStyle, width: 160 }}>Anahtarı yenile</button>
+        </div>
+        {yeniAnahtar && (
+          <div style={{ fontSize: 12, color: '#166534', background: '#dcfce7', padding: '8px 12px', borderRadius: 8 }}>
+            Yeni anahtar: <code>{yeniAnahtar}</code> — bu anahtar bir daha tam olarak gösterilmeyecek, şimdi partnere ilet.
+          </div>
+        )}
+      </div>
+
+      <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Partner'ın bize verdiği API bilgileri (sipariş çekmek için)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <input placeholder="Sipariş API adresi (URL)" value={form.partnerApiUrl} onChange={(e) => setForm((p) => ({ ...p, partnerApiUrl: e.target.value }))} style={inputStyle} />
+          <input placeholder={ayar?.partnerApiToken ? `Token (kayıtlı: ${ayar.partnerApiToken})` : 'Token'} value={form.partnerApiToken} onChange={(e) => setForm((p) => ({ ...p, partnerApiToken: e.target.value }))} style={inputStyle} />
+        </div>
+        <input placeholder="Durum güncelleme URL'i (opsiyonel — kargoya verildi bilgisini iletmek için)" value={form.partnerDurumGuncelleUrl} onChange={(e) => setForm((p) => ({ ...p, partnerDurumGuncelleUrl: e.target.value }))} style={{ ...inputStyle, marginBottom: 10 }} />
+        <button type="button" onClick={() => void kaydet()} disabled={kaydediliyor} style={{ ...btnStyle, width: 160 }}>
+          {kaydediliyor ? 'Kaydediliyor...' : 'Kaydet'}
+        </button>
+        {mesaj && <div style={{ fontSize: 12, color: '#374151', marginTop: 8 }}>{mesaj}</div>}
+      </div>
     </div>
   )
 }

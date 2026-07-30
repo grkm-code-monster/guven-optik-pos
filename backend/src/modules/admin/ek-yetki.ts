@@ -191,7 +191,8 @@ const ADMIN_ROUTE_RULES: RouteAccessRule[] = [
       p === '/sync-errors' ||
       prefix(p, '/sync-retry') ||
       prefix(p, '/sync-override') ||
-      p === '/dis-musteri-transfer',
+      p === '/dis-musteri-transfer' ||
+      prefix(p, '/eticaret'),
     yetkiler: [EK_YETKI.TANIMLAMALAR],
     roles: [Role.ADMIN],
   },

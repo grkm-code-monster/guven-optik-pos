@@ -61,11 +61,17 @@ model Branch {
   ilce            String?
   telefon         String?
   yedekSorumluId  String?
+  // E-Ticaret entegrasyonu: bu şube fiziksel stok tutmaz, satışlar burada kaydedilir.
+  eticaretSubesiMi      Boolean @default(false)
+  // Diğer (fiziksel stoklu) şubeler için: e-ticaret siparişlerinde stok arama sırası.
+  // null = bu şube e-ticaret karşılama havuzunda değil. Küçük sayı = yüksek öncelik.
+  eticaretOncelikSirasi Int?
   users           User[]
   yedekSorumlu    User?     @relation("BranchYedekSorumlu", fields: [yedekSorumluId], references: [id])
   gorevliler      Gorevli[]
   utsSube         UtsSube?
   utsBildirimler  UtsBildirim[]
+  eticaretSiparisleri EticaretSiparis[]
 }
 
 model Gorevli {
@@ -296,6 +302,7 @@ model Sale {
   items    SaleItem[]
   payments Payment[]
   warrantyClaims WarrantyClaim[]
+  eticaretSiparis EticaretSiparis?
 }
 
 enum SaleStatus {
@@ -483,6 +490,7 @@ enum PaymentType {
   OPEN_ACCOUNT
   SGK
   VAKIF
+  ETICARET
 }
 
 model Bank {
@@ -553,6 +561,60 @@ model UrunGirisMaliyet {
   createdAt    DateTime @default(now())
 
   @@index([odooUrunId, girisTarihi])
+}
+
+/// E-Ticaret entegrasyonu ayarları — tek satırlık yapılandırma kaydı.
+/// Yönetim Paneli > Tanımlamalar > E-Ticaret sekmesinden düzenlenir.
+model EticaretAyar {
+  id                    String   @id @default(cuid())
+  // Partner'a verdiğimiz, stok/ürün API'mize erişim için kullanacağı anahtar.
+  bizimApiAnahtari       String
+  // Partner'ın sipariş API'sine erişmek için bize verdiği bilgiler.
+  partnerApiUrl          String?
+  partnerApiToken        String?
+  // Partner'ın kargo durumu güncellemesi kabul eden bir ucu varsa (opsiyonel).
+  partnerDurumGuncelleUrl String?
+  // E-Ticaret satışlarının kaydedileceği sanal şube ve "satış temsilcisi" olarak
+  // görünecek sabit kullanıcı (kullanıcı isteğiyle: her zaman admin).
+  eticaretSubeId         String?
+  eticaretTemsilciUserId String?
+  aktif                  Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+/// Partner'ın e-ticaret sitesinden çekilen her sipariş için yerel takip kaydı.
+/// Sipariş onaylanıp faturalandığında ilişkili bir Sale kaydı (E-Ticaret şubesi
+/// adına) oluşturulur — Patron/Mağaza Özeti raporları bu Sale üzerinden otomatik
+/// çalışır, ayrı bir raporlama kodu gerekmez.
+model EticaretSiparis {
+  id                      String    @id @default(cuid())
+  partnerSiparisNo        String    @unique
+  musteriAdSoyad          String
+  musteriTelefon          String?
+  musteriAdres            String?
+  musteriIl               String?
+  musteriIlce             String?
+  odemeSekli              String?
+  kalemler                Json      // [{ barkod, urunAdi, adet, birimFiyat }]
+  durum                   String    @default("YENI")
+  // YENI | SUBE_SECILDI | STOK_YOK | FATURA_KESILDI | HAZIRLANIYOR | KARGOYA_VERILDI | IPTAL
+  secilenSubeId           String?
+  saleId                  String?   @unique
+  odooFaturaId            Int?
+  odooTransferPickingId   Int?
+  kargoTakipNo            String?
+  kargoyaVerildiTarihi    DateTime?
+  partnerDurumBildirildi  Boolean   @default(false)
+  hataNotu                String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  secilenSube Branch? @relation(fields: [secilenSubeId], references: [id])
+  sale        Sale?   @relation(fields: [saleId], references: [id])
+
+  @@index([durum])
+  @@index([secilenSubeId])
 }
 
 enum CashMovementType {
