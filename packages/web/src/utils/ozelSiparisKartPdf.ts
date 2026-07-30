@@ -22,7 +22,8 @@ const KART_GENISLIK_MM = 85.6
 const KART_YUKSEKLIK_MM = 54
 
 // Kartın solundaki kırmızı logo şeridi ~bu genişlikte — metin ondan sonra başlar
-const BEYAZ_ALAN_BASLANGIC_X = 17
+// v2: fiziksel testte yazılar hafif sağdaydı, 4mm sola kaydırıldı
+const BEYAZ_ALAN_BASLANGIC_X = 13
 
 // v2 — fiziksel test baskısına göre düzeltildi (30.07.2026): önceki değerler
 // çok yukarıdaydı; telefon açıklama metnine, Sph/Cyl/Axe değerleri tablo
