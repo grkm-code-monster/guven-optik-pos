@@ -23,6 +23,7 @@ import etiketRouter from './modules/etiket/etiket.controller';
 import bildirimRouter from './modules/bildirim/bildirim.controller';
 import ozelSiparisRouter from './modules/ozel-siparis/ozel-siparis.controller';
 import ecommerceApiRouter from './modules/ecommerce-api/ecommerce-api.controller';
+import eticaretRouter from './modules/eticaret/eticaret.controller';
 import { authenticate } from './middleware/authenticate';
 
 export function createApp() {
@@ -61,6 +62,7 @@ export function createApp() {
   app.use('/api/bildirimler', bildirimRouter);
   app.use('/api/ozel-siparis', ozelSiparisRouter);
   app.use('/api/external', ecommerceApiRouter);
+  app.use('/api/eticaret', eticaretRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({

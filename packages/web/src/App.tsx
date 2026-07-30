@@ -13,6 +13,7 @@ import MasraflarPage from './pages/MasraflarPage'
 import AcikHesapPage from './pages/AcikHesapPage'
 import StokSorgulaPage from './pages/StokSorgulaPage'
 import TeslimatPage from './pages/TeslimatPage'
+import EticaretPage from './pages/EticaretPage'
 import AtolyePage from './pages/AtolyePage'
 import GarantiPage from './pages/GarantiPage'
 import SaleDetailPage from './pages/SaleDetailPage'
@@ -53,6 +54,12 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 function AtolyeRoute({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user)
   return canAccessAtolye(user) ? <>{children}</> : <Navigate to="/" replace />
+}
+
+function EticaretRoute({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user)
+  const yetkili = user?.role === 'STORE_MANAGER' || user?.role === 'ADMIN'
+  return yetkili ? <>{children}</> : <Navigate to="/" replace />
 }
 
 function AdminYetkiRoute({ to, children }: { to: string; children: React.ReactNode }) {
@@ -167,6 +174,14 @@ export default function App() {
           <Route path="masraflar" element={<MasraflarPage />} />
           <Route path="acik-hesap" element={<AcikHesapPage />} />
           <Route path="teslimat" element={<TeslimatPage />} />
+          <Route
+            path="eticaret"
+            element={
+              <EticaretRoute>
+                <EticaretPage />
+              </EticaretRoute>
+            }
+          />
           <Route
             path="atolye"
             element={
