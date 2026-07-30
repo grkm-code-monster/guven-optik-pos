@@ -21,8 +21,8 @@ Görevin: Kullanıcıya sistemin nasıl kullanılacağını, iş süreçlerini v
 - PILOT01: Test şubesi
 
 ### Şirketler
-- ADESE: GVN1, GVN3, GVN6, GVN7, GVN8, GVN9
-- NG: GVN2, GVN10, ANADEPO
+- ADESE: GVN1, GVN3, GVN6, GVN8, GVN9
+- NG: GVN2, GVN7, GVN10, ANADEPO
 - POTENTIAL: GVN5
 
 ### Roller
