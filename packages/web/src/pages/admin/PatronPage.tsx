@@ -32,12 +32,7 @@ const KURLAR: Record<string, { sym: string; gun: number; alis: number }> = {
   EUR: { sym: '€', gun: 41.15, alis: 39.20 },
 }
 
-const SUBELER = [
-  { id: '', ad: 'Tüm şubeler' },
-  { id: 'GVN1', ad: 'GVN1' }, { id: 'GVN2', ad: 'GVN2' }, { id: 'GVN3', ad: 'GVN3' },
-  { id: 'GVN4', ad: 'GVN4' }, { id: 'GVN5', ad: 'GVN5' }, { id: 'GVN6', ad: 'GVN6' },
-  { id: 'GVN8', ad: 'GVN8' }, { id: 'GVN9', ad: 'GVN9' }, { id: 'GVN10', ad: 'GVN10' },
-]
+const SUBE_TUMU = { id: '', ad: 'Tüm şubeler' }
 
 function fmt(v: number, doviz: string) {
   const { sym, gun } = KURLAR[doviz] ?? KURLAR.TRY
@@ -89,9 +84,16 @@ export default function PatronPage() {
   const [sskf, setSskf] = useState<any>(null)
   const [sskfYukleniyor, setSskfYukleniyor] = useState(false)
   const [kullanicilar, setKullanicilar] = useState<any[]>([])
+  const [subeler, setSubeler] = useState<{ id: string; ad: string }[]>([])
 
   useEffect(() => {
     apiClient.get('/admin/users').then((r) => setKullanicilar(r.data ?? [])).catch(() => setKullanicilar([]))
+    apiClient.get('/admin/branch-list')
+      .then((r) => {
+        const list = (r.data?.data ?? []) as Array<{ id: string; code: string; name: string }>
+        setSubeler(list.map((b) => ({ id: b.id, ad: b.code || b.name })))
+      })
+      .catch(() => setSubeler([]))
   }, [])
 
   async function loadSskf() {
@@ -197,7 +199,7 @@ export default function PatronPage() {
           <input type="date" value={baslangic} onChange={e => setBaslangic(e.target.value)} style={{ fontSize: 13, padding: '6px 8px', borderRadius: 8, border: '1px solid #e5e7eb' }} />
           <input type="date" value={bitis} onChange={e => setBitis(e.target.value)} style={{ fontSize: 13, padding: '6px 8px', borderRadius: 8, border: '1px solid #e5e7eb' }} />
           <select value={subeId} onChange={e => setSubeId(e.target.value)} style={{ fontSize: 13, padding: '6px 8px', borderRadius: 8, border: '1px solid #e5e7eb' }}>
-            {SUBELER.map(s => <option key={s.id} value={s.id}>{s.ad}</option>)}
+            {[SUBE_TUMU, ...subeler].map(s => <option key={s.id} value={s.id}>{s.ad}</option>)}
           </select>
           <select value={doviz} onChange={e => setDoviz(e.target.value)} style={{ fontSize: 13, padding: '6px 8px', borderRadius: 8, border: '1px solid #e5e7eb' }}>
             <option value="TRY">₺ TRY</option>
