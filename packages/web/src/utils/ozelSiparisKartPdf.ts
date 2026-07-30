@@ -21,19 +21,14 @@ import { createPdfDoc, PDF_FONT_FAMILY } from './pdf-fonts'
 const KART_GENISLIK_MM = 85.6
 const KART_YUKSEKLIK_MM = 54
 
-// v5 — kullanıcının fiziksel ölçümüne göre düzeltildi (30.07.2026), bu sefer
-// alanlar birbirinden farklı yönlere kaydığı için artık her alan kendi mutlak
-// mm konumunda (ortak bir taban ofset kullanılmıyor):
-// Müşteri No: 10mm yukarı, 6mm sola
-// Tarih: 10mm yukarı, 6mm sağa
-// Ürün Adı: 12mm yukarı, 5mm sağa
-// Sph/Cyl sütunları: 6mm yukarı (x aynı)
-// Axe/Add sütunları: 6mm yukarı, 6mm sağa
-// Müşteri Adı: 6mm yukarı, 4mm sağa
+// v6 — ince ayar (30.07.2026):
+// Müşteri No: 1mm aşağı · Tarih: 1mm aşağı · Ürün Adı: 2mm aşağı
+// Left/Sol satırı (sph/cyl/axe/add): 3mm yukarı (Right/Sağ satırı sabit kaldı)
+// Müşteri Adı: 2mm yukarı
 const KOORDINATLAR = {
-  musteriNo: { x: 17, y: 17 },
-  tarih: { x: 57, y: 17 },
-  tip: { x: 20, y: 21.5 },
+  musteriNo: { x: 17, y: 18 },
+  tarih: { x: 57, y: 18 },
+  tip: { x: 20, y: 23.5 },
   // Tablo: Eye/Göz | Sph | Cyl | Axe | Add sütunları
   tabloSutun: {
     sph: 23,
@@ -42,8 +37,8 @@ const KOORDINATLAR = {
     add: 70,
   },
   satirSag: 32.5,
-  satirSol: 40,
-  kullanici: { x: 21, y: 44 },
+  satirSol: 37,
+  kullanici: { x: 21, y: 42 },
 }
 
 export type OzelSiparisKartParams = {
