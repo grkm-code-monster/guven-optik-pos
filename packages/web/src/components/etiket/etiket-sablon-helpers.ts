@@ -26,13 +26,33 @@ export function gunesKategorisiMi(categAdi?: string): boolean {
   return kat.includes('güneş') || kat.includes('gunes')
 }
 
-/** Pilot DB sablonu slug — eski SablonId secimine gore */
+/**
+ * Pilot DB sablonu slug — eski SablonId secimine gore.
+ *
+ * Görkem'in kararıyla (bkz. sohbet) 6 şablonun tamamı artık DB motoruna
+ * bağlı: "Etiket Şablonları (Yeni)" sayfasında yapılan bir değişiklik artık
+ * gerçek "Etiket Bas" çıktısına yansır. gunes-aksesuar VE optik-cerceve-uts
+ * fiziksel olarak birebir aynı yerleşimi kullandığı için (optik çerçeve
+ * şablonu güneş şablonunu birebir kopyalıyor) İKİSİ DE aynı tek DB kaydına
+ * ('gunes-gozlugu-katlanir') yönlendirilir — iki ayrı kayıt tutmak, biri
+ * düzenlenip diğeri unutulduğunda görsel sapmaya yol açardı.
+ */
 export function pilotSlugForSablon(sablonId: SablonId, categAdi?: string): string | null {
-  if (sablonId === 'gunes-aksesuar' && gunesKategorisiMi(categAdi)) {
+  void categAdi
+  if (sablonId === 'gunes-aksesuar' || sablonId === 'optik-cerceve-uts') {
     return 'gunes-gozlugu-katlanir'
   }
   if (sablonId === 'depo-kutu') {
     return 'depo-etiketi'
+  }
+  if (sablonId === 'kampanya-yuzde') {
+    return 'kampanya-yuzde-indirim'
+  }
+  if (sablonId === 'kampanya-fiyat') {
+    return 'kampanya-fiyat-dususu'
+  }
+  if (sablonId === 'kampanya-ikinci') {
+    return 'kampanya-ikinci-urun'
   }
   return null
 }

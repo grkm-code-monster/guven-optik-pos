@@ -70,25 +70,31 @@ async function main() {
     if (!depoZpl.includes(needle)) throw new Error(`Depo pilot ZPL eksik: ${needle}`);
   }
 
+  // GÜNCELLEME (Görkem kararı): pilot kapsamı 2 şablondan 6 şablonun tamamına
+  // genişletildi — bkz. packages/web/src/components/etiket/etiket-sablon-helpers.ts
+  // pilotSlugForSablon() (gerçek/güncel mantık orada). Bu kopya sadece backend
+  // scriptinin frontend TS'i import edemediği için var, elle senkron tutuluyor.
   console.log('\n=== pilotSlug mantigi (EtiketBasModal) ===');
-  function gunesKategorisiMi(categAdi?: string) {
-    const kat = (categAdi ?? '').toLowerCase();
-    return kat.includes('güneş') || kat.includes('gunes');
-  }
-  function pilotSlugForSablon(sablonId: string, categAdi?: string): string | null {
-    if (sablonId === 'gunes-aksesuar' && gunesKategorisiMi(categAdi)) return 'gunes-gozlugu-katlanir';
+  function pilotSlugForSablon(sablonId: string, _categAdi?: string): string | null {
+    if (sablonId === 'gunes-aksesuar' || sablonId === 'optik-cerceve-uts') return 'gunes-gozlugu-katlanir';
     if (sablonId === 'depo-kutu') return 'depo-etiketi';
+    if (sablonId === 'kampanya-yuzde') return 'kampanya-yuzde-indirim';
+    if (sablonId === 'kampanya-fiyat') return 'kampanya-fiyat-dususu';
+    if (sablonId === 'kampanya-ikinci') return 'kampanya-ikinci-urun';
     return null;
   }
   if (pilotSlugForSablon('gunes-aksesuar', 'Güneş Gözlüğü') !== 'gunes-gozlugu-katlanir') {
     throw new Error('Gunes pilot slug eslesmedi');
   }
-  if (pilotSlugForSablon('gunes-aksesuar', 'Aksesuar') !== null) {
-    throw new Error('Aksesuar gunes-aksesuar icin pilot olmamali');
+  if (pilotSlugForSablon('gunes-aksesuar', 'Aksesuar') !== 'gunes-gozlugu-katlanir') {
+    throw new Error('Aksesuar da artik ayni pilota gitmeli');
   }
   if (pilotSlugForSablon('depo-kutu', '') !== 'depo-etiketi') throw new Error('Depo pilot slug');
-  if (pilotSlugForSablon('optik-cerceve-uts', 'Çerçeve') !== null) {
-    throw new Error('Optik eski yolda kalmali');
+  if (pilotSlugForSablon('optik-cerceve-uts', 'Çerçeve') !== 'gunes-gozlugu-katlanir') {
+    throw new Error('Optik cerceve de artik gunes pilotuna gitmeli');
+  }
+  if (pilotSlugForSablon('kampanya-yuzde', '') !== 'kampanya-yuzde-indirim') {
+    throw new Error('Kampanya yuzde pilot slug eslesmedi');
   }
   console.log('pilotSlugForSablon: OK');
 

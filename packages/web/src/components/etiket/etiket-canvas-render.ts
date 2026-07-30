@@ -176,6 +176,17 @@ function resolveElementText(el: CanvasElement, veri: EtiketRenderVeri): string |
   }
 }
 
+/** Metni el.width (dot) genişliğine sığacak şekilde kırpar — taşmayı önler (backend etiket-zpl.ts clipToWidth ile aynı amaç, burada gerçek canvas font metriği kullanılır). */
+function fitTextToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth?: number): string {
+  if (!maxWidth || maxWidth <= 0) return text
+  if (ctx.measureText(text).width <= maxWidth) return text
+  let clipped = text
+  while (clipped.length > 1 && ctx.measureText(clipped).width > maxWidth) {
+    clipped = clipped.slice(0, -1)
+  }
+  return clipped
+}
+
 function drawText(
   ctx: CanvasRenderingContext2D,
   el: CanvasElement,
@@ -186,7 +197,8 @@ function drawText(
   ctx.font = `${weight} ${fontSize}px Arial, Helvetica, sans-serif`
   ctx.fillStyle = '#000000'
   ctx.textBaseline = 'top'
-  ctx.fillText(text, Math.round(el.x), Math.round(el.y))
+  const gorunecekMetin = fitTextToWidth(ctx, text, el.width)
+  ctx.fillText(gorunecekMetin, Math.round(el.x), Math.round(el.y))
 }
 
 function drawBarcode128(ctx: CanvasRenderingContext2D, el: CanvasElement, data: string) {

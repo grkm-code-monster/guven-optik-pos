@@ -14,7 +14,7 @@ const DEPO_ETIKETI = {
   elemanlar: [
     { id: 'barkod', type: 'barcode128', x: 16, y: 10, width: 200, height: 56 },
     { id: 'barkodNo', type: 'barkodMetin', x: 16, y: 70, fontSize: 10 },
-    { id: 'urunAdi', type: 'urunAdi', x: 16, y: 88, fontSize: 13, fontWeight: 'bold' },
+    { id: 'urunAdi', type: 'urunAdi', x: 16, y: 88, fontSize: 13, fontWeight: 'bold', width: 368 },
     { id: 'nitelik', type: 'nitelik', x: 16, y: 104, fontSize: 9, width: 368 },
     { id: 'sonSayim', type: 'sonGuncelleme', x: 16, y: 120, fontSize: 8 },
     { id: 'cerceveTuruLabel', type: 'serbestMetin', text: 'Çerçeve Türü', x: 16, y: 136, fontSize: 7 },
@@ -25,7 +25,12 @@ const DEPO_ETIKETI = {
 } as const;
 
 const GUNES_KATLANIR = {
-  ad: 'Güneş Gözlüğü Etiketi (Katlanır)',
+  // NOT (Görkem kararı): bu tek kayıt artık üç eski SablonId'yi birden
+  // besliyor — gunes-aksesuar, optik-cerceve-uts VE (kategori şartı olmadan)
+  // aksesuar ürünleri. Üçü de fiziksel olarak birebir aynı 102x20mm katlanır
+  // yerleşimi kullandığı için ayrı kayıt tutulmuyor (bkz.
+  // packages/web/src/components/etiket/etiket-sablon-helpers.ts pilotSlugForSablon).
+  ad: 'Güneş Gözlüğü / Aksesuar / Optik Çerçeve (Katlanır)',
   kategori: 'GUNES',
   slug: 'gunes-gozlugu-katlanir',
   etiketGenislik: 102,
@@ -33,7 +38,7 @@ const GUNES_KATLANIR = {
   elemanlar: [
     { id: 'barkod', type: 'barcode128', x: 334, y: 16, width: 147, height: 27 },
     { id: 'barkodNo', type: 'barkodMetin', x: 334, y: 58, fontSize: 11 },
-    { id: 'urunAdi', type: 'urunAdi', x: 290, y: 74, fontSize: 14, fontWeight: 'bold' },
+    { id: 'urunAdi', type: 'urunAdi', x: 290, y: 74, fontSize: 14, fontWeight: 'bold', width: 250 },
     { id: 'model', type: 'model', x: 290, y: 90, fontSize: 13 },
     { id: 'renkKodu', type: 'renkKodu', x: 341, y: 90, fontSize: 13 },
     { id: 'fiyat', type: 'fiyat', x: 388, y: 112, fontSize: 26, fontWeight: 'bold' },

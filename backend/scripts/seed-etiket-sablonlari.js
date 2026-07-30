@@ -27,20 +27,6 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 
-// --- Güneş Gözlüğü/Aksesuar & Optik Çerçeve (UTS'li) — 102x20mm, 816x160 dot ---
-const gunesElemanlari = [
-  { id: 'barkod', type: 'barcode128', x: 334, y: 16, height: 27 },
-  { id: 'barkodNo', type: 'barkodMetin', x: 334, y: 58, fontSize: 11 },
-  { id: 'urunAdi', type: 'urunAdi', x: 290, y: 74, fontSize: 14, fontWeight: 'normal', width: 250 },
-  { id: 'model', type: 'model', x: 290, y: 90, fontSize: 13 },
-  { id: 'renkKodu', type: 'renkKodu', x: 341, y: 90, fontSize: 13 },
-  { id: 'fiyat', type: 'fiyat', x: 388, y: 112, fontSize: 26, fontWeight: 'bold' },
-  { id: 'fiyatTarih', type: 'fiyatDegisimTarihi', x: 289, y: 131, fontSize: 10 },
-  { id: 'kdv', type: 'kdvDahildir', x: 289, y: 144, fontSize: 10 },
-  { id: 'gs1', type: 'gs1datamatrix', x: 569, y: 18, width: 60, height: 60 },
-  { id: 'gs1ref', type: 'gs1Referans', x: 665, y: 38, fontSize: 13, lineGap: 16, mode: 'oto' },
-];
-
 // --- Kampanya şablonları — Güneş ile aynı taban (barkod/ürün/model/renk/kdv/gs1) ---
 const kampanyaTaban = [
   { id: 'barkod', type: 'barcode128', x: 334, y: 16, height: 27 },
@@ -72,23 +58,13 @@ const kampanyaIkinciElemanlari = [
   { id: 'ikinciUrun', type: 'serbestMetin', x: 289, y: 131, fontSize: 14, fontWeight: 'bold', text: '2. ÜRÜN %50' },
 ];
 
+// Bu iki slug, artık gerçek baskıya bağlanan tek konsolide kayıt
+// ("gunes-gozlugu-katlanir", bkz. seed-pilot-etiket-sablonlari.ts) tarafından
+// tamamen kapsandığı için PASİFE ALINIYOR — böyle iki ayrı, birbirinden
+// habersiz düzenlenebilir kopya kalmıyor.
+const ESKI_YEDEK_SLUGLAR = ['gunes-gozlugu-aksesuar', 'optik-cerceve-uts'];
+
 const SABLONLAR = [
-  {
-    slug: 'gunes-gozlugu-aksesuar',
-    ad: 'Güneş Gözlüğü / Aksesuar',
-    kategori: 'GUNES',
-    elemanlar: gunesElemanlari,
-    etiketGenislik: 102,
-    etiketYukseklik: 20,
-  },
-  {
-    slug: 'optik-cerceve-uts',
-    ad: "Optik Çerçeve (UTS'li)",
-    kategori: 'CERCEVE',
-    elemanlar: gunesElemanlari,
-    etiketGenislik: 102,
-    etiketYukseklik: 20,
-  },
   {
     slug: 'kampanya-yuzde-indirim',
     ad: 'Kampanya — Yüzde İndirim',
@@ -139,6 +115,14 @@ async function main() {
     console.log(`OK  ${kayit.id}  ${kayit.ad}  (${kayit.kategori}, ${kayit.etiketGenislik}x${kayit.etiketYukseklik}mm)`);
   }
   console.log(`\n${SABLONLAR.length} şablon işlendi.`);
+
+  for (const slug of ESKI_YEDEK_SLUGLAR) {
+    const mevcut = await prisma.etiketSablonu.findUnique({ where: { slug } });
+    if (mevcut && mevcut.aktif) {
+      await prisma.etiketSablonu.update({ where: { slug }, data: { aktif: false } });
+      console.log(`PASİFE ALINDI  ${slug}  (yerine: gunes-gozlugu-katlanir kullanılıyor)`);
+    }
+  }
 }
 
 main()

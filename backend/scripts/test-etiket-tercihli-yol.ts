@@ -10,14 +10,14 @@ import {
   type EtiketVeri,
 } from '../src/modules/etiket/etiket-zpl';
 
-function gunesKategorisiMi(categAdi?: string) {
-  const kat = (categAdi ?? '').toLowerCase();
-  return kat.includes('güneş') || kat.includes('gunes');
-}
-
-function pilotSlugForSablon(sablonId: string, categAdi?: string): string | null {
-  if (sablonId === 'gunes-aksesuar' && gunesKategorisiMi(categAdi)) return 'gunes-gozlugu-katlanir';
+// GÜNCELLEME (Görkem kararı): pilot kapsamı 6 şablonun tamamına genişletildi —
+// bkz. packages/web/src/components/etiket/etiket-sablon-helpers.ts pilotSlugForSablon().
+function pilotSlugForSablon(sablonId: string, _categAdi?: string): string | null {
+  if (sablonId === 'gunes-aksesuar' || sablonId === 'optik-cerceve-uts') return 'gunes-gozlugu-katlanir';
   if (sablonId === 'depo-kutu') return 'depo-etiketi';
+  if (sablonId === 'kampanya-yuzde') return 'kampanya-yuzde-indirim';
+  if (sablonId === 'kampanya-fiyat') return 'kampanya-fiyat-dususu';
+  if (sablonId === 'kampanya-ikinci') return 'kampanya-ikinci-urun';
   return null;
 }
 
