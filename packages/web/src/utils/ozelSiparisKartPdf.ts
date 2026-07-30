@@ -22,8 +22,8 @@ const KART_GENISLIK_MM = 85.6
 const KART_YUKSEKLIK_MM = 54
 
 // Kartın solundaki kırmızı logo şeridi ~bu genişlikte — metin ondan sonra başlar
-// v3: kullanıcının verdiği ölçülerle 20mm sola kaydırıldı
-const BEYAZ_ALAN_BASLANGIC_X = -7
+// v4: her şey 1cm (10mm) sağa kaydırıldı
+const BEYAZ_ALAN_BASLANGIC_X = 3
 
 // v3 — kullanıcının fiziksel ölçümüne göre düzeltildi (30.07.2026):
 // Müşteri No / Tarih / Ürün Adı: 20mm sola, 10mm aşağı
