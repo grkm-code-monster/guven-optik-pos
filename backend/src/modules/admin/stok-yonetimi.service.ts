@@ -15,6 +15,17 @@ import {
   restoreArchivePrefixFromVariant,
   restoreArchivePrefixFromVariants,
 } from './archive-barcode.util';
+import { ODOO_OPTIK_CAM_CATEGORY_IDS } from '../sales/sale-item-lab.util';
+
+// E-Ticaret (harici) API'de sadece güneş gözlüğü ve (kontakt) lens ürünleri gösterilir —
+// reçeteli optik cam hariç (o kategori ID'leri zaten ayrı bir listede biliniyor, hariç tutulur).
+const ETICARET_KATEGORI_DOMAIN: unknown[] = [
+  '&',
+  ['categ_id', 'not in', [...ODOO_OPTIK_CAM_CATEGORY_IDS]],
+  '|',
+  ['categ_id.complete_name', 'ilike', 'GÜNEŞ'],
+  ['categ_id.complete_name', 'ilike', 'LENS'],
+];
 
 const ODOO_LOCATION_TO_CODE = Object.fromEntries(
   Object.entries(LOKASYON_ID_MAP).map(([code, id]) => [id, code]),
@@ -1047,8 +1058,8 @@ export async function listExternalCatalogProducts(opts: {
   const offset = (page - 1) * pageSize;
 
   const [totalCount, products] = await Promise.all([
-    countActiveProductsForExternal(),
-    fetchActiveProductsPage(offset, pageSize),
+    countActiveProductsForExternal(ETICARET_KATEGORI_DOMAIN),
+    fetchActiveProductsPage(offset, pageSize, ETICARET_KATEGORI_DOMAIN),
   ]);
 
   return {
@@ -1118,7 +1129,7 @@ export async function listExternalStock(opts: {
   const barkod = opts.barkod?.trim();
 
   if (barkod) {
-    const products = await fetchActiveProductsPage(0, 1, [['barcode', '=', barkod]]);
+    const products = await fetchActiveProductsPage(0, 1, [...ETICARET_KATEGORI_DOMAIN, ['barcode', '=', barkod]]);
     const data = await buildStockRowsForProducts(products, opts.branchNameMap);
     return {
       data,
@@ -1129,8 +1140,8 @@ export async function listExternalStock(opts: {
   }
 
   const [totalCount, products] = await Promise.all([
-    countActiveProductsForExternal(),
-    fetchActiveProductsPage(offset, pageSize),
+    countActiveProductsForExternal(ETICARET_KATEGORI_DOMAIN),
+    fetchActiveProductsPage(offset, pageSize, ETICARET_KATEGORI_DOMAIN),
   ]);
   const data = await buildStockRowsForProducts(products, opts.branchNameMap);
 
