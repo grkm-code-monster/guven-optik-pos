@@ -457,6 +457,49 @@ async function buildSalesDetailWithMasraflar(paidSales: PaidSaleForDetail[], shi
   );
 }
 
+/**
+ * "Kasa Nakit" ve "SGK Hakları" artık vardiya/gün bazlı sıfırlanmıyor — mağaza müdürünün
+ * kasada fiilen birikmiş nakti ve aya ait SGK alacağını sürekli görebilmesi için:
+ *  - Kasa Nakit: şubenin TÜM ZAMANLAR nakit satış toplamı - TÜM ZAMANLAR nakit çıkışı (masraf).
+ *    Akşam banka yatırımı yapılmadığı için bu bakiye gün gün devreder, sadece bir "nakit çıkışı"
+ *    kaydı girildiğinde azalır.
+ *  - SGK Hakları: şubenin İÇİNDE BULUNULAN AY toplamı — ay başından itibaren toplanır, yeni ay
+ *    başlayınca (tarih filtresi sayesinde otomatik olarak) sıfırdan başlar.
+ * Not: Vardiya açma/kapama akışındaki (openShift/closeShift/expectedCash/physicalCash/diff)
+ * fiziki kasa sayım mutabakatı bundan tamamen ayrı ve değişmeden kalır — bu sadece dashboard'daki
+ * "Mağaza Özeti" kartları için kullanılan, kümülatif bir görünüm.
+ */
+async function computeRunningKasaBakiye(branchId: string, date: Date) {
+  const monthStart = new Date(date);
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  const [cashInAllAgg, cashOutAllAgg, sgkMonthAgg] = await Promise.all([
+    prisma.payment.aggregate({
+      where: {
+        paymentType: PaymentType.CASH,
+        sale: { branchId, status: SaleStatus.PAID },
+      },
+      _sum: { grossAmount: true },
+    }),
+    prisma.cashMovement.aggregate({
+      where: { branchId, type: CashMovementType.CASH_OUT },
+      _sum: { amount: true },
+    }),
+    prisma.sale.aggregate({
+      where: { branchId, status: SaleStatus.PAID, createdAt: { gte: monthStart } },
+      _sum: { sgkAmount: true },
+    }),
+  ]);
+
+  const cashInAll = cashInAllAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const cashOutAll = cashOutAllAgg._sum.amount ?? new Prisma.Decimal(0);
+  const kasaNakit = cashInAll.minus(cashOutAll);
+  const toplamSgkHakki = sgkMonthAgg._sum.sgkAmount ?? new Prisma.Decimal(0);
+
+  return { kasaNakit: kasaNakit.toString(), toplamSgkHakki: toplamSgkHakki.toString() };
+}
+
 export async function getDailyReport(branchId: string, date: Date) {
   const { start, end } = dayRange(date);
 
@@ -482,6 +525,7 @@ export async function getDailyReport(branchId: string, date: Date) {
 
   if (!shift) {
     const labIncidents = await buildLabIncidentsSummary(branchId, start, end);
+    const runningKasaBakiye = await computeRunningKasaBakiye(branchId, date);
     return {
       date: date.toISOString(),
       branchId,
@@ -509,6 +553,7 @@ export async function getDailyReport(branchId: string, date: Date) {
       bankBreakdown: [],
       salesDetail: [],
       ...zeroExtras(),
+      ...runningKasaBakiye,
       labIncidents,
     };
   }
@@ -661,6 +706,7 @@ export async function getDailyReport(branchId: string, date: Date) {
   });
 
   const labIncidents = await buildLabIncidentsSummary(branchId, start, end);
+  const runningKasaBakiye = await computeRunningKasaBakiye(branchId, date);
 
   return {
     date,
@@ -690,6 +736,7 @@ export async function getDailyReport(branchId: string, date: Date) {
     salesDetail: await buildSalesDetailWithMasraflar(paidSales, shift.id),
     labIncidents,
     ...derived,
+    ...runningKasaBakiye,
   };
 }
 
