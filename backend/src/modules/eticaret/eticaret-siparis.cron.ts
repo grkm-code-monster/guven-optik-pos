@@ -1,9 +1,13 @@
 import cron from 'node-cron';
-import { partnerSiparisleriCek } from './eticaret-siparis.service';
+import { partnerlereDurumBildir, partnerSiparisleriCek } from './eticaret-siparis.service';
 
 let cronStarted = false;
 
-/** Partner e-ticaret sitesinin sipariş API'sinden her 2 dakikada bir yeni siparişleri çeker. */
+/**
+ * Her 2 dakikada bir: (1) partner'ın sipariş API'sinden yeni siparişleri çeker,
+ * (2) durumu değişip partner'a henüz bildirilmemiş siparişleri partner'ın durum
+ * güncelleme API'sine bildirir.
+ */
 export function startEticaretSiparisCron(): void {
   if (cronStarted) return;
   cronStarted = true;
@@ -21,7 +25,17 @@ export function startEticaretSiparisCron(): void {
       .catch((err) => {
         console.error('[EticaretSiparisCron] Hata:', err?.message ?? err);
       });
+
+    partnerlereDurumBildir()
+      .then((sonuc) => {
+        if (sonuc.bildirildi > 0) {
+          console.log(`[EticaretSiparisCron] ${sonuc.bildirildi} sipariş durumu partner'a bildirildi.`);
+        }
+      })
+      .catch((err) => {
+        console.error('[EticaretSiparisCron] Durum bildirimi hatası:', err?.message ?? err);
+      });
   });
 
-  console.log('E-Ticaret sipariş çekme cron başlatıldı (her 2 dakikada bir)');
+  console.log('E-Ticaret sipariş çekme + durum bildirimi cron başlatıldı (her 2 dakikada bir)');
 }

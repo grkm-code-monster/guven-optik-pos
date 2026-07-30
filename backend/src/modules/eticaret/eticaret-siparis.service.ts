@@ -142,6 +142,67 @@ export async function partnerSiparisleriCek(): Promise<{ yeni: number; hata?: st
   return { yeni };
 }
 
+// Bize göre durum → partner'a bildirilecek durum kodu. Partner henüz kendi API'sini
+// yazmadı; bu anahtarlar ("hazirlaniyor", "kargoya_verildi", ...) ilk konuşmada
+// paylaşılan taslak — partner'ın gerçek sözleşmesi netleşince yalnızca bu map'i
+// güncellemek yeterli.
+const PARTNER_DURUM_MAP: Record<string, string> = {
+  [ETICARET_DURUM.HAZIRLANIYOR]: 'hazirlaniyor',
+  [ETICARET_DURUM.KARGOYA_VERILDI]: 'kargoya_verildi',
+  [ETICARET_DURUM.STOK_YOK]: 'stok_yok',
+  [ETICARET_DURUM.HATA]: 'hata',
+};
+
+/** partnerDurumBildirildi=false olan siparişlerin güncel durumunu partner'ın API'sine bildirir. */
+export async function partnerlereDurumBildir(): Promise<{ bildirildi: number; hata?: string }> {
+  const ayar = await prisma.eticaretAyar.findFirst();
+  if (!ayar || !ayar.aktif || !ayar.partnerDurumGuncelleUrl || !ayar.partnerApiToken) {
+    return { bildirildi: 0 };
+  }
+
+  const bekleyenler = await prisma.eticaretSiparis.findMany({
+    where: {
+      partnerDurumBildirildi: false,
+      durum: { in: Object.keys(PARTNER_DURUM_MAP) },
+    },
+    take: 50,
+    orderBy: { updatedAt: 'asc' },
+  });
+
+  let bildirildi = 0;
+  for (const s of bekleyenler) {
+    const partnerDurum = PARTNER_DURUM_MAP[s.durum];
+    if (!partnerDurum) continue;
+    try {
+      const res = await fetch(ayar.partnerDurumGuncelleUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${ayar.partnerApiToken}`,
+          'x-api-key': ayar.partnerApiToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          siparisNo: s.partnerSiparisNo,
+          durum: partnerDurum,
+          kargoTakipNo: s.kargoTakipNo ?? undefined,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`Partner durum API hatası: ${res.status} ${res.statusText}`);
+      }
+      await prisma.eticaretSiparis.update({
+        where: { id: s.id },
+        data: { partnerDurumBildirildi: true },
+      });
+      bildirildi++;
+    } catch (err) {
+      console.error(`[E-Ticaret] Partner durum bildirimi hatası (${s.partnerSiparisNo}):`, err);
+    }
+  }
+
+  return { bildirildi };
+}
+
 async function findOdooProductByBarcode(barkod: string): Promise<{ id: number; name: string; lstPrice: number } | null> {
   if (!barkod) return null;
   const rows = await execute(

@@ -7517,6 +7517,16 @@ router.post('/eticaret/siparisleri-cek', async (_req: Request, res: Response) =>
   }
 })
 
+router.post('/eticaret/durum-bildir', async (_req: Request, res: Response) => {
+  try {
+    const { partnerlereDurumBildir } = await import('../eticaret/eticaret-siparis.service')
+    const sonuc = await partnerlereDurumBildir()
+    return res.json({ success: true, ...sonuc })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
 router.get('/eticaret/siparisler', async (req: Request, res: Response) => {
   try {
     const durum = typeof req.query.durum === 'string' ? req.query.durum : undefined
