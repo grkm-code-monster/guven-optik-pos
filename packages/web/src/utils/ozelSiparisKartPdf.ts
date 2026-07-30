@@ -21,28 +21,29 @@ import { createPdfDoc, PDF_FONT_FAMILY } from './pdf-fonts'
 const KART_GENISLIK_MM = 85.6
 const KART_YUKSEKLIK_MM = 54
 
-// Kartın solundaki kırmızı logo şeridi ~bu genişlikte — metin ondan sonra başlar
-// v4: her şey 1cm (10mm) sağa kaydırıldı
-const BEYAZ_ALAN_BASLANGIC_X = 3
-
-// v3 — kullanıcının fiziksel ölçümüne göre düzeltildi (30.07.2026):
-// Müşteri No / Tarih / Ürün Adı: 20mm sola, 10mm aşağı
-// Reçete bilgileri (tablo): 20mm sola, 5mm aşağı
-// Müşteri Adı: 20mm sola, 2mm aşağı
+// v5 — kullanıcının fiziksel ölçümüne göre düzeltildi (30.07.2026), bu sefer
+// alanlar birbirinden farklı yönlere kaydığı için artık her alan kendi mutlak
+// mm konumunda (ortak bir taban ofset kullanılmıyor):
+// Müşteri No: 10mm yukarı, 6mm sola
+// Tarih: 10mm yukarı, 6mm sağa
+// Ürün Adı: 12mm yukarı, 5mm sağa
+// Sph/Cyl sütunları: 6mm yukarı (x aynı)
+// Axe/Add sütunları: 6mm yukarı, 6mm sağa
+// Müşteri Adı: 6mm yukarı, 4mm sağa
 const KOORDINATLAR = {
-  musteriNo: { x: BEYAZ_ALAN_BASLANGIC_X + 20, y: 27 },
-  tarih: { x: BEYAZ_ALAN_BASLANGIC_X + 48, y: 27 },
-  tip: { x: BEYAZ_ALAN_BASLANGIC_X + 12, y: 33.5 },
+  musteriNo: { x: 17, y: 17 },
+  tarih: { x: 57, y: 17 },
+  tip: { x: 20, y: 21.5 },
   // Tablo: Eye/Göz | Sph | Cyl | Axe | Add sütunları
   tabloSutun: {
-    sph: BEYAZ_ALAN_BASLANGIC_X + 20,
-    cyl: BEYAZ_ALAN_BASLANGIC_X + 34,
-    axe: BEYAZ_ALAN_BASLANGIC_X + 48,
-    add: BEYAZ_ALAN_BASLANGIC_X + 61,
+    sph: 23,
+    cyl: 37,
+    axe: 57,
+    add: 70,
   },
-  satirSag: 38.5,
-  satirSol: 46,
-  kullanici: { x: BEYAZ_ALAN_BASLANGIC_X + 14, y: 50 },
+  satirSag: 32.5,
+  satirSol: 40,
+  kullanici: { x: 21, y: 44 },
 }
 
 export type OzelSiparisKartParams = {
