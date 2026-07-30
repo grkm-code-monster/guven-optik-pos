@@ -349,100 +349,15 @@ export function SablonGunesGozlugu({ data, ayar, width, height }: PreviewProps) 
 }
 
 /** 2. Optik Çerçeve — UTS'li, GS1 DataMatrix */
-export function SablonOptikCerceveUts({ data, ayar, width, height }: PreviewProps) {
-  const s = scale2(width, height)
-  const kW = s.x(30)
-  const textL = s.x(38)
-  const gs1Size = s.x(65)
-
-  return (
-    <div style={{ ...base, width, height }}>
-      <Kulakcik w={kW} h={height} />
-      <div
-        style={{
-          position: 'absolute',
-          left: textL,
-          top: s.y(15),
-          fontSize: s.f(14),
-          fontWeight: 'bold',
-          color: ayar.renkBaslik,
-        }}
-      >
-        {data.urunAdi}
-      </div>
-      {ayar.gosterIcReferans ? (
-        <div style={{ position: 'absolute', left: textL, top: s.y(35), fontSize: s.f(11), color: '#333' }}>
-          {data.icReferans}  |  {data.renkVaryant}
-        </div>
-      ) : null}
-      <div
-        style={{
-          position: 'absolute',
-          left: textL,
-          top: s.y(55),
-          fontSize: s.f(22),
-          fontWeight: 'bold',
-          color: ayar.renkFiyat,
-        }}
-      >
-        {formatFiyat(data.fiyat)}
-      </div>
-      {ayar.gosterKdv ? (
-        <div style={{ position: 'absolute', left: textL, top: s.y(85), fontSize: s.f(8), color: '#999' }}>
-          KDV DAHİLDİR
-        </div>
-      ) : null}
-      {ayar.gosterSonGuncelleme ? (
-        <div style={{ position: 'absolute', left: textL, top: s.y(100), fontSize: s.f(8), color: '#aaa' }}>
-          Son fiyat günc: {data.sonGuncelleme}
-        </div>
-      ) : null}
-      {ayar.gosterSeri ? (
-        <div style={{ position: 'absolute', left: textL, top: s.y(115), fontSize: s.f(8), color: '#aaa' }}>
-          Seri: {data.seriNo}
-        </div>
-      ) : null}
-      {ayar.gosterGs1 ? (
-        <div
-          style={{
-            position: 'absolute',
-            top: s.y(10),
-            right: s.x(10),
-            width: gs1Size,
-            height: gs1Size,
-            backgroundColor: '#888',
-            border: '1px solid #666',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontWeight: 'bold',
-            fontSize: s.f(12),
-          }}
-        >
-          GS1
-        </div>
-      ) : null}
-      {ayar.gosterGs1Kodlari
-        ? gs1ReferansSatirlari(data).map((satir, i) => (
-            <div
-              key={satir}
-              style={{
-                position: 'absolute',
-                right: s.x(80),
-                top: s.y(78 + i * 14),
-                fontSize: s.f(7),
-                color: '#666',
-                whiteSpace: 'nowrap',
-                fontFamily: 'monospace',
-              }}
-            >
-              {satir}
-            </div>
-          ))
-        : null}
-    </div>
-  )
+/**
+ * 2. Optik Çerçeve (UTS'li) — diğer ürün etiketleriyle AYNI katlanır paddle yapısı
+ * (102×20 mm). Önceden düz dikdörtgen + "Kulakçık" şeritliydi; artık Güneş
+ * Gözlüğü/Aksesuar ile birebir aynı yerleşimi kullanıyor. UTS seri no bilgisi
+ * ayrı bir satıra gerek kalmadan GS1 referans satırlarında (21) etiketiyle
+ * zaten gösteriliyor (bkz. gs1ReferansSatirlari).
+ */
+export function SablonOptikCerceveUts(props: PreviewProps) {
+  return SablonGunesGozlugu(props)
 }
 
 /** 3. Depo Etiketi — 50×30 mm */

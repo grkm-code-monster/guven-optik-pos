@@ -155,23 +155,14 @@ const DEPO_BOX_TITLE_Y = 110
 const DEPO_BOX_Y = 120
 const DEPO_BOX_H = 110
 
+/**
+ * Optik Çerçeve (UTS'li) — diğer ürün etiketleriyle AYNI katlanır paddle yapısı
+ * (102×20 mm), zplGunesAksesuar ile birebir aynı koordinatlar. Önceden düz
+ * dikdörtgen bir yerleşimdi. UTS seri no bilgisi ayrı bir satıra gerek kalmadan
+ * GS1 referans satırlarında (21) etiketiyle zaten gösteriliyor.
+ */
 function zplOptikCerceveUts(veri: SablonVeri, ayar: SablonAyar): string {
-  const lines: string[] = []
-  lines.push(textZpl(95, 30, ayar.fontUrunAdi, veri.urunAdi ?? ''))
-  if (ayar.gosterIcReferans) {
-    lines.push(textZpl(95, 75, ayar.fontKucuk, `${veri.icReferans ?? ''}  |  ${veri.renkVaryant ?? ''}`))
-  }
-  lines.push(textZpl(95, 130, ayar.fontFiyat, formatFiyat(veri.fiyat)))
-  if (ayar.gosterKdv) lines.push(textZpl(95, 175, 9, 'KDV DAHİLDİR'))
-  if (ayar.gosterSonGuncelleme) lines.push(textZpl(95, 215, 9, `Son fiyat günc: ${veri.sonGuncelleme ?? ''}`))
-  if (ayar.gosterSeri) lines.push(textZpl(95, 245, 9, `Seri: ${veri.seriNo ?? ''}`))
-  if (ayar.gosterGs1) lines.push(gs1Zpl(550, 15, 10, buildGs1(veri)))
-  if (ayar.gosterGs1Kodlari) {
-    gs1ReferansSatirlari(veri).forEach((satir, i) => {
-      lines.push(textZpl(678, 220 + i * 20, 8, satir))
-    })
-  }
-  return wrap(lines)
+  return zplGunesAksesuar(veri, ayar)
 }
 
 function zplDepoKutu(veri: SablonVeri, ayar: SablonAyar): string {
