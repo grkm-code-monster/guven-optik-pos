@@ -4,6 +4,7 @@ import { apiClient } from '../../api/client'
 import { isLensMeasurementSaleItem } from '../../utils/saleMeasurements'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
+import { downloadOzelSiparisKartPdf } from '../../utils/ozelSiparisKartPdf'
 
 type ItemStatus = 'DELIVERED' | 'IN_LAB' | 'ORDERED' | 'PENDING'
 
@@ -174,6 +175,23 @@ export default function StatusStep({
     }
   }
 
+  async function kartBas(it: any) {
+    const rx = it.prescription
+    if (!rx) return
+    const urunAdi = (it.odooProductName && !it.odooProductName.includes('PLACEHOLDER'))
+      ? it.odooProductName
+      : it.product?.name && !it.product.name.includes('PLACEHOLDER')
+      ? it.product.name
+      : 'Cam'
+    await downloadOzelSiparisKartPdf({
+      musteriAdi: customerName,
+      musteriTelefon: sale?.customer?.phone,
+      urunAdi,
+      sagSph: rx.r_sph, sagCyl: rx.r_cyl, sagAks: rx.r_aks, sagAdd: rx.r_add,
+      solSph: rx.l_sph, solCyl: rx.l_cyl, solAks: rx.l_aks, solAdd: rx.l_add,
+    })
+  }
+
   async function durumuYenile() {
     if (!sale) return
     setRefreshLoading(true)
@@ -297,6 +315,35 @@ export default function StatusStep({
               Bu satışta laboratuvara gönderilebilecek cam/lens kalemi yok.
             </p>
           ) : null}
+        </div>
+      ) : null}
+
+      {labEligibleItems.some((it: any) => it.prescription) ? (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
+            Garanti / Reçete Kartı (ZC100)
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {labEligibleItems.filter((it: any) => it.prescription).map((it: any) => {
+              const urunAdi = (it.odooProductName && !it.odooProductName.includes('PLACEHOLDER'))
+                ? it.odooProductName
+                : it.product?.name && !it.product.name.includes('PLACEHOLDER')
+                ? it.product.name
+                : 'Cam'
+              return (
+                <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 10, border: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{urunAdi}</span>
+                  <button
+                    type="button"
+                    onClick={() => void kartBas(it)}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #d97706', backgroundColor: 'white', color: '#d97706', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    🪪 Kart Bas
+                  </button>
+                </div>
+              )
+            })}
+          </div>
         </div>
       ) : null}
 
