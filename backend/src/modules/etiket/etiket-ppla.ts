@@ -4,6 +4,7 @@
  */
 import {
   buildGs1Data,
+  clipToWidth,
   DOTS_PER_MM,
   gs1ReferansSatirlari,
   resolveElementText,
@@ -153,9 +154,10 @@ export function elementToPpla(
       .join(PPLA_EOL);
   }
 
-  const text = resolveElementText(el, veri);
-  if (!text) return '';
+  const rawText = resolveElementText(el, veri);
+  if (!rawText) return '';
   const font = Math.round(el.fontSize ?? 12);
+  const text = clipToWidth(rawText, font, el.width);
   return pplaTextCommand(x, y, font, text, labelHeightDots, el.fontWeight);
 }
 

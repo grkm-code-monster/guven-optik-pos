@@ -216,16 +216,21 @@ function SablonOnizleme({
 
         if (!metin) return null
 
+        const width = el.width != null ? dotToPx(el.width) : undefined
+
         return (
           <div
             key={el.id}
+            title={width != null ? 'Genişlik sınırı tanımlı — taşan metin kırpılır' : undefined}
             style={{
               position: 'absolute',
               left,
               top,
+              width,
               fontSize,
               fontWeight: el.fontWeight === 'bold' ? 700 : 400,
               whiteSpace: 'nowrap',
+              overflow: width != null ? 'hidden' : undefined,
               color: el.type === 'fiyat' ? '#111' : '#333',
             }}
           >
@@ -436,6 +441,22 @@ export default function EtiketSablonDuzenleyici() {
                               value={el.text ?? ''}
                               onChange={(e) => elemanGuncelle(idx, { text: e.target.value })}
                               style={{ ...inp, width: 140 }}
+                            />
+                          </label>
+                        ) : null}
+                        {['urunAdi', 'nitelik', 'model', 'renkKodu', 'serbestMetin', 'fiyatDegisimTarihi'].includes(el.type) ? (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            genişlik (dot)
+                            <input
+                              type="number"
+                              value={el.width ?? ''}
+                              placeholder="sınırsız"
+                              onChange={(e) =>
+                                elemanGuncelle(idx, {
+                                  width: e.target.value === '' ? undefined : Number(e.target.value) || undefined,
+                                })
+                              }
+                              style={inp}
                             />
                           </label>
                         ) : null}

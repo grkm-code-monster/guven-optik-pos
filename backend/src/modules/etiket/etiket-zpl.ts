@@ -194,6 +194,19 @@ export function resolveElementText(el: CanvasElement, veri: EtiketVeri): string 
   }
 }
 
+/**
+ * Bir metni verilen genişliğe (dot) sığacak şekilde kırpar — taşmayı önler.
+ * el.width tanımlı değilse (veya 0/negatifse) metin olduğu gibi döner, yani
+ * width alanı girilmeyen elemanlarda davranış hiç değişmez (geriye dönük uyumlu).
+ */
+export function clipToWidth(text: string, fontSize: number, widthDots?: number): string {
+  if (!widthDots || widthDots <= 0) return text;
+  const ortalamaKarakterGenisligi = Math.max(1, fontSize) * 0.62;
+  const maxKarakter = Math.max(1, Math.floor(widthDots / ortalamaKarakterGenisligi));
+  if (text.length <= maxKarakter) return text;
+  return text.slice(0, maxKarakter);
+}
+
 function elementToZpl(el: CanvasElement, veri: EtiketVeri): string {
   if (el.type === 'kulakcik') return '';
 
@@ -227,9 +240,10 @@ function elementToZpl(el: CanvasElement, veri: EtiketVeri): string {
       .join('\n');
   }
 
-  const text = resolveElementText(el, veri);
-  if (!text) return '';
+  const rawText = resolveElementText(el, veri);
+  if (!rawText) return '';
   const font = Math.round(el.fontSize ?? 12);
+  const text = clipToWidth(rawText, font, el.width);
   return `^FO${x},${y}^A0N,${font},${font}^FD${escapeZpl(text)}^FS`;
 }
 

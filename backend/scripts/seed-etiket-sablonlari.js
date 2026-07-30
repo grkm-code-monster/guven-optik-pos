@@ -20,7 +20,7 @@ const prisma = new PrismaClient();
 const gunesElemanlari = [
   { id: 'barkod', type: 'barcode128', x: 334, y: 16, height: 27 },
   { id: 'barkodNo', type: 'barkodMetin', x: 334, y: 58, fontSize: 11 },
-  { id: 'urunAdi', type: 'urunAdi', x: 290, y: 74, fontSize: 14, fontWeight: 'normal' },
+  { id: 'urunAdi', type: 'urunAdi', x: 290, y: 74, fontSize: 14, fontWeight: 'normal', width: 250 },
   { id: 'model', type: 'model', x: 290, y: 90, fontSize: 13 },
   { id: 'renkKodu', type: 'renkKodu', x: 341, y: 90, fontSize: 13 },
   { id: 'fiyat', type: 'fiyat', x: 388, y: 112, fontSize: 26, fontWeight: 'bold' },
@@ -34,8 +34,8 @@ const gunesElemanlari = [
 const depoElemanlari = [
   { id: 'barkod', type: 'barcode128', x: 10, y: 6, height: 48 },
   { id: 'barkodNo', type: 'barkodMetin', x: 10, y: 58, fontSize: 11 },
-  { id: 'urunAdi', type: 'urunAdi', x: 10, y: 72, fontSize: 14, fontWeight: 'normal' },
-  { id: 'nitelik', type: 'nitelik', x: 10, y: 92, fontSize: 10 },
+  { id: 'urunAdi', type: 'urunAdi', x: 10, y: 72, fontSize: 14, fontWeight: 'normal', width: 380 },
+  { id: 'nitelik', type: 'nitelik', x: 10, y: 92, fontSize: 10, width: 186 },
   { id: 'sonSayim', type: 'sonGuncelleme', x: 204, y: 92, fontSize: 8 },
   { id: 'cerceveTuruBaslik', type: 'serbestMetin', x: 10, y: 110, fontSize: 7, text: 'Çerçeve Türü' },
   { id: 'cerceveTuruKutu', type: 'kutu', x: 10, y: 120, width: 186, height: 110 },
@@ -47,7 +47,7 @@ const depoElemanlari = [
 const kampanyaTaban = [
   { id: 'barkod', type: 'barcode128', x: 334, y: 16, height: 27 },
   { id: 'barkodNo', type: 'barkodMetin', x: 334, y: 58, fontSize: 11 },
-  { id: 'urunAdi', type: 'urunAdi', x: 290, y: 74, fontSize: 14, fontWeight: 'normal' },
+  { id: 'urunAdi', type: 'urunAdi', x: 290, y: 74, fontSize: 14, fontWeight: 'normal', width: 250 },
   { id: 'model', type: 'model', x: 290, y: 90, fontSize: 13 },
   { id: 'renkKodu', type: 'renkKodu', x: 341, y: 90, fontSize: 13 },
   { id: 'kdv', type: 'kdvDahildir', x: 289, y: 144, fontSize: 10 },
