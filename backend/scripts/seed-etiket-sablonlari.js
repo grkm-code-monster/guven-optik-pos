@@ -1,7 +1,18 @@
 /**
- * Etiket Tasarımcısı'ndaki (sablon-registry.ts) 6 sabit tasarımı, "Etiket
+ * Etiket Tasarımcısı'ndaki (sablon-registry.ts) sabit tasarımları, "Etiket
  * Şablonları (Yeni)" (EtiketSablonu tablosu / EtiketSablonDuzenleyici.tsx)
- * sistemine de aktarır — orada da seçilebilir/görünür olsunlar diye.
+ * sistemine de aktarır — orada da seçilebilir/görünür/düzenlenebilir olsunlar
+ * diye. Bunlar SADECE tarayıcı/düzenleyici amaçlı kayıtlardır — gerçek
+ * "Etiket Bas" akışı bunları KULLANMAZ.
+ *
+ * ÖNEMLİ — "depo-etiketi" ve "gunes-gozlugu-katlanir" slug'larına DOKUNMAYIN:
+ * bu ikisi ayrı, önceden tamamlanmış bir pilot projenin parçası
+ * (bkz. ETIKET_MOTORU_BIRLESTIRME_VE_PILOT_TALIMATI.md ve
+ * backend/scripts/seed-pilot-etiket-sablonlari.ts) ve gerçekten "Etiket Bas"
+ * akışına bağlı — EtiketBasModal.tsx, pilotSlugForSablon() üzerinden bu iki
+ * slug'ı arayıp üzerinden gerçek ZPL/PPLA üretiyor. Bu dosya o slug'ları
+ * ASLA yazmaz (daha önce bir kez yanlışlıkla "depo-etiketi" ile çakışıp canlı
+ * kaydı ezmişti — o hata burada düzeltildi, tekrarlanmasın).
  *
  * Koordinatlar packages/web/src/components/etiket-tasarimci/sablon-zpl.ts
  * içindeki "Görkem onaylı nihai koordinatlar" ile birebir aynıdır (8 dot/mm).
@@ -28,19 +39,6 @@ const gunesElemanlari = [
   { id: 'kdv', type: 'kdvDahildir', x: 289, y: 144, fontSize: 10 },
   { id: 'gs1', type: 'gs1datamatrix', x: 569, y: 18, width: 60, height: 60 },
   { id: 'gs1ref', type: 'gs1Referans', x: 665, y: 38, fontSize: 13, lineGap: 16, mode: 'oto' },
-];
-
-// --- Depo Etiketi — 50x30mm, 400x240 dot ---
-const depoElemanlari = [
-  { id: 'barkod', type: 'barcode128', x: 10, y: 6, height: 48 },
-  { id: 'barkodNo', type: 'barkodMetin', x: 10, y: 58, fontSize: 11 },
-  { id: 'urunAdi', type: 'urunAdi', x: 10, y: 72, fontSize: 14, fontWeight: 'normal', width: 380 },
-  { id: 'nitelik', type: 'nitelik', x: 10, y: 92, fontSize: 10, width: 186 },
-  { id: 'sonSayim', type: 'sonGuncelleme', x: 204, y: 92, fontSize: 8 },
-  { id: 'cerceveTuruBaslik', type: 'serbestMetin', x: 10, y: 110, fontSize: 7, text: 'Çerçeve Türü' },
-  { id: 'cerceveTuruKutu', type: 'kutu', x: 10, y: 120, width: 186, height: 110 },
-  { id: 'materyalBaslik', type: 'serbestMetin', x: 204, y: 110, fontSize: 7, text: 'Materyal' },
-  { id: 'materyalKutu', type: 'kutu', x: 204, y: 120, width: 186, height: 110 },
 ];
 
 // --- Kampanya şablonları — Güneş ile aynı taban (barkod/ürün/model/renk/kdv/gs1) ---
@@ -90,14 +88,6 @@ const SABLONLAR = [
     elemanlar: gunesElemanlari,
     etiketGenislik: 102,
     etiketYukseklik: 20,
-  },
-  {
-    slug: 'depo-etiketi',
-    ad: 'Depo Etiketi',
-    kategori: 'GENEL',
-    elemanlar: depoElemanlari,
-    etiketGenislik: 50,
-    etiketYukseklik: 30,
   },
   {
     slug: 'kampanya-yuzde-indirim',
