@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { adminApi } from './AdminLayout'
+import { downloadEticaretApiDokumani } from '../../utils/eticaretApiDokumani'
 
 type TabId = 'komisyon' | 'personeller' | 'subeler' | 'sirket-tanimlari' | 'eticaret'
 
@@ -1676,6 +1677,18 @@ function EticaretTab() {
 
   return (
     <div>
+      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '12px 16px' }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800 }}>Partner'a verilecek API dökümanı</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+            E-ticaret sitesini yapan geliştiriciye ilettiğin, bizim ürün/stok API'mizi ve bizim beklediğimiz sipariş/durum API formatını anlatan döküman.
+          </div>
+        </div>
+        <button type="button" onClick={() => downloadEticaretApiDokumani()} style={{ ...btnStyle, width: 200, flexShrink: 0 }}>
+          📄 Dökümanı İndir
+        </button>
+      </div>
+
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>E-Ticaret şubesi ve satış temsilcisi</div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
