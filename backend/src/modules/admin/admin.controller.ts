@@ -5424,6 +5424,19 @@ router.put('/ozel-siparis-guncelle/:id', async (req, res) => {
   }
 })
 
+router.put('/ozel-siparis-kart-basildi/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const updated = await prisma.ozelSiparis.update({
+      where: { id },
+      data: { kartBasildi: true, kartBasmaTarihi: new Date() },
+    })
+    return res.json({ success: true, data: updated })
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message })
+  }
+})
+
 router.put('/ozel-siparis-durum/:id', async (req, res) => {
   try {
     const { id } = req.params

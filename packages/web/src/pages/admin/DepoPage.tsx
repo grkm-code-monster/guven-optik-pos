@@ -950,6 +950,23 @@ function SiparislerTab() {
     } finally { setLoading(false) }
   }
 
+  async function kartBas(s: any) {
+    try {
+      const { downloadOzelSiparisKartPdf } = await import('../../utils/ozelSiparisKartPdf')
+      await downloadOzelSiparisKartPdf({
+        musteriAdi: s.musteriAdi,
+        musteriTelefon: s.musteriTelefon,
+        urunAdi: s.urunAdi,
+        sagSph: s.sagSph, sagCyl: s.sagCyl, sagAks: s.sagAks, sagAdd: s.sagAdd,
+        solSph: s.solSph, solCyl: s.solCyl, solAks: s.solAks, solAdd: s.solAdd,
+      })
+      await adminApi.put(`/admin/ozel-siparis-kart-basildi/${s.id}`)
+      void siparisleriYukle()
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Kart oluşturulamadı' })
+    }
+  }
+
   async function teslimAl(id: string, hedef: 'MUSTERI' | 'DEPO') {
     setLoading(true)
     try {
@@ -1424,6 +1441,16 @@ function SiparislerTab() {
                     >
                       🔍 Detay
                     </button>
+                    {s.tip === 'RECETELI' && (
+                      <button
+                        type="button"
+                        onClick={() => void kartBas(s)}
+                        title={s.kartBasildi ? `Tekrar bas — son basım: ${s.kartBasmaTarihi ? new Date(s.kartBasmaTarihi).toLocaleString('tr-TR') : ''}` : 'Garanti kartını yazdır'}
+                        style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${s.kartBasildi ? '#059669' : '#d97706'}`, backgroundColor: 'white', color: s.kartBasildi ? '#059669' : '#d97706', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      >
+                        {s.kartBasildi ? '✓ Kart Basıldı' : '🪪 Kart Bas'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

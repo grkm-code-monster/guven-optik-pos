@@ -1086,6 +1086,10 @@ model OzelSiparis {
   firmaUrunu        String?
   satisTemsilcisi   String?
 
+  // Garanti/reçete kartı (ZC100 kart yazıcı) basım takibi
+  kartBasildi       Boolean  @default(false)
+  kartBasmaTarihi   DateTime?
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
