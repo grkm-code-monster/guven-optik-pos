@@ -112,7 +112,7 @@ function isLensCategory(product: { category: ProductCategory }, input: AddSaleIt
   return false;
 }
 
-async function recalcSaleTotals(
+export async function recalcSaleTotals(
   db: Prisma.TransactionClient | typeof prisma,
   saleId: string,
 ) {

@@ -7506,6 +7506,35 @@ router.put('/eticaret/oncelik-sirasi', async (req: Request, res: Response) => {
   }
 })
 
+// Siparişleri partner API'sinden şimdi çek (cron zaten 2 dakikada bir çalışır — manuel/acil tetikleme için)
+router.post('/eticaret/siparisleri-cek', async (_req: Request, res: Response) => {
+  try {
+    const { partnerSiparisleriCek } = await import('../eticaret/eticaret-siparis.service')
+    const sonuc = await partnerSiparisleriCek()
+    return res.json({ success: true, ...sonuc })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
+router.get('/eticaret/siparisler', async (req: Request, res: Response) => {
+  try {
+    const durum = typeof req.query.durum === 'string' ? req.query.durum : undefined
+    const siparisler = await prisma.eticaretSiparis.findMany({
+      where: durum ? { durum } : undefined,
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: {
+        secilenSube: { select: { name: true, code: true } },
+        sale: { select: { referansNo: true, netTotal: true, odooSyncError: true, eFaturaDurum: true } },
+      },
+    })
+    return res.json({ data: siparisler })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
 // ── PERSONEL CV (ÖZGEÇMİŞ) — yönetici görünümü ────────────────────
 router.get('/personel/:id/ozgecmis', async (req, res, next) => {
   try {
