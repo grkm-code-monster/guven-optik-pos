@@ -24,10 +24,13 @@ const KART_YUKSEKLIK_MM = 54
 // Kartın solundaki kırmızı logo şeridi ~bu genişlikte — metin ondan sonra başlar
 const BEYAZ_ALAN_BASLANGIC_X = 17
 
+// v2 — fiziksel test baskısına göre düzeltildi (30.07.2026): önceki değerler
+// çok yukarıdaydı; telefon açıklama metnine, Sph/Cyl/Axe değerleri tablo
+// başlığına biniyordu. Tüm satırlar aşağı kaydırıldı, satır aralıkları açıldı.
 const KOORDINATLAR = {
-  musteriNo: { x: BEYAZ_ALAN_BASLANGIC_X + 20, y: 8 },
-  tarih: { x: BEYAZ_ALAN_BASLANGIC_X + 48, y: 8 },
-  tip: { x: BEYAZ_ALAN_BASLANGIC_X + 12, y: 14.5 },
+  musteriNo: { x: BEYAZ_ALAN_BASLANGIC_X + 20, y: 17 },
+  tarih: { x: BEYAZ_ALAN_BASLANGIC_X + 48, y: 17 },
+  tip: { x: BEYAZ_ALAN_BASLANGIC_X + 12, y: 23.5 },
   // Tablo: Eye/Göz | Sph | Cyl | Axe | Add sütunları
   tabloSutun: {
     sph: BEYAZ_ALAN_BASLANGIC_X + 20,
@@ -35,9 +38,9 @@ const KOORDINATLAR = {
     axe: BEYAZ_ALAN_BASLANGIC_X + 48,
     add: BEYAZ_ALAN_BASLANGIC_X + 61,
   },
-  satirSag: 24,
-  satirSol: 31,
-  kullanici: { x: BEYAZ_ALAN_BASLANGIC_X + 14, y: 39 },
+  satirSag: 33.5,
+  satirSol: 41,
+  kullanici: { x: BEYAZ_ALAN_BASLANGIC_X + 14, y: 48 },
 }
 
 export type OzelSiparisKartParams = {
