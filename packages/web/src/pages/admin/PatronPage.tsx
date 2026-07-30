@@ -61,8 +61,13 @@ function MetricCard({ label, value, sub, color }: { label: string; value: string
   )
 }
 
+function fmtTry(v: number | null | undefined) {
+  if (v == null || Number.isNaN(v)) return '—'
+  return '₺' + v.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export default function PatronPage() {
-  const [sekme, setSekme] = useState<'rapor' | 'sirket'>('rapor')
+  const [sekme, setSekme] = useState<'rapor' | 'sirket' | 'sskf'>('rapor')
   const [doviz, setDoviz] = useState('TRY')
   const [subeId, setSubeId] = useState('')
   const today = new Date().toISOString().split('T')[0]
@@ -78,6 +83,34 @@ export default function PatronPage() {
   const [altKirilim, setAltKirilim] = useState<AltKirilimSatir[]>([])
   const [altYukleniyor, setAltYukleniyor] = useState(false)
   const kategoriChartRef = useRef<any>(null)
+
+  const [sskfTemsilciId, setSskfTemsilciId] = useState('')
+  const [sskfParaBirimi, setSskfParaBirimi] = useState<'USD' | 'EUR'>('USD')
+  const [sskf, setSskf] = useState<any>(null)
+  const [sskfYukleniyor, setSskfYukleniyor] = useState(false)
+  const [kullanicilar, setKullanicilar] = useState<any[]>([])
+
+  useEffect(() => {
+    apiClient.get('/admin/users').then((r) => setKullanicilar(r.data ?? [])).catch(() => setKullanicilar([]))
+  }, [])
+
+  async function loadSskf() {
+    setSskfYukleniyor(true)
+    try {
+      const params = `?baslangic=${baslangic}&bitis=${bitis}${subeId ? '&subeId=' + subeId : ''}${sskfTemsilciId ? '&temsilciId=' + sskfTemsilciId : ''}&paraBirimi=${sskfParaBirimi}`
+      const res = await apiClient.get('/reports/patron/sskf' + params)
+      setSskf(res.data)
+    } catch (e) {
+      console.error(e)
+      setSskf(null)
+    } finally {
+      setSskfYukleniyor(false)
+    }
+  }
+
+  useEffect(() => {
+    if (sekme === 'sskf') void loadSskf()
+  }, [sekme, baslangic, bitis, subeId, sskfTemsilciId, sskfParaBirimi])
 
   function handleKategoriChartClick(event: React.MouseEvent<HTMLCanvasElement>) {
     if (seciliAnaKategori) return // alt kırılım görünümündeyken ana dilim tıklaması pasif
@@ -153,9 +186,9 @@ export default function PatronPage() {
         <div>
           <div style={{ fontSize: 22, fontWeight: 900 }}>Patron Paneli</div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            {(['rapor', 'sirket'] as const).map(s => (
+            {(['rapor', 'sirket', 'sskf'] as const).map(s => (
               <button key={s} type="button" onClick={() => setSekme(s)} style={{ padding: '6px 16px', borderRadius: 8, border: sekme === s ? 'none' : '1px solid #e5e7eb', backgroundColor: sekme === s ? '#C8102E' : 'white', color: sekme === s ? 'white' : '#374151', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                {s === 'rapor' ? 'Rapor Dashboard' : 'Şirket Dashboard'}
+                {s === 'rapor' ? 'Rapor Dashboard' : s === 'sirket' ? 'Şirket Dashboard' : 'SSKF Raporu'}
               </button>
             ))}
           </div>
@@ -567,6 +600,116 @@ export default function PatronPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {sekme === 'sskf' && (
+        <div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <select value={sskfTemsilciId} onChange={e => setSskfTemsilciId(e.target.value)} style={{ fontSize: 13, padding: '6px 8px', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+              <option value="">Tüm temsilciler</option>
+              {kullanicilar.filter((u: any) => u.isActive).map((u: any) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+            <select value={sskfParaBirimi} onChange={e => setSskfParaBirimi(e.target.value as 'USD' | 'EUR')} style={{ fontSize: 13, padding: '6px 8px', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+              <option value="USD">Dolar ($)</option>
+              <option value="EUR">Euro (€)</option>
+            </select>
+            {sskfYukleniyor && <span style={{ fontSize: 12, color: '#6b7280' }}>Yükleniyor...</span>}
+          </div>
+
+          {sskf && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10, marginBottom: '1.5rem' }}>
+                <MetricCard label="Toplam satış" value={fmtTry(sskf.toplam.satisBedeli)} />
+                <MetricCard label="Toplam iskonto" value={fmtTry(sskf.toplam.iskonto)} color="var(--color-text-danger)" />
+                <MetricCard label={`Maliyet (güncel kur, ${sskfParaBirimi === 'EUR' ? '€' : '$'})`} value={fmtTry(sskf.toplam.maliyetGuncel)} />
+                <MetricCard label="Brüt kâr (güncel kur)" value={fmtTry(sskf.toplam.brutKarGuncel)} color="var(--color-text-success)" />
+                <MetricCard label="Kur farkı etkisi" value={fmtTry(sskf.toplam.kurFarki)} color={sskf.toplam.kurFarki > 0 ? 'var(--color-text-danger)' : sskf.toplam.kurFarki < 0 ? 'var(--color-text-success)' : undefined} />
+              </div>
+
+              <div style={{ ...card, overflowX: 'auto', padding: 0 }}>
+                <table style={{ width: '100%', minWidth: 1100, fontSize: 12, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--color-background-secondary)' }}>
+                      <th rowSpan={2} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>Ürün adı</th>
+                      <th rowSpan={2} style={{ textAlign: 'center', padding: '8px 6px', borderBottom: '1px solid #e5e7eb' }}>Temsilci</th>
+                      <th rowSpan={2} style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>Liste fiyatı</th>
+                      <th rowSpan={2} style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>İskonto</th>
+                      <th rowSpan={2} style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>Satış bedeli</th>
+                      <th rowSpan={2} style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>KDV</th>
+                      <th rowSpan={2} style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>Komisyon</th>
+                      <th colSpan={2} style={{ textAlign: 'center', padding: '6px 10px 2px', borderBottom: '1px solid #e5e7eb', color: '#6b7280' }}>Maliyet</th>
+                      <th colSpan={2} style={{ textAlign: 'center', padding: '6px 10px 2px', borderBottom: '1px solid #e5e7eb', color: '#6b7280' }}>Brüt kâr</th>
+                      <th rowSpan={2} style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>Kur farkı</th>
+                    </tr>
+                    <tr style={{ background: 'var(--color-background-secondary)' }}>
+                      <th style={{ textAlign: 'right', padding: '0 10px 8px', fontWeight: 400, color: '#9ca3af', borderBottom: '1px solid #e5e7eb' }}>Giriş kuru</th>
+                      <th style={{ textAlign: 'right', padding: '0 10px 8px', fontWeight: 400, color: '#9ca3af', borderBottom: '1px solid #e5e7eb' }}>Güncel kur</th>
+                      <th style={{ textAlign: 'right', padding: '0 10px 8px', fontWeight: 400, color: '#9ca3af', borderBottom: '1px solid #e5e7eb' }}>Giriş kuru</th>
+                      <th style={{ textAlign: 'right', padding: '0 10px 8px', fontWeight: 400, color: '#9ca3af', borderBottom: '1px solid #e5e7eb' }}>Güncel kur</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sskf.satirlar.map((s: any) => (
+                      <tr key={s.saleItemId} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <td style={{ padding: '8px 10px' }}>{s.urunAdi}</td>
+                        <td style={{ textAlign: 'center', padding: '8px 6px', color: '#6b7280' }}>{s.temsilciAdi}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>{fmtTry(s.listeFiyati)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--color-text-danger)' }}>-{fmtTry(s.iskonto)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>{fmtTry(s.satisBedeli)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>{fmtTry(s.kdv)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>{fmtTry(s.komisyon)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>{fmtTry(s.maliyetGiris)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>{fmtTry(s.maliyetGuncel)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>{fmtTry(s.brutKarGiris)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px' }}>{fmtTry(s.brutKarGuncel)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px', color: s.kurFarki > 0 ? 'var(--color-text-danger)' : s.kurFarki < 0 ? 'var(--color-text-success)' : '#9ca3af' }}>{fmtTry(s.kurFarki)}</td>
+                      </tr>
+                    ))}
+                    {sskf.satirlar.length === 0 && (
+                      <tr><td colSpan={12} style={{ padding: '16px 10px', textAlign: 'center', color: '#9ca3af' }}>Seçilen aralıkta satış bulunamadı.</td></tr>
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--color-background-secondary)', fontWeight: 700 }}>
+                      <td colSpan={2} style={{ padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>Toplam</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>{fmtTry(sskf.toplam.listeFiyati)}</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db', color: 'var(--color-text-danger)' }}>-{fmtTry(sskf.toplam.iskonto)}</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>{fmtTry(sskf.toplam.satisBedeli)}</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>{fmtTry(sskf.toplam.kdv)}</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>{fmtTry(sskf.toplam.komisyon)}</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>{fmtTry(sskf.toplam.maliyetGiris)}</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>{fmtTry(sskf.toplam.maliyetGuncel)}</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>{fmtTry(sskf.toplam.brutKarGiris)}</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>{fmtTry(sskf.toplam.brutKarGuncel)}</td>
+                      <td style={{ textAlign: 'right', padding: '8px 10px', borderTop: '1px solid #d1d5db' }}>{fmtTry(sskf.toplam.kurFarki)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <div style={{ marginTop: 12, background: 'var(--color-background-secondary)', borderRadius: 8, padding: '12px 16px' }}>
+                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>Hesaplama mantığı</div>
+                <div style={{ fontFamily: 'monospace', fontSize: 12, lineHeight: 1.9 }}>
+                  Liste fiyatı − İskonto = Satış bedeli<br />
+                  Satış bedeli − (KDV + Komisyon) = Gerçek satış değeri<br />
+                  Gerçek satış değeri − Maliyet (giriş kuru) = Brüt kâr (giriş kuru)<br />
+                  Gerçek satış değeri − Maliyet (güncel kur) = Brüt kâr (güncel kur)<br />
+                  Kur farkı = Brüt kâr (giriş kuru) − Brüt kâr (güncel kur)
+                </div>
+                {sskf.bugunKuru && (
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
+                    Güncel kur ({sskf.bugunKuru.tarih}): 1$ = ₺{Number(sskf.bugunKuru.usd).toFixed(4)} · 1€ = ₺{Number(sskf.bugunKuru.eur).toFixed(4)} ({sskf.bugunKuru.kaynak})
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                  Maliyet, yalnızca bu özellik devreye girdikten sonraki ürün girişleri için hesaplanabilir. Eşleşen giriş kaydı olmayan eski satışlarda maliyet/kâr/kur farkı "—" görünür.
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

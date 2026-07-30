@@ -55,6 +55,7 @@ import deployRouter from './deploy.controller';
 import { sendReportEmail } from '../mail/mail.service';
 import { applyStockAdjustment } from './stock-adjustment.service';
 import { getOrCreateStockLot, isLotAvailableForReceipt } from './stock-lot.service';
+import { getOrFetchTodayRate } from './doviz-kuru.service';
 import { syncPersonelSubeFromUserId, syncOdooEmployeeIdFromPersonel, syncOdooEmployeeIdFromUser, syncEkYetkilerFromPersonel } from './personel-sube-sync';
 import { filterSecilebilirEkYetkiler } from './ek-yetki';
 
@@ -2146,38 +2147,25 @@ router.post('/irsaliye-olustur', async (req: Request, res: Response) => {
 });
 
 // ── TCMB DÖVİZ KURU ───────────────────────────────────────────────
+// Artık DovizKuru tablosunda kalıcı olarak saklanıyor (bkz. doviz-kuru.service.ts).
+// Günlük kur zaten yoksa burada TCMB'den çekilip kaydediliyor; TCMB'ye ulaşılamazsa
+// (hafta sonu/tatil/bağlantı sorunu) en son bilinen gerçek kur döner — asla sabit/uydurma
+// bir rakama düşmez.
 router.get('/doviz-kuru', async (_req: Request, res: Response) => {
   try {
-    const https = await import('https');
-    const xml = await new Promise<string>((resolve, reject) => {
-      https.get('https://www.tcmb.gov.tr/kurlar/today.xml', (r) => {
-        let data = '';
-        r.on('data', (chunk) => { data += chunk; });
-        r.on('end', () => resolve(data));
-        r.on('error', reject);
-      }).on('error', reject);
-    });
-
-    const usdMatch = xml.match(/<Currency[^>]*CurrencyCode="USD"[^>]*>[\s\S]*?<ForexSelling>([\d.]+)<\/ForexSelling>/);
-    const eurMatch = xml.match(/<Currency[^>]*CurrencyCode="EUR"[^>]*>[\s\S]*?<ForexSelling>([\d.]+)<\/ForexSelling>/);
-
-    const usd = usdMatch ? parseFloat(usdMatch[1]) : null;
-    const eur = eurMatch ? parseFloat(eurMatch[1]) : null;
-
+    const sonuc = await getOrFetchTodayRate();
     return res.json({
       success: true,
-      tarih: new Date().toISOString().slice(0, 10),
-      USD: usd,
-      EUR: eur,
+      tarih: sonuc.tarih,
+      kaynak: sonuc.kaynak,
+      USD: sonuc.usd,
+      EUR: sonuc.eur,
     });
   } catch (err: any) {
     console.error('[doviz-kuru hata]', err?.message);
-    // Fallback — yaklaşık değerler
-    return res.json({
+    return res.status(503).json({
       success: false,
-      tarih: new Date().toISOString().slice(0, 10),
-      USD: 38.5,
-      EUR: 41.2,
+      error: 'TCMB kuru alınamadı ve veritabanında hiç kayıtlı kur yok.',
     });
   }
 });
@@ -3026,6 +3014,39 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
         success: false,
         error: 'Tedarikçi/cari seçilmeden ürün girişi tamamlanamaz.',
       });
+    }
+
+    // ── 0.5) MALİYET DÖVİZ KARŞILIĞI KAYDI (yalnızca bundan sonraki girişler) ──
+    // Her satırın TL maliyetinin o günün TCMB kuruyla dolar/euro karşılığını kalıcı
+    // olarak saklar. SSKF Raporu bunu kullanarak "maliyet (giriş kuru)" (=birimFiyatTl)
+    // ve "maliyet (güncel kur)" (=tutarUsd/tutarEur × bugünkü kur) hesaplar. Odoo
+    // tarafındaki PO/fatura akışından bağımsızdır — o taraf başarısız olsa bile
+    // maliyet kaydı denenir.
+    try {
+      const bugununKuru = await getOrFetchTodayRate();
+      const girisTarihiVal = faturaTarihi ? new Date(faturaTarihi) : new Date();
+      for (const satir of satirList) {
+        const birimFiyatTl = Number(satir.birimFiyat);
+        if (!birimFiyatTl) continue;
+        const maliyetProductId = await resolveProductVariantId(satir.bizimUrunOdooId, satir.bizimUrunProductId, cid);
+        if (!maliyetProductId) continue;
+        await prisma.urunGirisMaliyet.create({
+          data: {
+            odooUrunId: maliyetProductId,
+            urunAdi: satir.bizimUrunAdi || satir.tedarikciUrunAdi || '',
+            faturaNo: faturaNo || null,
+            girisTarihi: girisTarihiVal,
+            miktar: new Prisma.Decimal(satir.miktar || 1),
+            birimFiyatTl: new Prisma.Decimal(birimFiyatTl),
+            kurUsd: new Prisma.Decimal(bugununKuru.usd),
+            kurEur: new Prisma.Decimal(bugununKuru.eur),
+            tutarUsd: new Prisma.Decimal(birimFiyatTl / bugununKuru.usd),
+            tutarEur: new Prisma.Decimal(birimFiyatTl / bugununKuru.eur),
+          },
+        });
+      }
+    } catch (maliyetErr: any) {
+      console.warn('[urun-giris] maliyet döviz kaydı hatası:', maliyetErr?.message);
     }
 
     // ── 1) SATIN ALMA SİPARİŞİ (purchase.order) ───────────────────

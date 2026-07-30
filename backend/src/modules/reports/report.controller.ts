@@ -548,5 +548,21 @@ router.get('/patron/gunluk-seri', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Rol
   }
 });
 
+router.get('/patron/sskf', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { baslangic, bitis, subeId, temsilciId, paraBirimi } = req.query;
+    const result = await reportService.getSskfRaporu({
+      baslangic: baslangic ? new Date(String(baslangic)) : new Date(new Date().setDate(1)),
+      bitis: bitis ? new Date(String(bitis)) : new Date(),
+      subeId: subeId ? String(subeId) : undefined,
+      temsilciId: temsilciId ? String(temsilciId) : undefined,
+      paraBirimi: paraBirimi === 'EUR' ? 'EUR' : 'USD',
+    });
+    return res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;
 

@@ -11,6 +11,7 @@ import ExcelJS from 'exceljs';
 import { prisma } from '../../database/prisma';
 import { execute } from '../odoo/odoo.service';
 import { kategoriTespit, kategoriAltKirilimTespit } from '../../utils/kategoriTespit';
+import { getOrFetchTodayRate } from '../admin/doviz-kuru.service';
 
 type DashboardKategori =
   | 'GUNES_GOZLUGU'
@@ -1464,5 +1465,219 @@ export async function getGunlukSeri({ baslangic, bitis, subeId }: { baslangic: D
   }
 
   return Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)).map(([tarih, ciro]) => ({ tarih, ciro }));
+}
+
+export type SskfSatirRaporu = {
+  saleId: string;
+  saleItemId: string;
+  urunAdi: string;
+  temsilciId: string;
+  temsilciAdi: string;
+  listeFiyati: number;
+  iskonto: number;
+  satisBedeli: number;
+  kdv: number;
+  komisyon: number;
+  maliyetGiris: number | null;
+  maliyetGuncel: number | null;
+  brutKarGiris: number | null;
+  brutKarGuncel: number | null;
+  kurFarki: number | null;
+  maliyetKaynakTarihi: string | null;
+};
+
+/**
+ * SSKF Raporu (Patron Görünümü): tarih aralığı + şube + temsilci + para birimi filtreli,
+ * satış kalemi bazında liste fiyatı → iskonto → satış bedeli → KDV/komisyon → gerçek satış
+ * değeri → maliyet (giriş kuru / güncel kur) → brüt kâr → kur farkı hesaplar.
+ *
+ * Hesap zinciri (kullanıcı ile netleştirilen mantık):
+ *   Liste fiyatı − İskonto = Satış bedeli
+ *   Satış bedeli − (KDV + Komisyon) = Gerçek satış değeri
+ *   Gerçek satış değeri − Maliyet(giriş kuru) = Brüt kâr (giriş kuru)
+ *   Gerçek satış değeri − Maliyet(güncel kur) = Brüt kâr (güncel kur)
+ *   Kur farkı = Brüt kâr (giriş kuru) − Brüt kâr (güncel kur)
+ *
+ * Maliyet yalnızca bu özellik devreye girdikten sonraki ürün girişleri (UrunGirisMaliyet)
+ * için hesaplanabilir — eski satışlarda eşleşen giriş kaydı yoksa maliyet/kâr/kur farkı
+ * alanları null döner (frontend'de "—" gösterilir).
+ */
+export async function getSskfRaporu(params: {
+  baslangic: Date;
+  bitis: Date;
+  subeId?: string;
+  temsilciId?: string;
+  paraBirimi?: 'USD' | 'EUR';
+}) {
+  const paraBirimi: 'USD' | 'EUR' = params.paraBirimi === 'EUR' ? 'EUR' : 'USD';
+
+  const where: any = {
+    status: SaleStatus.PAID,
+    createdAt: { gte: params.baslangic, lte: params.bitis },
+  };
+  if (params.subeId) where.branchId = params.subeId;
+  if (params.temsilciId) where.userId = params.temsilciId;
+
+  const sales = await prisma.sale.findMany({
+    where,
+    select: {
+      id: true,
+      createdAt: true,
+      userId: true,
+      user: { select: { name: true } },
+      items: {
+        where: { status: { not: ItemStatus.VOID } },
+        select: {
+          id: true,
+          odooProductId: true,
+          odooProductName: true,
+          product: { select: { name: true } },
+          unitPrice: true,
+          qty: true,
+          discount: true,
+          taxAmount: true,
+          lineTotal: true,
+        },
+      },
+      payments: {
+        where: { paymentType: PaymentType.CARD },
+        select: { commissionAmount: true },
+      },
+    },
+  });
+
+  const bugununKuru = await getOrFetchTodayRate().catch((err) => {
+    console.error('[sskf-raporu] güncel kur alınamadı:', err?.message);
+    return null;
+  });
+
+  // Maliyet kayıtlarını N+1 sorgudan kaçınmak için tek seferde, ürün bazında toplu çek.
+  const odooUrunIdSet = new Set<number>();
+  for (const sale of sales) {
+    for (const item of sale.items) {
+      const id = item.odooProductId ? parseInt(item.odooProductId, 10) : NaN;
+      if (Number.isFinite(id)) odooUrunIdSet.add(id);
+    }
+  }
+  const maliyetKayitlari = odooUrunIdSet.size > 0
+    ? await prisma.urunGirisMaliyet.findMany({
+        where: { odooUrunId: { in: [...odooUrunIdSet] } },
+        orderBy: { girisTarihi: 'asc' },
+      })
+    : [];
+  const maliyetByUrun = new Map<number, typeof maliyetKayitlari>();
+  for (const kayit of maliyetKayitlari) {
+    const list = maliyetByUrun.get(kayit.odooUrunId) ?? [];
+    list.push(kayit);
+    maliyetByUrun.set(kayit.odooUrunId, list);
+  }
+  function sonMaliyetKaydi(odooUrunId: number, saleTarihi: Date) {
+    const list = maliyetByUrun.get(odooUrunId);
+    if (!list?.length) return null;
+    let bulunan: typeof list[number] | null = null;
+    for (const kayit of list) {
+      if (kayit.girisTarihi.getTime() <= saleTarihi.getTime()) bulunan = kayit;
+      else break;
+    }
+    return bulunan;
+  }
+
+  const satirlar: SskfSatirRaporu[] = [];
+
+  for (const sale of sales) {
+    const saleCardCommission = sale.payments.reduce(
+      (s, p) => s.plus(p.commissionAmount ?? new Prisma.Decimal(0)),
+      new Prisma.Decimal(0),
+    );
+    const saleLineTotalSum = sale.items.reduce((s, it) => s.plus(it.lineTotal), new Prisma.Decimal(0));
+
+    for (const item of sale.items) {
+      const listeFiyati = Number(item.unitPrice) * item.qty;
+      const iskonto = Number(item.discount);
+      const satisBedeli = Number(item.lineTotal);
+      const kdv = Number(item.taxAmount);
+
+      let komisyonPay = 0;
+      if (saleCardCommission.gt(0) && saleLineTotalSum.gt(0)) {
+        komisyonPay = saleCardCommission.times(item.lineTotal).div(saleLineTotalSum).toNumber();
+      }
+
+      const gercekSatisDegeri = satisBedeli - kdv - komisyonPay;
+
+      let maliyetGiris: number | null = null;
+      let maliyetGuncel: number | null = null;
+      let brutKarGiris: number | null = null;
+      let brutKarGuncel: number | null = null;
+      let kurFarki: number | null = null;
+      let maliyetKaynakTarihi: string | null = null;
+
+      const odooUrunId = item.odooProductId ? parseInt(item.odooProductId, 10) : null;
+      if (odooUrunId && Number.isFinite(odooUrunId) && bugununKuru) {
+        const maliyetKaydi = sonMaliyetKaydi(odooUrunId, sale.createdAt);
+        if (maliyetKaydi) {
+          const maliyetGirisVal = maliyetKaydi.birimFiyatTl.toNumber();
+          maliyetGiris = maliyetGirisVal;
+          maliyetKaynakTarihi = maliyetKaydi.girisTarihi.toISOString().slice(0, 10);
+
+          const tutarSecilen = paraBirimi === 'EUR' ? maliyetKaydi.tutarEur : maliyetKaydi.tutarUsd;
+          const kurBugun = paraBirimi === 'EUR' ? bugununKuru.eur : bugununKuru.usd;
+
+          brutKarGiris = gercekSatisDegeri - maliyetGirisVal;
+
+          if (tutarSecilen != null) {
+            maliyetGuncel = tutarSecilen.toNumber() * kurBugun;
+            brutKarGuncel = gercekSatisDegeri - maliyetGuncel;
+            kurFarki = brutKarGiris - brutKarGuncel;
+          }
+        }
+      }
+
+      satirlar.push({
+        saleId: sale.id,
+        saleItemId: item.id,
+        urunAdi: item.odooProductName || item.product?.name || '—',
+        temsilciId: sale.userId,
+        temsilciAdi: sale.user?.name ?? '—',
+        listeFiyati,
+        iskonto,
+        satisBedeli,
+        kdv,
+        komisyon: komisyonPay,
+        maliyetGiris,
+        maliyetGuncel,
+        brutKarGiris,
+        brutKarGuncel,
+        kurFarki,
+        maliyetKaynakTarihi,
+      });
+    }
+  }
+
+  const toplam = satirlar.reduce(
+    (acc, s) => {
+      acc.listeFiyati += s.listeFiyati;
+      acc.iskonto += s.iskonto;
+      acc.satisBedeli += s.satisBedeli;
+      acc.kdv += s.kdv;
+      acc.komisyon += s.komisyon;
+      if (s.maliyetGiris != null) acc.maliyetGiris += s.maliyetGiris;
+      if (s.maliyetGuncel != null) acc.maliyetGuncel += s.maliyetGuncel;
+      if (s.brutKarGiris != null) acc.brutKarGiris += s.brutKarGiris;
+      if (s.brutKarGuncel != null) acc.brutKarGuncel += s.brutKarGuncel;
+      if (s.kurFarki != null) acc.kurFarki += s.kurFarki;
+      return acc;
+    },
+    {
+      listeFiyati: 0, iskonto: 0, satisBedeli: 0, kdv: 0, komisyon: 0,
+      maliyetGiris: 0, maliyetGuncel: 0, brutKarGiris: 0, brutKarGuncel: 0, kurFarki: 0,
+    },
+  );
+
+  return {
+    paraBirimi,
+    bugunKuru: bugununKuru,
+    satirlar,
+    toplam,
+  };
 }
 

@@ -523,6 +523,38 @@ model CashMovement {
   createdAt   DateTime         @default(now())
 }
 
+/// TCMB günlük USD/EUR kuru (kalıcı geçmiş) — SSKF Raporu ve ürün girişi maliyet
+/// hesaplarında kullanılır. Her gün için tek kayıt.
+model DovizKuru {
+  id        String   @id @default(cuid())
+  tarih     DateTime @unique @db.Date
+  usd       Decimal  @db.Decimal(10, 4)
+  eur       Decimal  @db.Decimal(10, 4)
+  kaynak    String   @default("TCMB")
+  createdAt DateTime @default(now())
+}
+
+/// Ürün girişi (stok girişi) sırasında girilen TL maliyetin, o günün TCMB kuruyla
+/// hesaplanmış dolar/euro karşılığının kalıcı kaydı. Sadece bu özellik devreye
+/// girdikten sonraki girişler için tutulur (geçmişe dönük veri yoktur).
+model UrunGirisMaliyet {
+  id           String   @id @default(cuid())
+  odooUrunId   Int
+  urunAdi      String
+  branchId     String?
+  faturaNo     String?
+  girisTarihi  DateTime @db.Date
+  miktar       Decimal  @db.Decimal(10, 2) @default(1)
+  birimFiyatTl Decimal  @db.Decimal(10, 2)
+  kurUsd       Decimal? @db.Decimal(10, 4)
+  kurEur       Decimal? @db.Decimal(10, 4)
+  tutarUsd     Decimal? @db.Decimal(10, 2)
+  tutarEur     Decimal? @db.Decimal(10, 2)
+  createdAt    DateTime @default(now())
+
+  @@index([odooUrunId, girisTarihi])
+}
+
 enum CashMovementType {
   CASH_IN
   CASH_OUT

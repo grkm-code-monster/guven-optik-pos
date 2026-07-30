@@ -5,6 +5,7 @@ import { startOzelSiparisCron } from './modules/ozel-siparis/ozel-siparis.cron';
 import { startReportCron } from './modules/reports/report.cron';
 import { startFiyatBildirimHatirlatmaCron } from './modules/admin/fiyat-bildirim-hatirlatma.cron';
 import { startShiftAutoCloseCron } from './modules/shifts/shift-auto-close.cron';
+import { startDovizKuruCron } from './modules/admin/doviz-kuru.cron';
 
 const port = Number(process.env.PORT) || 3000;
 const app = createApp();
@@ -18,3 +19,4 @@ startOzelSiparisCron();
 startReportCron();
 startFiyatBildirimHatirlatmaCron();
 startShiftAutoCloseCron();
+startDovizKuruCron();
