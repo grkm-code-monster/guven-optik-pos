@@ -22,16 +22,17 @@ const KART_GENISLIK_MM = 85.6
 const KART_YUKSEKLIK_MM = 54
 
 // Kartın solundaki kırmızı logo şeridi ~bu genişlikte — metin ondan sonra başlar
-// v2: fiziksel testte yazılar hafif sağdaydı, 4mm sola kaydırıldı
-const BEYAZ_ALAN_BASLANGIC_X = 13
+// v3: kullanıcının verdiği ölçülerle 20mm sola kaydırıldı
+const BEYAZ_ALAN_BASLANGIC_X = -7
 
-// v2 — fiziksel test baskısına göre düzeltildi (30.07.2026): önceki değerler
-// çok yukarıdaydı; telefon açıklama metnine, Sph/Cyl/Axe değerleri tablo
-// başlığına biniyordu. Tüm satırlar aşağı kaydırıldı, satır aralıkları açıldı.
+// v3 — kullanıcının fiziksel ölçümüne göre düzeltildi (30.07.2026):
+// Müşteri No / Tarih / Ürün Adı: 20mm sola, 10mm aşağı
+// Reçete bilgileri (tablo): 20mm sola, 5mm aşağı
+// Müşteri Adı: 20mm sola, 2mm aşağı
 const KOORDINATLAR = {
-  musteriNo: { x: BEYAZ_ALAN_BASLANGIC_X + 20, y: 17 },
-  tarih: { x: BEYAZ_ALAN_BASLANGIC_X + 48, y: 17 },
-  tip: { x: BEYAZ_ALAN_BASLANGIC_X + 12, y: 23.5 },
+  musteriNo: { x: BEYAZ_ALAN_BASLANGIC_X + 20, y: 27 },
+  tarih: { x: BEYAZ_ALAN_BASLANGIC_X + 48, y: 27 },
+  tip: { x: BEYAZ_ALAN_BASLANGIC_X + 12, y: 33.5 },
   // Tablo: Eye/Göz | Sph | Cyl | Axe | Add sütunları
   tabloSutun: {
     sph: BEYAZ_ALAN_BASLANGIC_X + 20,
@@ -39,9 +40,9 @@ const KOORDINATLAR = {
     axe: BEYAZ_ALAN_BASLANGIC_X + 48,
     add: BEYAZ_ALAN_BASLANGIC_X + 61,
   },
-  satirSag: 33.5,
-  satirSol: 41,
-  kullanici: { x: BEYAZ_ALAN_BASLANGIC_X + 14, y: 48 },
+  satirSag: 38.5,
+  satirSol: 46,
+  kullanici: { x: BEYAZ_ALAN_BASLANGIC_X + 14, y: 50 },
 }
 
 export type OzelSiparisKartParams = {
