@@ -67,7 +67,10 @@ const UYUMSOFT_SENDER_UNVAN =
 
 const SIRKET_SUBE_MAP: Record<string, string[]> = {
   ADESE: ['GVN1', 'GVN3', 'GVN6', 'GVN7', 'GVN8', 'GVN9'],
-  NG: ['GVN2', 'GVN10', 'ANADEPO'],
+  // ETICARET: sanal E-Ticaret şubesinin kodu — bu şube üzerinden kesilen tüm
+  // e-fatura ve gün sonu belgeleri her zaman NG (Nejla Gümüşkesen) üzerinden gider,
+  // hangi fiziksel şubenin stoğu kullanılırsa kullanılsın.
+  NG: ['GVN2', 'GVN10', 'ANADEPO', 'ETICARET'],
   POTENTIAL: ['GVN5'],
 };
 
