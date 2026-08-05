@@ -1851,34 +1851,46 @@ router.get('/kategori-listesi', async (_req: Request, res: Response) => {
 // active_test:false context'iyle (arşivlenmiş kayıtlar dahil) sorgulayıp
 // gerçekten silinmiş mi yoksa sadece arşivlenmiş mi olduğunu ayırt eder.
 router.get('/kategori-arsiv-kontrol', async (_req: Request, res: Response) => {
-    try {
-          const targetIds = Array.from(new Set<number>([4, 6, ...ODOO_OPTIK_CAM_CATEGORY_IDS]));
-          const rows = await execute(
-                  'product.category',
-                  'search_read',
-                  [[['id', 'in', targetIds]]],
-            { fields: ['id', 'name', 'complete_name', 'active'], context: { active_test: false } },
-                );
-      const bulunanIds = new Set((rows ?? []).map((r: any) => r.id));
-      const hicYok = targetIds.filter((id) => !bulunanIds.has(id));
-      const arsivde = (rows ?? []).filter((r: any) => r.active === false);
-      const aktif = (rows ?? []).filter((r: any) => r.active === true);
-      
-      return res.json({
-        ozet: {
-          aranan: targetIds.length,
-          aktifBulundu: aktif.length,
-          arsivdeBulundu: arsivde.length,
-          hicBulunamadi: hicYok.length,
-        },
-        hicBulunamadiIdler: hicYok,
-        arsivdekiler: arsivde,
-        aktifOlanlar: aktif,
-      });
-    } catch (err: any) {
-      console.error('[kategori-arsiv-kontrol hata]', err?.message ?? err);
-      return res.status(500).json({ error: err?.message ?? 'Kontrol edilemedi' });
-    }
+      const targetIds = Array.from(new Set<number>([4, 6, ...ODOO_OPTIK_CAM_CATEGORY_IDS]));
+          try {
+                // read() ID bazlı çalışır ve search_read'in aksine active=false kayıtları
+                      // context olmadan da döndürür; var olmayan ID'ler sonuçtan sessizce
+                            // düşer (hata fırlatmaz) — bu yüzden search_read+active_test yerine
+                                  // read() kullanıyoruz.
+                                        const rows = await execute(
+                                                'product.category',
+                                                        'read',
+                                                                [targetIds],
+                                                                        { fields: ['id', 'name', 'complete_name', 'active'] },
+                                                                              );
+                                                                                    const bulunanIds = new Set((rows ?? []).map((r: any) => r.id));
+                                                                                          const hicYok = targetIds.filter((id) => !bulunanIds.has(id));
+                                                                                                const arsivde = (rows ?? []).filter((r: any) => r.active === false);
+                                                                                                      const aktif = (rows ?? []).filter((r: any) => r.active === true);
+
+                                                                                                            return res.json({
+                                                                                                                    ozet: {
+                                                                                                                              aranan: targetIds.length,
+                                                                                                                                        aktifBulundu: aktif.length,
+                                                                                                                                                  arsivdeBulundu: arsivde.length,
+                                                                                                                                                            hicBulunamadi: hicYok.length,
+                                                                                                                                                                    },
+                                                                                                                                                                            hicBulunamadiIdler: hicYok,
+                                                                                                                                                                                    arsivdekiler: arsivde,
+                                                                                                                                                                                            aktifOlanlar: aktif,
+                                                                                                                                                                                                  });
+                                                                                                                                                                                                      } catch (err: any) {
+                                                                                                                                                                                                            const detay = {
+                                                                                                                                                                                                                    message: err?.message ?? null,
+                                                                                                                                                                                                                            faultString: err?.faultString ?? err?.body?.faultString ?? null,
+                                                                                                                                                                                                                                    faultCode: err?.faultCode ?? err?.body?.faultCode ?? null,
+                                                                                                                                                                                                                                            name: err?.name ?? null,
+                                                                                                                                                                                                                                                    aranan: targetIds,
+                                                                                                                                                                                                                                                          };
+                                                                                                                                                                                                                                                                console.error('[kategori-arsiv-kontrol hata]', JSON.stringify(detay));
+                                                                                                                                                                                                                                                                      return res.status(500).json({ error: 'Kontrol edilemedi', detay });
+                                                                                                                                                                                                                                                                          }
+                                                                                                                                                                                                                                                                          });
 });
 
 // ── NİTELİK LİSTESİ (Odoo product.attribute) ──────────────────────
