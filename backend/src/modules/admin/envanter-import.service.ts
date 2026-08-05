@@ -4,6 +4,7 @@ import { ptavKey } from './varyant-import-temizlik.service';
 import {
   ENVANTER_IMPORT_HEADERS,
   ENVANTER_ZORUNLU_ALANLAR,
+  ENVANTER_MODEL_RENK_OLCU_MUAF_ANAHTAR_KELIMELER,
   type EnvanterImportHeader,
   type EnvanterSatirDurum,
 } from './envanter-import.constants';
@@ -246,6 +247,11 @@ export async function parseEnvanterExcel(buffer: Buffer): Promise<ParsedEnvanter
   return rows;
 }
 
+export function isModelRenkOlcuMuaf(kategori: string): boolean {
+  const katUpper = kategori.trim().toUpperCase();
+  return ENVANTER_MODEL_RENK_OLCU_MUAF_ANAHTAR_KELIMELER.some((kw) => katUpper.includes(kw));
+}
+
 function validateRow(row: ParsedEnvanterRow): string | null {
   if (row.odooLotId) {
     if (!row.barkod?.trim()) return 'Barkod zorunlu (lot düzeltme satırı)';
@@ -276,6 +282,15 @@ function validateRow(row: ParsedEnvanterRow): string | null {
       return `Zorunlu alan eksik: ${alan}`;
     }
   }
+
+  // Model/Renk/Ölçü sadece Cam ve Lens DIŞINDAKİ kategorilerde (Çerçeve,
+  // Güneş Gözlüğü vb.) zorunlu — Cam ve Lens ürünlerinde bu alanlar olmaz.
+  if (!isModelRenkOlcuMuaf(row.kategori)) {
+    if (!row.model?.trim()) return 'Zorunlu alan eksik: Model';
+    if (!row.renk?.trim()) return 'Zorunlu alan eksik: Renk';
+    if (!row.olcu?.trim()) return 'Zorunlu alan eksik: Ölçü';
+  }
+
   if (row.adet <= 0) return 'Adet 0\'dan büyük olmalı';
   if (row.satisFiyati < 0) return 'Satış fiyatı geçersiz';
   if (row.maliyetFiyati < 0) return 'Maliyet fiyatı geçersiz';
@@ -584,6 +599,26 @@ export async function previewEnvanterImport(
           mesaj: `Mevcut varyant — restok (şablon #${tmpl.id})`,
         });
         continue;
+      }
+
+      // Cam/Lens (Model/Renk/Ölçü'süz) kategorilerde ptav eşleşmesi hiç
+      // olmaz — bu yüzden aynı şablon altında barkodun doğrudan var olup
+      // olmadığına bakıp restok mu yoksa gerçekten başka bir ürüne mi ait
+      // olduğunu ayırt ediyoruz.
+      if (isModelRenkOlcuMuaf(row.kategori)) {
+        const ayniSablondaVarMi = await execute(
+          'product.product', 'search_read',
+          [[['product_tmpl_id', '=', tmpl.id], ['barcode', '=', row.barkod.trim()]]],
+          { fields: ['id'], limit: 1 },
+        ) as { id: number }[];
+        if (ayniSablondaVarMi.length) {
+          satirlar.push({
+            ...row,
+            durum: 'MEVCUT_VARYANT',
+            mesaj: `Mevcut varyant — restok (şablon #${tmpl.id})`,
+          });
+          continue;
+        }
       }
 
       satirlar.push({

@@ -434,6 +434,7 @@ type PosBranch = {
   name: string
   code: string
   isActive?: boolean
+  hasAtolye?: boolean
   sirketId?: number | null
   sirketAdi?: string | null
   vkn?: string | null
@@ -464,6 +465,7 @@ const emptyForm = {
   il: '',
   ilce: '',
   telefon: '',
+  hasAtolye: false,
 }
 
 function ilIlceTam(b: Pick<PosBranch, 'il' | 'ilce'>): boolean {
@@ -613,6 +615,15 @@ function SubelerTab() {
             ))}
           </select>
         </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, fontWeight: 700, color: '#374151', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={f.hasAtolye}
+            onChange={(e) => setF((p) => ({ ...p, hasAtolye: e.target.checked }))}
+            style={{ width: 16, height: 16 }}
+          />
+          🔬 Bu şubede laboratuvar (atölye) var
+        </label>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             type="button"
@@ -672,6 +683,7 @@ function SubelerTab() {
       il: b.il ?? '',
       ilce: b.ilce ?? '',
       telefon: b.telefon ?? '',
+      hasAtolye: !!b.hasAtolye,
     })
   }
 
@@ -773,6 +785,9 @@ function SubelerTab() {
                 >
                   {ilIlceTam(b) ? `${b.il}/${b.ilce}` : '✗ İl/İlçe'}
                 </span>
+                {b.hasAtolye ? (
+                  <span style={badge(true, '🔬 Laboratuvar', '')}>🔬 Laboratuvar</span>
+                ) : null}
               </div>
               <button
                 type="button"

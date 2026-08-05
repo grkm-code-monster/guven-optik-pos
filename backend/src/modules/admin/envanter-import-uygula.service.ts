@@ -4,12 +4,15 @@ import {
   previewEnvanterImport,
   resolveLotForUtsCorrection,
   resolveVariantByOdooId,
+  isModelRenkOlcuMuaf,
   type ParsedEnvanterRow,
 } from './envanter-import.service';
 import {
   createEnvanterSablon,
+  findTekVariantProductId,
   findVariantProductId,
   guncelleVaryantFiyatlari,
+  importTekVaryantlarForTemplate,
   importVaryantlarForTemplate,
   varyantKey,
   type VaryantImportSatir,
@@ -213,6 +216,11 @@ export async function uygulaEnvanterImport(input: {
       continue;
     }
 
+    // Cam / Lens gibi Model-Renk-Ölçü niteliği olmayan kategorilerde
+    // attribute matrisine hiç girmiyoruz — her barkod doğrudan şablonun
+    // tekil varyantına bağlanıyor.
+    const muaf = isModelRenkOlcuMuaf(ilk.kategori);
+
     const importSatirlari: VaryantImportSatir[] = [];
     for (const row of grupSatirlari) {
       const preview = onizlemeBySatirNo.get(row.satirNo)!;
@@ -232,7 +240,12 @@ export async function uygulaEnvanterImport(input: {
 
     if (importSatirlari.length) {
       try {
-        const importSonuc = await importVaryantlarForTemplate(tmplId, importSatirlari);
+        const importSonuc = muaf
+          ? await importTekVaryantlarForTemplate(
+              tmplId,
+              importSatirlari.map((s) => ({ index: s.index, barkod: s.barkod, fiyat: s.fiyat })),
+            )
+          : await importVaryantlarForTemplate(tmplId, importSatirlari);
         for (const [key, id] of importSonuc.varyantIdByKey) {
           varyantIdCache.set(key, id);
         }
@@ -279,7 +292,7 @@ export async function uygulaEnvanterImport(input: {
         continue;
       }
 
-      const vKey = varyantKey(row.model, row.renk, row.olcu);
+      const vKey = muaf ? row.barkod.trim() : varyantKey(row.model, row.renk, row.olcu);
       let varyantId = varyantIdCache.get(vKey) ?? null;
 
       if (row.odooVaryantId) {
@@ -296,7 +309,9 @@ export async function uygulaEnvanterImport(input: {
         varyantId = resolved.variantId;
       } else if (!varyantId) {
         try {
-          varyantId = await findVariantProductId(tmplId, row.model, row.renk, row.olcu);
+          varyantId = muaf
+            ? await findTekVariantProductId(tmplId, row.barkod)
+            : await findVariantProductId(tmplId, row.model, row.renk, row.olcu);
         } catch {
           varyantId = null;
         }

@@ -292,6 +292,83 @@ export async function findVariantProductId(
   return match?.id ?? null;
 }
 
+// ── Cam / Lens gibi Model-Renk-Ölçü niteliği OLMAYAN kategoriler için:
+// attribute matrisine hiç girmeden, her barkodu doğrudan şablonun tekil
+// varyantına (veya gerekiyorsa yeni bir product.product'a) bağlar.
+export type TekVaryantImportSatir = { index: number; barkod: string; fiyat: number };
+
+export async function importTekVaryantlarForTemplate(
+  tmplId: number,
+  satirlar: TekVaryantImportSatir[],
+): Promise<VaryantImportSonuc> {
+  const varyantIdByKey = new Map<string, number>();
+  const hatalar: { index: number; sebep: string }[] = [];
+  let olusturulan = 0;
+
+  const mevcutVaryantlar = await execute(
+    'product.product', 'search_read',
+    [[['product_tmpl_id', '=', Number(tmplId)]]],
+    { fields: ['id', 'barcode'], limit: 50 },
+  ) as { id: number; barcode: string | false }[];
+
+  // Odoo, attribute satırı olmayan bir şablon için otomatik olarak barkodsuz
+  // TEK bir varsayılan varyant oluşturur — ilk satırı ona yazıyoruz.
+  let bosVaryant = mevcutVaryantlar.find((v) => !v.barcode) ?? null;
+
+  for (const satir of satirlar) {
+    const barkod = satir.barkod.trim();
+    try {
+      const eslesen = mevcutVaryantlar.find((v) => v.barcode && v.barcode.trim() === barkod);
+      if (eslesen) {
+        varyantIdByKey.set(barkod, eslesen.id);
+        continue;
+      }
+
+      if (bosVaryant) {
+        await execute(
+          'product.product', 'write',
+          [[bosVaryant.id], { barcode: barkod || false, lst_price: satir.fiyat || 0 }],
+        );
+        varyantIdByKey.set(barkod, bosVaryant.id);
+        mevcutVaryantlar.push({ id: bosVaryant.id, barcode: barkod });
+        bosVaryant = null;
+        olusturulan++;
+        continue;
+      }
+
+      // Bu şablonda zaten barkodlu bir (tek) varyant var ve Model/Renk/Ölçü
+      // olmadığı için ek bir varyant açacak nitelik yok — aynı "Ürün Adı"
+      // altında ikinci bir barkod için ürün adının benzersiz olması gerekir.
+      hatalar.push({
+        index: satir.index,
+        sebep: 'Bu ürün adında zaten farklı barkodlu bir kayıt var — Cam/Lens ürünlerinde her farklı ürün için "Ürün Adı" benzersiz olmalı',
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message.slice(0, 150) : 'Bilinmeyen hata';
+      hatalar.push({ index: satir.index, sebep: msg });
+    }
+  }
+
+  return {
+    varyantIdByKey,
+    olusturulan,
+    hatalar,
+    otomatikTemizlenen: 0,
+    kalanVaryant: mevcutVaryantlar.length,
+  };
+}
+
+export async function findTekVariantProductId(tmplId: number, barkod: string): Promise<number | null> {
+  const trimmed = barkod.trim();
+  if (!trimmed) return null;
+  const found = await execute(
+    'product.product', 'search_read',
+    [[['product_tmpl_id', '=', Number(tmplId)], ['barcode', '=', trimmed]]],
+    { fields: ['id'], limit: 1 },
+  ) as { id: number }[];
+  return found.length ? found[0].id : null;
+}
+
 export async function guncelleVaryantFiyatlari(
   varyantId: number,
   satisFiyati: number,

@@ -1010,6 +1010,7 @@ router.get('/branch-list', async (_req: Request, res: Response) => {
         name: true,
         code: true,
         isActive: true,
+        hasAtolye: true,
         sirketId: true,
         sirketAdi: true,
         vkn: true,
@@ -1033,7 +1034,7 @@ router.get('/branch-list', async (_req: Request, res: Response) => {
 router.post('/branch', authorize(Role.ADMIN), async (req, res, next) => {
   try {
     const { name, code, sirketId, sirketAdi, vkn,
-      odooLocationId, pdksPlaceId, adres, il, ilce, telefon } = req.body;
+      odooLocationId, pdksPlaceId, adres, il, ilce, telefon, hasAtolye } = req.body;
     if (!name?.trim() || !code?.trim()) {
       return res.status(400).json({ error: 'name ve code zorunlu' });
     }
@@ -1041,6 +1042,7 @@ router.post('/branch', authorize(Role.ADMIN), async (req, res, next) => {
       data: {
         name: name.trim(), code: code.trim().toUpperCase(),
         isActive: true,
+        hasAtolye: Boolean(hasAtolye),
         sirketId: sirketId ? Number(sirketId) : null,
         sirketAdi: sirketAdi || null, vkn: vkn || null,
         odooLocationId: odooLocationId ? Number(odooLocationId) : null,
@@ -1073,6 +1075,7 @@ router.put('/branch/:id', authorize(Role.ADMIN), async (req, res, next) => {
       if (req.body[f] !== undefined) data[f] = req.body[f] ? Number(req.body[f]) : null;
     }
     if (req.body.isActive !== undefined) data.isActive = Boolean(req.body.isActive);
+    if (req.body.hasAtolye !== undefined) data.hasAtolye = Boolean(req.body.hasAtolye);
     const branch = await prisma.branch.update({ where: { id: req.params.id }, data });
     return res.json({ success: true, data: branch });
   } catch (err) { next(err); }
