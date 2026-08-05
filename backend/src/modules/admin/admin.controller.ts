@@ -14,6 +14,7 @@ import {
   resolveOrCreateCategoryId,
 } from '../odoo/odoo-category.util';
 import { getAnaDepoLocationId, getCompanyIdFromLokasyon, LOKASYON_ID_MAP } from '../odoo/odooLocations';
+import { ODOO_OPTIK_CAM_CATEGORY_IDS } from '../sales/sale-item-lab.util';
 import { getOrCreateFaturasizCari } from '../odoo/faturasiz-cari.util';
 import * as pdksService from '../pdks/pdks.service';
 import * as stokYonetimi from './stok-yonetimi.service';
@@ -1842,6 +1843,42 @@ router.get('/kategori-listesi', async (_req: Request, res: Response) => {
       ],
     });
   }
+});
+
+// ── KATEGORİ ARŞİV KONTROLÜ (Optik Cam/Çerçeve kayboldu mu teşhisi) ─
+// Geçici teşhis uç noktası — "Optik Çerçeve" (id 6) ve "Optik Cam" (id 4 + alt
+// kategorileri 10-44) aktif listede görünmüyor. Bu uç nokta, o ID'leri
+// active_test:false context'iyle (arşivlenmiş kayıtlar dahil) sorgulayıp
+// gerçekten silinmiş mi yoksa sadece arşivlenmiş mi olduğunu ayırt eder.
+router.get('/kategori-arsiv-kontrol', async (_req: Request, res: Response) => {
+    try {
+          const targetIds = Array.from(new Set<number>([4, 6, ...ODOO_OPTIK_CAM_CATEGORY_IDS]));
+          const rows = await execute(
+                  'product.category',
+                  'search_read',
+                  [[['id', 'in', targetIds]]],
+            { fields: ['id', 'name', 'complete_name', 'active'], context: { active_test: false } },
+                );
+      const bulunanIds = new Set((rows ?? []).map((r: any) => r.id));
+      const hicYok = targetIds.filter((id) => !bulunanIds.has(id));
+      const arsivde = (rows ?? []).filter((r: any) => r.active === false);
+      const aktif = (rows ?? []).filter((r: any) => r.active === true);
+      
+      return res.json({
+        ozet: {
+          aranan: targetIds.length,
+          aktifBulundu: aktif.length,
+          arsivdeBulundu: arsivde.length,
+          hicBulunamadi: hicYok.length,
+        },
+        hicBulunamadiIdler: hicYok,
+        arsivdekiler: arsivde,
+        aktifOlanlar: aktif,
+      });
+    } catch (err: any) {
+      console.error('[kategori-arsiv-kontrol hata]', err?.message ?? err);
+      return res.status(500).json({ error: err?.message ?? 'Kontrol edilemedi' });
+    }
 });
 
 // ── NİTELİK LİSTESİ (Odoo product.attribute) ──────────────────────
