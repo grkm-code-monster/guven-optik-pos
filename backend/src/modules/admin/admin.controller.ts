@@ -1891,7 +1891,6 @@ router.get('/kategori-arsiv-kontrol', async (_req: Request, res: Response) => {
                                                                                                                                                                                                                                                                       return res.status(500).json({ error: 'Kontrol edilemedi', detay });
                                                                                                                                                                                                                                                                           }
                                                                                                                                                                                                                                                                           });
-});
 
 // ── NİTELİK LİSTESİ (Odoo product.attribute) ──────────────────────
 router.get('/nitelik-listesi', async (_req: Request, res: Response) => {
