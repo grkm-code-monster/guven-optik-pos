@@ -14,10 +14,25 @@ type Rate = {
   startDate: string
 }
 
+type PosDevice = {
+  id: string
+  bankId: string
+  branchId: string
+  name: string
+  isActive?: boolean
+}
+
 type Bank = {
   id: string
   name: string
   rates: Rate[]
+  posDevices?: PosDevice[]
+}
+
+type BranchOption = {
+  id: string
+  name: string
+  code?: string
 }
 
 type AdminUser = {
@@ -160,12 +175,24 @@ function KomisyonTab() {
   const [newBankName, setNewBankName] = useState('')
   const [addingBank, setAddingBank] = useState(false)
 
+  const [branches, setBranches] = useState<BranchOption[]>([])
+  const [showAddPos, setShowAddPos] = useState(false)
+  const [newPosName, setNewPosName] = useState('')
+  const [newPosBranchId, setNewPosBranchId] = useState('')
+  const [addingPos, setAddingPos] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await adminApi.get('/admin/banks')
-      setBanks(res.data ?? [])
+      const [banksRes, branchRes] = await Promise.all([
+        adminApi.get('/admin/banks'),
+        adminApi.get('/admin/branch-list').catch(() => ({ data: { data: [] } })),
+      ])
+      setBanks(banksRes.data ?? [])
+      const brList: BranchOption[] = branchRes.data?.data ?? []
+      setBranches(brList)
+      setNewPosBranchId((prev) => prev || brList[0]?.id || '')
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Bankalar yüklenemedi')
     } finally {
@@ -257,6 +284,36 @@ function KomisyonTab() {
       setError(e?.response?.data?.message ?? 'Banka eklenemedi')
     } finally {
       setAddingBank(false)
+    }
+  }
+
+  async function addPosDevice() {
+    if (!selectedBank) return
+    const name = newPosName.trim()
+    if (!name) {
+      setError('POS adı girin.')
+      return
+    }
+    if (!newPosBranchId) {
+      setError('Şube seçin.')
+      return
+    }
+    setAddingPos(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      await adminApi.post(`/admin/banks/${selectedBank.id}/pos-devices`, {
+        name,
+        branchId: newPosBranchId,
+      })
+      setNewPosName('')
+      setShowAddPos(false)
+      setSuccess(`"${name}" POS cihazı eklendi.`)
+      await load()
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'POS eklenemedi')
+    } finally {
+      setAddingPos(false)
     }
   }
 
@@ -366,6 +423,113 @@ function KomisyonTab() {
               ))}
             </select>
           </label>
+
+          {selectedBank ? (
+            <div style={{ marginBottom: 20, padding: 14, border: '1px solid #e5e7eb', borderRadius: 8, backgroundColor: '#f9fafb' }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#374151', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                POS Cihazları ({selectedBank.name})
+              </div>
+              {(selectedBank.posDevices ?? []).length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  {(selectedBank.posDevices ?? []).map((p) => (
+                    <span
+                      key={p.id}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 999,
+                        backgroundColor: 'white',
+                        border: '1px solid #e5e7eb',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: '#374151',
+                      }}
+                    >
+                      {p.name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: '#9ca3af', fontSize: 13, margin: '0 0 10px' }}>Bu bankaya bağlı POS cihazı yok.</p>
+              )}
+
+              {!showAddPos ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAddPos(true)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    backgroundColor: 'white',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontSize: 13,
+                  }}
+                >
+                  + POS Ekle
+                </button>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    placeholder="POS adı (örn. Manuel POS)"
+                    value={newPosName}
+                    onChange={(e) => setNewPosName(e.target.value)}
+                    style={{ flex: '1 1 180px', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}
+                  />
+                  <select
+                    value={newPosBranchId}
+                    onChange={(e) => setNewPosBranchId(e.target.value)}
+                    style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, background: 'white' }}
+                  >
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={addingPos}
+                    onClick={() => void addPosDevice()}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 8,
+                      border: 'none',
+                      backgroundColor: '#1a1a2e',
+                      color: 'white',
+                      fontWeight: 700,
+                      cursor: addingPos ? 'wait' : 'pointer',
+                      fontSize: 13,
+                    }}
+                  >
+                    {addingPos ? 'Ekleniyor...' : 'Kaydet'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddPos(false)
+                      setNewPosName('')
+                    }}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 8,
+                      border: '1px solid #e5e7eb',
+                      backgroundColor: 'white',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontSize: 13,
+                    }}
+                  >
+                    İptal
+                  </button>
+                </div>
+              )}
+              <p style={{ color: '#9ca3af', fontSize: 12, margin: '10px 0 0' }}>
+                İpucu: Entegre olmayan bir POS terminali için "Manuel POS" adında bir cihaz ekleyip aşağıdan komisyon oranlarını (gerekirse %0) tanımlayın.
+              </p>
+            </div>
+          ) : null}
 
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>

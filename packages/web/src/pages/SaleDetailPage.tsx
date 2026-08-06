@@ -5,7 +5,7 @@ import html2canvas from 'html2canvas'
 import { apiClient } from '../api/client'
 import { getSaleById, voidSale } from '../api/sales.api'
 import type { Sale } from '../api/types'
-import { isLensMeasurementSaleItem } from '../utils/saleMeasurements'
+import { getMountFrameItems, isLensMeasurementSaleItem } from '../utils/saleMeasurements'
 
 const cardStyle: CSSProperties = {
   backgroundColor: 'white',
@@ -250,6 +250,84 @@ function LensOrderMeasurementGrid({ m }: { m: Record<string, unknown> }) {
   )
 }
 
+/** Satış PDF'inde tek bir ürün kartı (çerçeve veya cam). `indent`: çerçeveye bağlı
+ *  cam kalemleri, üstündeki çerçevenin altında girintili gösterilir. */
+function PdfItemCard({ it, indent = false }: { it: any; indent?: boolean }) {
+  const durum = String(it.status).toUpperCase()
+  const urunAdi =
+    it.odooProductName && !it.odooProductName.includes('PLACEHOLDER')
+      ? it.odooProductName
+      : it.product?.name && !it.product.name.includes('PLACEHOLDER')
+        ? it.product.name
+        : it.name ?? 'Ürün'
+  const rx = it.prescription
+  const m = it.lensOrderMeasurement
+  return (
+    <div
+      style={{
+        border: '1px solid #e5e7eb',
+        borderRadius: 8,
+        marginBottom: 8,
+        marginLeft: indent ? 24 : 0,
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{ padding: '10px 12px', backgroundColor: '#f9fafb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {indent ? <span style={{ color: '#9ca3af', fontWeight: 700 }}>↳</span> : null}
+            <span style={{ fontWeight: 700 }}>{urunAdi}</span>
+            <span
+              style={{
+                fontSize: 10,
+                padding: '2px 8px',
+                borderRadius: 4,
+                backgroundColor: PDF_DURUM_RENK[durum]?.bg ?? '#f3f4f6',
+                color: PDF_DURUM_RENK[durum]?.color ?? '#374151',
+                fontWeight: 600,
+              }}
+            >
+              {PDF_DURUM_LABEL[durum] ?? durum}
+            </span>
+          </div>
+          {it.linkType ? (
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+              {it.linkType === 'CUSTOMER_FRAME'
+                ? 'Kendi çerçevesi'
+                : it.linkType === 'FRAME_LENS'
+                  ? 'Çerçeveye bağlı cam'
+                  : ''}
+            </div>
+          ) : null}
+          {rx ? (
+            <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr', gap: '2px 12px', fontSize: 11 }}>
+              <span style={{ color: '#6b7280' }}>Sağ:</span>
+              <span>
+                SPH {rx.r_sph ?? '—'} / CYL {rx.r_cyl ?? '—'} / AKS {rx.r_aks ?? '—'} / PD {rx.r_pd ?? '—'}
+              </span>
+              <span style={{ color: '#6b7280' }}>Sol:</span>
+              <span>
+                SPH {rx.l_sph ?? '—'} / CYL {rx.l_cyl ?? '—'} / AKS {rx.l_aks ?? '—'} / PD {rx.l_pd ?? '—'}
+              </span>
+            </div>
+          ) : null}
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontWeight: 700 }}>{pdfPara(Number(it.lineTotal))}</div>
+          <div style={{ fontSize: 11, color: '#6b7280' }}>
+            {it.qty} adet · {pdfPara(Number(it.unitPrice))}
+          </div>
+        </div>
+      </div>
+      {hasLensOrderMeasurement(m) ? (
+        <div style={{ padding: '0 12px 10px' }}>
+          <LensOrderMeasurementGrid m={m} />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function SaleDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -345,6 +423,47 @@ export default function SaleDetailPage() {
     () => items,
     [items],
   )
+
+  /** Satış PDF'i için çerçeve-cam ilişkisini görsel olarak grupla: her çerçevenin
+   *  altında kendisine bağlı cam kalemleri, "kendi çerçevesi" ile gelen camlar ayrı
+   *  bir başlık altında, ve bu iki gruba girmeyen kalemler (aksesuar vb.) tekil olarak. */
+  const pdfGroups = useMemo(() => {
+    const frames = getMountFrameItems(items as any)
+    const lensLike = (items as any[]).filter((it) => isLensMeasurementSaleItem(it))
+    const consumed = new Set<string>()
+    const groups: Array<
+      | { kind: 'frame'; frame: any; lenses: any[] }
+      | { kind: 'customerFrame'; lenses: any[] }
+      | { kind: 'standalone'; item: any }
+    > = []
+
+    for (const frame of frames) {
+      const linked = lensLike.filter((l) => l.linkedItemId === frame.id)
+      linked.forEach((l) => consumed.add(l.id))
+      consumed.add(frame.id)
+      groups.push({ kind: 'frame', frame, lenses: linked })
+    }
+
+    const custFrameLenses = lensLike.filter((l) => !consumed.has(l.id) && l.linkType === 'CUSTOMER_FRAME')
+    const custAssigned = new Set<string>()
+    for (const l of custFrameLenses) {
+      if (custAssigned.has(l.id)) continue
+      const partner = l.pairedItemId ? custFrameLenses.find((x) => x.id === l.pairedItemId) : null
+      const pair = partner ? [l, partner] : [l]
+      pair.forEach((p) => {
+        custAssigned.add(p.id)
+        consumed.add(p.id)
+      })
+      groups.push({ kind: 'customerFrame', lenses: pair })
+    }
+
+    for (const it of items as any[]) {
+      if (consumed.has(it.id)) continue
+      groups.push({ kind: 'standalone', item: it })
+    }
+
+    return groups
+  }, [items])
 
   const pdfPayments = sale?.payments ?? []
   const pdfNakit = pdfPayments.filter((p) => p.paymentType === 'CASH').reduce((s, p) => s + Number(p.netAmount), 0)
@@ -1020,65 +1139,30 @@ export default function SaleDetailPage() {
 
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: 8 }}>Ürünler</div>
-                {pdfItems.map((it: any) => {
-                  const durum = String(it.status).toUpperCase()
-                  const urunAdi =
-                    it.odooProductName && !it.odooProductName.includes('PLACEHOLDER')
-                      ? it.odooProductName
-                      : it.product?.name && !it.product.name.includes('PLACEHOLDER')
-                        ? it.product.name
-                        : it.name ?? 'Ürün'
-                  const rx = it.prescription
-                  return (
-                    <div key={it.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
-                      <div style={{ padding: '10px 12px', backgroundColor: '#f9fafb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontWeight: 700 }}>{urunAdi}</span>
-                            <span
-                              style={{
-                                fontSize: 10,
-                                padding: '2px 8px',
-                                borderRadius: 4,
-                                backgroundColor: PDF_DURUM_RENK[durum]?.bg ?? '#f3f4f6',
-                                color: PDF_DURUM_RENK[durum]?.color ?? '#374151',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {PDF_DURUM_LABEL[durum] ?? durum}
-                            </span>
-                          </div>
-                          {it.linkType ? (
-                            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                              {it.linkType === 'CUSTOMER_FRAME'
-                                ? 'Kendi çerçevesi'
-                                : it.linkType === 'FRAME_LENS'
-                                  ? 'Çerçeveye bağlı cam'
-                                  : ''}
-                            </div>
-                          ) : null}
-                          {rx ? (
-                            <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr', gap: '2px 12px', fontSize: 11 }}>
-                              <span style={{ color: '#6b7280' }}>Sağ:</span>
-                              <span>
-                                SPH {rx.r_sph ?? '—'} / CYL {rx.r_cyl ?? '—'} / AKS {rx.r_aks ?? '—'} / PD {rx.r_pd ?? '—'}
-                              </span>
-                              <span style={{ color: '#6b7280' }}>Sol:</span>
-                              <span>
-                                SPH {rx.l_sph ?? '—'} / CYL {rx.l_cyl ?? '—'} / AKS {rx.l_aks ?? '—'} / PD {rx.l_pd ?? '—'}
-                              </span>
-                            </div>
-                          ) : null}
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontWeight: 700 }}>{pdfPara(Number(it.lineTotal))}</div>
-                          <div style={{ fontSize: 11, color: '#6b7280' }}>
-                            {it.qty} adet · {pdfPara(Number(it.unitPrice))}
-                          </div>
-                        </div>
+                {pdfGroups.map((g, idx) => {
+                  if (g.kind === 'frame') {
+                    return (
+                      <div key={`frame-${g.frame.id}`} style={{ marginBottom: 12 }}>
+                        <PdfItemCard it={g.frame} />
+                        {g.lenses.map((l: any) => (
+                          <PdfItemCard key={l.id} it={l} indent />
+                        ))}
                       </div>
-                    </div>
-                  )
+                    )
+                  }
+                  if (g.kind === 'customerFrame') {
+                    return (
+                      <div key={`custframe-${idx}`} style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', marginBottom: 4 }}>
+                          MÜŞTERİNİN KENDİ ÇERÇEVESİ
+                        </div>
+                        {g.lenses.map((l: any) => (
+                          <PdfItemCard key={l.id} it={l} />
+                        ))}
+                      </div>
+                    )
+                  }
+                  return <PdfItemCard key={g.item.id} it={g.item} />
                 })}
               </div>
 

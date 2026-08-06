@@ -87,6 +87,8 @@ export default function PricingStep({
   const [sgkForm, setSgkForm] = useState<SgkModalFormState>(() => defaultSgkForm())
   const [sgkCalcErrors, setSgkCalcErrors] = useState<string[]>([])
   const [sgkModalDraft, setSgkModalDraft] = useState<SgkModalSnapshot | null>(null)
+  const [sgkManualAmount, setSgkManualAmount] = useState('')
+  const [sgkManualConfirmed, setSgkManualConfirmed] = useState(false)
 
   const [campaigns, setCampaigns] = useState<AppliedCampaignCard[]>([])
   const [dbCampaigns, setDbCampaigns] = useState<Campaign[]>([])
@@ -164,6 +166,8 @@ export default function PricingStep({
     setFoundationConfirmed(false)
     setFoundationAmount('')
     setSgkConfirmedSnapshot(null)
+    setSgkManualAmount('')
+    setSgkManualConfirmed(false)
   }, [mode])
 
   const overview = useMemo((): PricingOverview => {
@@ -173,6 +177,7 @@ export default function PricingStep({
       foundationAmountStr: foundationConfirmed ? foundationAmount : '',
       insuranceCompanyNote,
       sgkModalSnapshot: sgkConfirmedSnapshot,
+      sgkManualOverrideStr: sgkManualConfirmed ? sgkManualAmount : '',
       campaigns,
       nakitKampanyaAktif: nakitOdemeOnay,
     })
@@ -195,6 +200,8 @@ export default function PricingStep({
     foundationConfirmed,
     insuranceCompanyNote,
     sgkConfirmedSnapshot,
+    sgkManualAmount,
+    sgkManualConfirmed,
     campaigns,
     nakitOdemeOnay,
     hediye,
@@ -396,7 +403,48 @@ export default function PricingStep({
             ) : null}
           </div>
 
-          {overview.sgkComputedLines.length > 0 || overview.frameContributionTRY > 0 ? (
+          <div style={{ borderTop: '1px dashed #e5e7eb', paddingTop: '10px', marginBottom: '4px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151' }}>
+              veya SGK hakkını elle gir (₺)
+            </label>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                placeholder="Örn: 202"
+                value={sgkManualAmount}
+                onChange={(e) => {
+                  setSgkManualAmount(e.target.value)
+                  setSgkManualConfirmed(false)
+                }}
+                style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '13px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setSgkManualConfirmed(true)}
+                disabled={!sgkManualAmount || Number(sgkManualAmount) <= 0}
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: sgkManualConfirmed ? '#10b981' : '#C8102E',
+                  color: 'white',
+                  fontWeight: 800,
+                  fontSize: '13px',
+                  cursor: !sgkManualAmount || Number(sgkManualAmount) <= 0 ? 'not-allowed' : 'pointer',
+                  opacity: !sgkManualAmount || Number(sgkManualAmount) <= 0 ? 0.5 : 1,
+                }}
+              >
+                {sgkManualConfirmed ? '✓ Uygulandı' : 'Uygula'}
+              </button>
+            </div>
+            <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
+              Girilirse, yukarıdaki hesaplanan tutarın yerine geçer.
+            </div>
+          </div>
+
+          {overview.sgkComputedLines.length > 0 || overview.frameContributionTRY > 0 || sgkManualConfirmed ? (
             <>
               <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
                 {overview.sgkComputedLines.map((gl) => (

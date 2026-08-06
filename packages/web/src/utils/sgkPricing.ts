@@ -126,7 +126,7 @@ function rxFarSph(rx: RxLike, side: 'r' | 'l'): unknown {
 }
 
 function rxNearSph(rx: RxLike, side: 'r' | 'l'): unknown {
-  return rx[`near_${side}_sph`] ?? rx[`near_${side}_sph`]
+  return rx[`near_${side}_sph`]
 }
 
 function addGlassLine(
@@ -136,8 +136,10 @@ function addGlassLine(
   sphRaw: unknown,
   multi: boolean,
 ): void {
+  // Not: sphRaw sayısal olarak 0 (plano cam) olabilir — bu geçerli bir değerdir ve
+  // atlanmamalıdır. Sadece SPH gerçekten bulunamadıysa (null/undefined) satır eklenmez.
+  if (sphRaw == null) return
   const { text, abs } = parseSphDisplay(sphRaw)
-  if (!sphRaw && abs === 0) return
   const perEye = lookupSgkPerEyeAmount(abs, multi)
   lines.push({
     key,
@@ -275,6 +277,9 @@ export function buildPricingOverview(
     foundationAmountStr?: string
     insuranceCompanyNote?: string
     sgkModalSnapshot?: SgkModalSnapshot | null
+    /** Kasiyer tarafından elle girilen SGK hakkı tutarı (₺). Doluysa hesaplanan
+     *  modal kapsamının yerine geçer — reçete/kapsam belirsiz olduğunda kullanılır. */
+    sgkManualOverrideStr?: string
     campaigns?: AppliedCampaignCard[]
     nakitKampanyaAktif?: boolean
     giftVoucher?: { code: string; amountTRY: number } | null
@@ -288,7 +293,17 @@ export function buildPricingOverview(
   let thirdPartyCoverageTRY = 0
   let pricingInvoiceNote: string | null = null
 
-  if (mode === 'SGK' && opts.sgkModalSnapshot) {
+  const sgkManualOverride = roundMoney(parseMoneyStr(opts.sgkManualOverrideStr ?? ''))
+
+  if (mode === 'SGK' && sgkManualOverride > 0) {
+    sgkContributionTotalTRY = sgkManualOverride
+    thirdPartyCoverageTRY = sgkManualOverride
+    if (opts.sgkModalSnapshot) {
+      sgkComputedLines = opts.sgkModalSnapshot.lines
+      frameContributionTRY = opts.sgkModalSnapshot.frameContributionTRY
+    }
+    pricingInvoiceNote = `SGK Hakkı (manuel girildi): ${sgkManualOverride}₺`
+  } else if (mode === 'SGK' && opts.sgkModalSnapshot) {
     sgkComputedLines = opts.sgkModalSnapshot.lines
     frameContributionTRY = opts.sgkModalSnapshot.frameContributionTRY
     sgkContributionTotalTRY = opts.sgkModalSnapshot.sgkContributionTotalTRY

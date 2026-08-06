@@ -4,23 +4,6 @@ import type { PricingOverview } from '../../utils/sgkPricing'
 import { apiClient } from '../../api/client'
 import { confirmSale } from '../../api/sales.api'
 
-const HAVALE_BANKALARI = [
-  'Ziraat Bankası',
-  'Halkbank',
-  'Vakıfbank',
-  'Garanti BBVA',
-  'İş Bankası',
-  'Yapı Kredi',
-  'Akbank',
-  'Denizbank',
-  'QNB Finansbank',
-  'TEB',
-  'ING Bank',
-  'HSBC',
-  'Enpara',
-  'Papara',
-] as const
-
 type UiPaymentType = 'CASH' | 'CARD' | 'TRANSFER' | 'OPEN_ACCOUNT'
 
 type PaymentRow = {
@@ -106,7 +89,8 @@ export default function PaymentStep({
   const canConfirm = useMemo(() => Math.abs(netTotal - totalPayments) <= 0.01 && netTotal > 0, [netTotal, totalPayments])
 
   useEffect(() => {
-    if (type !== 'CARD') return
+    if (type !== 'CARD' && type !== 'TRANSFER') return
+    if (banks.length > 0) return
     setLoadingBanks(true)
     apiClient
       .get('/admin/banks')
@@ -342,10 +326,10 @@ export default function PaymentStep({
                 cursor: 'pointer',
               }}
             >
-              <option value="">Banka seçin...</option>
-              {HAVALE_BANKALARI.map((b) => (
-                <option key={b} value={b}>
-                  {b}
+              <option value="">{loadingBanks ? 'Yükleniyor...' : 'Banka seçin...'}</option>
+              {banks.map((b) => (
+                <option key={b.id} value={b.name}>
+                  {b.name}
                 </option>
               ))}
             </select>
