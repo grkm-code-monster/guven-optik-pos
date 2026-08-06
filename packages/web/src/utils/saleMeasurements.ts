@@ -374,29 +374,69 @@ export function prescriptionReadoutForItem(item: SaleItem | undefined): { farR: 
   return { farR, farL }
 }
 
+function rxToNum(v: unknown): number | null {
+  if (v == null || v === '') return null
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  const n = Number(String(v).replace(',', '.').replace(/^\+/, ''))
+  return Number.isFinite(n) ? n : null
+}
+
 export function prescriptionReadoutFromCustomerRx(
   rx: Record<string, unknown> | null | undefined,
 ): { farR: string; farL: string } {
   if (!rx) return { farR: '—', farL: '—' }
-  const toNum = (v: unknown): number | null => {
-    if (v == null || v === '') return null
-    if (typeof v === 'number' && Number.isFinite(v)) return v
-    const n = Number(String(v).replace(',', '.').replace(/^\+/, ''))
-    return Number.isFinite(n) ? n : null
-  }
   const side = (s: 'r' | 'l') => {
     const sph = rx[`far_${s}_sph`] ?? rx[`${s}_sph`]
     const cyl = rx[`far_${s}_cyl`] ?? rx[`${s}_cyl`]
     const aks = rx[`far_${s}_aks`] ?? rx[`${s}_aks`]
     const add = rx[`far_${s}_add`] ?? rx[`${s}_add`]
     return [
-      decStr(toNum(sph) ?? undefined),
-      decStr(toNum(cyl) ?? undefined),
+      decStr(rxToNum(sph) ?? undefined),
+      decStr(rxToNum(cyl) ?? undefined),
       aks != null && aks !== '' ? String(aks) : '—',
-      fmtAdd(toNum(add) ?? undefined),
+      fmtAdd(rxToNum(add) ?? undefined),
     ].join(' / ')
   }
   return { farR: side('r'), farL: side('l') }
+}
+
+function customerRxPd(rx: Record<string, unknown> | null | undefined, s: 'r' | 'l'): number | null {
+  if (!rx) return null
+  return rxToNum(rx[`far_${s}_pd`] ?? rx[`${s}_pd`])
+}
+
+/** SAĞ/SOL PD (pupil mesafesi) — kalem reçetesi öncelikli, yoksa müşteri reçetesine düşer. */
+export function prescriptionPdReadout(
+  item: SaleItem | undefined,
+  customerRx: Record<string, unknown> | null | undefined,
+): { pdR: string; pdL: string } {
+  const p = item?.prescription
+  const pdR = p?.r_pd != null ? decStr(p.r_pd).replace(/^\+/, '') : customerRxPd(customerRx, 'r') != null ? decStr(customerRxPd(customerRx, 'r')).replace(/^\+/, '') : '—'
+  const pdL = p?.l_pd != null ? decStr(p.l_pd).replace(/^\+/, '') : customerRxPd(customerRx, 'l') != null ? decStr(customerRxPd(customerRx, 'l')).replace(/^\+/, '') : '—'
+  return { pdR, pdL }
+}
+
+/**
+ * Kalemin kendi reçete kaydı (varsa) ile müşteri profilindeki en son reçeteyi alan bazında
+ * birleştirir: kalemin SPH/CYL/AKS/ADD değeri doluysa onu, boşsa müşteri reçetesindeki
+ * değeri kullanır. Sadece "kalemde Prescription kaydı var ama içi boş" durumunda eskiden
+ * hep '—' görünen alanları müşteri reçetesinden doldurur.
+ */
+export function prescriptionReadoutMerged(
+  item: SaleItem | undefined,
+  customerRx: Record<string, unknown> | null | undefined,
+): { farR: string; farL: string } {
+  const itemReadout = prescriptionReadoutForItem(item)
+  const custReadout = prescriptionReadoutFromCustomerRx(customerRx)
+  const pick = (fromItem: string, fromCustomer: string) => {
+    const itemParts = fromItem.split(' / ')
+    const custParts = fromCustomer.split(' / ')
+    return itemParts.map((v, i) => (v && v !== '—' ? v : custParts[i] ?? '—')).join(' / ')
+  }
+  return {
+    farR: pick(itemReadout.farR, custReadout.farR),
+    farL: pick(itemReadout.farL, custReadout.farL),
+  }
 }
 
 function parseReq(s: string): boolean {
@@ -516,6 +556,50 @@ export function draftsToLensOrderMeasurements(drafts: LensMeasurementDraft[]): L
     }
   }
   return out
+}
+
+export type MergedPrescriptionNumbers = {
+  r_sph: number | null
+  r_cyl: number | null
+  r_aks: number | null
+  r_add: number | null
+  l_sph: number | null
+  l_cyl: number | null
+  l_aks: number | null
+  l_add: number | null
+}
+
+/** Kart Bas / diğer sayısal reçete kullanımları için: kalemin kendi reçetesi
+ *  (varsa, alan bazında) öncelikli, boş kalan alanlar müşteri profilindeki en
+ *  son reçeteden tamamlanır. */
+export function mergedPrescriptionNumbers(
+  item: SaleItem | undefined,
+  customerRx: Record<string, unknown> | null | undefined,
+): MergedPrescriptionNumbers {
+  const p = item?.prescription
+  const custSide = (s: 'r' | 'l') => ({
+    sph: rxToNum(customerRx?.[`far_${s}_sph`] ?? customerRx?.[`${s}_sph`]),
+    cyl: rxToNum(customerRx?.[`far_${s}_cyl`] ?? customerRx?.[`${s}_cyl`]),
+    aks: rxToNum(customerRx?.[`far_${s}_aks`] ?? customerRx?.[`${s}_aks`]),
+    add: rxToNum(customerRx?.[`far_${s}_add`] ?? customerRx?.[`${s}_add`]),
+  })
+  const cr = custSide('r')
+  const cl = custSide('l')
+  return {
+    r_sph: p?.r_sph ?? cr.sph,
+    r_cyl: p?.r_cyl ?? cr.cyl,
+    r_aks: p?.r_aks ?? cr.aks,
+    r_add: p?.r_add ?? cr.add,
+    l_sph: p?.l_sph ?? cl.sph,
+    l_cyl: p?.l_cyl ?? cl.cyl,
+    l_aks: p?.l_aks ?? cl.aks,
+    l_add: p?.l_add ?? cl.add,
+  }
+}
+
+/** Bu kalem/müşteri için (birleştirilmiş) hiç reçete verisi var mı? */
+export function hasAnyPrescriptionData(numbers: MergedPrescriptionNumbers): boolean {
+  return Object.values(numbers).some((v) => v != null)
 }
 
 export function updateDraft(

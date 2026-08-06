@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import type { Sale } from '../../api/types'
 import { apiClient } from '../../api/client'
-import { isLensMeasurementSaleItem } from '../../utils/saleMeasurements'
+import { hasAnyPrescriptionData, isLensMeasurementSaleItem, mergedPrescriptionNumbers } from '../../utils/saleMeasurements'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import { downloadOzelSiparisKartPdf } from '../../utils/ozelSiparisKartPdf'
@@ -29,10 +29,12 @@ export default function StatusStep({
   sale,
   onNewSale,
   onRefresh,
+  customerPrescription,
 }: {
   sale: Sale | null
   onNewSale: () => void
   onRefresh: () => Promise<{ mesaj?: string; processing?: boolean } | void>
+  customerPrescription?: Record<string, unknown> | null
 }) {
   const hasLensOrder = useMemo(() => {
     return (sale?.items ?? []).some((i: any) =>
@@ -176,8 +178,11 @@ export default function StatusStep({
   }
 
   async function kartBas(it: any) {
-    const rx = it.prescription
-    if (!rx) return
+    const rx = mergedPrescriptionNumbers(it, customerPrescription)
+    if (!hasAnyPrescriptionData(rx)) {
+      setError('Bu kalemde reçete kaydı bulunamadı — kart basılamadı.')
+      return
+    }
     const urunAdi = (it.odooProductName && !it.odooProductName.includes('PLACEHOLDER'))
       ? it.odooProductName
       : it.product?.name && !it.product.name.includes('PLACEHOLDER')
@@ -324,13 +329,13 @@ export default function StatusStep({
         </div>
       ) : null}
 
-      {labEligibleItems.some((it: any) => it.prescription) ? (
+      {labEligibleItems.some((it: any) => hasAnyPrescriptionData(mergedPrescriptionNumbers(it, customerPrescription))) ? (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
             Garanti / Reçete Kartı (ZC100)
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {labEligibleItems.filter((it: any) => it.prescription).map((it: any) => {
+            {labEligibleItems.filter((it: any) => hasAnyPrescriptionData(mergedPrescriptionNumbers(it, customerPrescription))).map((it: any) => {
               const urunAdi = (it.odooProductName && !it.odooProductName.includes('PLACEHOLDER'))
                 ? it.odooProductName
                 : it.product?.name && !it.product.name.includes('PLACEHOLDER')

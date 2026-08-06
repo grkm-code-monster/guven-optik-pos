@@ -476,6 +476,7 @@ export default function NewSalePage() {
           <StatusStep
             sale={sale}
             onRefresh={handleRefreshSale}
+            customerPrescription={latestPrescription}
             onNewSale={() => {
               window.location.href = '/sales/new'
             }}

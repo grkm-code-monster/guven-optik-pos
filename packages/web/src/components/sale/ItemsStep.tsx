@@ -707,16 +707,12 @@ export default function ItemsStep({
                   <button
                     type="button"
                     onClick={() => {
+                      resetModalState()
                       setModalOpen(true)
                       setPickedType(lensTypeCard)
                       setCatStack([getKategoriTreeRoot('LENS')])
                       setCatPath([])
                       setStep(2)
-                      setPickedKategoriId(null)
-                      setPickedKategoriIds(null)
-                      setPickedProduct(null)
-                      setQ('')
-                      setEditingItem(null)
                       setPendingLinkedItemId(it.id)
                     }}
                     style={{

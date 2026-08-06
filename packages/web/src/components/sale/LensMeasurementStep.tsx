@@ -6,14 +6,24 @@ import {
   allMeasurementDraftsComplete,
   buildInitialMeasurementDrafts,
   getLensMeasurementSaleItems,
-  prescriptionReadoutForItem,
-  prescriptionReadoutFromCustomerRx,
+  prescriptionPdReadout,
+  prescriptionReadoutMerged,
   type LensMeasurementDraft,
   type LensOrderFrameTypeApi,
   updateDraftAt,
 } from '../../utils/saleMeasurements'
 
 const BASE_OPTS = ['1', '2', '3', '4', '5', '6']
+
+/** Standart/varsayılan montaj ölçüleri — mağazada yaygın kabul edilen değerler.
+ *  Kasiyer "Standart Doldur"a bastığında boş alanlara bu değerler yazılır; dolu
+ *  alanlara dokunulmaz. */
+const STANDART_MONTAJ_OLCULERI: Partial<LensMeasurementDraft> = {
+  corridor: '14.00',
+  vertex: '12.00',
+  pantoscopic: '8.00',
+  frameBow: '5.00',
+}
 
 function star(): ReactNode {
   return <span style={{ color: '#dc2626' }}> *</span>
@@ -167,11 +177,18 @@ export default function LensMeasurementStep({
             const i = activeIx
             const draft = drafts[i]
             const activeLens = lenses.find((l) => l.id === draft.saleItemId) ?? lenses[i]
-            const { farR, farL } = activeLens?.prescription
-              ? prescriptionReadoutForItem(activeLens)
-              : prescriptionReadoutFromCustomerRx(customerPrescription)
+            const { farR, farL } = prescriptionReadoutMerged(activeLens, customerPrescription)
+            const { pdR, pdL } = prescriptionPdReadout(activeLens, customerPrescription)
             const patchActive = (p: Partial<LensMeasurementDraft>) => {
               setDrafts(updateDraftAt(drafts, i, p))
+            }
+            const standartDoldur = () => {
+              const patch: Partial<LensMeasurementDraft> = {}
+              for (const [k, v] of Object.entries(STANDART_MONTAJ_OLCULERI)) {
+                const key = k as keyof LensMeasurementDraft
+                if (!draft[key]) (patch as Record<string, unknown>)[key] = v
+              }
+              patchActive(patch)
             }
             const urunAdi = draft.groupLabel
               ?? (activeLens?.odooProductName || activeLens?.product?.name || 'Cam')
@@ -238,6 +255,7 @@ export default function LensMeasurementStep({
                         <div style={{ fontSize: 11, fontWeight: 800, color: '#C8102E', marginBottom: 6 }}>SAĞ GÖZ</div>
                         {(
                           [
+                            ['PD', pdR],
                             ['SPH', farR.split(' / ')[0]],
                             ['CYL', farR.split(' / ')[1]],
                             ['AKS', farR.split(' / ')[2]],
@@ -254,6 +272,7 @@ export default function LensMeasurementStep({
                         <div style={{ fontSize: 11, fontWeight: 800, color: '#1d4ed8', marginBottom: 6 }}>SOL GÖZ</div>
                         {(
                           [
+                            ['PD', pdL],
                             ['SPH', farL.split(' / ')[0]],
                             ['CYL', farL.split(' / ')[1]],
                             ['AKS', farL.split(' / ')[2]],
@@ -294,7 +313,26 @@ export default function LensMeasurementStep({
 
                   {/* BÖLÜM 2: Montaj ölçüleri */}
                   <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px', marginBottom: 14 }}>
-                    <div style={{ fontWeight: 800, marginBottom: '10px', fontSize: '14px' }}>── Bölüm 2: Montaj ölçüleri ──</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <div style={{ fontWeight: 800, fontSize: '14px' }}>── Bölüm 2: Montaj ölçüleri ──</div>
+                      <button
+                        type="button"
+                        onClick={standartDoldur}
+                        title="Boş alanları standart/varsayılan değerlerle doldurur"
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: 8,
+                          border: '1px solid #C8102E',
+                          backgroundColor: '#fdf2f4',
+                          color: '#C8102E',
+                          fontWeight: 800,
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ⚡ Standart Doldur
+                      </button>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
                       <NumField
                         label="RPH (sağ montaj yüksekliği)"
