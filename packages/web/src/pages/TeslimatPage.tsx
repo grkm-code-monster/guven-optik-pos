@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiClient } from '../api/client'
 import { useAuthStore } from '../store/auth.store'
 import {
@@ -10,6 +10,7 @@ import {
 import { OZEL_SIPARIS_DURUM_RENK, normalizeOzelSiparisDurum } from '../constants/ozelSiparis'
 import { isLensMeasurementSaleItem } from '../utils/saleMeasurements'
 import type { SaleItem as SaleItemType } from '../api/types'
+import BarkodKameraInput from '../components/BarkodKameraInput'
 
 const PRIMARY = '#8B0000'
 const ACCENT = '#c0392b'
@@ -115,7 +116,6 @@ function KargoTaraPanel() {
   const [loading, setLoading] = useState(true)
   const [gonderiliyor, setGonderiliyor] = useState(false)
   const [mesaj, setMesaj] = useState<{ tip: 'ok' | 'err'; text: string } | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const yukle = useCallback(async () => {
     setLoading(true)
@@ -135,7 +135,6 @@ function KargoTaraPanel() {
     if (secili) {
       setTarananlar([])
       setBarkodInput('')
-      setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [secili])
 
@@ -207,11 +206,11 @@ function KargoTaraPanel() {
               <div><strong>Beklenen adet:</strong> {secili.miktar}</div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <input
-                ref={inputRef}
+            <div style={{ marginBottom: 12 }}>
+              <BarkodKameraInput
                 value={barkodInput}
-                onChange={(e) => setBarkodInput(e.target.value)}
+                onChange={setBarkodInput}
+                onScan={(kod) => barkodEkle(kod)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
@@ -219,16 +218,8 @@ function KargoTaraPanel() {
                   }
                 }}
                 placeholder="Barkod okutun..."
-                style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: '2px solid #e5e7eb', fontSize: 14 }}
+                inputStyle={{ border: '2px solid #e5e7eb', fontSize: 14 }}
               />
-              <button
-                type="button"
-                title="Kamera (yakında)"
-                disabled
-                style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #e5e7eb', backgroundColor: '#f9fafb', opacity: 0.6, cursor: 'not-allowed' }}
-              >
-                📷
-              </button>
             </div>
 
             {tarananlar.length > 0 ? (

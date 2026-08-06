@@ -4,6 +4,7 @@ type Props = {
   value: string
   onChange: (value: string) => void
   onScan?: (code: string) => void | Promise<void>
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
   kameraEnabled?: boolean
   kameraOpen?: boolean
   onKameraOpenChange?: (open: boolean) => void
@@ -17,6 +18,7 @@ export default function BarkodKameraInput({
   value,
   onChange,
   onScan,
+  onKeyDown,
   kameraEnabled = true,
   kameraOpen,
   onKameraOpenChange,
@@ -136,6 +138,7 @@ export default function BarkodKameraInput({
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
           placeholder={placeholder}
           disabled={disabled}
           style={{
