@@ -466,6 +466,7 @@ export default function StokTeminStep({
         subeId: aktifLokasyon,
         subeAdi: aktifLokasyon,
         satisTemsilcisi,
+        miktar: saleItem?.qty ?? 1,
         ...receteFields,
       }
 
