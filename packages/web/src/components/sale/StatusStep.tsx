@@ -263,6 +263,12 @@ export default function StatusStep({
         {refreshInfo ? (
           <div style={{ color: '#92400e', fontSize: 12, marginTop: 8, fontWeight: 600 }}>{refreshInfo}</div>
         ) : null}
+        {sale.odooSyncError ? (
+          <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 8, backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: 12, fontWeight: 600, textAlign: 'left' }}>
+            ⚠️ Stok/Odoo senkronizasyon uyarısı: {sale.odooSyncError}
+            <div style={{ fontWeight: 400, marginTop: 2 }}>Satış kaydedildi, ancak stok düşme/teslimat işlemi Odoo'da tamamlanamamış olabilir. Lütfen Stok Sorgula'dan kontrol edin.</div>
+          </div>
+        ) : null}
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -430,7 +436,7 @@ export default function StatusStep({
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontWeight: 700 }}>{urunAdi}</span>
-                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, backgroundColor: DURUM_RENK[picked]?.bg ?? '#f3f4f6', color: DURUM_RENK[picked]?.color ?? '#374151', fontWeight: 600 }}>{DURUM_LABEL[picked] ?? picked}</span>
+                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, backgroundColor: renkBilgi?.bg ?? '#f3f4f6', color: renkBilgi?.color ?? '#374151', fontWeight: 600 }}>{DURUM_LABEL[durum] ?? durum}</span>
                       </div>
                       {it.linkType && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{it.linkType === 'CUSTOMER_FRAME' ? 'Kendi çerçevesi' : it.linkType === 'FRAME_LENS' ? 'Çerçeveye bağlı cam' : ''}</div>}
                       {rx && (

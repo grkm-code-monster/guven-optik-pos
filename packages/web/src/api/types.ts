@@ -52,6 +52,7 @@ export interface Sale {
   payments?: Payment[]
   referansNo?: string | null
   odooSaleOrderId?: number | null
+  odooSyncError?: string | null
   draftMeta?: Record<string, unknown> | null
   eFaturaId?: string | null
   eFaturaDurum?: string | null

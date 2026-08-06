@@ -158,17 +158,25 @@ async function fetchStokMapForProducts(entries, lokasyon) {
                 ['product_id', 'in', productIds],
             ];
             const quantFields = ['product_id', 'quantity', 'available_quantity'];
+            // Not: stock.quant kaydı, ürünün arandığı şirketten (companyId) FARKLI bir
+            // company_id altında Odoo'da kayıtlı olabilir (örn. şirketler arası ortak depo/ürün).
+            // allowed_company_ids'i tüm şirketlere açarak bu kaydın görünmesini sağlıyoruz —
+            // aksi halde stok burada "0" görünürken başka ekranlarda (tüm-şirket context
+            // kullananlar) doğru şekilde "mevcut" görünüyor.
+            const allCompaniesContext = { allowed_company_ids: [...odooService.ODOO_ALL_COMPANY_IDS] };
             let quantlar = [];
             try {
                 quantlar = (await odooService.execute('stock.quant', 'search_read', [quantDomain], {
                     fields: quantFields,
                     limit: productIds.length * 10,
+                    context: allCompaniesContext,
                 }, companyId)) ?? [];
             }
             catch {
                 quantlar = (await odooService.execute('stock.quant', 'search_read', [quantDomain], {
                     fields: ['product_id', 'quantity'],
                     limit: productIds.length * 10,
+                    context: allCompaniesContext,
                 }, companyId)) ?? [];
             }
             for (const row of quantlar) {
@@ -790,16 +798,21 @@ async function fetchQuantsAtLocation(lokasyonId, companyId, filters) {
         return [];
     }
     const quantFields = ['product_id', 'lot_id', 'quantity', 'available_quantity'];
+    // Aynı çok-şirket görünürlük nedeniyle (bkz. fetchStokMapForProducts) burada da
+    // tüm şirketlerin quant kayıtlarını görebilmek için context'i genişletiyoruz.
+    const allCompaniesContext = { allowed_company_ids: [...odooService.ODOO_ALL_COMPANY_IDS] };
     try {
         return (await odooService.execute('stock.quant', 'search_read', [quantDomain], {
             fields: [...quantFields, 'x_uts_kodu', 'x_uts_durumu'],
             limit: filters?.limit ?? 50,
+            context: allCompaniesContext,
         }, companyId)) ?? [];
     }
     catch {
         return (await odooService.execute('stock.quant', 'search_read', [quantDomain], {
             fields: quantFields,
             limit: filters?.limit ?? 50,
+            context: allCompaniesContext,
         }, companyId)) ?? [];
     }
 }

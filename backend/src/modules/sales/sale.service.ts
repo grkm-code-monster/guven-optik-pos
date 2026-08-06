@@ -822,6 +822,8 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     });
   }
 
+  let deliveryWarning: string | null = null;
+
   try {
     // 1. Müşteriyi bul
     const customer = sale.customerId
@@ -988,7 +990,6 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     );
     await execute('sale.order', 'action_confirm', [[odooOrderId]], {}, odooCompanyId);
 
-    let deliveryWarning: string | null = null;
     const stockLocationId = branch?.odooLocationId ?? resolveBranchStockLocationId(branchCode);
     const pickingResult = await validateSalePickingsFromBranch(odooOrderId, stockLocationId, odooCompanyId);
     if (!pickingResult.ok) {
@@ -1156,6 +1157,7 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     });
   } catch (err) {
     console.error('[Odoo] Satış sync hatası:', err);
+    deliveryWarning = String(err);
     await prisma.sale
       .update({
         where: { id: saleId },
@@ -1169,6 +1171,9 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
       console.error('[e-Fatura] Satış onay tetikleme hatası:', err);
     });
   }
+
+  // Kasiyer ekranında görünür olsun diye stok/Odoo senkron uyarısını cevaba ekle
+  result.sale = { ...result.sale, odooSyncError: deliveryWarning ?? result.sale.odooSyncError };
 
   return result;
 }
