@@ -1269,15 +1269,38 @@ export async function getSales(branchId: string, filters?: any) {
     where,
     include: {
       customer: { select: { name: true, phone: true } },
+      items: { select: { status: true } },
       _count: { select: { items: true } },
     },
     orderBy: { createdAt: 'desc' },
     take: 100,
   });
 
+  // Sürecin en gerisindeki kalem durumu satış listesine "süreç durumu" olarak yansır
+  // (PENDING/ORDERED en öncelikli — henüz bitmemiş olanı gösterir).
+  const ITEM_STATUS_PRIORITY: Record<string, number> = {
+    PENDING: 0,
+    ORDERED: 1,
+    IN_LAB: 2,
+    READY: 3,
+    DELIVERED: 4,
+  };
+  function rollupItemStatus(items: { status: string }[]): string | null {
+    const active = items.filter((i) => i.status !== 'VOID');
+    if (!active.length) return null;
+    return active.reduce((worst, it) => {
+      const wp = ITEM_STATUS_PRIORITY[worst] ?? 0;
+      const ip = ITEM_STATUS_PRIORITY[it.status] ?? 0;
+      return ip < wp ? it.status : worst;
+    }, active[0].status);
+  }
+
   return sales.map((s) => ({
     ...s,
     itemsCount: s._count.items,
+    totalAmount: s.netTotal,
+    itemDurum: rollupItemStatus(s.items),
+    items: undefined,
     _count: undefined,
   }));
 }

@@ -226,14 +226,18 @@ function GorevSatiri({
   count,
   loading,
   urgent,
+  href,
 }: {
   label: string
   count: number
   loading: boolean
   urgent?: boolean
+  href?: string
 }) {
+  const clickable = !!href && count > 0
   return (
     <div
+      onClick={clickable ? () => { window.location.href = href! } : undefined}
       style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -242,6 +246,7 @@ function GorevSatiri({
         fontSize: 13,
         padding: '8px 0',
         borderBottom: '0.5px solid #e5e7eb',
+        cursor: clickable ? 'pointer' : undefined,
       }}
     >
       <span>{label}</span>
@@ -1836,12 +1841,14 @@ function MudurDashboard({ user }: { user: User }) {
               count={gorevler.labBekleyen}
               loading={gorevler.loading}
               urgent
+              href="/atolye"
             />
             <GorevSatiri
               label="Vadesi gelen açık hesap"
               count={gorevler.vadesiGecenAcikHesap}
               loading={gorevler.loading}
               urgent
+              href="/acik-hesap"
             />
             <div
               onClick={() => gorevler.draftSatis > 0 ? window.location.href = '/sales?status=DRAFT' : undefined}
@@ -1861,11 +1868,13 @@ function MudurDashboard({ user }: { user: User }) {
               label="Teslim için hazır, müşteri aranmadı"
               count={gorevler.teslimHazir}
               loading={gorevler.loading}
+              href="/teslimat"
             />
             <GorevSatiri
               label="Açık garanti kaydı"
               count={gorevler.acikGaranti}
               loading={gorevler.loading}
+              href="/garanti"
             />
           </div>
           <div style={{ ...CARD_STYLE, marginBottom: 16 }}>

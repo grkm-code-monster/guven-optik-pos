@@ -9,6 +9,7 @@ type Satis = {
   createdAt: string
   totalAmount: number
   itemsCount: number
+  itemDurum?: string | null
   customer?: { name: string; phone: string } | null
 }
 
@@ -19,6 +20,16 @@ const STATUS_LABEL: Record<string, { label: string; bg: string; color: string }>
   PENDING: { label: 'Bekliyor', bg: '#fef9c3', color: '#854d0e' },
   CANCELLED: { label: 'İptal', bg: '#fee2e2', color: '#991b1b' },
   PARTIAL: { label: 'Kısmi', bg: '#dbeafe', color: '#1e40af' },
+}
+
+// Satış onaylandıktan (PAID) sonraki gerçek süreç durumu — kalem bazında tutulan
+// ItemStatus'un satış listesine yansıtılmış hali (bkz. backend rollupItemStatus).
+const ITEM_DURUM_LABEL: Record<string, { label: string; bg: string; color: string }> = {
+  PENDING: { label: 'Rezerve', bg: '#f3f4f6', color: '#374151' },
+  ORDERED: { label: 'Sipariş Bekliyor', bg: '#fef9c3', color: '#854d0e' },
+  IN_LAB: { label: 'Laboratuvarda', bg: '#dbeafe', color: '#1e40af' },
+  READY: { label: 'Hazır', bg: '#e0f2fe', color: '#075985' },
+  DELIVERED: { label: 'Teslim Edildi', bg: '#dcfce7', color: '#166534' },
 }
 
 export default function SatislarPage() {
@@ -135,7 +146,11 @@ export default function SatislarPage() {
             </thead>
             <tbody>
               {filtrelenmis.map((s) => {
-                const st = STATUS_LABEL[s.status] ?? { label: s.status, bg: '#f3f4f6', color: '#374151' }
+                // Satış "Ödendi" (PAID) olduktan sonra kasiyer için asıl anlamlı bilgi
+                // kalemin süreç durumudur (Sipariş/Laboratuvarda/Hazır/Teslim Edildi).
+                const st = (s.status === 'PAID' && s.itemDurum && ITEM_DURUM_LABEL[s.itemDurum])
+                  ? ITEM_DURUM_LABEL[s.itemDurum]
+                  : STATUS_LABEL[s.status] ?? { label: s.status, bg: '#f3f4f6', color: '#374151' }
                 return (
                   <tr key={s.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                     <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#374151', fontWeight: 700 }}>

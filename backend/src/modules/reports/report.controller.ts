@@ -23,6 +23,22 @@ const gunlukNotUpload = multer({
   limits: { fileSize: 15 * 1024 * 1024 },
 });
 
+/**
+ * "YYYY-MM-DD" formatındaki (saatsiz) tarih parametrelerini, TR sunucu yerel saatinde
+ * günün başlangıcı/sonu olacak şekilde parse eder. Ham `new Date("YYYY-MM-DD")` UTC gece
+ * yarısı olarak yorumlanır — TR (UTC+3) saatinde bu, günün 03:00'ü demektir; bitiş tarihi
+ * için bu, o günün 03:00'ünden sonraki tüm satışların rapor aralığından sessizce
+ * dışlanmasına yol açar. Saat bilgisi zaten varsa (ör. ISO datetime) dokunulmadan geçilir.
+ */
+function parseReportDateParam(value: unknown, endOfDay: boolean, fallback: () => Date): Date {
+  if (!value) return fallback();
+  const s = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return new Date(`${s}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`);
+  }
+  return new Date(s);
+}
+
 function parseEkAliciEmail(raw: unknown): string[] {
   if (Array.isArray(raw)) {
     return raw.filter((e): e is string => typeof e === 'string');
@@ -478,8 +494,8 @@ router.get('/patron/ozet', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getPatronOzet({
-      baslangic: baslangic ? new Date(String(baslangic)) : new Date(new Date().setDate(1)),
-      bitis: bitis ? new Date(String(bitis)) : new Date(),
+      baslangic: parseReportDateParam(baslangic, false, () => new Date(new Date().setDate(1))),
+      bitis: parseReportDateParam(bitis, true, () => new Date()),
       subeId: subeId ? String(subeId) : undefined,
     });
     return res.json(result);
@@ -492,8 +508,8 @@ router.get('/patron/personel', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.A
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getPersonelPerformans({
-      baslangic: baslangic ? new Date(String(baslangic)) : new Date(new Date().setDate(1)),
-      bitis: bitis ? new Date(String(bitis)) : new Date(),
+      baslangic: parseReportDateParam(baslangic, false, () => new Date(new Date().setDate(1))),
+      bitis: parseReportDateParam(bitis, true, () => new Date()),
       subeId: subeId ? String(subeId) : undefined,
     });
     return res.json(result);
@@ -506,8 +522,8 @@ router.get('/patron/kategori', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.A
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getKategoriBreakdown({
-      baslangic: baslangic ? new Date(String(baslangic)) : new Date(new Date().setDate(1)),
-      bitis: bitis ? new Date(String(bitis)) : new Date(),
+      baslangic: parseReportDateParam(baslangic, false, () => new Date(new Date().setDate(1))),
+      bitis: parseReportDateParam(bitis, true, () => new Date()),
       subeId: subeId ? String(subeId) : undefined,
     });
     return res.json(result);
@@ -523,8 +539,8 @@ router.get('/patron/kategori-alt', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Ro
       return res.status(400).json({ error: 'anaKategori zorunlu' });
     }
     const result = await reportService.getKategoriAltKirilim({
-      baslangic: baslangic ? new Date(String(baslangic)) : new Date(new Date().setDate(1)),
-      bitis: bitis ? new Date(String(bitis)) : new Date(),
+      baslangic: parseReportDateParam(baslangic, false, () => new Date(new Date().setDate(1))),
+      bitis: parseReportDateParam(bitis, true, () => new Date()),
       subeId: subeId ? String(subeId) : undefined,
       anaKategori,
     });
@@ -538,8 +554,8 @@ router.get('/patron/gunluk-seri', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Rol
   try {
     const { baslangic, bitis, subeId } = req.query;
     const result = await reportService.getGunlukSeri({
-      baslangic: baslangic ? new Date(String(baslangic)) : new Date(new Date().setDate(1)),
-      bitis: bitis ? new Date(String(bitis)) : new Date(),
+      baslangic: parseReportDateParam(baslangic, false, () => new Date(new Date().setDate(1))),
+      bitis: parseReportDateParam(bitis, true, () => new Date()),
       subeId: subeId ? String(subeId) : undefined,
     });
     return res.json(result);
@@ -552,8 +568,8 @@ router.get('/patron/sskf', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN
   try {
     const { baslangic, bitis, subeId, temsilciId, paraBirimi } = req.query;
     const result = await reportService.getSskfRaporu({
-      baslangic: baslangic ? new Date(String(baslangic)) : new Date(new Date().setDate(1)),
-      bitis: bitis ? new Date(String(bitis)) : new Date(),
+      baslangic: parseReportDateParam(baslangic, false, () => new Date(new Date().setDate(1))),
+      bitis: parseReportDateParam(bitis, true, () => new Date()),
       subeId: subeId ? String(subeId) : undefined,
       temsilciId: temsilciId ? String(temsilciId) : undefined,
       paraBirimi: paraBirimi === 'EUR' ? 'EUR' : 'USD',
