@@ -703,7 +703,9 @@ export default function ItemsStep({
               </div>
               <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                 {(it.odooCategoryId === 6 || it.odooCategoryId === 7) &&
-                !items.some((other) => other.linkedItemId === it.id) ? (
+                items.filter(
+                  (other) => other.linkedItemId === it.id && String(other.status).toUpperCase() !== 'VOID',
+                ).length < 2 ? (
                   <button
                     type="button"
                     onClick={() => {
