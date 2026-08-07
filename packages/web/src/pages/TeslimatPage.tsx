@@ -146,14 +146,20 @@ function KargoTaraPanel() {
   }
 
   async function kodlariGonder() {
-    if (!secili || !tarananlar.length) return
+    // Kutuda henüz "eklenmemiş" (Enter'a basılmamış / kamera tarafından otomatik
+    // eklenememiş) bir kod kalmış olabilir — gönderirken bunu da listeye dahil et,
+    // böylece kullanıcı taranan kodu görüp de buton pasif kalınca takılıp kalmasın.
+    const bekleyenKod = barkodInput.trim()
+    const gonderilecekler = bekleyenKod && !tarananlar.includes(bekleyenKod) ? [...tarananlar, bekleyenKod] : tarananlar
+    if (!secili || !gonderilecekler.length) return
     setGonderiliyor(true)
     setMesaj(null)
     try {
-      await kaydetOzelSiparisKarekodlar(secili.id, tarananlar)
+      await kaydetOzelSiparisKarekodlar(secili.id, gonderilecekler)
       setMesaj({ tip: 'ok', text: 'Kodlar kaydedildi, sipariş teslim alındı olarak işaretlendi' })
       setSecili(null)
       setTarananlar([])
+      setBarkodInput('')
       await yukle()
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Kayıt başarısız' })
@@ -237,11 +243,12 @@ function KargoTaraPanel() {
             <button
               type="button"
               onClick={() => void kodlariGonder()}
-              disabled={gonderiliyor || tarananlar.length === 0}
+              disabled={gonderiliyor || (tarananlar.length === 0 && !barkodInput.trim())}
               style={{
                 width: '100%', padding: '12px', borderRadius: 8, border: 'none',
-                backgroundColor: tarananlar.length ? ACCENT : '#d1d5db',
-                color: 'white', fontWeight: 800, fontSize: 14, cursor: tarananlar.length ? 'pointer' : 'not-allowed',
+                backgroundColor: tarananlar.length || barkodInput.trim() ? ACCENT : '#d1d5db',
+                color: 'white', fontWeight: 800, fontSize: 14,
+                cursor: tarananlar.length || barkodInput.trim() ? 'pointer' : 'not-allowed',
               }}
             >
               {gonderiliyor ? 'Gönderiliyor...' : 'Taranan kodları gönder'}
