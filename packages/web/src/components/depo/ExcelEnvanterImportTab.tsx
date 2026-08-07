@@ -7,7 +7,22 @@ import {
   type EnvanterOnizlemeSonuc,
   type EnvanterSatirDurum,
   type EnvanterUygulaSonuc,
+  type ParsedEnvanterRow,
 } from '../../api/envanter-import.api'
+
+// Tek istekte gönderilecek maksimum satır sayısı. Her satır ~13-15 sıralı Odoo
+// çağrısı gerektirebiliyor; nginx proxy_read_timeout 60sn olduğu için büyük
+// dosyalarda (200+ satır) tek istek zaman aşımına (504) uğrayabiliyor.
+// Bu yüzden import parçalara bölünüp arka arkaya gönderiliyor.
+const IMPORT_PARCA_BOYUTU = 15
+
+function parcalaraBol<T>(dizi: T[], boyut: number): T[][] {
+  const parcalar: T[][] = []
+  for (let i = 0; i < dizi.length; i += boyut) {
+    parcalar.push(dizi.slice(i, i + boyut))
+  }
+  return parcalar
+}
 
 const LOKASYONLAR = [
   { id: 'GVN1', sirket: 'ADESE' },
@@ -111,6 +126,7 @@ export default function ExcelEnvanterImportTab() {
   const [sablonIndiriliyor, setSablonIndiriliyor] = useState(false)
   const [hata, setHata] = useState<string | null>(null)
   const [uygulaSonuc, setUygulaSonuc] = useState<EnvanterUygulaSonuc | null>(null)
+  const [ilerleme, setIlerleme] = useState<{ tamamlanan: number; toplam: number; parca: number; toplamParca: number } | null>(null)
 
   const gecerliSatirlar = onizleme?.satirlar.filter((s) => s.durum !== 'HATA') ?? []
   const gosterilecekSatirlar = haricTutHatalilar
@@ -174,17 +190,49 @@ export default function ExcelEnvanterImportTab() {
     setHata(null)
     setUygulaSonuc(null)
 
-    try {
-      const sonuc = await uygulaEnvanterImport({
-        lokasyonKodu: lokasyon,
-        satirlar: gecerliSatirlar.map(satirOnizlemedenParsed),
-      })
-      setUygulaSonuc(sonuc)
-    } catch (e) {
-      setHata(hataMesaji(e))
-    } finally {
-      setUygulamaYukleniyor(false)
+    const tumSatirlar = gecerliSatirlar.map(satirOnizlemedenParsed)
+    const parcalar = parcalaraBol<ParsedEnvanterRow>(tumSatirlar, IMPORT_PARCA_BOYUTU)
+    setIlerleme({ tamamlanan: 0, toplam: tumSatirlar.length, parca: 0, toplamParca: parcalar.length })
+
+    const birlesik: EnvanterUygulaSonuc = {
+      success: true,
+      ozet: { basarili: 0, basarisiz: 0 },
+      satirlar: [],
     }
+
+    for (let i = 0; i < parcalar.length; i++) {
+      const parca = parcalar[i]
+      try {
+        const sonuc = await uygulaEnvanterImport({ lokasyonKodu: lokasyon, satirlar: parca })
+        birlesik.ozet.basarili += sonuc.ozet.basarili
+        birlesik.ozet.basarisiz += sonuc.ozet.basarisiz
+        birlesik.satirlar.push(...sonuc.satirlar)
+        if (!sonuc.success) birlesik.success = false
+      } catch (e) {
+        // Bu parça isteği ağ/timeout hatasıyla düşmüş olabilir; backend arka planda
+        // çalışmaya devam etmiş olabileceğinden satırları doğrudan "kayıp" saymıyoruz,
+        // sadece bu parçanın sonucunu göremediğimizi bildiriyoruz. Diğer parçalarla devam ediyoruz.
+        birlesik.ozet.basarisiz += parca.length
+        birlesik.success = false
+        for (const satir of parca) {
+          birlesik.satirlar.push({
+            satirNo: satir.satirNo,
+            durum: 'BASARISIZ',
+            mesaj: `Bu parça için istek yanıtı alınamadı (${hataMesaji(e)}). Kayıt yine de arka planda oluşmuş olabilir — dosyayı tekrar yükleyip önizlemede bu satırın "Mevcut Varyant" olarak göründüğünü kontrol edin.`,
+          })
+        }
+      }
+      setIlerleme({
+        tamamlanan: Math.min(tumSatirlar.length, (i + 1) * IMPORT_PARCA_BOYUTU),
+        toplam: tumSatirlar.length,
+        parca: i + 1,
+        toplamParca: parcalar.length,
+      })
+    }
+
+    setUygulaSonuc(birlesik)
+    setUygulamaYukleniyor(false)
+    setIlerleme(null)
   }
 
   return (
@@ -436,9 +484,23 @@ export default function ExcelEnvanterImportTab() {
           <div style={{ fontSize: 15, fontWeight: 800, color: '#1d4ed8', marginBottom: 8 }}>
             İçe aktarma devam ediyor
           </div>
-          <div style={{ fontSize: 13, color: '#374151' }}>
-            Şablon, varyant, lot ve stok kayıtları oluşturuluyor. Bu işlem satır sayısına göre birkaç dakika sürebilir.
+          <div style={{ fontSize: 13, color: '#374151', marginBottom: ilerleme ? 10 : 0 }}>
+            {ilerleme
+              ? `${ilerleme.tamamlanan} / ${ilerleme.toplam} satır işlendi (parça ${ilerleme.parca}/${ilerleme.toplamParca}). Zaman aşımını önlemek için satırlar küçük parçalar halinde gönderiliyor, sekmeyi kapatmayın.`
+              : 'Şablon, varyant, lot ve stok kayıtları oluşturuluyor. Bu işlem satır sayısına göre birkaç dakika sürebilir.'}
           </div>
+          {ilerleme && (
+            <div style={{ height: 8, borderRadius: 999, backgroundColor: '#dbeafe', overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.round((ilerleme.tamamlanan / Math.max(1, ilerleme.toplam)) * 100)}%`,
+                  backgroundColor: '#1d4ed8',
+                  transition: 'width 0.2s ease',
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
 
