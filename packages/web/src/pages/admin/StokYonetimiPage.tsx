@@ -215,6 +215,16 @@ export default function StokYonetimiPage() {
     void yukle()
   }, [yukle])
 
+  // Şube filtresi değişince açık olan varyant satırlarındaki stok sayılarını
+  // yeni lokasyona göre tazele (yukarıdaki select onChange varyantCache'i
+  // temizliyor, burada açık kalan satırlar için yeniden fetch tetikleniyor).
+  useEffect(() => {
+    for (const tmplId of expandedTmplIds) {
+      if (!varyantCache.has(tmplId)) void yukleVaryantlar(tmplId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lokasyon])
+
   function toggleSec(id: number) {
     setSecili((prev) => {
       const next = new Set(prev)
@@ -232,7 +242,7 @@ export default function StokYonetimiPage() {
   async function yukleVaryantlar(tmplId: number) {
     setVaryantYukleniyor((prev) => new Set(prev).add(tmplId))
     try {
-      const data = await getSablonVaryantlari(tmplId)
+      const data = await getSablonVaryantlari(tmplId, lokasyon || undefined)
       setVaryantCache((prev) => new Map(prev).set(tmplId, data))
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Varyantlar yüklenemedi' })
@@ -818,7 +828,7 @@ export default function StokYonetimiPage() {
 
           <label style={{ display: 'block', marginBottom: 12 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Şube</span>
-            <select value={lokasyon} onChange={(e) => { setLokasyon(e.target.value); setPage(1) }} style={{ ...inp, marginTop: 4 }}>
+            <select value={lokasyon} onChange={(e) => { setLokasyon(e.target.value); setPage(1); setVaryantCache(new Map()) }} style={{ ...inp, marginTop: 4 }}>
               <option value="">Tümü</option>
               {LOKASYONLAR.map((l) => <option key={l} value={l}>{l}</option>)}
             </select>
@@ -1053,6 +1063,7 @@ export default function StokYonetimiPage() {
                                       <th style={subTh}>Barkod</th>
                                       <th style={subTh}>Satış ₺</th>
                                       <th style={subTh}>Maliyet ₺</th>
+                                      <th style={subTh}>Stok</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -1132,12 +1143,15 @@ export default function StokYonetimiPage() {
                                               </button>
                                             )}
                                           </td>
+                                          <td style={{ ...subTd, fontWeight: 700, color: v.stok > 0 ? '#111' : '#dc2626' }}>
+                                            {v.stok}
+                                          </td>
                                         </tr>
                                       )
                                     })}
                                     {!varyantlar?.length ? (
                                       <tr>
-                                        <td colSpan={5} style={{ ...subTd, color: '#9ca3af', paddingLeft: 44 }}>Varyant bulunamadı</td>
+                                        <td colSpan={6} style={{ ...subTd, color: '#9ca3af', paddingLeft: 44 }}>Varyant bulunamadı</td>
                                       </tr>
                                     ) : null}
                                   </tbody>

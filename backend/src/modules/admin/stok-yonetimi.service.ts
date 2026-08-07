@@ -133,6 +133,34 @@ async function getTemplateStockMap(
   return stockMap;
 }
 
+export async function getVariantStockMap(
+  productIds: number[],
+  lokasyon?: string,
+): Promise<Map<number, number>> {
+  const stockMap = new Map<number, number>();
+  if (!productIds.length) return stockMap;
+
+  const quantDomain: unknown[] = [
+    ['product_id', 'in', productIds],
+    ['location_id.usage', '=', 'internal'],
+  ];
+  if (lokasyon && LOKASYON_ID_MAP[lokasyon]) {
+    quantDomain.push(['location_id', '=', LOKASYON_ID_MAP[lokasyon]]);
+  }
+
+  const quants = (await execute('stock.quant', 'search_read', [quantDomain], {
+    fields: ['product_id', 'quantity'],
+    limit: 10000,
+  })) ?? [];
+
+  for (const q of quants) {
+    const pid = m2oId(q.product_id);
+    if (!pid) continue;
+    stockMap.set(pid, (stockMap.get(pid) ?? 0) + (Number(q.quantity) || 0));
+  }
+  return stockMap;
+}
+
 export async function listStokUrunleri(filtre: StokFiltre) {
   const page = Math.max(1, filtre.page ?? 1);
   const limit = Math.min(100, Math.max(1, filtre.limit ?? 50));

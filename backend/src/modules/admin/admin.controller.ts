@@ -5981,6 +5981,7 @@ router.get('/odoo-sablon-listesi', async (req, res, next) => {
 router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
   try {
     const tmplId = Number(req.params.tmplId);
+    const lokasyon = typeof req.query.lokasyon === 'string' ? req.query.lokasyon : undefined;
 
     const variants = await execute(
       'product.product', 'search_read',
@@ -5994,6 +5995,11 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
         limit: 500,
         context: { active_test: false },
       },
+    );
+
+    const stockMap = await stokYonetimi.getVariantStockMap(
+      variants.map((v: { id: number }) => v.id),
+      lokasyon,
     );
 
     const allPtavIds = [...new Set(
@@ -6029,6 +6035,7 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
         barcode: v.barcode || '',
         lst_price: v.lst_price || 0,
         standard_price: v.standard_price || 0,
+        stok: stockMap.get(v.id) ?? 0,
         model: attrs.MODEL || '',
         renk: attrs.RENK || '',
         olcu: attrs['ÖLÇÜ'] || '',

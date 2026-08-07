@@ -22,6 +22,7 @@ export type SablonVaryant = {
   barcode: string
   lst_price: number
   standard_price: number
+  stok: number
   model: string
   renk: string
   olcu: string
@@ -70,8 +71,10 @@ export async function getStokUrunleri(params: Record<string, string | number | u
   return res.data as { data: StokUrun[]; total: number; page: number; limit: number }
 }
 
-export async function getSablonVaryantlari(tmplId: number) {
-  const res = await adminApi.get(`/admin/odoo-sablon/${tmplId}/varyantlar`)
+export async function getSablonVaryantlari(tmplId: number, lokasyon?: string) {
+  const res = await adminApi.get(`/admin/odoo-sablon/${tmplId}/varyantlar`, {
+    params: lokasyon ? { lokasyon } : undefined,
+  })
   return (res.data?.data ?? []) as SablonVaryant[]
 }
 
