@@ -5467,6 +5467,56 @@ router.get('/ozel-siparisler', async (req, res) => {
   }
 })
 
+// Depo > Ürün Girişi > Lot/Barkod adımında, mağazalarda daha önce okutulup
+// kaydedilmiş ama henüz stoğa işlenmemiş (durum: TESLIM_ALINDI) özel sipariş
+// karekodlarını ürün adına ve/veya müşteri adına göre aratmak için.
+router.get('/ozel-siparis-karekod-ara', async (req, res) => {
+  try {
+    const urunAdiQ = typeof req.query.urunAdi === 'string' ? req.query.urunAdi.trim().toLocaleLowerCase('tr') : ''
+    const musteriAdiQ = typeof req.query.musteriAdi === 'string' ? req.query.musteriAdi.trim().toLocaleLowerCase('tr') : ''
+
+    const siparisler = await prisma.ozelSiparis.findMany({
+      where: {
+        durum: 'TESLIM_ALINDI',
+        karekodlar: { some: {} },
+      },
+      include: { karekodlar: { orderBy: { createdAt: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+    })
+
+    const musteriIds = [...new Set(siparisler.map((s) => s.musteriId).filter(Boolean))] as string[]
+    const customers = musteriIds.length
+      ? await prisma.customer.findMany({ where: { id: { in: musteriIds } }, select: { id: true, name: true } })
+      : []
+    const customerNameById = new Map(customers.map((c) => [c.id, c.name]))
+
+    let rows = siparisler.flatMap((s) => {
+      const musteriAdi = (s.musteriId && customerNameById.get(s.musteriId)) || s.musteriAdi || ''
+      return s.karekodlar.map((k) => ({
+        karekod: k.karekod,
+        siparisId: s.id,
+        urunAdi: s.urunAdi,
+        musteriAdi,
+        subeId: s.subeId,
+        subeAdi: s.subeAdi,
+        taranmaTarihi: k.createdAt,
+      }))
+    })
+
+    if (urunAdiQ) {
+      rows = rows.filter((r) => (r.urunAdi || '').toLocaleLowerCase('tr').includes(urunAdiQ))
+    }
+    if (musteriAdiQ) {
+      rows = rows.filter((r) => (r.musteriAdi || '').toLocaleLowerCase('tr').includes(musteriAdiQ))
+    }
+
+    return res.json({ data: rows.slice(0, 100) })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message })
+  }
+})
+
 router.post('/ozel-siparis-ekle', async (req, res) => {
   try {
     const result = await createOzelSiparis(req.body, (req as any).user?.userId ?? null);

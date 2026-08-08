@@ -34,7 +34,12 @@ import {
   OZEL_SIPARIS_DURUM_RENK,
   normalizeOzelSiparisDurum,
 } from '../../constants/ozelSiparis'
-import { getOzelSiparisStokGirisDetay, stokaAlOzelSiparis } from '../../api/ozelSiparis.api'
+import {
+  getOzelSiparisStokGirisDetay,
+  stokaAlOzelSiparis,
+  aramaOzelSiparisKarekod,
+  type OzelSiparisKarekodAday,
+} from '../../api/ozelSiparis.api'
 import ExcelEnvanterImportTab from '../../components/depo/ExcelEnvanterImportTab'
 import { canSeeDepoTab, type AdminUserLite } from '../../constants/ekYetki'
 
@@ -2472,6 +2477,13 @@ function UrunGirisTab() {
   const [dovizKuru, setDovizKuru] = useState<{USD: number; EUR: number; tarih: string} | null>(null)
   const [dovizYukleniyor, setDovizYukleniyor] = useState(false)
 
+  // Özel Sipariş Karekod eşleştirme (Lot/Barkod adımı, UTS Kodu yanı)
+  const [karekodPopupLotId, setKarekodPopupLotId] = useState<string | null>(null)
+  const [karekodAdaylar, setKarekodAdaylar] = useState<OzelSiparisKarekodAday[]>([])
+  const [karekodYukleniyor, setKarekodYukleniyor] = useState(false)
+  const [karekodAramaUrun, setKarekodAramaUrun] = useState('')
+  const [karekodAramaMusteri, setKarekodAramaMusteri] = useState('')
+
   // Etiket basma (adım 5 sonrası)
   const [etiketSablonId, setEtiketSablonId] = useState<SablonId>('gunes-aksesuar')
   const [etiketAdetler, setEtiketAdetler] = useState<Record<string, number>>({})
@@ -3761,6 +3773,47 @@ function UrunGirisTab() {
 
   function lotGuncelle<K extends keyof LotSatiri>(id: string, field: K, value: LotSatiri[K]) {
     setLotlar(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l))
+  }
+
+  async function karekodAra(urunAdi: string, musteriAdi: string) {
+    setKarekodYukleniyor(true)
+    try {
+      const data = await aramaOzelSiparisKarekod({
+        urunAdi: urunAdi.trim() || undefined,
+        musteriAdi: musteriAdi.trim() || undefined,
+      })
+      setKarekodAdaylar(data)
+    } catch {
+      setKarekodAdaylar([])
+    } finally {
+      setKarekodYukleniyor(false)
+    }
+  }
+
+  function karekodPopupAc(l: LotSatiri) {
+    setKarekodPopupLotId(l.id)
+    setKarekodAramaUrun(l.bizimUrunAdi)
+    setKarekodAramaMusteri('')
+    void karekodAra(l.bizimUrunAdi, '')
+  }
+
+  function karekodPopupKapat() {
+    setKarekodPopupLotId(null)
+    setKarekodAdaylar([])
+  }
+
+  function karekodUygula(lotId: string, aday: OzelSiparisKarekodAday) {
+    setLotlar(prev => prev.map(l => l.id === lotId ? {
+      ...l,
+      utsKodu: aday.karekod,
+      ...(aday.subeId ? {
+        lokasyon: aday.subeId,
+        lokasyonTip: 'sube' as const,
+        disMusteriId: null,
+        disMusteriAdi: '',
+      } : {}),
+    } : l))
+    karekodPopupKapat()
   }
 
   const hesaplananToplam = satirlar.reduce((acc, s) => {
@@ -5293,13 +5346,104 @@ function UrunGirisTab() {
                               style={{ ...inp, marginBottom: 0, fontSize: 12, width: 120 }}
                             />
                           </td>
-                          <td style={td}>
+                          <td style={{ ...td, position: 'relative' }}>
                             <input
                               value={l.utsKodu}
                               onChange={e => lotGuncelle(l.id, 'utsKodu', e.target.value)}
                               placeholder="UTS..."
                               style={{ ...inp, marginBottom: 0, fontSize: 12, width: 100 }}
                             />
+                            <button
+                              type="button"
+                              onClick={() => karekodPopupLotId === l.id ? karekodPopupKapat() : karekodPopupAc(l)}
+                              title="Özel Sipariş Karekod'dan Doldur"
+                              style={{
+                                marginTop: 4,
+                                fontSize: 10,
+                                padding: '3px 6px',
+                                borderRadius: 5,
+                                border: '1px solid #c7d2fe',
+                                backgroundColor: karekodPopupLotId === l.id ? '#eef2ff' : '#f9fafb',
+                                color: '#4338ca',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              🔎 Özel Sipariş Karekod
+                            </button>
+
+                            {karekodPopupLotId === l.id && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                zIndex: 40,
+                                width: 340,
+                                marginTop: 4,
+                                backgroundColor: 'white',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: 10,
+                                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                                padding: 10,
+                              }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <span style={{ fontSize: 11, fontWeight: 800, color: '#374151' }}>Bekleyen özel sipariş karekodları</span>
+                                  <button type="button" onClick={karekodPopupKapat} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 14 }}>✕</button>
+                                </div>
+                                <input
+                                  value={karekodAramaUrun}
+                                  onChange={e => setKarekodAramaUrun(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') void karekodAra(karekodAramaUrun, karekodAramaMusteri) }}
+                                  placeholder="Ürün adına göre ara..."
+                                  style={{ ...inp, marginBottom: 6, fontSize: 12 }}
+                                />
+                                <input
+                                  value={karekodAramaMusteri}
+                                  onChange={e => setKarekodAramaMusteri(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') void karekodAra(karekodAramaUrun, karekodAramaMusteri) }}
+                                  placeholder="Müşteri adına göre ara..."
+                                  style={{ ...inp, marginBottom: 6, fontSize: 12 }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => void karekodAra(karekodAramaUrun, karekodAramaMusteri)}
+                                  style={{ ...btnSmall, width: '100%', marginBottom: 8, fontSize: 11, padding: '5px 8px' }}
+                                >
+                                  Ara
+                                </button>
+
+                                <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                                  {karekodYukleniyor ? (
+                                    <div style={{ fontSize: 12, color: '#6b7280', padding: 8, textAlign: 'center' }}>Aranıyor...</div>
+                                  ) : karekodAdaylar.length === 0 ? (
+                                    <div style={{ fontSize: 12, color: '#9ca3af', padding: 8, textAlign: 'center' }}>Eşleşen bekleyen karekod bulunamadı</div>
+                                  ) : (
+                                    karekodAdaylar.map(aday => (
+                                      <button
+                                        key={`${aday.siparisId}-${aday.karekod}`}
+                                        type="button"
+                                        onClick={() => karekodUygula(l.id, aday)}
+                                        style={{
+                                          display: 'block',
+                                          width: '100%',
+                                          textAlign: 'left',
+                                          padding: '6px 8px',
+                                          marginBottom: 4,
+                                          borderRadius: 6,
+                                          border: '1px solid #e5e7eb',
+                                          backgroundColor: '#fafafa',
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        <div style={{ fontSize: 11, fontWeight: 800, color: '#111', fontFamily: 'monospace' }}>{aday.karekod}</div>
+                                        <div style={{ fontSize: 10, color: '#6b7280' }}>{aday.musteriAdi || 'Müşteri bilinmiyor'} · {aday.urunAdi}</div>
+                                        <div style={{ fontSize: 10, color: '#9ca3af' }}>Şube: {aday.subeAdi || aday.subeId || '—'}</div>
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </td>
                           <td style={td}>
                             <input

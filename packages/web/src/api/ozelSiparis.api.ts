@@ -54,3 +54,18 @@ export async function stokaAlOzelSiparis(siparisId: string, bekleyenFaturaId?: s
   const res = await adminApi.post(`/admin/ozel-siparis-stoka-al/${siparisId}`, { bekleyenFaturaId })
   return res.data
 }
+
+export type OzelSiparisKarekodAday = {
+  karekod: string
+  siparisId: string
+  urunAdi: string
+  musteriAdi: string
+  subeId: string | null
+  subeAdi: string | null
+  taranmaTarihi: string
+}
+
+export async function aramaOzelSiparisKarekod(params: { urunAdi?: string; musteriAdi?: string }) {
+  const res = await adminApi.get('/admin/ozel-siparis-karekod-ara', { params })
+  return (res.data?.data ?? []) as OzelSiparisKarekodAday[]
+}
