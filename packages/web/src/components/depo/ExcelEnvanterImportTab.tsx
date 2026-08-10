@@ -194,6 +194,12 @@ export default function ExcelEnvanterImportTab() {
     const parcalar = parcalaraBol<ParsedEnvanterRow>(tumSatirlar, IMPORT_PARCA_BOYUTU)
     setIlerleme({ tamamlanan: 0, toplam: tumSatirlar.length, parca: 0, toplamParca: parcalar.length })
 
+    // Bu aktarımın TÜM parçalarında (chunk) aynı kalması gereken kimlik —
+    // Odoo Lot/Seri (GRS-tarih-EXC{kimlik}-satır) üretiminde kullanılıyor.
+    // Excel'deki UTS Kodu sütunuyla hiçbir ilgisi yok, sadece "bu aktarım
+    // oturumu" için ayırt edici bir etiket.
+    const aktarimKimligi = String(Math.floor(1000 + Math.random() * 9000))
+
     const birlesik: EnvanterUygulaSonuc = {
       success: true,
       ozet: { basarili: 0, basarisiz: 0 },
@@ -203,15 +209,14 @@ export default function ExcelEnvanterImportTab() {
     for (let i = 0; i < parcalar.length; i++) {
       const parca = parcalar[i]
       try {
-        const sonuc = await uygulaEnvanterImport({ lokasyonKodu: lokasyon, satirlar: parca })
+        const sonuc = await uygulaEnvanterImport({ lokasyonKodu: lokasyon, satirlar: parca, aktarimKimligi })
         birlesik.ozet.basarili += sonuc.ozet.basarili
         birlesik.ozet.basarisiz += sonuc.ozet.basarisiz
         birlesik.satirlar.push(...sonuc.satirlar)
         if (!sonuc.success) birlesik.success = false
       } catch (e) {
         // Bu parça isteği ağ/timeout hatasıyla düşmüş olabilir; backend arka planda
-        // çalışmaya devam etmiş olabileceğinden satırları doğrudan "kayıp" saymıyoruz,
-        // sadece bu parçanın sonucunu göremediğimizi bildiriyoruz. Diğer parçalarla devam ediyoruz.
+        // çalışmaya devam etmiş olabileceğinden satırları doğrudan "kayıp" saymıyoruz sadece bu parçanın sonucunu göremediğimizi bildiriyoruz. Diğer parçalarla devam ediyoruz.
         birlesik.ozet.basarisiz += parca.length
         birlesik.success = false
         for (const satir of parca) {
