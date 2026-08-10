@@ -238,28 +238,37 @@ export type EnvanterLotFields = {
 
 /**
  * Envanter import UTS Kodu hücresinden stock.lot alanlarını üretir.
- * GS1 ise: name = Seri (21) → Lot (10) → barkod; x_uts_kodu = GTIN-14 (01).
- * GS1 değilse: mevcut davranış (ham uts → name ve x_uts_kodu).
+ *
+ * ÖNEMLİ — Görkem'in netleştirdiği 4 ayrı kavram, KARIŞTIRILMAMALI:
+ *  - Barkod: ürün/model seviyesinde, aynı modelin her biriminde aynı (GTIN).
+ *  - UTS Kodu (x_uts_kodu): UTS sisteminden/ürün üzerinden gelen TAM HAM kod
+ *    (örn. "010868171513022421216211210802101") — parçalanmadan, olduğu gibi
+ *    saklanır. Bu kodun İÇİNDE üreticinin kendi seri/lot bilgisi de var, ama
+ *    o bizim ilgilendiğimiz bir şey değil — TİTCK/üretici tarafının bilgisi.
+ *  - Odoo Lot/Seri (stock.lot.name): TAMAMEN bizim kendi depo giriş takip
+ *    numaramız (GRS-tarih-EXC{aktarım}-{satır} formatında, faturayla girişte
+ *    zaten kullanılan girisNo mantığının Excel karşılığı) — UTS kodunun
+ *    içindeki üretici seri numarasıYLA HİÇBİR İLGİSİ YOK, ondan asla
+ *    türetilmez.
+ *
+ * Önceki hatalı davranış: UTS Kodu hücresi GS1 formatlıysa içinden seri/lot
+ * çıkarılıp bunlar hem Odoo Lot/Seri (name) hem de kısaltılmış UTS Kodu
+ * (sadece GTIN) olarak yazılıyordu — bu hem UTS'nin tam halini kaybediyor
+ * hem de üretici serisini bizim kendi takip numaramızla karıştırıyordu.
  */
-export function resolveEnvanterLotFields(utsKoduRaw: string, barkod: string): EnvanterLotFields {
+export function resolveEnvanterLotFields(
+  utsKoduRaw: string,
+  barkod: string,
+  manualLotNo: string | undefined,
+  otomatikLotNo: string,
+): EnvanterLotFields {
   const trimmedUts = utsKoduRaw?.trim() ?? '';
-  const trimmedBarkod = barkod?.trim() ?? '';
-
-  if (!trimmedUts) {
-    return { lotNo: trimmedBarkod, utsKodu: undefined, gs1Parsed: false };
-  }
-
-  if (isGs1DataMatrix(trimmedUts)) {
-    const parsed = parseGs1DataMatrix(trimmedUts);
-    if (parsed) {
-      const lotNo = parsed.serial?.trim() || parsed.lot?.trim() || trimmedBarkod;
-      return { lotNo, utsKodu: parsed.gtin14, gs1Parsed: true };
-    }
-  }
+  const trimmedManuel = manualLotNo?.trim() ?? '';
+  const lotNo = trimmedManuel || otomatikLotNo;
 
   return {
-    lotNo: trimmedUts || trimmedBarkod,
-    utsKodu: trimmedUts,
+    lotNo,
+    utsKodu: trimmedUts || undefined,
     gs1Parsed: false,
   };
 }
