@@ -54,7 +54,7 @@ router.post(
 
 router.post('/uygula', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { lokasyonKodu, satirlar } = req.body ?? {};
+    const { lokasyonKodu, satirlar, aktarimKimligi } = req.body ?? {};
 
     if (!lokasyonKodu?.trim()) {
       return res.status(400).json({ error: 'lokasyonKodu zorunlu' });
@@ -73,6 +73,7 @@ router.post('/uygula', async (req: Request, res: Response, next: NextFunction) =
     const sonuc = await uygulaEnvanterImport({
       lokasyonKodu: String(lokasyonKodu),
       satirlar: parsed,
+      aktarimKimligi: typeof aktarimKimligi === 'string' ? aktarimKimligi : undefined,
     });
 
     return res.json({ success: true, ...sonuc });
