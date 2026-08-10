@@ -48,8 +48,27 @@ function sablonAnahtar(kategori: string, urunAdi: string): string {
   return `${kategori.trim().toUpperCase()}::${urunAdi.trim().toUpperCase()}`;
 }
 
-function resolveLotFieldsForImportRow(row: ParsedEnvanterRow): { lotNo: string; utsKodu: string | undefined } {
-  const fields = resolveEnvanterLotFields(row.utsKodu, row.barkod);
+/**
+ * Excel import satırı için kendi depo takip numaramızı (Odoo Lot/Seri) üretir.
+ * Faturayla giriş ekranındaki GRS-{tarih}-{...} mantığının Excel karşılığı —
+ * UTS kodunun içindeki üretici seri numarasıyla HİÇBİR ilgisi yok.
+ */
+function otomatikLotNoUret(satirNo: number, aktarimKimligi: string): string {
+  const now = new Date();
+  const gun = String(now.getDate()).padStart(2, '0');
+  const ay = String(now.getMonth() + 1).padStart(2, '0');
+  const yil = now.getFullYear();
+  const tarih = `${gun}${ay}${yil}`;
+  const kimlik = (aktarimKimligi || '').trim() || String(Math.floor(1000 + Math.random() * 9000));
+  return `GRS-${tarih}-EXC${kimlik}-${String(satirNo).padStart(3, '0')}`;
+}
+
+function resolveLotFieldsForImportRow(
+  row: ParsedEnvanterRow,
+  aktarimKimligi: string,
+): { lotNo: string; utsKodu: string | undefined } {
+  const otomatikLotNo = otomatikLotNoUret(row.satirNo, aktarimKimligi);
+  const fields = resolveEnvanterLotFields(row.utsKodu, row.barkod, row.lotNo, otomatikLotNo);
   return { lotNo: fields.lotNo, utsKodu: fields.utsKodu };
 }
 
@@ -133,9 +152,11 @@ async function findTemplateId(
 export async function uygulaEnvanterImport(input: {
   lokasyonKodu: string;
   satirlar: ParsedEnvanterRow[];
+  aktarimKimligi?: string;
 }): Promise<EnvanterUygulaSonuc> {
   const lokasyonKodu = String(input.lokasyonKodu ?? '').trim().toUpperCase();
   const companyId = getCompanyIdFromLokasyon(lokasyonKodu) ?? undefined;
+  const aktarimKimligi = String(input.aktarimKimligi ?? '').trim();
 
   const onizleme = await previewEnvanterImport(input.satirlar);
   const onizlemeBySatirNo = new Map(onizleme.satirlar.map((s) => [s.satirNo, s]));
@@ -331,7 +352,7 @@ export async function uygulaEnvanterImport(input: {
       let lotCreated = false;
 
       try {
-        const { lotNo, utsKodu } = resolveLotFieldsForImportRow(row);
+        const { lotNo, utsKodu } = resolveLotFieldsForImportRow(row, aktarimKimligi);
         const lotResult = await getOrCreateStockLot(
           lotNo,
           varyantId,
