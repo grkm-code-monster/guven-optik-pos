@@ -25,6 +25,7 @@ export type EtiketModalUrun = {
   utsKodlu?: boolean
   lotNo?: string | null
   kategoriId?: number | null
+  adet?: number
 }
 
 type Props = {
@@ -73,7 +74,7 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
 
   useEffect(() => {
     if (acik) {
-      const list = urunler.map((u) => ({ ...u }))
+      const list = urunler.map((u) => ({ ...u, adet: u.adet && u.adet > 0 ? Math.round(u.adet) : 1 }))
       setSecimler(list)
       setSablonId(varsayilanSablon(list))
       setZpl('')
@@ -87,6 +88,9 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
   if (!acik) return null
 
   const seciliSayisi = secimler.filter((s) => s.secili).length
+  const toplamEtiketAdedi = secimler
+    .filter((s) => s.secili)
+    .reduce((sum, s) => sum + Math.max(1, Math.round(s.adet ?? 1)), 0)
 
   async function etiketBas() {
     setLoading(true)
@@ -97,7 +101,11 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
         setError('En az 1 ürün seçin')
         return
       }
-      const items = payload.map(modalUrunToEtiketVeri)
+      const items = payload.flatMap((s) => {
+        const veri = modalUrunToEtiketVeri(s)
+        const adet = Math.max(1, Math.round(s.adet ?? 1))
+        return Array.from({ length: adet }, () => ({ ...veri }))
+      })
       const [zplKod, sablon] = await Promise.all([
         uretEtiketZplTercihli(sablonId, items, ilkSecili?.categAdi, source),
         getPilotEtiketSablon(sablonId, ilkSecili?.categAdi),
@@ -170,20 +178,20 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
         </div>
 
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
-          Ürünleri seçin, şablon belirleyin ve etiket üretin. Yazdır, etiketi görsel olarak Argox sürücüsüne gönderir.
+          Ürünleri seçin, şablon belirleyin ve etiket üretin. Her ürün için basılacak adedi ayrı ayrı girebilirsiniz. Yazdır, etiketi görsel olarak Argox sürücüsüne gönderir.
         </div>
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
           {secimler.map((u) => (
-            <label key={u.key} style={{
-              display: 'grid', gridTemplateColumns: '28px 1fr auto', gap: 10, alignItems: 'center',
-              padding: '10px 12px', borderBottom: '1px solid #f3f4f6', cursor: 'pointer',
-            }}>
-              <input
-                type="checkbox"
-                checked={u.secili}
-                onChange={(e) => setSecimler((prev) => prev.map((p) => p.key === u.key ? { ...p, secili: e.target.checked } : p))}
-              />
+            <div
+              key={u.key}
+              onClick={() => setSecimler((prev) => prev.map((p) => p.key === u.key ? { ...p, secili: !p.secili } : p))}
+              style={{
+                display: 'grid', gridTemplateColumns: '28px 1fr auto 84px', gap: 10, alignItems: 'center',
+                padding: '10px 12px', borderBottom: '1px solid #f3f4f6', cursor: 'pointer',
+              }}
+            >
+              <input type="checkbox" checked={u.secili} readOnly style={{ pointerEvents: 'none' }} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{u.urunAdi}</div>
                 <div style={{ fontSize: 11, color: '#6b7280' }}>
@@ -194,7 +202,23 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
               <div style={{ fontSize: 13, fontWeight: 700, color: '#059669' }}>
                 {Number(u.fiyat).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
               </div>
-            </label>
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, justifySelf: 'end' }}
+              >
+                <input
+                  type="number"
+                  min={1}
+                  value={u.adet ?? 1}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.round(Number(e.target.value) || 1))
+                    setSecimler((prev) => prev.map((p) => p.key === u.key ? { ...p, adet: v } : p))
+                  }}
+                  style={{ width: 48, padding: '4px 6px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 12, textAlign: 'center' }}
+                />
+                <span style={{ fontSize: 10, color: '#9ca3af' }}>adet</span>
+              </div>
+            </div>
           ))}
         </div>
 
@@ -256,7 +280,7 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
                 backgroundColor: '#059669', color: 'white', opacity: loading || seciliSayisi === 0 ? 0.6 : 1,
               }}
             >
-              {loading ? 'Üretiliyor...' : `Etiket Bas (${seciliSayisi})`}
+              {loading ? 'Üretiliyor...' : `Etiket Bas (${toplamEtiketAdedi})`}
             </button>
           ) : null}
         </div>
