@@ -86,6 +86,7 @@ export async function onizleEnvanterExcel(file: File): Promise<EnvanterOnizlemeS
 export async function uygulaEnvanterImport(input: {
   lokasyonKodu: string
   satirlar: ParsedEnvanterRow[]
+  aktarimKimligi?: string
 }): Promise<EnvanterUygulaSonuc> {
   const res = await adminApi.post<EnvanterUygulaSonuc>(
     '/admin/envanter-import/uygula',
