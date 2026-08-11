@@ -1,6 +1,40 @@
 import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 
 /**
+ * Odoo bağlantı/kimlik doğrulama sorunlarını teşhis eder: hem varsayılan
+ * (companyId'siz, .env ODOO_USER/ODOO_PASS ile authenticate) yolu hem de
+ * her şirket için sabit kodlanmış (SIRKET_ODOO_CREDENTIALS) kimlik bilgisi
+ * yolunu ayrı ayrı test eder ve hata mesajlarını döner. Salt okunur.
+ */
+export async function odooBaglantiTeshis(): Promise<{
+  varsayilan: { basarili: boolean; hata?: string };
+  sirketler: Record<number, { basarili: boolean; hata?: string }>;
+}> {
+  const sonuc: {
+    varsayilan: { basarili: boolean; hata?: string };
+    sirketler: Record<number, { basarili: boolean; hata?: string }>;
+  } = { varsayilan: { basarili: false }, sirketler: {} };
+
+  try {
+    await execute('res.company', 'search_count', [[]], {});
+    sonuc.varsayilan = { basarili: true };
+  } catch (err) {
+    sonuc.varsayilan = { basarili: false, hata: err instanceof Error ? err.message : String(err) };
+  }
+
+  for (const companyId of ODOO_ALL_COMPANY_IDS) {
+    try {
+      await execute('res.company', 'search_count', [[]], {}, companyId);
+      sonuc.sirketler[companyId] = { basarili: true };
+    } catch (err) {
+      sonuc.sirketler[companyId] = { basarili: false, hata: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  return sonuc;
+}
+
+/**
  * UTS/Lot-Seri karışıklığı düzeltmesi (bkz. gs1-parser.util.ts) öncesinde,
  * Excel içe aktarımıyla oluşturulmuş olması muhtemel kayıtları tespit eder.
  *
