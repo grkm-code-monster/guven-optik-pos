@@ -7,6 +7,7 @@ import {
   type ParsedEnvanterRow,
 } from './envanter-import.service';
 import { uygulaEnvanterImport } from './envanter-import-uygula.service';
+import { tespitEskiHatalıKayitlar } from './envanter-import-diagnostik.service';
 
 const router = Router();
 
@@ -76,6 +77,15 @@ router.post('/uygula', async (req: Request, res: Response, next: NextFunction) =
       aktarimKimligi: typeof aktarimKimligi === 'string' ? aktarimKimligi : undefined,
     });
 
+    return res.json({ success: true, ...sonuc });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/eski-kayitlar-tespit', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const sonuc = await tespitEskiHatalıKayitlar();
     return res.json({ success: true, ...sonuc });
   } catch (err) {
     next(err);
