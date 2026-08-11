@@ -42,7 +42,7 @@ async function getUid(): Promise<number> {
 
 /** Şirket bazlı Odoo servis kullanıcıları */
 export const SIRKET_ODOO_CREDENTIALS: Record<number, { uid: number; password: string }> = {
-  1: { uid: 2, password: 'admin123' },
+  1: { uid: 2, password: 'GuvenOptik2026!' },
   2: { uid: 7, password: 'ng123' },
   3: { uid: 6, password: 'adese123' },
   4: { uid: 8, password: 'potential123' },
