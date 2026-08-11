@@ -92,6 +92,24 @@ export function modelVeRenk(raw: string): { model: string; renk: string } {
   };
 }
 
+/**
+ * Ham UTS kodundan (GS1 element string: "01" + 14 haneli GTIN ile başlıyorsa)
+ * ya da düz/eski formattan (yalnızca GTIN/barkod) doğru 14 haneli GTIN'i çıkarır.
+ *
+ * ÖNEMLİ: Önceki hatalı davranış tüm ham string'in SON 14 karakterini alıyordu
+ * (`.slice(-14)`) — bu, utsKodu tam ham GS1 element string'i (ör.
+ * "010868171513043921204211210802101") olduğunda GTIN yerine serinin bir
+ * parçasını yakalayıp bwipp GS1badChecksum hatasına yol açıyordu. Doğrusu:
+ * GS1 element string AI "01" ile başlar ve hemen ardından GELEN 14 hane GTIN'dir.
+ */
+function extractGtin14(ham: string): string {
+  const s = String(ham ?? '').trim();
+  if (/^01\d{14}/.test(s)) {
+    return s.slice(2, 16);
+  }
+  return s.replace(/\D/g, '').padStart(14, '0').slice(-14);
+}
+
 export function gs1AiVerileri(veri: EtiketVeri): {
   gtin: string;
   skt?: string;
@@ -99,10 +117,7 @@ export function gs1AiVerileri(veri: EtiketVeri): {
   seri?: string;
   utsVarMi: boolean;
 } {
-  const gtin = String(veri.utsKodu ?? veri.barkod ?? '')
-    .replace(/\D/g, '')
-    .padStart(14, '0')
-    .slice(-14);
+  const gtin = extractGtin14(String(veri.utsKodu ?? veri.barkod ?? ''));
   const utsVarMi = Boolean(veri.utsKodu && String(veri.utsKodu).trim());
   return {
     gtin,
