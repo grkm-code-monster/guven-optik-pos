@@ -109,6 +109,7 @@ type SecilenVaryantKayit = {
   barkod: string
   satisFiyati: number
   maliyet: number
+  stok: number
 }
 
 export default function StokYonetimiPage() {
@@ -291,6 +292,7 @@ export default function StokYonetimiPage() {
           barkod: v.barcode || '',
           satisFiyati: v.lst_price,
           maliyet: v.standard_price,
+          stok: v.stok,
         })
       }
       return next
@@ -355,7 +357,7 @@ export default function StokYonetimiPage() {
 
   async function varyantEtiketListesiOlustur(
     tmpl: StokUrun,
-    kaynaklar: Array<{ key: string; odooId: number; nitelikEtiketi: string; barkod: string; satisFiyati: number; kategoriId: number | null }>,
+    kaynaklar: Array<{ key: string; odooId: number; urunAdi?: string; nitelikEtiketi: string; barkod: string; satisFiyati: number; kategoriId: number | null; stok?: number }>,
   ): Promise<EtiketModalUrun[]> {
     const lotMap = new Map<string, Awaited<ReturnType<typeof getVaryantLotBilgisi>>>();
     await Promise.all(
@@ -378,7 +380,7 @@ export default function StokYonetimiPage() {
       const bilgi = lotMap.get(k.key);
       return {
         key: k.key,
-        urunAdi: tmpl.urunAdi,
+        urunAdi: k.urunAdi ?? tmpl.urunAdi,
         seriNo: bilgi?.lotNo || '-',
         fiyat: k.satisFiyati,
         barkod: k.barkod || null,
@@ -389,6 +391,7 @@ export default function StokYonetimiPage() {
         utsKodlu: Boolean(bilgi?.utsKodu),
         lotNo: bilgi?.lotNo ?? undefined,
         kategoriId: bilgi?.kategoriId ?? k.kategoriId ?? null,
+        adet: k.stok && k.stok > 0 ? Math.round(k.stok) : 1,
       };
     });
   }
@@ -415,10 +418,12 @@ export default function StokYonetimiPage() {
       const liste = await varyantEtiketListesiOlustur(tmpl, secili.map((k) => ({
         key: k.key,
         odooId: k.odooId,
+        urunAdi: k.urunAdi,
         nitelikEtiketi: k.nitelikEtiketi,
         barkod: k.barkod,
         satisFiyati: k.satisFiyati,
         kategoriId: k.kategoriId,
+        stok: k.stok,
       })))
       setVaryantEtiketUrunleri(liste)
       setVaryantEtiketAcik(true)
@@ -626,6 +631,7 @@ export default function StokYonetimiPage() {
           barkod: v.barcode || '',
           satisFiyati: v.lst_price,
           kategoriId: u.kategoriId,
+          stok: v.stok,
         })))
         setVaryantEtiketUrunleri(liste)
         setVaryantEtiketAcik(true)
