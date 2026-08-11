@@ -68,11 +68,17 @@ export type EtiketSablonRender = {
   yukseklikMm: number
 }
 
+/**
+ * Ham UTS kodundan (GS1 element string: "01" + 14 haneli GTIN ile başlıyorsa)
+ * ya da düz/eski formattan (yalnızca GTIN/barkod) doğru 14 haneli GTIN'i çıkarır.
+ * backend/etiket-zpl.ts extractGtin14 ile aynı — bkz. oradaki açıklama.
+ */
 function gtin14(veri: EtiketRenderVeri): string {
-  return String(veri.utsKodu ?? veri.barkod ?? '')
-    .replace(/\D/g, '')
-    .padStart(14, '0')
-    .slice(-14)
+  const s = String(veri.utsKodu ?? veri.barkod ?? '').trim()
+  if (/^01\d{14}/.test(s)) {
+    return s.slice(2, 16)
+  }
+  return s.replace(/\D/g, '').padStart(14, '0').slice(-14)
 }
 
 /** backend/etiket-zpl.ts buildGs1Data ile ayni */
