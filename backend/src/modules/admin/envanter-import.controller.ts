@@ -8,6 +8,7 @@ import {
 } from './envanter-import.service';
 import { uygulaEnvanterImport } from './envanter-import-uygula.service';
 import { tespitEskiHatalıKayitlar } from './envanter-import-diagnostik.service';
+import { onarEskiUtsKayitlari } from './envanter-import-onarim.service';
 
 const router = Router();
 
@@ -86,6 +87,20 @@ router.post('/uygula', async (req: Request, res: Response, next: NextFunction) =
 router.get('/eski-kayitlar-tespit', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const sonuc = await tespitEskiHatalıKayitlar();
+    return res.json({ success: true, ...sonuc });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/eski-kayitlar-onar', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { perBarkodUts, mode } = req.body ?? {};
+    if (!perBarkodUts || typeof perBarkodUts !== 'object') {
+      return res.status(400).json({ error: 'perBarkodUts zorunlu (barkod -> UTS kodu dizisi)' });
+    }
+    const m = mode === 'apply' ? 'apply' : 'preview';
+    const sonuc = await onarEskiUtsKayitlari(perBarkodUts, m);
     return res.json({ success: true, ...sonuc });
   } catch (err) {
     next(err);
