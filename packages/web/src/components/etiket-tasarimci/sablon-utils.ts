@@ -42,12 +42,15 @@ export function sktYyAagg(tarih?: string): string {
 }
 
 function gtin14(veri: SablonVeri): string {
+  const uts = String(veri.utsKodu ?? '').trim()
+  if (/^01\d{14}/.test(uts)) {
+    return uts.slice(2, 16)
+  }
   return String(veri.barkod ?? veri.utsKodu ?? '')
     .replace(/\D/g, '')
     .padStart(14, '0')
     .slice(-14)
 }
-
 /** GS1 DataMatrix ham metin */
 export function buildGs1(veri: SablonVeri): string {
   const gtin = gtin14(veri)
