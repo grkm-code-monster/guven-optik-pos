@@ -1001,10 +1001,11 @@ router.post('/sync-override/:saleId', async (req: Request, res: Response, next: 
   }
 });
 
-router.get('/branch-list', async (_req: Request, res: Response) => {
+router.get('/branch-list', async (req: Request, res: Response) => {
   try {
+    const tumu = req.query.tumu === '1' || req.query.tumu === 'true'
     const branches = await prisma.branch.findMany({
-      where: { isActive: true },
+      where: tumu ? {} : { isActive: true },
       select: {
         id: true,
         name: true,
