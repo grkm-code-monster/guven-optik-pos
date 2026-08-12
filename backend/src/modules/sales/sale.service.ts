@@ -15,6 +15,7 @@ import { appendPartnerNote, execute } from '../odoo/odoo.service';
 import { getCompanyIdFromLokasyon, resolveBranchStockLocationId } from '../odoo/odooLocations';
 import { resolveWarehouseIdForCompany, validateSalePickingsFromBranch } from '../odoo/odoo-delivery.util';
 import { ODOO_TAX_CHART_COMPANY_ID, readProductSaleTaxRate, resolvePosLineTax } from '../odoo/odoo-tax.util';
+import { resolveStandardPriceAcrossCompanies } from '../odoo/odoo-standard-price.util';
 import { createBildirimler } from '../bildirim/bildirim.service';
 import { calculateCommission } from '../payments/commission.service';
 import { tetikleSatisEFatura } from '../efatura/uyumsoft-efatura.service';
@@ -669,6 +670,25 @@ export async function getAtolyeBranches() {
     select: { id: true, name: true, code: true },
     orderBy: { name: 'asc' },
   });
+}
+
+// Personel Fiyat Listesi: Fiyat = (maliyet × (1 + KDV oranı)) × 1.20
+// Maliyet Odoo standard_price'tan (iskontosuz alış fiyatı), KDV oranı ürünün Odoo satış vergisinden okunur.
+export async function hesaplaPersonelFiyati(odooProductIdRaw: string) {
+  const odooProductId = Number(String(odooProductIdRaw).replace(/^odoo_/, ''));
+  if (!odooProductId) {
+    throw codeError('PRODUCT_ID_MISSING', 'Odoo ürün ID bulunamadı.');
+  }
+
+  const { price: maliyet } = await resolveStandardPriceAcrossCompanies('product.product', odooProductId);
+  const kdvOrani = await readProductSaleTaxRate(odooProductId);
+  const fiyat = maliyet * (1 + kdvOrani / 100) * 1.2;
+
+  return {
+    maliyet: Math.round(maliyet * 100) / 100,
+    kdvOrani,
+    fiyat: Math.round(fiyat * 100) / 100,
+  };
 }
 
 export async function confirmSale(saleId: string, userId: string, role: Role, input: ConfirmSaleInputType) {
