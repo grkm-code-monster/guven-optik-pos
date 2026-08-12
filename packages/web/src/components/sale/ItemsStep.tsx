@@ -1,7 +1,8 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { searchTransferProducts, type TransferUrun } from '../../api/transfer.api'
-import { addItem, deleteItem, getSaleById, updateItem } from '../../api/sales.api'
+import { addItem, deleteItem, getSaleById, hesaplaPersonelFiyati, updateItem } from '../../api/sales.api'
 import { apiClient } from '../../api/client'
+import { useAuthStore } from '../../store/auth.store'
 import BarkodKameraInput from '../BarkodKameraInput'
 import { getAktifLokasyon } from '../../utils/aktifLokasyon'
 import { isGs1DataMatrix, parseGs1DataMatrix } from '../../utils/parseGs1DataMatrix'
@@ -284,6 +285,14 @@ export default function ItemsStep({
   const [qty, setQty] = useState('1')
   const [unitPrice, setUnitPrice] = useState('')
 
+    const role = useAuthStore((s) => s.user?.role)
+    const personelFiyatYetkisiVar =
+      role === 'STORE_MANAGER' || role === 'REGIONAL_MANAGER' || role === 'ADMIN'
+    const [personelFiyatUygulanacak, setPersonelFiyatUygulanacak] = useState(false)
+    const [personelFiyatYukleniyor, setPersonelFiyatYukleniyor] = useState(false)
+    const [personelFiyatBilgisi, setPersonelFiyatBilgisi] = useState<{ maliyet: number; kdvOrani: number } | null>(null)
+    const [personelFiyatHata, setPersonelFiyatHata] = useState<string | null>(null)
+
   const [taxes, setTaxes] = useState<Array<{ id: number; name: string; amount: number }>>([])
   const [selectedTaxId, setSelectedTaxId] = useState<number | null>(null)
   const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount')
@@ -374,6 +383,9 @@ export default function ItemsStep({
     setPickedProduct(null)
     setQty('1')
     setUnitPrice('')
+    setPersonelFiyatUygulanacak(false)
+    setPersonelFiyatBilgisi(null)
+    setPersonelFiyatHata(null)
     setDiscountType('amount')
     setDiscountInput('0')
     setPrescriptionType('')
@@ -512,6 +524,30 @@ export default function ItemsStep({
     if (!candidates.length) return null
     const last = candidates[candidates.length - 1]
     return { id: last.id, name: itemDisplayName(last) }
+  }
+
+  async function personelFiyatToggle(checked: boolean) {
+    setPersonelFiyatUygulanacak(checked)
+    setPersonelFiyatHata(null)
+    if (!checked) {
+      setPersonelFiyatBilgisi(null)
+      return
+    }
+    if (!pickedProduct) return
+    const variantId = String(pickedProduct.odooVariantId).replace(/^odoo_/, '')
+    setPersonelFiyatYukleniyor(true)
+    try {
+      const sonuc = await hesaplaPersonelFiyati(variantId)
+      setUnitPrice(String(sonuc.fiyat))
+      setPersonelFiyatBilgisi({ maliyet: sonuc.maliyet, kdvOrani: sonuc.kdvOrani })
+      const eslesenVergi = taxes.find((t) => Number(t.amount) === Number(sonuc.kdvOrani))
+      if (eslesenVergi) setSelectedTaxId(eslesenVergi.id)
+    } catch (e: any) {
+      setPersonelFiyatHata(e?.response?.data?.message ?? 'Personel fiyatı hesaplanamadı')
+      setPersonelFiyatUygulanacak(false)
+    } finally {
+      setPersonelFiyatYukleniyor(false)
+    }
   }
 
   function buildSavePayload(): Record<string, unknown> | null {
@@ -1233,6 +1269,70 @@ export default function ItemsStep({
                   <Field label="Birim Fiyat" value={unitPrice} onChange={setUnitPrice} />
                   <Field label="İndirim" value={discountInput} onChange={setDiscountInput} />
                 </div>
+                {personelFiyatYetkisiVar ? (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: '1px solid #fde68a',
+                      background: '#fffbeb',
+                    }}
+                  >
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#92400e' }}>
+                      <input
+                        type="checkbox"
+                        checked={personelFiyatUygulanacak}
+                        disabled={personelFiyatYukleniyor}
+                        onChange={(e) => void personelFiyatToggle(e.target.checked)}
+                      />
+                      Personel Fiyatı Uygula
+                    </label>
+                    {personelFiyatYukleniyor ? (
+                      <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>Hesaplanıyor…</div>
+                    ) : null}
+                    {personelFiyatBilgisi ? (
+                      <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
+                        Maliyet: {money(personelFiyatBilgisi.maliyet)} · KDV: %{personelFiyatBilgisi.kdvOrani} · Fiyat maliyet üzerine %20 kârla hesaplandı
+                      </div>
+                    ) : null}
+                    {personelFiyatHata ? (
+                      <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{personelFiyatHata}</div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {personelFiyatYetkisiVar ? (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: '1px solid #fde68a',
+                      background: '#fffbeb',
+                    }}
+                  >
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#92400e' }}>
+                      <input
+                        type="checkbox"
+                        checked={personelFiyatUygulanacak}
+                        disabled={personelFiyatYukleniyor}
+                        onChange={(e) => void personelFiyatToggle(e.target.checked)}
+                      />
+                      Personel Fiyatı Uygula
+                    </label>
+                    {personelFiyatYukleniyor ? (
+                      <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>Hesaplanıyor…</div>
+                    ) : null}
+                    {personelFiyatBilgisi ? (
+                      <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
+                        Maliyet: {money(personelFiyatBilgisi.maliyet)} · KDV: %{personelFiyatBilgisi.kdvOrani} · Fiyat maliyet üzerine %20 kârla hesaplandı
+                      </div>
+                    ) : null}
+                    {personelFiyatHata ? (
+                      <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{personelFiyatHata}</div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700 }}>
                     <input
