@@ -77,6 +77,13 @@ export async function voidSale(saleId: string, input: { voidReason: string }): P
   return res.data
 }
 
+export type PersonelFiyatSonuc = { maliyet: number; kdvOrani: number; fiyat: number }
+
+export async function hesaplaPersonelFiyati(odooProductId: string): Promise<PersonelFiyatSonuc> {
+  const res = await apiClient.post('/sales/personel-fiyat-hesapla', { odooProductId })
+  return res.data
+}
+
 export async function getSales(filters?: {
   status?: string
   customerId?: string
