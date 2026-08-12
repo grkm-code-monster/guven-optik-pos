@@ -662,7 +662,7 @@ function SubelerTab() {
     setLoading(true)
     try {
       const [brRes, odooRes, pdksRes] = await Promise.all([
-        adminApi.get('/admin/branch-list'),
+        adminApi.get('/admin/branch-list', { params: { tumu: 1 } }),
         adminApi.get('/admin/branches'),
         adminApi.get('/admin/pdks-places'),
       ])
@@ -832,6 +832,22 @@ function SubelerTab() {
     }
   }
 
+  async function aktifPasifDegistir(b: PosBranch) {
+    const yeniDeger = !(b.isActive !== false)
+    if (!yeniDeger) {
+      const onay = window.confirm(
+        `"${b.name}" şubesini pasife almak istediğine emin misin? Pasif şubeler personel atama, rapor ve şube seçim listelerinde artık görünmeyecek.`,
+      )
+      if (!onay) return
+    }
+    try {
+      await adminApi.put(`/admin/branch/${b.id}`, { isActive: yeniDeger })
+      await load()
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Şube durumu güncellenemedi')
+    }
+  }
+
   function duzenleAc(b: PosBranch) {
     setSecilenBranch(b.id)
     setYeniForm(false)
@@ -953,22 +969,41 @@ function SubelerTab() {
                   <span style={badge(true, '🔬 Laboratuvar', '')}>🔬 Laboratuvar</span>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => duzenleAc(b)}
-                style={{
-                  padding: '8px 14px',
-                  borderRadius: 8,
-                  border: '1px solid #e5e7eb',
-                  background: 'white',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  width: '100%',
-                }}
-              >
-                Düzenle
-              </button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => duzenleAc(b)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    background: 'white',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    flex: 1,
+                  }}
+                >
+                  Düzenle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void aktifPasifDegistir(b)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    background: b.isActive !== false ? '#fff7ed' : '#f0fdf4',
+                    color: b.isActive !== false ? '#c2410c' : '#166534',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    flex: 1,
+                  }}
+                >
+                  {b.isActive !== false ? 'Pasif Yap' : 'Aktif Yap'}
+                </button>
+              </div>
             </div>
           ))}
         </div>
