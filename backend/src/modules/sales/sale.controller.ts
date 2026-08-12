@@ -7,6 +7,7 @@ import {
   AddSaleItemInput,
   ConfirmSaleInput,
   CreateSaleInput,
+  PersonelFiyatHesaplaInput,
   UpdateDraftMetaInput,
   VoidSaleInput,
 } from './sale.types';
@@ -180,6 +181,27 @@ router.post('/:id/confirm', async (req: Request, res: Response, next: NextFuncti
     next(err);
   }
 });
+
+// Personel Fiyat Listesi: sadece Mağaza Müdürü ve üstü rolüyle giriş yapan kullanıcılar hesaplayabilir.
+router.post(
+  '/personel-fiyat-hesapla',
+  authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = PersonelFiyatHesaplaInput.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Geçersiz istek gövdesi.',
+        details: parsed.error.errors,
+      });
+      const result = await saleService.hesaplaPersonelFiyati(parsed.data.odooProductId);
+      return res.status(200).json(result);
+    } catch (err) {
+      if (handleSaleError(err, res)) return;
+      next(err);
+    }
+  },
+);
 
 router.post('/:id/void', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
