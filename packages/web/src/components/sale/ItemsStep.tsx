@@ -1291,49 +1291,12 @@ export default function ItemsStep({
                     {personelFiyatYukleniyor ? (
                       <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>Hesaplanıyor…</div>
                     ) : null}
-                    {personelFiyatBilgisi ? (
-                      <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
-                        Maliyet: {money(personelFiyatBilgisi.maliyet)} · KDV: %{personelFiyatBilgisi.kdvOrani} · Fiyat maliyet üzerine %20 kârla hesaplandı
-                      </div>
-                    ) : null}
                     {personelFiyatHata ? (
                       <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{personelFiyatHata}</div>
                     ) : null}
                   </div>
                 ) : null}
-                {personelFiyatYetkisiVar ? (
-                  <div
-                    style={{
-                      marginTop: 10,
-                      padding: '10px 12px',
-                      borderRadius: 8,
-                      border: '1px solid #fde68a',
-                      background: '#fffbeb',
-                    }}
-                  >
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#92400e' }}>
-                      <input
-                        type="checkbox"
-                        checked={personelFiyatUygulanacak}
-                        disabled={personelFiyatYukleniyor}
-                        onChange={(e) => void personelFiyatToggle(e.target.checked)}
-                      />
-                      Personel Fiyatı Uygula
-                    </label>
-                    {personelFiyatYukleniyor ? (
-                      <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>Hesaplanıyor…</div>
-                    ) : null}
-                    {personelFiyatBilgisi ? (
-                      <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
-                        Maliyet: {money(personelFiyatBilgisi.maliyet)} · KDV: %{personelFiyatBilgisi.kdvOrani} · Fiyat maliyet üzerine %20 kârla hesaplandı
-                      </div>
-                    ) : null}
-                    {personelFiyatHata ? (
-                      <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{personelFiyatHata}</div>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                                <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700 }}>
                     <input
                       type="radio"
