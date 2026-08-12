@@ -13,6 +13,11 @@ export const CreateSaleInput = z.object({
   shiftId: z.string().uuid(),
 });
 export type CreateSaleInputType = z.infer<typeof CreateSaleInput>;
+// Personel Fiyat Listesi: (maliyet × (1 + KDV)) × 1.20 — sadece Mağaza Müdürü ve üstü kullanabilir.
+export const PersonelFiyatHesaplaInput = z.object({
+  odooProductId: z.string().min(1),
+});
+export type PersonelFiyatHesaplaInputType = z.infer<typeof PersonelFiyatHesaplaInput>;
 
 export const PrescriptionInput = z.object({
   prescriptionType: z.nativeEnum(PrescriptionType),
