@@ -7,7 +7,7 @@ import { isDevMockEnabled } from './transfer.mock';
 import { mapWithConcurrency } from '../../utils/map-with-concurrency';
 
 const ODOO_SEARCH_CONCURRENCY = 6;
-const SIRKET_SEARCH_IDS = [2, 3, 4];
+const SIRKET_SEARCH_IDS = [1, 2, 3, 4];
 function transferUrunDedupKey(u) {
     return `${u.id}|${u.lotId ?? ''}|${u.lotNo ?? ''}|${u.varyant ?? ''}`;
 }
@@ -654,7 +654,7 @@ async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
     if (!collected.length) {
         const variantDomain = applyKategoriToDomain([
             ['active', '=', true],
-            '|', ['name', 'ilike', term], ['display_name', 'ilike', term],
+            '|', ['name', 'ilike', term], ['default_code', 'ilike', term],
         ], options);
         const directVariants = (await odooService.execute('product.product', 'search_read', [variantDomain], {
             fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids', 'tracking'],
