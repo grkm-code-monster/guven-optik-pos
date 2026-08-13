@@ -24,18 +24,23 @@ type OdooLocation = {
   complete_name?: string
 }
 
-type StockQuant = {
-  id: number
-  product_id: [number, string] | false
-  location_id: [number, string] | false
+type StockLocationRow = {
+  quantId: number
+  locationId: number | null
+  locationName: string
   quantity: number
-  reserved_quantity: number
-  product_categ_id?: [number, string] | false
+  reservedQuantity: number
+  lotNo?: string
+  utsKodu?: string
 }
 
-function m2oName(v: [number, string] | false | undefined): string {
-  if (!v || !Array.isArray(v)) return '—'
-  return v[1]
+type StockGroupRow = {
+  productId: number
+  productName: string
+  categName: string | null
+  totalQuantity: number
+  totalReserved: number
+  locations: StockLocationRow[]
 }
 
 function AccordionSection({
@@ -88,7 +93,9 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
   const [selectedCategories, setSelectedCategories] = useState<CategoryLabel[]>([])
   const [onlyInStock, setOnlyInStock] = useState(true)
   const [includeReserved, setIncludeReserved] = useState(false)
-  const [rows, setRows] = useState<StockQuant[]>([])
+  const [rows, setRows] = useState<StockGroupRow[]>([])
+  const [truncated, setTruncated] = useState(false)
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
   const [loadingLoc, setLoadingLoc] = useState(true)
   const [loadingStock, setLoadingStock] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -121,24 +128,34 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
 
   const displayRows = useMemo(() => {
     let list = rows
-    const hasCategData = list.some((row) => Array.isArray(row.product_categ_id))
+    const hasCategData = list.some((row) => !!row.categName)
     if (selectedCategories.length > 0 && hasCategData) {
       list = list.filter((row) => {
-        const categName = m2oName(row.product_categ_id)
-        if (categName === '—') return false
+        const categName = row.categName
+        if (!categName) return false
         return selectedCategories.some((c) => categName.toLowerCase().includes(c.toLowerCase()))
       })
     }
     if (onlyInStock) {
-      list = list.filter((row) => Number(row.quantity) > 0)
+      list = list.filter((row) => Number(row.totalQuantity) > 0)
     }
     return list
   }, [rows, selectedCategories, onlyInStock])
+
+  function toggleExpanded(productId: number) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(productId)) next.delete(productId)
+      else next.add(productId)
+      return next
+    })
+  }
 
   const fetchStock = useCallback(async () => {
     setLoadingStock(true)
     setError(null)
     setSearched(true)
+    setExpandedIds(new Set())
     try {
       const params: Record<string, string> = {}
       if (locationId) params.locationId = locationId
@@ -149,12 +166,15 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
       if (!res.data?.success) {
         setError(res.data?.error ?? 'Stok yüklenemedi')
         setRows([])
+        setTruncated(false)
         return
       }
       setRows(res.data.data ?? [])
+      setTruncated(!!res.data.truncated)
     } catch (e: any) {
       setError(e?.response?.data?.message ?? e?.response?.data?.error ?? 'Stok yüklenemedi')
       setRows([])
+      setTruncated(false)
     } finally {
       setLoadingStock(false)
     }
@@ -167,6 +187,8 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
     setOnlyInStock(true)
     setIncludeReserved(false)
     setRows([])
+    setTruncated(false)
+    setExpandedIds(new Set())
     setSearched(false)
     setError(null)
   }
@@ -224,9 +246,12 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Ürün adı ara..."
+            placeholder="Ürün adı, model kodu veya nitelik (C1, renk...) ara..."
             style={inputStyle}
           />
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, lineHeight: 1.4 }}>
+            Ürün adı, model/referans kodu ve nitelik (varyant) değerlerinde birlikte arar.
+          </div>
         </AccordionSection>
 
         <AccordionSection
@@ -281,7 +306,7 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
                   {loc.name}
                 </label>
               ))
-            )}
+            }
           </div>
         </AccordionSection>
 
@@ -386,9 +411,16 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
       {/* Sağ sonuç alanı */}
       <main style={{ flex: 1, padding: 16, minWidth: 0 }}>
         {searched && !loadingStock ? (
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#374151', marginBottom: 14 }}>
-            {displayRows.length} sonuç bulundu
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+            {displayRows.length} ürün bulundu
           </div>
+        ) : null}
+
+        {searched && !loadingStock && truncated ? (
+          <p style={{ fontSize: 12, color: '#b45309', marginBottom: 12 }}>
+            Sonuç sayısı çok yüksek — ilk 3000 stok kaydı üzerinden gruplandı. Daha kesin sonuç için arama veya
+            lokasyon filtresi daraltın.
+          </p>
         ) : null}
 
         {error ? <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error}</p> : null}
@@ -402,51 +434,112 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
         {!loadingStock && displayRows.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {displayRows.map((row) => {
-              const qty = Number(row.quantity) || 0
-              const reserved = Number(row.reserved_quantity) || 0
+              const qty = Number(row.totalQuantity) || 0
+              const reserved = Number(row.totalReserved) || 0
               const available = includeReserved ? qty : qty - reserved
               const stockColor = qty > 0 ? '#166534' : '#991b1b'
               const stockBg = qty > 0 ? '#dcfce7' : '#fee2e2'
+              const isOpen = expandedIds.has(row.productId)
+              const locCount = row.locations.length
 
               return (
-                <div
-                  key={row.id}
-                  style={{
-                    ...cardStyle,
-                    marginBottom: 0,
-                    display: 'grid',
-                    gridTemplateColumns: '1fr auto',
-                    gap: 12,
-                    alignItems: 'center',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: isAdmin ? '#111' : PRIMARY }}>
-                      {m2oName(row.product_id)}
+                <div key={row.productId} style={{ ...cardStyle, marginBottom: 0, padding: 0, overflow: 'hidden' }}>
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(row.productId)}
+                    style={{
+                      width: '100%',
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto',
+                      gap: 12,
+                      alignItems: 'center',
+                      padding: 16,
+                      border: 'none',
+                      background: 'none',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12, color: '#9ca3af', width: 12 }}>{isOpen ? '∨' : '›'}</span>
+                        <span style={{ fontWeight: 800, fontSize: 15, color: isAdmin ? '#111' : PRIMARY }}>
+                          {row.productName}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4, marginLeft: 20 }}>
+                        {locCount} lokasyonda kayıt
+                      </div>
+                      {includeReserved && reserved > 0 ? (
+                        <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4, marginLeft: 20 }}>
+                          Rezerve: {reserved}
+                        </div>
+                      ) : null}
                     </div>
-                    <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>{m2oName(row.location_id)}</div>
-                    {includeReserved && reserved > 0 ? (
-                      <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>Rezerve: {reserved}</div>
-                    ) : null}
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        padding: '6px 12px',
-                        borderRadius: 999,
-                        fontWeight: 800,
-                        fontSize: 14,
-                        backgroundColor: stockBg,
-                        color: stockColor,
-                      }}
-                    >
-                      {qty}
-                    </span>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6, fontWeight: 600 }}>
-                      Kullanılabilir: {available}
+                    <div style={{ textAlign: 'right' }}>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          padding: '6px 12px',
+                          borderRadius: 999,
+                          fontWeight: 800,
+                          fontSize: 14,
+                          backgroundColor: stockBg,
+                          color: stockColor,
+                        }}
+                      >
+                        {qty}
+                      </span>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6, fontWeight: 600 }}>
+                        Kullanılabilir: {available}
+                      </div>
                     </div>
-                  </div>
+                  </button>
+
+                  {isOpen ? (
+                    <div style={{ borderTop: '1px solid #e5e7eb', backgroundColor: '#fafafa' }}>
+                      {row.locations
+                        .slice()
+                        .sort((a, b) => b.quantity - a.quantity)
+                        .map((loc) => {
+                          const locAvailable = includeReserved
+                            ? loc.quantity
+                            : loc.quantity - loc.reservedQuantity
+                          return (
+                            <div
+                              key={loc.quantId}
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr auto',
+                                gap: 12,
+                                alignItems: 'center',
+                                padding: '10px 16px 10px 40px',
+                                borderTop: '1px solid #eee',
+                                fontSize: 13,
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 700, color: '#374151' }}>{loc.locationName}</div>
+                                {loc.utsKodu || loc.lotNo ? (
+                                  <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
+                                    {loc.utsKodu ? `UTS: ${loc.utsKodu}` : `Lot/Seri: ${loc.lotNo}`}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div style={{ textAlign: 'right', fontWeight: 700, color: '#374151' }}>
+                                {loc.quantity}
+                                {includeReserved && loc.reservedQuantity > 0 ? (
+                                  <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500 }}>
+                                    {' '}
+                                    (kullanılabilir: {locAvailable})
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          )
+                        })}
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
