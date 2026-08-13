@@ -306,7 +306,7 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
                   {loc.name}
                 </label>
               ))
-            }
+            )}
           </div>
         </AccordionSection>
 
