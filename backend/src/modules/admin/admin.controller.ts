@@ -1165,28 +1165,134 @@ router.get('/stock', async (req: Request, res: Response) => {
     if (locationId) {
       domain.push(['location_id', '=', Number(locationId)]);
     }
-    if (search) {
-      domain.push(['product_id.name', 'ilike', String(search)]);
+
+    const searchTerm = search ? String(search).trim() : '';
+    if (searchTerm) {
+      // Ürün adı + model (default_code) + nitelik/varyant değeri (ör. "C1", renk kodu)
+      // hepsini kapsayan tek arama kutusu. Nitelik eşleşmesi için önce eşleşen
+      // product.template.attribute.value id'lerini bulup, o değerlere sahip
+      // varyantların id'lerini domain'e ekliyoruz.
+      const ptavs = (await execute(
+        'product.template.attribute.value',
+        'search_read',
+        [[['name', 'ilike', searchTerm]]],
+        { fields: ['id'], limit: 200, ...ODOO_ALL_COMPANIES_KWARGS },
+      )) ?? [];
+      const ptavIds = ptavs.map((p: { id: number }) => p.id).filter(Boolean);
+      let ptavProductIds: number[] = [];
+      if (ptavIds.length) {
+        const prods = (await execute(
+          'product.product',
+          'search_read',
+          [[['product_template_attribute_value_ids', 'in', ptavIds]]],
+          { fields: ['id'], limit: 3000, ...ODOO_ALL_COMPANIES_KWARGS },
+        )) ?? [];
+        ptavProductIds = prods.map((p: { id: number }) => p.id);
+      }
+      domain.push(
+        '|', '|',
+        ['product_id.name', 'ilike', searchTerm],
+        ['product_id.default_code', 'ilike', searchTerm],
+        ['product_id', 'in', ptavProductIds.length ? ptavProductIds : [-1]],
+      );
     }
 
-    const quants = await execute(
+    const quants = (await execute(
       'stock.quant',
       'search_read',
       [domain],
       {
-        fields: ['id', 'product_id', 'location_id', 'quantity', 'reserved_quantity', 'product_categ_id'],
-        limit: 500,
-        order: 'quantity desc',
+        fields: ['id', 'product_id', 'location_id', 'quantity', 'reserved_quantity', 'product_categ_id', 'lot_id'],
+        limit: 3000,
+        order: 'product_id asc',
         ...ODOO_ALL_COMPANIES_KWARGS,
       },
-    );
+    )) ?? [];
 
-    return res.json({ success: true, data: quants });
+    const lotIds = [
+      ...new Set(
+        quants
+          .map((q: { lot_id?: [number, string] | false }) => (Array.isArray(q.lot_id) ? q.lot_id[0] : null))
+          .filter((id: number | null): id is number => id != null),
+      ),
+    ];
+    const lotMap = new Map<number, { name: string; utsKodu?: string }>();
+    if (lotIds.length) {
+      const lots = (await execute(
+        'stock.lot',
+        'read',
+        [lotIds],
+        { fields: ['id', 'name', 'x_uts_kodu'] },
+      )) ?? [];
+      for (const l of lots as Array<{ id: number; name?: string; x_uts_kodu?: string }>) {
+        lotMap.set(l.id, { name: l.name || '', utsKodu: l.x_uts_kodu || undefined });
+      }
+    }
+
+    type Loc = {
+      quantId: number;
+      locationId: number | null;
+      locationName: string;
+      quantity: number;
+      reservedQuantity: number;
+      lotNo?: string;
+      utsKodu?: string;
+    };
+    type Grp = {
+      productId: number;
+      productName: string;
+      categName: string | null;
+      totalQuantity: number;
+      totalReserved: number;
+      locations: Loc[];
+    };
+    const groups = new Map<number, Grp>();
+    for (const q of quants as Array<{
+      id: number;
+      product_id: [number, string] | false;
+      location_id: [number, string] | false;
+      quantity: number;
+      reserved_quantity: number;
+      product_categ_id?: [number, string] | false;
+      lot_id?: [number, string] | false;
+    }>) {
+      if (!Array.isArray(q.product_id)) continue;
+      const pid = q.product_id[0];
+      if (!groups.has(pid)) {
+        groups.set(pid, {
+          productId: pid,
+          productName: q.product_id[1],
+          categName: Array.isArray(q.product_categ_id) ? q.product_categ_id[1] : null,
+          totalQuantity: 0,
+          totalReserved: 0,
+          locations: [],
+        });
+      }
+      const g = groups.get(pid)!;
+      const qty = Number(q.quantity) || 0;
+      const reserved = Number(q.reserved_quantity) || 0;
+      g.totalQuantity += qty;
+      g.totalReserved += reserved;
+      const lotId = Array.isArray(q.lot_id) ? q.lot_id[0] : null;
+      const lotInfo = lotId != null ? lotMap.get(lotId) : undefined;
+      g.locations.push({
+        quantId: q.id,
+        locationId: Array.isArray(q.location_id) ? q.location_id[0] : null,
+        locationName: Array.isArray(q.location_id) ? q.location_id[1] : '—',
+        quantity: qty,
+        reservedQuantity: reserved,
+        lotNo: lotInfo?.name || undefined,
+        utsKodu: lotInfo?.utsKodu,
+      });
+    }
+
+    const data = Array.from(groups.values()).sort((a, b) => b.totalQuantity - a.totalQuantity);
+
+    return res.json({ success: true, data, truncated: quants.length >= 3000 });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-
 router.post('/stock-adjustment', async (req: Request, res: Response) => {
   try {
     const { productId, locationCode, qty, quantId } = req.body ?? {};
