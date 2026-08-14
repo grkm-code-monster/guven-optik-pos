@@ -670,14 +670,30 @@ async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
         const ptavVariants = await searchVariantsByPtav(term, options, RESULT_LIMIT);
         merged = dedupeVariantEntries(mergeCatalogVariants(ptavVariants, merged, RESULT_LIMIT));
     }
-    if (!merged.length)
+    if (!merged.length) {
+        // Fallback (13.08.2026): kategori filtresiyle hiç sonuç bulunamadıysa, Odoo'da
+        // kategorisi hiç atanmamış/yanlış atanmış ürünleri (örn. OTTO OPTİK ÇERÇEVE —
+        // bkz. Not #49) kaçırmamak için kategori kısıtı olmadan bir kez daha dene.
+        // _kategoriFallbackDone bayrağı sonsuz döngüyü engeller.
+        const hasKategoriFiltre = resolveSearchKategoriId(options) != null || Boolean(options?.kategoriIds?.length);
+        if (hasKategoriFiltre && !options?._kategoriFallbackDone && term && String(term).trim()) {
+            return searchUrunByNameCatalog(term, companyId, lokasyon, {
+                ...options,
+                kategori: undefined,
+                kategoriId: undefined,
+                kategoriIds: undefined,
+                _kategoriFallbackDone: true,
+            });
+        }
         return [];
+    }
     const mapped = await mapVariantsBatchToTransferUrun(merged.slice(0, RESULT_LIMIT), companyId, lokasyon);
     return dedupeTransferUrunResults(mapped);
 }
-async function mapProductsKatalog(productIds, lotRows, companyId) {
+async function mapProductsKatalog(productIds, lotRows, companyId, lokasyon) {
     const sonuclar = [];
     if (lotRows?.length) {
+        const withVariant = [];
         for (const lot of lotRows) {
             const productId = m2oId(lot.product_id);
             if (!productId)
@@ -688,9 +704,21 @@ async function mapProductsKatalog(productIds, lotRows, companyId) {
             const v = products?.[0];
             if (!v)
                 continue;
-            const mapped = mapVariantToTransferUrun(v);
+            withVariant.push({ lot, v: { ...v, _cid: companyId } });
+        }
+        // Bug fix (13.08.2026): daha önce stokMap hiç hesaplanmıyordu, bu yüzden Kalem
+        // Ekle'de Lot/Seri/UTS ile arama yapıldığında stok her zaman "0" görünüyordu
+        // (gerçek stok var olsa bile). Barkod/UTS/Lot aramaları da "ad" araması gibi
+        // gerçek stok bilgisiyle zenginleştirilmeli.
+        const stokMap = lokasyon ? await fetchStokMapForProducts(withVariant.map((x) => x.v), lokasyon) : null;
+        for (const { lot, v } of withVariant) {
+            const mapped = mapVariantToTransferUrun(v, undefined, stokMap, Boolean(lokasyon));
             mapped.lotId = lot.id ?? null;
-            mapped.lotNo = m2oName(lot.id) ?? lot.name ?? null;
+            // Bug fix: m2oName(lot.id) burada yanlıştı (lot.id bir sayı, many2one tuple
+            // değil) — her zaman '' dönüyor ve lot numarası hiç görünmüyordu.
+            mapped.lotNo = lot.name ?? null;
+            if (lot.x_uts_kodu)
+                mapped.utsKodu = lot.x_uts_kodu;
             sonuclar.push(mapped);
         }
         return dedupeTransferUrunResults(sonuclar);
@@ -700,7 +728,9 @@ async function mapProductsKatalog(productIds, lotRows, companyId) {
     const variants = (await odooService.execute('product.product', 'read', [productIds], {
         fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'tracking'],
     }, companyId)) ?? [];
-    return dedupeTransferUrunResults(variants.map(mapVariantToTransferUrun));
+    const withCid = variants.map((v) => ({ ...v, _cid: companyId }));
+    const stokMap = lokasyon ? await fetchStokMapForProducts(withCid, lokasyon) : null;
+    return dedupeTransferUrunResults(withCid.map((v) => mapVariantToTransferUrun(v, undefined, stokMap, Boolean(lokasyon))));
 }
 export async function searchUrun(q, yontem, lokasyon, options) {
     const rawTerm = q.trim();
@@ -731,13 +761,17 @@ export async function searchUrun(q, yontem, lokasyon, options) {
                 productIds = (products ?? []).map((p) => p.id);
             }
             else if (yontem === 'uts') {
-                const lots = (await odooService.execute('stock.lot', 'search_read', [[['x_uts_kodu', '=', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
+                // Bug fix (13.08.2026): önceden '=' (tam eşleşme) kullanılıyordu — UTS
+                // kodları uzun GS1 kodları olduğu için kullanıcı kodun tamamını hatırlayıp
+                // yazamıyordu, bu yüzden arama hep "sonuç bulunamadı" dönüyordu. Diğer
+                // aramalar (lot, ref, ad) gibi kısmi eşleşmeye (ilike) çevrildi.
+                const lots = (await odooService.execute('stock.lot', 'search_read', [[['x_uts_kodu', 'ilike', term]]], { fields: ['id', 'name', 'product_id', 'x_uts_kodu'], limit: 20 }, companyId));
                 lotRows = lots ?? [];
                 lotIds = lotRows.map((l) => l.id);
                 productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
             }
             else if (yontem === 'lot') {
-                const lots = (await odooService.execute('stock.lot', 'search_read', [[['name', 'ilike', term]]], { fields: ['id', 'name', 'product_id'], limit: 20 }, companyId));
+                const lots = (await odooService.execute('stock.lot', 'search_read', [[['name', 'ilike', term]]], { fields: ['id', 'name', 'product_id', 'x_uts_kodu'], limit: 20 }, companyId));
                 lotRows = lots ?? [];
                 lotIds = lotRows.map((l) => l.id);
                 productIds = lotRows.map((l) => m2oId(l.product_id)).filter((x) => x !== null);
@@ -757,7 +791,7 @@ export async function searchUrun(q, yontem, lokasyon, options) {
                 productIds = (products ?? []).map((p) => p.id);
             }
             if (katalog) {
-                sonuclar = await mapProductsKatalog(productIds, lotRows, companyId);
+                sonuclar = await mapProductsKatalog(productIds, lotRows, companyId, lokasyon);
             }
             else {
                 const quantlar = await fetchQuantsAtLocation(lokasyonId, companyId, {

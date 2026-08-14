@@ -1,8 +1,94 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 13.07.2026
+Son güncelleme: 14.08.2026
 
 ## Kural: Önce tasarım, sonra kod
 Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra kodlanır.
+
+---
+
+## 14.08.2026 — Canlı test turu: 27 ekran görüntüsü bulgu, düzeltmeler
+
+Görkem canlı sistemi test edip 27 ekran görüntüsüyle bulgu bildirdi (görev listesine #60–#82
+olarak eklendi). Bu oturumda kod seviyesinde düzeltilenler:
+
+### Uyumsoft transfer faturası — tutar hesabı + satıcı kodu (#76, #82)
+- **Kök neden:** `buildUBLXML()` transfer birim fiyatını (maliyet×1.05, KDV HARİÇ) KDV DAHİL
+  sanıp içinden KDV ayrıştırıyordu (787,50 TL → yanlışlıkla 715,91 TL mal/hizmet + 71,59 TL KDV).
+  Doğrusu: KDV net tutarın üzerine eklenmeli (787,50 TL net + %10 KDV = 866,25 TL toplam).
+- `FaturaKalem`'e `kdvHaric?: boolean` eklendi; `transferdenFaturaData` bunu `true` set ediyor,
+  `buildUBLXML` bu durumda KDV'yi üstüne ekliyor. POS satış faturası yolu (`satistenFaturaData`)
+  dokunulmadı, hâlâ KDV DAHİL mantıkla çalışıyor (doğru).
+- **Satıcı Kodu** artık ürünün Odoo ID'si değil, önce UTS kodu, yoksa lot/seri adı yazılıyor
+  (`transfer-maliyet.util.ts` → `resolveSaticiKodu`).
+- **Ayrı bulunan gizli bug:** `enrichKalemlerWithUtsFromLot()` yeni bir dizi döndürüyordu ama
+  çağıran yer (`transfer-core.service.ts` `baslatTransfer`) dönen değeri hiç atamıyordu — UTS
+  kodu transfer kalemlerine hiçbir zaman yazılmıyordu (ne faturada ne UTS VERME bildiriminde).
+  Düzeltildi: `input.kalemler = await enrichKalemlerWithUtsFromLot(...)`.
+
+### Transfer sonrası eksik fatura (#69) — kod hatası değil, veri/UX
+- `tetikleTransferEFatura`, kalemlerden herhangi birinin maliyeti (Odoo `standard_price`) 0/boş
+  ise faturayı reddediyor ve `notifyTransferAksiyonFailure` ile ilgili rollere bildirim
+  gönderiyor — **sessiz bir hata değil, kasıtlı güvenlik kontrolü**. OTTO OPTİK ÇERÇEVE'nin
+  faturası muhtemelen bu yüzden kesilmedi (bkz. #49 — kategori/veri eksikliği). Kod değişikliği
+  yapılmadı; ürünün maliyet bilgisinin Odoo'da girili olduğundan emin olun.
+
+### Teslimat ekranı şube filtresi çalışmıyordu (#79)
+- İki kök neden birlikte: (1) `/admin/branches` (Odoo lokasyon, numerik id) yanlış veri
+  kaynağıydı — doğrusu `/admin/branch-list` (Prisma Branch, UUID id, `sales/delivery`
+  endpoint'inin beklediği tip). (2) Dropdown seçenekleri kopyala-yapıştır hatasıyla hepsi
+  `value=""` ile render ediliyordu — hangi şube seçilirse seçilsin "Tüm şubeler"e dönüyordu.
+
+### Satışlar ekranı müşteri adıyla arama sonuç getirmiyordu (#80)
+- Arama tamamen client-side'dı; backend zaten kullanıcının KENDİ ŞUBESİNE ait en fazla 100
+  kayıtla sınırlıydı. Başka şubede yapılan satış listeye hiç girmiyordu. Backend'e `q` parametresi
+  eklendi (`sale.service.ts`/`getSales`) — arama terimi verildiğinde şube kısıtlaması kalkıyor,
+  müşteri adı/telefon/referans no/ID tüm şubelerde aranıyor.
+
+### Stok Yönetimi filtresi anlık çalışıp sıfırlanıyordu (#81)
+- Klasik race condition: her tuş vuruşunda ayrı istek atılıyordu, geç dönen eski bir yanıt
+  (ör. "U" için) yeni yazılan "ULTRA" sonucunun üzerine yazabiliyordu. `yukleReqRef` sıra
+  numarasıyla yalnızca en son isteğin sonucu state'e yazılıyor artık.
+
+### Kalan yeni bulgular (#60–68, #70–74, #77–78) — henüz kod düzeltmesi yapılmadı
+Garanti&İade kategori filtresi, Kasa Raporu "Reçete Bed." kolonu, personel/şube ismi, Kontrol
+Paneli Personel sekmesi rol kısıtı, Profilim ekranı rol kısıtı, SGK ödeme gösterimi, reçete
+geçmişi/kaydetme, Kabul bekliyor transfer blokajı, lot/UTS seçim ekranı, satış PDF ödeme detayı,
+Ölçümler "Daimi Gözlük 1" etiketi, kredi kartı POS ekleme, Bekleyen Transferler'de aynı ürünün
+hem gidende hem gelende görünmesi, Teslimat↔Depo Yönetimi senkronu — sıradaki oturumda devam.
+
+---
+
+## 13.08.2026 — Bu oturumda tamamlanan işler
+
+### Kalem Ekle arama hatası (ACİL, düzeltildi)
+- **OTTO OPTİK ÇERÇEVE aramada hiç çıkmıyordu** (stoklarda vardı) — kök neden: Odoo domain'inde
+  `display_name` (stored olmayan/computed alan) `categ_id` filtresiyle birlikte OR'landığında
+  Odoo bu koşulu doğru uygulamıyordu; `OTTO` araması ilgisiz sonuçlar (ZAROSSI/MUSTANG vb.)
+  döndürüyordu. `display_name` yerine stored `default_code` alanına geçildi
+  (`transfer.service.ts`, `searchUrunByNameCatalog`).
+- `SIRKET_SEARCH_IDS` `[2,3,4]` → `[1,2,3,4]` genişletildi — kendi şirketimizdeki (Güven Optik)
+  ürünler arama yolunda hiç taranmıyordu.
+- **Kalıcı not:** OTTO OPTİK ÇERÇEVE Odoo'da hiçbir standart kategoriye (Çerçeve/Güneş/Aksesuar/
+  Bakım) atanmamış — veri sorunu, henüz düzeltilmedi (kategori ataması onay bekliyor).
+
+### Personel Fiyatı ekranı düzeltmeleri
+- "Personel Fiyatı Uygula" checkbox'ı ekranda 2 kere görünüyordu — tekrar eden blok kaldırıldı
+  (`ItemsStep.tsx`).
+- Maliyet + KDV + "%20 kârla hesaplandı" bilgi metni personel fiyatı checkbox'ının altında
+  müdürlere görünüyordu — kaldırıldı.
+
+### Stok Sorgula yeniden tasarımı
+- Sonuçlar artık **ürün bazında gruplanıyor** (500 kayıt sınırı 3000'e çıkarıldı); her kart
+  tıklanınca **lokasyon + UTS/Lot-Seri kırılımını** açıyor (Depo Yönetimi ekranındaki gibi).
+- Arama artık **nitelik (varyant değeri) ve model/referans koduna göre de eşleşiyor** —
+  `product.template.attribute.value` üzerinden iki adımlı arama (`transfer.service.ts`'teki
+  `searchVariantsByPtav` deseni). "C1" yazınca C1M/C15M/C14M vb. niteliğe sahip tüm çerçeve/
+  güneş gözlüğü varyantları geliyor; "2140" yazınca RAYBAN yazmadan model koduyla eşleşiyor.
+  Ayrı bir Model/Ürün/Renk filtre ayrımına gerek kalmadı — tek arama kutusu üçünü birlikte tarıyor.
+- Backend: `admin.controller.ts` `/admin/stock` endpoint'i tamamen yeniden yazıldı.
+- Frontend: `StokSorgulaPage.tsx` — yeni `StockGroupRow`/`StockLocationRow` tipleri, expand/
+  collapse UI, `truncated` uyarısı.
+- Canlıda doğrulandı: "2140" → 1 ürün, 16 lokasyon kaydı; "C1" → 19 ürün (OTTO ÇERÇEVE varyantları).
 
 ---
 
@@ -43,24 +129,27 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 
 ---
 
-## KRİTİK — Bugün bulunan, henüz düzeltilmemiş sorunlar
+## Not #48/#49/#50 — DÜZELTİLDİ (13.08.2026 itibarıyla kod doğrulandı)
 
-### Not #48 — Stok Kontrol transferinde lot/UTS seçimi yok
-Stok Kontrol'den transfer başlatılınca hangi UTS/lot'un gideceği sorulmuyor → Odoo *"Lot/Seri numarası sağlamanız gerekir"* hatası.
-**Çözüm yönü:** Çalışan **Depo Yönetimi → Transferler → Lot Transfer** ekranındaki arama + lot seçim mekanizmasını referans al / Stok Kontrol'e bağla.
+Aşağıdaki üç madde bu dosyanın önceki sürümünde "KRİTİK — henüz düzeltilmemiş" olarak
+işaretliydi. Kod taramasında üçünün de "Transfer motor birleştirme" tablosundaki Faz 4–6 ile
+birlikte tamamlanmış olduğu doğrulandı (dosyalar mevcut, `TAMAM` işaretli):
 
-### Not #49 — Transfer akışında UTS bildirimi yok
-Aynı şirket içi VE şirketler arası transferlerde TITCK UTS'ye alma/verme bildirimi **hiç gönderilmiyor**.
-Lot Transfer → `transfer-olustur` → UTS API çağrısı yok. Şube transfer kabulünde yalnızca Odoo `x_uts_durumu: MAGAZADA` yazılıyor (harici UTS değil).
-**Risk:** UTS'deki kayıtlı konum ≠ gerçek fiziksel konum.
+### Not #48 — Stok Kontrol transferinde lot/UTS seçimi ✅
+`StokKontrolTab.tsx` artık `searchTransferProductLots` ile lot/UTS listesini çekiyor, lot bazlı
+transfer modalı (`lotTransferModalAc`, `lotTransferGonder`) mevcut — Lot Transfer ekranındaki
+mekanizma Stok Kontrol'e bağlanmış.
 
-### Not #50 — EN KRİTİK: Şirketler arası transfer e-Fatura Uyumsoft'a gitmiyor
-`executeSirketlerArasiTransfer()` Odoo'da NG satış + ADESE alım faturası oluşturup `posted` yapıyor; ancak:
-- `eFaturaGonder()` / `kuyrugaAl()` / `FaturaKuyruk` **hiç tetiklenmiyor**
-- `Fatura` tablosunda `transferId` dolu kayıt: **0**
-- `INV/2026/00017` için Uyumsoft/GİB karşılığı **yok** — yalnızca Odoo iç muhasebe kaydı
+### Not #49 — Transfer UTS bildirimi ✅
+`uts.service.ts` — `gondermeBildiriminiYap`, `transferUtsBildirimGonder`, `runUtsBildirimi`
+VERME (başlat) / ALMA (kabul) otomatik tetikleniyor (Faz 6).
 
-**Sonuç:** Resmi e-Fatura oluşmuyor; yasal/muhasebe açısından eksik belge riski.
+### Not #50 — Şirketler arası e-Fatura → Uyumsoft ✅
+`transfer-post-actions.service.ts` içindeki `tetikleTransferEFatura` gerçek kalemlerle
+Uyumsoft'a fatura kesiyor, `Fatura.transferId` doluyor, başarısızda `FaturaKuyruk`'a düşüyor (Faz 5).
+
+**Not:** Faz 7 (test senaryoları) durumu doğrulanmadı — bir sonraki oturumda uçtan uca test
+önerilir (özellikle NG→ADESE transferinde gerçek Uyumsoft faturası + UTS bildirimi birlikte).
 
 ### Açık soru (teyit edilmedi)
 - **Aynı şirket içi transfer (NG→NG):** e-İrsaliye kesiliyor mu? **Kontrol edilmedi.**
@@ -119,24 +208,53 @@ Herhangi bir transfer (aynı şirket içi **veya** şirketler arası) olduğunda
 
 | Not | Konu |
 |-----|------|
-| **#48** | Stok Kontrol transfer — lot/UTS seçimi |
-| **#49** | Transfer UTS bildirimi |
-| **#50** | Şirketler arası e-Fatura → Uyumsoft/FaturaKuyruk |
 | **#44** | Eski Odoo'dan veri aktarımı (URL/kullanıcı bekleniyor) |
+| **OTTO OPTİK ÇERÇEVE** | Odoo'da hiçbir standart kategoriye atanmamış (veri düzeltmesi bekliyor) |
 
-Not #28–47 arası büyük kısmı tamamlandı (varyant patlaması #29, Excel envanter #42/#45–47, sayım, özel sipariş, fiyat değişikliği, laboratuvar vb.). Yukarıdaki dört not **açık**.
+Not #28–50 arası tamamlandı (varyant patlaması #29, Excel envanter #42/#45–47, sayım, özel
+sipariş, fiyat değişikliği, laboratuvar, transfer motor birleştirme #48–50 vb.). Sadece Not #44
+ve OTTO OPTİK kategori ataması **açık**.
 
 ---
 
-## Dış bağımlılıklar (bizim elimizde değil, cevap bekleniyor)
+## Görev listesinden açık kalanlar (13.08.2026 itibarıyla)
 
-- **PROMAX** etiket test basımı (mağazada)
-- **POTENTIAL** Uyumsoft kimlik bilgisi (kullanıcıdan)
-- **UTS Envanteri Excel'i** (kullanıcıdan)
-- **e-İrsaliye Uyumsoft yetkisi** — NG hesabı (destek: EFT-IST-SRVS12)
-- **Patron PDKS 403** — GVN6/7/8 (destek: EFT-IST-SRVS12, ayrı konu)
-- **Not #44** — Eski Odoo veri aktarımı (URL/kullanıcı adı bekleniyor)
-- **ADESE Uyumsoft** credential (admin panelinden girilecek — altyapı hazır)
+- Reçeteye uygun stok cam önerisi kayboldu
+- Patron Görünümü: Şirket Karlılık Raporu (4 oran, şirket bazlı + tarih aralığı)
+- Açık Hesap: 30 gün sonra otomatik WhatsApp ödeme hatırlatma mesajı
+- Finans: "Mahsuptaki Ödemeler" takip alanı (SGK/Vakıf tahsilat süreci)
+- Müşteriler > Satışları Gör: Satışlar ekranına geçince arama sonuç getirmiyor
+- Garanti & İade: onaylı satış "Tamamlanmış satış bulunamadı" diyor
+- Uyumsoft'a fatura düşmüyor + admin kullanıcının şube ataması belirsiz (devam ediyor)
+- Satış onaylanınca e-fatura otomatik tetikle
+- Etiket Bas: adet (quantity) PDF çıktısında yansımıyor
+- OTTO OPTİK ÇERÇEVE Odoo'da kategori ataması bekliyor (yukarıda da var)
+
+---
+
+## Dış bağımlılıklar — 13.08.2026 durumu (Görkem ile teyit edildi)
+
+| Konu | Durum |
+|------|-------|
+| **NG e-İrsaliye Uyumsoft yetkisi** (destek: EFT-IST-SRVS12) | ✅ **Sonuçlandı** — yetki geldi, yapıldı |
+| **Patron PDKS 403** — GVN6/7/8 (aynı destek talebi) | ✅ **Sonuçlandı** |
+| **GVN10 PDKS mekan (place) ID** | ✅ **Çözüldü** (Görkem'in hatırladığı kadarıyla — `Branch.pdksPlaceId` alanı artık Tanımlamalar'dan DB'de tutuluyor, hardcoded değil; şüphe olursa Tanımlamalar → Şubeler'den tek tek kontrol edilebilir) |
+| **Uyumsoft e-arşiv gönderme** | ✅ **Sorun yok, çözüldü** |
+| **ADESE Uyumsoft credential** | ✅ **Girildi** — admin panelinden bir kez daha kontrol edilecek |
+| **POTENTIAL Uyumsoft credential** | ⏸️ **Bilinçli beklemede** — POTENTIAL şirketi ayrılıyor/devrediliyor, bu yüzden bekleniyor. Devir netleşmeden credential girilmeyecek. |
+| **PROMAX etiket test basımı** (mağazada) | ❌ **Henüz denenmedi** — sıradaki adım, mağazada fiziksel test yapılacak |
+| **UTS Envanteri Excel'i** | 📦 **Geldi**, ama ne yapılacağı netleşmedi (aşağıya bakın) |
+| **Not #44 — Eski Odoo veri aktarımı** | ❌ **Henüz yapılmadı** — URL/kullanıcı adı hâlâ bekleniyor |
+
+### UTS Envanteri Excel'i — plan hatırlatması
+Görkem "geldi ama ne yapacaktık hatırlamıyorum" dedi. Kod taramasında bulduğum ipucu
+(`SISTEM_ENVANTERI.md`): TITCK UTS'nin kendi envanter sorgulama API'si (`uretici/sorgula`)
+canlıda **404** veriyor — yani UTS'nin bizdeki kayıtlarını doğrudan API'den çekemiyoruz. Muhtemel
+plan: UTS'nin bize elle verdiği bu Excel'i, bizim Odoo/POS stok kayıtlarımızla **karşılaştırıp
+(mutabakat)** UTS'de kayıtlı konum ile gerçek fiziksel konum arasında fark olan ürünleri
+bulmaktı (Not #49'daki risk: "UTS'deki kayıtlı konum ≠ gerçek fiziksel konum"). Bu sadece kod
+izinden çıkardığım bir tahmin — kesin planı hatırlarsanız ya da Excel'in içeriğini
+paylaşırsanız somut bir karşılaştırma/mutabakat ekranı tasarlayabilirim.
 
 ---
 
@@ -144,18 +262,17 @@ Not #28–47 arası büyük kısmı tamamlandı (varyant patlaması #29, Excel e
 
 - [x] **Not #50** — `runTransferPostActions` → `tetikleTransferEFatura` gerçek kalem + `Fatura.transferId`
 - [x] **Not #49** — Transfer UTS VERME/ALMA otomasyonu (`uts.service.ts`)
-- [ ] **Not #48** — Stok Kontrol → lot seçimli transfer (Lot Transfer referans)
-- [ ] Merkezi "transfer sonrası aksiyonlar" birleştirme (4'lü paket)
-- [ ] Uyumsoft e-arşiv gönderme
-- [ ] Her şube için Odoo lokasyon ID / PDKS place ID (Tanımlamalar)
-- [ ] GVN6, GVN7, GVN8, GVN10 PDKS konum
+- [x] **Not #48** — Stok Kontrol → lot seçimli transfer (`StokKontrolTab.tsx`)
+- [x] Merkezi "transfer sonrası aksiyonlar" birleştirme — Faz 3-6 çekirdeğe bağlandı (Faz 7 test senaryoları hariç)
+- [x] Ürün yapılandırma — Barkod/Etiket yazdırma (`EtiketBasModal.tsx`, adet girişi dahil)
+- [x] Mevcut personelleri Odoo ile eşleştir — İK personel bağlantı paneli (PDKS/Odoo/POS üçlü, şube ataması) yapıldı
+- [ ] Uyumsoft e-arşiv gönderme — kodda ayrı bir akış bulunamadı, durumu teyit edilmeli
+- [ ] Her şube için Odoo lokasyon ID / PDKS place ID (Tanımlamalar) — çoğu şube dolu, **GVN10 hâlâ eksik**
 - [ ] Bölge müdürü kasa tablosu (placeholder)
-- [ ] Mevcut personelleri Odoo ile eşleştir
 - [ ] Personel kaydı → WhatsApp belge talep akışı
-- [ ] Ürün yapılandırma — Barkod yazdırma
-- [ ] Açık hesap vade tarihi
-- [ ] Karlılık analizi + drill-down
-- [ ] Ürün maliyet girişi ekranı
+- [ ] Açık hesap vade tarihi — `admin.controller.ts`'te `vadeTarihi` alanı var, ekranda tam akış teyit edilmedi
+- [ ] Karlılık analizi + drill-down — Patron Görünümü Şirket Karlılık Raporu olarak görev listesinde açık
+- [ ] Ürün maliyet girişi ekranı — maliyetin Odoo'ya düşmesi doğrulandı, ayrı giriş ekranı teyit edilmedi
 
 ---
 
@@ -167,7 +284,7 @@ Not #28–47 arası büyük kısmı tamamlandı (varyant patlaması #29, Excel e
 - Patron Paneli: /admin/patron (ADMIN rolü)
 - **Excel Envanter:** `/admin/depo` → 📊 Excel Envanter; API: `/api/admin/envanter-import/*`
 - **Lot Transfer:** `POST /admin/transfer-olustur` → `transfer-olustur.service.ts`
-- **Şirketler arası:** `sirketler-arasi-transfer.service.ts` (fatura+picking; e-Fatura eksik)
+- **Şirketler arası:** `sirketler-arasi-transfer.service.ts` (fatura+picking); e-Fatura artık `transfer-post-actions.service.ts` üzerinden gidiyor (Not #50 çözüldü)
 - **e-Fatura kuyruk:** `efatura.cron.ts` (15 dk) — yalnızca `FaturaKuyruk` BEKLIYOR kayıtları; POS satış + şube transfer kabul tetikler
 
 ---

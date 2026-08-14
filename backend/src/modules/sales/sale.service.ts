@@ -1276,13 +1276,25 @@ export async function voidSale(saleId: string, userId: string, role: Role, input
 }
 
 export async function getSales(branchId: string, filters?: any) {
-  const where: any = filters?.customerId ? {} : { branchId };
+  const q = typeof filters?.q === 'string' ? filters.q.trim() : '';
+  // Metin arama (müşteri adı/telefon/referans no) yapılıyorsa, satış hangi şubede
+  // yapılmış olursa olsun bulunabilmeli — bu yüzden şube kapsaması kaldırılıyor
+  // (customerId filtresiyle aynı mantık).
+  const where: any = filters?.customerId || q ? {} : { branchId };
   if (filters?.status) where.status = filters.status;
   if (filters?.customerId) where.customerId = filters.customerId;
   if (filters?.dateFrom || filters?.dateTo) {
     where.createdAt = {};
     if (filters.dateFrom) where.createdAt.gte = new Date(filters.dateFrom);
     if (filters.dateTo) where.createdAt.lte = new Date(filters.dateTo);
+  }
+  if (q) {
+    where.OR = [
+      { customer: { name: { contains: q, mode: 'insensitive' } } },
+      { customer: { phone: { contains: q } } },
+      { referansNo: { contains: q, mode: 'insensitive' } },
+      { id: { contains: q, mode: 'insensitive' } },
+    ];
   }
 
   const sales = await prisma.sale.findMany({

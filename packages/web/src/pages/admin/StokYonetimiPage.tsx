@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   disaAktarStokUrunleri,
   disaAktarStokVaryantlari,
@@ -183,7 +183,13 @@ export default function StokYonetimiPage() {
     }
   }
 
+  // Her yukle() çağrısına artan bir sıra no verilir; yalnızca EN SON tetiklenen istek
+  // sonucu ekrana yazılır. Bunsuz, hızlı yazarken (ör. "ULTRA") önceki karakterler için
+  // atılmış istekler geç dönüp son sonucu ezebiliyordu (filtre "anlık çalışıp sıfırlanıyor").
+  const yukleReqRef = useRef(0)
+
   const yukle = useCallback(async () => {
+    const reqId = ++yukleReqRef.current
     setLoading(true)
     setMesaj(null)
     try {
@@ -199,12 +205,14 @@ export default function StokYonetimiPage() {
         page,
         limit: 50,
       })
+      if (reqId !== yukleReqRef.current) return // eskimiş (stale) yanıt — yok say
       setUrunler(res.data)
       setTotal(res.total)
     } catch (e: any) {
+      if (reqId !== yukleReqRef.current) return
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Ürünler yüklenemedi' })
     } finally {
-      setLoading(false)
+      if (reqId === yukleReqRef.current) setLoading(false)
     }
   }, [arama, kategoriId, fiyatMin, fiyatMax, stokDurumu, effectiveUrunDurumu, lokasyon, kdv, page])
 

@@ -44,9 +44,17 @@ export default function SatislarPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
+  // Arama kutusu artık backend'e de gönderiliyor — böylece müşteri hangi şube/lokasyonda
+  // satış yapılmışsa yapılsın (bu ekran öncesinde yalnızca kullanıcının kendi şubesine
+  // ait, en fazla 100 kayıtlık bir sonucu client-side filtreliyordu — başka şubede
+  // yapılan bir satış listeye hiç girmediği için arama "sonuç getirmiyor" gibi görünüyordu).
   useEffect(() => {
-    void yukle()
-  }, [statusFilter, dateFrom, dateTo, urlCustomerId])
+    const handle = setTimeout(() => {
+      void yukle()
+    }, aramaMetin ? 300 : 0)
+    return () => clearTimeout(handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, dateFrom, dateTo, urlCustomerId, aramaMetin])
 
   async function yukle() {
     setYukleniyor(true)
@@ -57,6 +65,7 @@ export default function SatislarPage() {
       if (statusFilter) params.set('status', statusFilter)
       if (dateFrom) params.set('dateFrom', dateFrom)
       if (dateTo) params.set('dateTo', dateTo)
+      if (aramaMetin.trim()) params.set('q', aramaMetin.trim())
       const res = await api.get(`/sales?${params.toString()}`)
       setSatislar(res.data ?? [])
     } catch {
@@ -66,16 +75,9 @@ export default function SatislarPage() {
     }
   }
 
-  const filtrelenmis = satislar.filter((s) => {
-    if (!aramaMetin) return true
-    const q = aramaMetin.toLowerCase()
-    return (
-      s.customer?.name?.toLowerCase().includes(q) ||
-      s.customer?.phone?.includes(q) ||
-      s.referansNo?.toLowerCase().includes(q) ||
-      s.id.toLowerCase().includes(q)
-    )
-  })
+  // Backend zaten arama terimine göre filtreleyip döndürüyor; burada ekstra bir
+  // client-side filtre uygulamıyoruz (satislar listesi zaten aramaMetin'e göre geldi).
+  const filtrelenmis = satislar
 
   return (
     <div style={{ padding: '24px', maxWidth: 1100 }}>

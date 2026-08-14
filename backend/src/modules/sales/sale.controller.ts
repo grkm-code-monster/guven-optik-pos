@@ -328,6 +328,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       customerId: req.query.customerId,
       dateFrom: req.query.dateFrom,
       dateTo: req.query.dateTo,
+      q: req.query.q,
     });
     return res.status(200).json(sales);
   } catch (err) {

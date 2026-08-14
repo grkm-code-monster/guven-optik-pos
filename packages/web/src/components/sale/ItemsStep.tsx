@@ -1199,6 +1199,7 @@ export default function ItemsStep({
                         <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
                           {u.fiyat != null ? <>Fiyat: {money(u.fiyat)}</> : null}
                           {u.lotNo ? <> · Lot: {u.lotNo}</> : null}
+                          {(u as any).utsKodu ? <> · UTS: {(u as any).utsKodu}</> : null}
                         </div>
                         <div
                           style={{

@@ -27,6 +27,9 @@ export interface FaturaKalem {
   birimFiyat: number;
   kdvOrani: number;
   iskonto?: number;
+  /** true ise birimFiyat KDV HARİÇ (net) kabul edilir ve KDV üzerine eklenir.
+   *  false/undefined ise (varsayılan) birimFiyat KDV DAHİL kabul edilir ve içinden KDV ayrıştırılır. */
+  kdvHaric?: boolean;
 }
 
 export interface FaturaData {
@@ -378,8 +381,16 @@ export function buildUBLXML(
     .map((k) => {
       const brut = k.miktar * k.birimFiyat;
       const iskontoTutar = k.iskonto ? brut * (k.iskonto / 100) : 0;
-      const inclusiveNet = brut - iskontoTutar;
-      const { matrah: netTutar, kdvTutar } = splitInclusiveVat(inclusiveNet, k.kdvOrani);
+      const netBase = brut - iskontoTutar;
+      let netTutar: number;
+      let kdvTutar: number;
+      if (k.kdvHaric) {
+        // birimFiyat zaten KDV HARİÇ (net) — KDV üzerine eklenir, içinden ayrıştırılmaz.
+        netTutar = netBase;
+        kdvTutar = Math.round(netBase * (k.kdvOrani / 100) * 100) / 100;
+      } else {
+        ({ matrah: netTutar, kdvTutar } = splitInclusiveVat(netBase, k.kdvOrani));
+      }
 
       toplamMalHizmet += netTutar;
       toplamIskonto += iskontoTutar;
@@ -870,6 +881,8 @@ export function transferdenFaturaData(
       birim: 'C62',
       birimFiyat: k.birimFiyat,
       kdvOrani: k.kdvOrani ?? 20,
+      // Transfer birimFiyatı maliyet bazlı (KDV HARİÇ) hesaplanır — KDV üzerine eklenmeli, içinden ayrıştırılmamalı.
+      kdvHaric: true,
     })),
     not: `Şirketler arası transfer ${transfer.transferRef}`,
   };

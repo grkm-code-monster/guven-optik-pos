@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiClient } from '../api/client'
-import { useAuthStore } from '../store/auth.store'
 import {
   getSubeOzelSiparisler,
   kaydetOzelSiparisKarekodlar,
@@ -34,7 +33,7 @@ type DeliverySale = {
   items: SaleItem[]
 }
 
-type OdooLocation = { id: number; name: string }
+type OdooLocation = { id: string; name: string; code?: string }
 
 const PAGE_TABS: Array<{ id: PageTab; label: string }> = [
   { id: 'teslimat', label: 'Satış Teslimat' },
@@ -331,7 +330,6 @@ function OzelHazirPanel() {
 }
 
 export default function TeslimatPage() {
-  const userBranchId = useAuthStore((s) => s.user?.branchId)
   const [pageTab, setPageTab] = useState<PageTab>('teslimat')
 
   const [sales, setSales] = useState<DeliverySale[]>([])
@@ -369,7 +367,7 @@ export default function TeslimatPage() {
 
   useEffect(() => {
     apiClient
-      .get('/admin/branches')
+      .get('/admin/branch-list')
       .then((res) => setLocations(res.data?.data ?? []))
       .catch(() => setLocations([]))
     apiClient
@@ -544,9 +542,10 @@ export default function TeslimatPage() {
               style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13, minWidth: 160 }}
             >
               <option value="">Tüm şubeler</option>
-              {userBranchId ? <option value={userBranchId}>POS şubem</option> : null}
               {locations.map((loc) => (
-                <option key={loc.id} value="">{loc.name}</option>
+                <option key={loc.id} value={loc.id}>
+                  {loc.code ? `${loc.code} — ${loc.name}` : loc.name}
+                </option>
               ))}
             </select>
             <button

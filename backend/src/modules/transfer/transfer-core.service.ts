@@ -18,6 +18,7 @@ export type TransferCoreKalem = {
   urunAdi?: string;
   maliyet?: number;
   lotId?: number | null;
+  lotAdi?: string;
   utsKodu?: string;
   utsFirmaKodu?: string;
 };
@@ -119,6 +120,7 @@ function toPostKalemler(kalemler: TransferCoreKalem[]): TransferPostActionKalem[
     miktar: k.miktar,
     maliyet: k.maliyet,
     lotId: k.lotId ?? undefined,
+    lotAdi: k.lotAdi,
     utsKodu: k.utsKodu,
     utsFirmaKodu: k.utsFirmaKodu,
   }));
@@ -429,7 +431,10 @@ export async function baslatTransfer(input: BaslatTransferInput): Promise<Baslat
     };
   }
 
-  await enrichKalemlerWithUtsFromLot(input.kalemler, kaynakSirketId);
+  // NOT: enrichKalemlerWithUtsFromLot yeni bir dizi döndürür (kalemleri mutasyona uğratmaz) —
+  // dönen değer atanmazsa UTS kodu hiçbir zaman kalemlere yazılmaz (fatura Satıcı Kodu ve
+  // UTS bildirimi bu yüzden çalışmıyordu).
+  input.kalemler = await enrichKalemlerWithUtsFromLot(input.kalemler, kaynakSirketId);
 
   let sonuc: BaslatTransferSonuc;
 
@@ -578,6 +583,7 @@ export async function kabulEtTransfer(input: KabulTransferInput): Promise<KabulT
     resolvedProductId: ml.product_id?.[0],
     miktar: ml.quantity ?? 1,
     lotId: ml.lot_id?.[0],
+    lotAdi: ml.lot_id?.[1],
   }));
 
   const { kaynakSirketId, hedefSirketId } = await resolveLokasyonlar(kaynakId, hedefId);

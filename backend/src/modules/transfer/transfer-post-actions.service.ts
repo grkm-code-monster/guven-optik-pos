@@ -37,6 +37,7 @@ export type TransferPostActionKalem = {
   miktar?: number;
   maliyet?: number;
   lotId?: number;
+  lotAdi?: string;
   utsKodu?: string;
   utsFirmaKodu?: string;
 };

@@ -15,6 +15,15 @@ export type TransferEFaturaKalem = {
   kdvOrani?: number;
 };
 
+/** Satıcı Kodu için öncelik: UTS kodu > Lot/Seri adı > Odoo ürün ID. */
+function resolveSaticiKodu(k: { utsKodu?: string; lotAdi?: string }, productId: number): string {
+  const uts = k.utsKodu?.trim();
+  if (uts) return uts;
+  const lot = k.lotAdi?.trim();
+  if (lot) return lot;
+  return String(productId);
+}
+
 export function transferMaliyetHataMesaji(urunAdi: string): string {
   return `'${urunAdi}' için kaynak şirkette maliyet bilgisi (standard_price) bulunamadı — transfer faturası kesilemedi, önce ürünün maliyet fiyatını girin.`;
 }
@@ -87,6 +96,8 @@ export async function resolveTransferFaturaKalemler(
     urunAdi?: string;
     miktar?: number;
     maliyet?: number;
+    utsKodu?: string;
+    lotAdi?: string;
   }>,
   kaynakSirketId: number,
   hedefSirketId?: number,
@@ -98,7 +109,7 @@ export async function resolveTransferFaturaKalemler(
     const kdvOrani = await readProductSaleTaxRate(productId, kaynakSirketId);
     result.push({
       urunAdi,
-      urunKodu: String(productId),
+      urunKodu: resolveSaticiKodu(k, productId),
       miktar: k.miktar || 1,
       maliyet,
       birimFiyat: transferMaliyetSatisFiyati(maliyet),
