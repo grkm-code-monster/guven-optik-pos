@@ -963,7 +963,9 @@ export async function listBekleyen(lokasyon) {
         const pickinglar = (await odooService.execute('stock.picking', 'search_read', [
             [
                 '&',
+                '&',
                 ['location_dest_id', '=', lokasyonId],
+                ['location_id', '!=', lokasyonId],
                 ...pickingListStateDomain(),
             ],
         ], { fields: PICKING_LIST_FIELDS, limit: 50, order: 'create_date desc' }, companyId));
@@ -983,7 +985,9 @@ export async function listGonderilen(lokasyon) {
         const pickinglar = (await odooService.execute('stock.picking', 'search_read', [
             [
                 '&',
+                '&',
                 ['location_id', '=', lokasyonId],
+                ['location_dest_id', '!=', lokasyonId],
                 ...pickingListStateDomain(),
             ],
         ], { fields: PICKING_LIST_FIELDS, limit: 50, order: 'create_date desc' }, companyId));

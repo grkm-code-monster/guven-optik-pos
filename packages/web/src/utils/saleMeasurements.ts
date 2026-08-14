@@ -174,6 +174,11 @@ function itemLabel(it: SaleItem): string {
   )
 }
 
+function frameGroupLabel(baseLabel: string, frame: SaleItem): string {
+  const frameName = itemLabel(frame)
+  return frameName && frameName !== 'Odoo Ürünü' ? `${baseLabel} (${frameName})` : baseLabel
+}
+
 export function lensPairingLabel(lens: SaleItem, idx: number): string {
   return `Cam ${idx + 1} (${itemLabel(lens)})`
 }
@@ -336,16 +341,16 @@ export function buildInitialMeasurementDrafts(sale: Sale): LensMeasurementDraft[
     const isCustomerFrame = primary.linkType === 'CUSTOMER_FRAME'
 
     if (linkedFrame) {
-      return emptyDraft(primary.id, group.saleItemIds, linkedFrame.id, false, group.label)
+      return emptyDraft(primary.id, group.saleItemIds, linkedFrame.id, false, frameGroupLabel(group.label, linkedFrame))
     }
     if (isCustomerFrame) {
-      return emptyDraft(primary.id, group.saleItemIds, null, true, group.label)
+      return emptyDraft(primary.id, group.saleItemIds, null, true, `${group.label} Kendi Çerçevesi`)
     }
     if (group.lenses.length === 1 && frames.length === 1) {
-      return emptyDraft(primary.id, group.saleItemIds, frames[0].id, false, group.label)
+      return emptyDraft(primary.id, group.saleItemIds, frames[0].id, false, frameGroupLabel(group.label, frames[0]))
     }
     if (group.lenses.length === 1 && frames.length === 0) {
-      return emptyDraft(primary.id, group.saleItemIds, null, true, group.label)
+      return emptyDraft(primary.id, group.saleItemIds, null, true, `${group.label} Kendi Çerçevesi`)
     }
     return emptyDraft(primary.id, group.saleItemIds, null, false, group.label)
   })

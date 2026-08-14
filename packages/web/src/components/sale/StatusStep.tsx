@@ -222,9 +222,13 @@ export default function StatusStep({
   const payments = sale.payments ?? []
   const nakit = payments.filter(p => p.paymentType === 'CASH').reduce((s, p) => s + Number(p.netAmount), 0)
   const kart = payments.filter(p => p.paymentType === 'CARD').reduce((s, p) => s + Number(p.netAmount), 0)
+  const havale = payments.filter(p => p.paymentType === 'TRANSFER').reduce((s, p) => s + Number(p.netAmount), 0)
   const acikHesap = payments.filter(p => p.paymentType === 'OPEN_ACCOUNT').reduce((s, p) => s + Number(p.netAmount), 0)
+  const sgkHakki = payments.filter(p => p.paymentType === 'SGK').reduce((s, p) => s + Number(p.netAmount), 0)
+  const vakifOdemesi = payments.filter(p => p.paymentType === 'VAKIF').reduce((s, p) => s + Number(p.netAmount), 0)
+  const eticaret = payments.filter(p => p.paymentType === 'ETICARET').reduce((s, p) => s + Number(p.netAmount), 0)
   const toplam = Number(sale.netTotal)
-  const odenen = nakit + kart + acikHesap
+  const odenen = nakit + kart + havale + acikHesap + sgkHakki + vakifOdemesi + eticaret
   const kalan = toplam - odenen
 
   const para = (n: number) => n.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) + ' ₺'
@@ -471,7 +475,11 @@ export default function StatusStep({
                 <tbody>
                   {nakit > 0 && <tr><td style={{ color: '#6b7280', paddingBottom: 4 }}>Nakit</td><td style={{ textAlign: 'right' }}>{para(nakit)}</td></tr>}
                   {kart > 0 && <tr><td style={{ color: '#6b7280', paddingBottom: 4 }}>Kredi Kartı</td><td style={{ textAlign: 'right' }}>{para(kart)}</td></tr>}
+                  {havale > 0 && <tr><td style={{ color: '#6b7280', paddingBottom: 4 }}>Havale</td><td style={{ textAlign: 'right' }}>{para(havale)}</td></tr>}
                   {acikHesap > 0 && <tr><td style={{ color: '#6b7280', paddingBottom: 4 }}>Açık Hesap</td><td style={{ textAlign: 'right' }}>{para(acikHesap)}</td></tr>}
+                  {sgkHakki > 0 && <tr><td style={{ color: '#6b7280', paddingBottom: 4 }}>SGK Hakkı</td><td style={{ textAlign: 'right' }}>{para(sgkHakki)}</td></tr>}
+                  {vakifOdemesi > 0 && <tr><td style={{ color: '#6b7280', paddingBottom: 4 }}>Vakıf Ödemesi</td><td style={{ textAlign: 'right' }}>{para(vakifOdemesi)}</td></tr>}
+                  {eticaret > 0 && <tr><td style={{ color: '#6b7280', paddingBottom: 4 }}>Kurum Ödemesi</td><td style={{ textAlign: 'right' }}>{para(eticaret)}</td></tr>}
                   <tr style={{ borderTop: '1px solid #e5e7eb' }}><td style={{ paddingTop: 4, color: '#6b7280' }}>Ödenen</td><td style={{ textAlign: 'right', paddingTop: 4 }}>{para(odenen)}</td></tr>
                   <tr><td style={{ color: kalan > 0 ? '#dc2626' : '#16a34a', fontWeight: 600 }}>Kalan</td><td style={{ textAlign: 'right', color: kalan > 0 ? '#dc2626' : '#16a34a', fontWeight: 600 }}>{para(kalan)}</td></tr>
                 </tbody>

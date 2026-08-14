@@ -93,9 +93,9 @@ export default function PaymentStep({
     if (banks.length > 0) return
     setLoadingBanks(true)
     apiClient
-      .get('/admin/banks')
+      .get('/sales/payment-banks')
       .then((res) => {
-        const data = res.data ?? []
+        const data = res.data?.data ?? []
         setBanks(data.map((b: any) => ({ id: b.id, name: b.name })))
         const map = new Map<string, Array<{ id: string; name: string }>>()
         for (const b of data) {

@@ -219,6 +219,20 @@ router.post('/:id/void', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: 
   }
 });
 
+router.get('/payment-banks', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const banks = await prisma.bank.findMany({
+      where: { isActive: true },
+      include: { posDevices: { where: { isActive: true } } },
+      orderBy: { name: 'asc' },
+    });
+    return res.status(200).json({ success: true, data: banks });
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
 router.get('/atolye-branches', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const branches = await saleService.getAtolyeBranches();

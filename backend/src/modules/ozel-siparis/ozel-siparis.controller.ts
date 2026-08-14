@@ -139,6 +139,18 @@ router.post(
         bildirimGonder: true,
       })
 
+      // Satış Teslimat ekranıyla senkron kalsın: bağlı satış kalemi varsa DELIVERED yap.
+      if (siparis.saleItemId) {
+        try {
+          await prisma.saleItem.update({
+            where: { id: siparis.saleItemId },
+            data: { status: 'DELIVERED', deliveryDate: new Date() },
+          })
+        } catch (err) {
+          console.error('[musteri-teslim] Satış kalemi senkron hatası:', err)
+        }
+      }
+
       const waPhone = siparis.musteriTelefon?.replace(/\D/g, '') ?? ''
       const waLink = waPhone
         ? `https://wa.me/90${waPhone.replace(/^0/, '')}?text=${encodeURIComponent(

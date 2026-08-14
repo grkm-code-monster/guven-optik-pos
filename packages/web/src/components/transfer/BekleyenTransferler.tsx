@@ -115,9 +115,14 @@ export default function BekleyenTransferler({
       showGonderilen ? getGonderilenTransferler(aktifLokasyon, source) : Promise.resolve([]),
     ])
       .then(([gelen, giden]) => {
-        setGelenTransferler(Array.isArray(gelen) ? gelen : [])
-        setGidenTransferler(Array.isArray(giden) ? giden : [])
-        const refs = [...(Array.isArray(gelen) ? gelen : []), ...(Array.isArray(giden) ? giden : [])]
+        const gelenList = Array.isArray(gelen) ? gelen : []
+        const gidenList = Array.isArray(giden) ? giden : []
+        // Aynı transfer (transferId) her iki listede birden görünmesin — Gelen (kabul bekleyen) önceliklidir.
+        const gelenIdSet = new Set(gelenList.map((t: { transferId?: unknown }) => String(t.transferId)))
+        const gidenListTekil = gidenList.filter((t: { transferId?: unknown }) => !gelenIdSet.has(String(t.transferId)))
+        setGelenTransferler(gelenList)
+        setGidenTransferler(gidenListTekil)
+        const refs = [...gelenList, ...gidenListTekil]
           .map((t: { transferRef?: string | null }) => t.transferRef)
           .filter((r): r is string => Boolean(r))
         if (refs.length) {

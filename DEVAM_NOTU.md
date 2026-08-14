@@ -6,6 +6,57 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 
 ---
 
+## 14.08.2026 (devam 2) — Üçüncü tur: #72-74, #77, #78 düzeltildi (liste tamamlandı)
+
+### Satış PDF ödeme detayı eksik/yanlış (#72)
+StatusStep.tsx'te PDF'in "Ödenen"/"Kalan" hesabı sadece CASH/CARD/OPEN_ACCOUNT ödeme
+tiplerini topluyordu; TRANSFER/SGK/VAKIF/ETICARET ödemeleri hiç sayılmıyordu, bu yüzden
+"Kalan" rakamı yanlış çıkıyordu (aslında ödenmiş olan tutar borç gibi görünüyordu). Tüm
+7 ödeme tipi artık toplanıyor ve dökümde ayrı satır olarak listeleniyor (Nakit, Kredi Kartı,
+Havale, Açık Hesap, SGK Hakkı, Vakıf Ödemesi, Kurum Ödemesi). types.ts'teki Payment.paymentType
+union'ı ve SaleDetailPage.tsx'in ekran etiket haritası da aynı eksik tiplerle güncellendi.
+
+### Ölçümler ekranında "Daimi Gözlük 1" etiketi (#73)
+saleMeasurements.ts'teki buildInitialMeasurementDrafts, grup etiketini frame bilgisinden
+bağımsız üretiyordu ("Daimi Gözlük 1" gibi sabit + sayaç). Artık bağlı çerçeve varsa etiketin
+sonuna çerçeve adını ekliyor ("Daimi Gözlük 1 (RAY-BAN RB2140...)"), kendi çerçevesi ise
+"Kendi Çerçevesi" ekliyor.
+
+### Kredi kartı ödemesinde banka/POS ekleme çalışmıyordu (#74)
+Kök neden: PaymentStep.tsx (satış ekranındaki ödeme adımı) banka/POS listesini
+`GET /admin/banks`'tan çekiyordu, ama bu route ek-yetki.ts'te "Tanımlamalar" grubuna
+(sadece Role.ADMIN + TANIMLAMALAR yetkisi) gated'lı — satış personeli/kasiyer/mağaza müdürü
+gibi satışı işleyen roller 403 alıyor, banka listesi boş kalıyor, kart ödemesi
+bankId/posDeviceId zorunlu olduğu için eklenemiyordu. Çözüm: satış akışı için ayrı,
+authenticate-only bir endpoint eklendi (`GET /sales/payment-banks`, sale.controller.ts),
+PaymentStep.tsx bu endpoint'i kullanıyor. Tanımlamalar'daki CRUD route'ları (`/admin/banks`
+POST/PUT) admin-only olarak kalmaya devam ediyor.
+Not: Odoo tarafında her ödeme tipi için sabit journal_id kullanılıyor (JOURNAL_MAP,
+sale.service.ts ~1089) — hangi banka/POS seçildiği Odoo muhasebe kaydına şu an yansımıyor.
+Banka bazlı Odoo journal eşlemesi için Bank modeline bir alan eklenmesi gerekiyor; bu daha
+büyük bir şema değişikliği olduğu için bu turda yapılmadı, ileride ele alınmalı.
+
+### Bekleyen Transferler'de ürün hem gidende hem gelende görünüyordu (#77)
+transfer.service.ts'teki listBekleyen/listGonderilen domain filtreleri location_id/
+location_dest_id'den sadece birini kontrol ediyordu; teorik olarak location_id==location_dest_id
+olan (öz-referanslı) bir picking iki listede birden eşleşebiliyordu. Her iki sorguya karşı
+lokasyonun dışlanması eklendi. Ayrıca BekleyenTransferler.tsx'e frontend güvenlik ağı eklendi:
+aynı transferId hem gelen hem giden listesinde geldiyse, "Gelen" (aksiyon gerektiren) öncelikli
+tutulup "Giden"den çıkarılıyor — kök neden ne olursa olsun görsel çakışma artık oluşamaz.
+
+### Teslimat durumu Depo Yönetimi sipariş ekranıyla senkron değildi (#78)
+İki bağımsız durum alanı var: SaleItem.status (Satış Teslimat ekranı) ve OzelSiparis.durum
+(Depo Yönetimi > Siparişler / Özel Sipariş Teslim). Aralarında senkron yoktu:
+- Satış Teslimat'tan bir kalem DELIVERED yapıldığında, bağlı özel sipariş varsa
+  (OzelSiparis.saleItemId) durumu TESLIM_EDILDI'ye hiç geçmiyordu.
+- Depo Yönetimi'nden "Özel Sipariş Teslim" (musteri-teslim) yapıldığında, bağlı
+  SaleItem.status hiç DELIVERED'a çekilmiyordu.
+Her iki yön de eklendi: sale.service.ts'teki updateSaleItemStatus, DELIVERED durumunda bağlı
+OzelSiparis'i TESLIM_EDILDI yapıyor (best-effort, hata sale kaydını engellemiyor);
+ozel-siparis.controller.ts'teki /musteri-teslim, bağlı SaleItem.status'u DELIVERED yapıyor.
+
+---
+
 ## 14.08.2026 (devam) — İkinci tur: #60-71 düzeltildi
 
 ### Garanti & İade kategori filtresi çift görünüyordu (#60)

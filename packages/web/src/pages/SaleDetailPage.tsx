@@ -145,6 +145,9 @@ function paymentTypeLabel(t: string) {
     CARD: 'Kart',
     TRANSFER: 'Havale',
     OPEN_ACCOUNT: 'Açık Hesap',
+    SGK: 'SGK Hakkı',
+    VAKIF: 'Vakıf Ödemesi',
+    ETICARET: 'Kurum Ödemesi',
   }
   return map[t] ?? t
 }

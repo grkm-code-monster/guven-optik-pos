@@ -28,6 +28,7 @@ import type {
   VoidSaleInputType,
 } from './sale.types';
 import { isLabEligibleSaleItem, refreshLabCategoryFromOdoo } from './sale-item-lab.util';
+import { updateOzelSiparisDurum } from '../ozel-siparis/ozel-siparis.service';
 import { calcInclusiveLineAmounts, resolveSaleItemTaxRate } from './sale-tax.util';
 import type { JwtPayload } from '../auth/auth.types';
 
@@ -580,6 +581,24 @@ export async function updateSaleItemStatus(
     }
     return updated;
   });
+
+  // Depo Yönetimi > Özel Siparişler ekranıyla senkron kalsın: bu kalem bir özel
+  // siparişe bağlıysa ve teslim edildiyse, siparişin durumunu da güncelle.
+  if (status === ItemStatus.DELIVERED) {
+    try {
+      const baglıSiparis = await prisma.ozelSiparis.findFirst({ where: { saleItemId } });
+      if (baglıSiparis && baglıSiparis.durum !== 'TESLIM_EDILDI' && baglıSiparis.durum !== 'IPTAL') {
+        await updateOzelSiparisDurum(baglıSiparis.id, {
+          durum: 'TESLIM_EDILDI',
+          userId: options?.userId,
+          bildirimGonder: false,
+        });
+      }
+    } catch (err) {
+      console.error('[updateSaleItemStatus] Özel sipariş senkron hatası:', err);
+    }
+  }
+
   return saleItem;
 }
 

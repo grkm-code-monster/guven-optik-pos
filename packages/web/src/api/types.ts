@@ -110,7 +110,7 @@ export interface Frame {
 
 export interface Payment {
   id: string
-  paymentType: 'CASH' | 'CARD' | 'TRANSFER' | 'OPEN_ACCOUNT'
+  paymentType: 'CASH' | 'CARD' | 'TRANSFER' | 'OPEN_ACCOUNT' | 'SGK' | 'VAKIF' | 'ETICARET'
   grossAmount: string
   commissionAmount?: string
   netAmount: string
