@@ -152,6 +152,63 @@ export async function createCustomer(input: any) {
     },
   });
 
+  // NOT (#67/#68 düzeltmesi): "Hızlı Müşteri Oluştur" formundan girilen reçete bilgisi
+  // önceden SADECE Customer satırının kendi far_*/near_*/lens_* kolonlarına yazılıyordu —
+  // CustomerPrescription tablosuna hiç satır eklenmiyordu. REÇETE GEÇMİŞİ ekranı ise
+  // customerPrescription.findMany() ile çalıştığı için bu ilk reçete hiçbir zaman geçmişte
+  // görünmüyordu ("reçete kaydetmiyor" hissi) — ve müşterinin ileride eklenen tek bir
+  // (genelde Daimi/gözlük) reçetesi ilk kayıt gibi göründüğü için "sadece Daimi reçete
+  // görünüyor" izlenimi oluşuyordu. Artık burada da addPrescription ile aynı şekilde
+  // CustomerPrescription satır(lar)ı oluşturuluyor — gözlük ve lens verisi ayrı kart olarak
+  // (source: 'MANUAL' / 'LENS') geçmişte doğru görünsün diye ayrı satırlara yazılıyor.
+  if (input.hasPresciption) {
+    try {
+      const hasGozlukData = [
+        input.far_r_sph, input.far_r_cyl, input.far_r_aks, input.far_r_pd,
+        input.far_l_sph, input.far_l_cyl, input.far_l_aks, input.far_l_pd,
+        input.near_r_sph, input.near_r_cyl, input.near_r_aks,
+        input.near_l_sph, input.near_l_cyl, input.near_l_aks,
+      ].some((v) => v != null && String(v).trim());
+      const hasLensData = [
+        input.lens_r_sph, input.lens_r_cyl, input.lens_r_aks, input.lens_r_bc, input.lens_r_add,
+        input.lens_l_sph, input.lens_l_cyl, input.lens_l_aks, input.lens_l_bc, input.lens_l_add,
+      ].some((v) => v != null && String(v).trim());
+      const eRxFields = {
+        eRx_no: input.eRx_no,
+        eRx_date: input.eRx_date,
+        eRx_hospital: input.eRx_hospital,
+        eRx_doctor: input.eRx_doctor,
+        eRx_diagnosis: input.eRx_diagnosis,
+      };
+      const toCreate: Array<Record<string, unknown>> = [];
+      if (hasGozlukData) {
+        toCreate.push({
+          customerId: customer.id,
+          source: 'MANUAL',
+          far_r_pd: input.far_r_pd, far_r_sph: input.far_r_sph, far_r_cyl: input.far_r_cyl, far_r_aks: input.far_r_aks, far_r_note: input.far_r_diagnosis,
+          far_l_pd: input.far_l_pd, far_l_sph: input.far_l_sph, far_l_cyl: input.far_l_cyl, far_l_aks: input.far_l_aks, far_l_note: input.far_l_diagnosis,
+          near_r_pd: input.near_r_pd, near_r_sph: input.near_r_sph, near_r_cyl: input.near_r_cyl, near_r_aks: input.near_r_aks, near_r_note: input.near_r_diagnosis,
+          near_l_pd: input.near_l_pd, near_l_sph: input.near_l_sph, near_l_cyl: input.near_l_cyl, near_l_aks: input.near_l_aks, near_l_note: input.near_l_diagnosis,
+          ...eRxFields,
+        });
+      }
+      if (hasLensData) {
+        toCreate.push({
+          customerId: customer.id,
+          source: 'LENS',
+          lens_r_bc: input.lens_r_bc, lens_r_sph: input.lens_r_sph, lens_r_cyl: input.lens_r_cyl, lens_r_aks: input.lens_r_aks, lens_r_add: input.lens_r_add,
+          lens_l_bc: input.lens_l_bc, lens_l_sph: input.lens_l_sph, lens_l_cyl: input.lens_l_cyl, lens_l_aks: input.lens_l_aks, lens_l_add: input.lens_l_add,
+          ...eRxFields,
+        });
+      }
+      if (toCreate.length) {
+        await prisma.customerPrescription.createMany({ data: toCreate as any });
+      }
+    } catch (err) {
+      console.error('[createCustomer] Reçete geçmişi kaydı oluşturulamadı:', err);
+    }
+  }
+
   try {
     const odooPartnerId = await syncCustomerToOdoo({
       name: customer.name,

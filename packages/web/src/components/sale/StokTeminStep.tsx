@@ -27,12 +27,15 @@ type UrunStokBilgi = {
   transferHata?: string | null
   transferMesaji?: string | null
   siparisVerildi?: boolean
+  gerekliAdet: number
 }
 
 type LotSecimState = {
   saleItemId: string
   kaynakKod: string
   lots: TransferUrun[]
+  gerekliAdet: number
+  secilenLotIdler: number[]
 }
 
 const KAPALI_SIPARIS_DURUMLARI = new Set(['IPTAL', 'TESLIM_EDILDI', 'MUSTERIYE_TESLIM'])
@@ -199,6 +202,7 @@ export default function StokTeminStep({
         stokluLokasyonlar,
         seciliKaynakLokasyon,
         aktifLokasyon,
+        gerekliAdet: Math.max(1, Number((item as any).qty ?? 1)),
       })
     }
 
@@ -257,10 +261,21 @@ export default function StokTeminStep({
     }
 
     const withLot = lots.filter((l) => l.lotId && Number(l.lotId) > 0)
+    const gerekliAdet = urun.gerekliAdet ?? 1
     if (withLot.length === 0) {
       return { type: 'error', message: `${kaynakKod} lokasyonunda uygun lot bulunamadı` }
     }
-    if (withLot.length === 1) {
+    // NOT (#71 düzeltmesi): lot/seri takipli ürünlerde her lot TEK bir fiziksel birimi
+    // temsil eder — 2 adet gerekiyorsa 2 AYRI lot seçilmesi gerekir. Önceden burada tek bir
+    // lotId'ye zorlanıyor (miktar her zaman 1 gönderiliyordu), adet>1 olan satışlarda ya
+    // eksik transfer oluyor ya da kullanıcı ikinci birimi hiç seçemiyordu.
+    if (withLot.length < gerekliAdet) {
+      return {
+        type: 'error',
+        message: `${kaynakKod} lokasyonunda ${gerekliAdet} adet için yeterli lot/seri yok (${withLot.length} adet mevcut)`,
+      }
+    }
+    if (withLot.length === 1 && gerekliAdet === 1) {
       return { type: 'ready', lotId: Number(withLot[0].lotId) }
     }
     return { type: 'picker', lots: withLot }
@@ -324,26 +339,71 @@ export default function StokTeminStep({
     ))
   }
 
-  async function transferApiCagir(urun: UrunStokBilgi, kaynakId: number, lotId: number | null) {
-    return apiClient.post('/admin/transfer-olustur', {
-      kalemler: [{
-        kaynak: kaynakId,
-        hedef: LOKASYON_ID_MAP[urun.aktifLokasyon],
-        productId: urun.odooProductId ? Number(urun.odooProductId) : 0,
-        lotId,
-        miktar: 1,
-        urunAdi: urun.urunAdi,
-      }],
+  // NOT (#71 düzeltmesi): lotIds artık bir DİZİ — lot/seri takipli ürünlerde her lot ayrı
+  // bir kalem olarak (miktar:1) gönderiliyor, böylece adet>1 satışlarda gerekli tüm birimler
+  // transfer ediliyor. Lot takibi olmayan ürünlerde (lotIds === [null]) tek kalemde
+  // urun.gerekliAdet kadar miktar gönderiliyor (önceden hep 1 idi).
+  async function transferApiCagir(urun: UrunStokBilgi, kaynakId: number, lotIds: Array<number | null>) {
+    const hedef = LOKASYON_ID_MAP[urun.aktifLokasyon]
+    const productId = urun.odooProductId ? Number(urun.odooProductId) : 0
+    const kalemler = lotIds.length === 1 && lotIds[0] == null
+      ? [{
+          kaynak: kaynakId,
+          hedef,
+          productId,
+          lotId: null,
+          miktar: urun.gerekliAdet ?? 1,
+          urunAdi: urun.urunAdi,
+        }]
+      : lotIds.map((lotId) => ({
+          kaynak: kaynakId,
+          hedef,
+          productId,
+          lotId,
+          miktar: 1,
+          urunAdi: urun.urunAdi,
+        }))
+    return apiClient.post('/admin/transfer-olustur', { kalemler })
+  }
+
+  function lotToggle(lot: TransferUrun) {
+    if (!lot.lotId) return
+    const lotIdNum = Number(lot.lotId)
+    setLotSecim((prev) => {
+      if (!prev) return prev
+      const secili = prev.secilenLotIdler.includes(lotIdNum)
+      if (secili) {
+        return { ...prev, secilenLotIdler: prev.secilenLotIdler.filter((id) => id !== lotIdNum) }
+      }
+      if (prev.secilenLotIdler.length >= prev.gerekliAdet) return prev
+      return { ...prev, secilenLotIdler: [...prev.secilenLotIdler, lotIdNum] }
     })
   }
 
-  async function lotSecildi(saleItemId: string, lot: TransferUrun) {
-    const urun = stokBilgileri.find((s) => s.saleItemId === saleItemId)
-    if (!urun || !lot.lotId) return
-    const guncel: UrunStokBilgi = { ...urun, lotId: Number(lot.lotId) }
+  async function lotSecimOnayla() {
+    if (!lotSecim) return
+    const urun = stokBilgileri.find((s) => s.saleItemId === lotSecim.saleItemId)
+    if (!urun) return
+    if (lotSecim.secilenLotIdler.length !== lotSecim.gerekliAdet) return
+    const kaynakId = lokasyonIdFromKod(lotSecim.kaynakKod)
+    if (!kaynakId) return
+    const secilenLotIdler = lotSecim.secilenLotIdler
     setLotSecim(null)
-    setStokBilgileri((prev) => prev.map((s) => (s.saleItemId === saleItemId ? guncel : s)))
-    await transferTalepGonder(guncel)
+    setTransferDurumlari((p) => ({ ...p, [urun.saleItemId]: 'islemde' }))
+    setStokBilgileri((prev) => prev.map((s) =>
+      s.saleItemId === urun.saleItemId ? { ...s, transferHata: null, transferMesaji: null } : s
+    ))
+    try {
+      const res = await transferApiCagir(urun, kaynakId, secilenLotIdler)
+      transferSonucIsle({ ...urun, lotId: secilenLotIdler[0] }, res)
+    } catch (e: any) {
+      setTransferDurumlari((p) => ({ ...p, [urun.saleItemId]: 'hata' }))
+      setStokBilgileri((prev) => prev.map((s) =>
+        s.saleItemId === urun.saleItemId
+          ? { ...s, transferHata: e?.response?.data?.message ?? e?.response?.data?.error ?? 'Bağlantı hatası, tekrar deneyin', transferMesaji: null }
+          : s
+      ))
+    }
   }
 
   async function transferTalepGonder(urun: UrunStokBilgi) {
@@ -378,10 +438,18 @@ export default function StokTeminStep({
           saleItemId: urun.saleItemId,
           kaynakKod,
           lots: lotSonuc.lots,
+          gerekliAdet: urun.gerekliAdet ?? 1,
+          secilenLotIdler: [],
         })
         setStokBilgileri((prev) => prev.map((s) =>
           s.saleItemId === urun.saleItemId
-            ? { ...s, transferHata: `${kaynakKod} lokasyonunda birden fazla lot var — seçin`, transferMesaji: null }
+            ? {
+              ...s,
+              transferHata: (urun.gerekliAdet ?? 1) > 1
+                ? `${kaynakKod} lokasyonunda ${urun.gerekliAdet} adet için lot/seri seçin`
+                : `${kaynakKod} lokasyonunda birden fazla lot var — seçin`,
+              transferMesaji: null,
+            }
             : s
         ))
         return
@@ -394,18 +462,24 @@ export default function StokTeminStep({
         ))
       }
 
-      const res = await transferApiCagir(urun, kaynakId, lotId)
+      const res = await transferApiCagir(urun, kaynakId, [lotId])
       const failMsg = String(res.data?.message ?? '')
       if (!res.data?.success && failMsg.includes('lot/seri takipli') && !urun.lotId && lotId == null) {
         const retry = await lotCozumle({ ...urun, tracking: 'serial' }, kaynakKod)
         if (retry.type === 'ready' && retry.lotId) {
-          const retryRes = await transferApiCagir(urun, kaynakId, retry.lotId)
+          const retryRes = await transferApiCagir(urun, kaynakId, [retry.lotId])
           transferSonucIsle({ ...urun, lotId: retry.lotId }, retryRes)
           return
         }
         if (retry.type === 'picker') {
           setTransferDurumlari((p) => ({ ...p, [urun.saleItemId]: 'hata' }))
-          setLotSecim({ saleItemId: urun.saleItemId, kaynakKod, lots: retry.lots })
+          setLotSecim({
+            saleItemId: urun.saleItemId,
+            kaynakKod,
+            lots: retry.lots,
+            gerekliAdet: urun.gerekliAdet ?? 1,
+            secilenLotIdler: [],
+          })
           setStokBilgileri((prev) => prev.map((s) =>
             s.saleItemId === urun.saleItemId
               ? { ...s, transferHata: `${kaynakKod} lokasyonunda birden fazla lot var — seçin`, transferMesaji: null }
@@ -489,11 +563,16 @@ export default function StokTeminStep({
   const fizikselKalemSayisi = stokKontrolKalemleri(tumKalemler).length
   const sadeceBakimHizmet = tumKalemler.length > 0 && fizikselKalemSayisi === 0
   const transferEngelli = Object.values(transferDurumlari).some((d) => d === 'hata' || d === 'kismi')
+  // NOT (#70 düzeltmesi): TRANSFER_YOLDA, transferin gerçekten başlatıldığı (Odoo picking'i
+  // oluşturulmuş, ürün gerçekten yola çıkmış) ama hedef şubenin henüz fiziksel kabul
+  // etmediği durumu ifade ediyor — yani transfer zaten TAAHHÜT EDİLDİ. Satış personelinin
+  // hedef şube kabul edene kadar burada beklemesine gerek yok; bu yüzden MEVCUT'a ek
+  // olarak TRANSFER_YOLDA da "devam edilebilir" sayılıyor.
   const hepsiHazir =
     !transferEngelli
     && (stokBilgileri.length === 0
       ? sadeceBakimHizmet
-      : stokBilgileri.every((s) => s.stokDurum === 'MEVCUT'))
+      : stokBilgileri.every((s) => s.stokDurum === 'MEVCUT' || s.stokDurum === 'TRANSFER_YOLDA'))
 
   function transferButonMetni(saleItemId: string): string {
     const durum = transferDurumlari[saleItemId]
@@ -616,29 +695,68 @@ export default function StokTeminStep({
                       backgroundColor: '#fffbeb',
                     }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 8 }}>
-                        Lot/seri seçin ({lotSecim.kaynakKod})
+                        {lotSecim.gerekliAdet > 1
+                          ? `Lot/seri seçin (${lotSecim.kaynakKod}) — ${lotSecim.secilenLotIdler.length}/${lotSecim.gerekliAdet} seçildi`
+                          : `Lot/seri seçin (${lotSecim.kaynakKod})`}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {lotSecim.lots.map((lot) => (
-                          <button
-                            key={`${lot.lotId}-${lot.lotNo}`}
-                            type="button"
-                            onClick={() => void lotSecildi(s.saleItemId, lot)}
-                            style={{
-                              textAlign: 'left',
-                              padding: '8px 10px',
-                              borderRadius: 8,
-                              border: '1px solid #fde68a',
-                              backgroundColor: 'white',
-                              cursor: 'pointer',
-                              fontSize: 12,
-                            }}
-                          >
-                            <div style={{ fontWeight: 700 }}>Lot: {lot.lotNo ?? lot.lotId}</div>
-                            <div style={{ color: '#6b7280' }}>Stok: {lot.stok ?? 1}</div>
-                          </button>
-                        ))}
+                        {lotSecim.lots.map((lot) => {
+                          const lotIdNum = lot.lotId != null ? Number(lot.lotId) : null
+                          const secili = lotIdNum != null && lotSecim.secilenLotIdler.includes(lotIdNum)
+                          const limitDoldu = !secili && lotSecim.secilenLotIdler.length >= lotSecim.gerekliAdet
+                          return (
+                            <label
+                              key={`${lot.lotId}-${lot.lotNo}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                textAlign: 'left',
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                border: `1px solid ${secili ? '#f59e0b' : '#fde68a'}`,
+                                backgroundColor: secili ? '#fef3c7' : 'white',
+                                cursor: limitDoldu ? 'not-allowed' : 'pointer',
+                                opacity: limitDoldu ? 0.5 : 1,
+                                fontSize: 12,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={secili}
+                                disabled={limitDoldu}
+                                onChange={() => lotToggle(lot)}
+                              />
+                              <div>
+                                <div style={{ fontWeight: 700 }}>
+                                  Lot: {lot.lotNo ?? lot.lotId}
+                                  {lot.utsKodu ? ` · UTS: ${lot.utsKodu}` : ''}
+                                </div>
+                                <div style={{ color: '#6b7280' }}>Stok: {lot.stok ?? 1}</div>
+                              </div>
+                            </label>
+                          )
+                        })}
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => void lotSecimOnayla()}
+                        disabled={lotSecim.secilenLotIdler.length !== lotSecim.gerekliAdet}
+                        style={{
+                          marginTop: 10,
+                          width: '100%',
+                          padding: '8px 10px',
+                          borderRadius: 8,
+                          border: 'none',
+                          backgroundColor: lotSecim.secilenLotIdler.length === lotSecim.gerekliAdet ? '#1d4ed8' : '#d1d5db',
+                          color: 'white',
+                          fontWeight: 700,
+                          fontSize: 12,
+                          cursor: lotSecim.secilenLotIdler.length === lotSecim.gerekliAdet ? 'pointer' : 'not-allowed',
+                        }}
+                      >
+                        Seçilen {lotSecim.secilenLotIdler.length}/{lotSecim.gerekliAdet} lotu transfer et
+                      </button>
                     </div>
                   ) : null}
                 </div>
@@ -694,7 +812,9 @@ export default function StokTeminStep({
           {hepsiHazir
             ? sadeceBakimHizmet
               ? '✅ Bakım/hizmet kalemleri için ek işlem gerekmiyor. Satışa devam edebilirsiniz.'
-              : '✅ Tüm ürünler hazır. Satışa devam edebilirsiniz.'
+              : stokBilgileri.some((s) => s.stokDurum === 'TRANSFER_YOLDA')
+                ? '✅ Transferi başlatılan ürün(ler) yolda — hedef şubenin kabulünü beklemeden satışa devam edebilirsiniz.'
+                : '✅ Tüm ürünler hazır. Satışa devam edebilirsiniz.'
             : transferEngelli
               ? '⚠️ Transfer hatası veya kısmi tamamlanma var. Devam etmeden önce sorunu çözün veya tekrar deneyin.'
               : '⚠️ Bazı ürünler için işlem gerekiyor. Tüm işlemleri tamamlayıp devam edebilirsiniz.'}

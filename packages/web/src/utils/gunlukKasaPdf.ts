@@ -201,7 +201,10 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
     'Taksit',
     'Oran',
     'Slip Top.',
-    'Reçete Bed.',
+    // NOT: bu kolonun altında gerçekte SGK tutarı (row.sgkAmount) basılıyor — "Reçete Bed."
+    // etiketi yanlıştı (raporda ayrı bir "reçete bedeli" alanı hiç hesaplanmıyor), SGK'ya
+    // düzeltildi.
+    'SGK Bed.',
     ...(showRep ? ['Temsilci'] : []),
   ]
 

@@ -1305,7 +1305,9 @@ export async function getSales(branchId: string, filters?: any) {
       _count: { select: { items: true } },
     },
     orderBy: { createdAt: 'desc' },
-    take: 100,
+    // Arama (q) yapılırken sonuç sayısı sınırlanmaz — eşleşen TÜM satışlar döner.
+    // Arama yokken (düz liste) performans için son 100 kayıtla sınırlı kalır.
+    ...(q ? {} : { take: 100 }),
   });
 
   // Sürecin en gerisindeki kalem durumu satış listesine "süreç durumu" olarak yansır

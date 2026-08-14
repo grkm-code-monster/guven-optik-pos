@@ -6,6 +6,68 @@ Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra ko
 
 ---
 
+## 14.08.2026 (devam) — İkinci tur: #60-71 düzeltildi
+
+### Garanti & İade kategori filtresi çift görünüyordu (#60)
+KATEGORI_LABEL'de birden fazla kod aynı etikete eşleniyordu (OPTICAL_FRAME_READY/RX ikisi de
+"Optik Çerçeve"), dropdown kod bazlı listelendiği için etiket 2 kez görünüyordu. GarantiPage.tsx
+artık benzersiz etiket listesi gösteriyor, filtre etiket bazlı çalışıyor.
+
+### Günlük Kasa Raporu "Reçete Bed." kolonu (#61)
+Kolon her zaman SGK tutarını gösteriyordu ama başlık yanlıştı. PDF + ekran tablosu "SGK Bed."
+olarak düzeltildi (gunlukKasaPdf.ts, DashboardPage.tsx).
+
+### Sidebar kullanıcı kartı — şube kodu yoktu (#62)
+Sidebar.tsx: rol satırına şube kodu eklendi ("ROL · ŞUBE_KODU").
+
+### Kontrol Paneli Personel sekmesi (#63)
+Kod incelendi — STORE_MANAGER zaten ADMIN ile AYNI MudurDashboard'u kullanıyor, sekme zaten
+ortak. Kod tarafında fark bulunamadı; canlıda tekrar doğrulanmalı.
+
+### Profilim ekranı + yüklenmemiş evraklar (#64, #65)
+Profilim sekmesi sadece SALES_STAFF'ta vardı. Ortak `ProfilimTab` bileşeni çıkarıldı, hem
+MudurDashboard (STORE_MANAGER/ADMIN/WAREHOUSE_MANAGER/WORKSHOP_STAFF/ACCOUNTANT) hem
+BolgeMudurDashboard'a (REGIONAL_MANAGER) eklendi. Ayrıca belge listesi artık BELGE_TIP_LABELS'teki
+TÜM türleri gösteriyor — hiç yüklenmemiş bir evrak da "Yüklenmedi" rozetiyle ve Yükle butonuyla
+çıkıyor (önceden sadece zaten yüklenmiş belgeler listeleniyordu).
+
+### Mağaza Özeti'nde SGK ödemesi gelmiyordu (#66)
+SGK/Vakıf toplamları shift.id'ye (o an açık vardiya) bağlıydı — aynı gün içinde vardiya
+kapanıp yeni vardiya açılırsa önceki vardiyadaki SGK'lı satışlar toplamdan düşüyordu. Ayrıca
+"Vakıf Ödemesi" hiç gerçek veriden hesaplanmıyordu (sale.prescriptionAmount hiç okunmuyordu,
+hep 0 görünüyordu). report.service.ts: SGK/Vakıf artık GÜNÜN TAMAMI (tüm vardiyalar) üzerinden
+hesaplanıyor; kasa mutabakatı alanları (openCash/expectedCash) kasıtlı olarak vardiya bazlı kaldı.
+
+### Reçete geçmişinde sadece Daimi görünüyor + yeni reçete kaydetmiyor (#67, #68)
+Kök neden: "Hızlı Müşteri Oluştur" formundan girilen reçete SADECE Customer satırının kendi
+far_*/near_*/lens_* kolonlarına yazılıyordu — CustomerPrescription tablosuna (Reçete Geçmişi'nin
+gerçek kaynağı) hiç satır eklenmiyordu. customer.service.ts: createCustomer() artık
+addPrescription ile aynı şekilde CustomerPrescription satırı da oluşturuyor (gözlük ve lens verisi
+ayrı kart olarak, source: MANUAL/LENS).
+
+### "Kabul bekliyor" transferde satış personeli devam edemiyordu (#70)
+"Onaya Devam" butonu tüm kalemlerin stokDurum === 'MEVCUT' (fiziksel burada) olmasını
+şart koşuyordu — TRANSFER_YOLDA (transfer zaten başlatılmış/taahhüt edilmiş, hedef şube
+kabulünü bekliyor) da bloklayıcıydı. StokTeminStep.tsx: TRANSFER_YOLDA artık "devam
+edilebilir" sayılıyor.
+
+### Transfer lot seçimi adet kadar seçtirmiyordu + UTS gösterilmiyordu (#71)
+İki kök neden: (1) transferApiCagir'da miktar her zaman hardcoded 1'di — satışın gerçek adedi
+hiç kullanılmıyordu; (2) lot/seri picker'ı tek tıkla tek lot seçip kapanıyordu, adet>1 için
+ikinci lotu seçme imkanı yoktu. StokTeminStep.tsx: gerekliAdet artık satış kaleminin qty'sinden
+hesaplanıyor, picker checkbox ile çoklu lot seçimine izin veriyor (tam gerekliAdet kadar
+seçilene kadar onay pasif), her lot ayrı kalem (miktar:1) olarak gönderiliyor, UTS kodu
+lot kartlarında gösteriliyor.
+
+### Henüz düzeltilmedi (sıradaki oturum)
+- #72 Satış PDF çıktısında ödeme detayı eksik/yanlış
+- #73 Ölçümler ekranında "Daimi Gözlük 1" etiketi yanlış
+- #74 Kredi kartı ödemesinde banka/POS ekleme çalışmıyor
+- #77 Bekleyen Transferler'de ürünler hem gidende hem gelende görünüyor
+- #78 Teslimat durumu Depo Yönetimi sipariş ekranıyla senkron değil
+
+---
+
 ## 14.08.2026 — Canlı test turu: 27 ekran görüntüsü bulgu, düzeltmeler
 
 Görkem canlı sistemi test edip 27 ekran görüntüsüyle bulgu bildirdi (görev listesine #60–#82

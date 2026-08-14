@@ -325,7 +325,10 @@ export default function Sidebar({ acik, mobil, onKapat }: Props) {
       {/* ALT: Kullanıcı */}
       <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.15)' }}>
         <div style={{ color: 'white', fontSize: '13px', fontWeight: '600' }}>{user?.name}</div>
-        <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px', marginTop: '2px' }}>{user?.role}</div>
+        <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px', marginTop: '2px' }}>
+          {user?.role}
+          {user?.branchCode ? ` · ${user.branchCode}` : ''}
+        </div>
         <button
           onClick={logout}
           style={{

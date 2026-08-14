@@ -35,6 +35,8 @@ const KATEGORI_LABEL: Record<string, string> = {
   SOLUTION: 'Solüsyon',
   ACCESSORY: 'Aksesuar',
 }
+// Kategori filtre dropdown'ı için benzersiz etiket listesi (bkz. yukarıdaki not).
+const KATEGORI_FILTRE_ETIKETLERI = Array.from(new Set(Object.values(KATEGORI_LABEL)))
 
 export default function GarantiPage() {
   const [sekme, setSekme] = useState<'pos' | 'depo'>('pos')
@@ -400,11 +402,15 @@ export default function GarantiPage() {
                 </select>
                 <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}>
                   <option value="">Tüm kategoriler</option>
-                  {Object.entries(KATEGORI_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  {/* KATEGORI_LABEL birden çok Odoo kodunu aynı görünen etikete eşliyor
+                      (ör. OPTICAL_FRAME_READY ve OPTICAL_FRAME_RX ikisi de "Optik Çerçeve") —
+                      kod bazlı listelemek aynı etiketin iki kez görünmesine yol açıyordu.
+                      Bunun yerine benzersiz ETİKET listeleniyor. */}
+                  {KATEGORI_FILTRE_ETIKETLERI.map(label => <option key={label} value={label}>{label}</option>)}
                 </select>
               </div>
               {loading && <div style={{ fontSize: 13, color: '#6b7280' }}>Yükleniyor...</div>}
-              {claims.filter(c => !categoryFilter || c.productCategory === categoryFilter).map(c => {
+              {claims.filter(c => !categoryFilter || KATEGORI_LABEL[c.productCategory as string] === categoryFilter).map(c => {
                 const renk = DURUM_RENK[c.status] ?? { bg: '#f3f4f6', color: '#374151' }
                 const chain = c.chainJson ? JSON.parse(c.chainJson) : []
                 return (

@@ -666,14 +666,23 @@ export async function getDailyReport(branchId: string, date: Date) {
   const allItems = paidSales.flatMap((sale) => sale.items);
   const kategoriBreakdown = await buildKategoriBreakdown(allItems);
 
-  let toplamSgkHakki = new Prisma.Decimal(0);
-  let toplamVakifOdemesi = new Prisma.Decimal(0);
+  // NOT: SGK/Vakıf toplamları kasıtlı olarak "shift.id" ile değil, GÜNÜN TAMAMIYLA
+  // (start–end) hesaplanıyor. "Mağaza Özeti" günün genel özeti olarak sunuluyor, ama
+  // paidSales yalnızca O AN AÇIK/EN SON vardiyaya ait satışları içeriyor — aynı gün içinde
+  // vardiya kapatılıp yeni bir vardiya açıldıysa, önceki (kapanmış) vardiyadaki SGK'lı
+  // satışlar bu listeden düşüyor ve "SGK ödemesi gelmiyor" olarak görünüyordu. Kasa
+  // mutabakatı alanları (openCash/expectedCash vb.) kasıtlı olarak shift-scoped kalıyor,
+  // yalnızca bu bilgilendirme amaçlı toplamlar gün bazına çekildi. Vakıf ödemesi de aynı
+  // hatayı taşıyordu — üstelik yanlış alanı da hiç okumuyordu (sale.prescriptionAmount).
+  const gunlukSgkVakifAgg = await prisma.sale.aggregate({
+    where: { branchId, status: SaleStatus.PAID, createdAt: { gte: start, lte: end } },
+    _sum: { sgkAmount: true, prescriptionAmount: true },
+  });
+  const toplamSgkHakki = gunlukSgkVakifAgg._sum.sgkAmount ?? new Prisma.Decimal(0);
+  const toplamVakifOdemesi = gunlukSgkVakifAgg._sum.prescriptionAmount ?? new Prisma.Decimal(0);
   const repMap = new Map<string, { repName: string; saleCount: number; ciro: Prisma.Decimal }>();
 
   for (const sale of paidSales) {
-    if (sale.sgkAmount) {
-      toplamSgkHakki = toplamSgkHakki.plus(sale.sgkAmount);
-    }
     const repKey = sale.userId;
     const prev = repMap.get(repKey) ?? {
       repName: sale.user?.name ?? '—',
