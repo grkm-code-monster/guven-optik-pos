@@ -123,13 +123,35 @@ async function main() {
   if (!executeMode) {
     console.log('\nBu bir dry-run — hiçbir şey değiştirilmedi.');
     console.log('Gerçek uygulama için: npm run fix-variant-explosion -- --execute');
+    console.log('(NOT: Odoo, zaten varyantı olan bir niteliğin modunu değiştirmeyi');
+    console.log(' engelliyor olabilir — aşağıya bakın.)');
     return;
   }
 
-  await execute(
-    'product.attribute', 'write',
-    [degistirilecek.map((n) => n.id), { create_variant: 'dynamic' }],
-  );
+  try {
+    await execute(
+      'product.attribute', 'write',
+      [degistirilecek.map((n) => n.id), { create_variant: 'dynamic' }],
+    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log('\n✗ Odoo bu değişikliği reddetti:');
+    console.log(`  ${msg.slice(0, 300)}`);
+    console.log('');
+    console.log('Bu beklenen bir durum — Odoo, MODEL/RENK/ÖLÇÜ zaten onlarca şablonda');
+    console.log('kullanıldığı ve o şablonların gerçek varyantları olduğu için global');
+    console.log('modu değiştirmeye izin vermiyor (veri bütünlüğü koruması).');
+    console.log('');
+    console.log('KALICI ÇÖZÜM bu yüzden başka bir yerde uygulandı: Envanter Excel');
+    console.log('import koduna (odoo-varyant-import.service.ts) otomatik bir koruma');
+    console.log('eklendi — bir şablon 500+ kombinasyona ulaştıysa (OTTO, MUSTANG gibi),');
+    console.log('yeni modeller artık o şablona değil, otomatik oluşturulan küçük');
+    console.log('"{Ürün Adı} {MODEL}" alt şablonlarına yazılıyor. Mevcut varyantlara');
+    console.log('dokunulmuyor, sadece yeni büyüme güvenli şablonlara yönleniyor.');
+    console.log('Bu ayar değişikliğine gerek kalmadan import artık çalışmalı —');
+    console.log('en son başarısız olan Excel dosyasını tekrar deneyin.');
+    return;
+  }
 
   console.log('\n✓ Uygulandı. MODEL/RENK/ÖLÇÜ artık "Talep Üzerine" modunda.');
   console.log('  - Mevcut varyantlar ve stok hareketleri ETKİLENMEDİ.');

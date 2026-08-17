@@ -1,8 +1,51 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 14.08.2026
+Son güncelleme: 17.08.2026
 
 ## Kural: Önce tasarım, sonra kod
 Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra kodlanır.
+
+---
+
+## 17.08.2026 — Excel Envanter: MODEL/RENK/ÖLÇÜ varyant patlaması kalıcı çözümü
+
+**Sorun:** "OTTO OPTİK ÇERÇEVE" gibi tek ürün adı altında çok sayıda model
+biriken şablonlarda Excel içe aktarımı `XML-RPC fault: Oluşturulacak
+varyantların sayısı izin verilen sınırın üzerinde` hatasıyla komple
+reddediliyordu. Kök neden: MODEL/RENK/ÖLÇÜ özniteliklerinin Odoo'daki
+"Varyant Oluşturma" modu "Anında" (always) — şablona yeni bir değer
+eklendiğinde Odoo o şablonun TÜM model×renk×ölçü kombinasyonunu (OTTO için
+1.012, MUSTANG için 1.350) peşinen üretmeye çalışıyor ve Odoo'nun güvenlik
+sınırını aşıyor.
+
+**Denenip işe yaramayan yol:** `create_variant` modunu global olarak
+"Talep Üzerine" (dynamic) yapmak — Odoo bunu, nitelik zaten onlarca
+şablonda kullanıldığı ve gerçek varyantları olduğu için reddediyor
+(`fix-variant-explosion.ts` scripti bunu dry-run'da doğru tahmin etti,
+`--execute` Odoo'dan ret aldı — script artık bu durumu yakalayıp açıklıyor).
+
+**Kalıcı çözüm (uygulandı):** `backend/src/modules/admin/odoo-varyant-import.service.ts`
+— `importVaryantlarForTemplate` artık yeni satırlar eklenmeden ÖNCE hedef
+şablonun mevcut kombinasyon sayısını hesaplıyor. 500'ü geçtiyse (`VARYANT_PATLAMA_ESIGI`),
+o satırları paylaşımlı şablona hiç yazmıyor — `importVaryantlarSplitByModel`
+fonksiyonu her MODEL için otomatik olarak ayrı, küçük bir "bölünmüş şablon"
+(`"{Ürün Adı} {MODEL}"`, örn. "OTTO OPTİK ÇERÇEVE 804OO") oluşturup varyantı
+sadece RENK×ÖLÇÜ niteliğiyle oraya yazıyor. Orijinal şablona ve mevcut 67+
+varyanta dokunulmuyor — sadece yeni büyüme güvenli, küçük şablonlara
+yönleniyor. `varyantIdByKey` composite anahtarı (model|renk|ölçü) değişmediği
+için çağıran kod (`envanter-import-uygula.service.ts`) hiçbir değişiklik
+gerektirmedi.
+
+**Bilinen küçük sınır:** Önizleme (preview) ekranı hâlâ orijinal şablon
+adına göre eşleşme arıyor — bir birim daha sonra split şablona taşındıysa,
+aynı barkodu tekrar import etmeye çalışmak "Barkod Odoo'da zaten kayıtlı"
+hatası verir (kod tarafında zaten global barkod kontrolü var, yani
+kopya/çift varyant oluşmaz — sadece mesaj biraz kafa karıştırıcı olabilir).
+Sorun çıkarsa incelenecek.
+
+**Doğrulama:** `npx tsc --noEmit` temiz (yeni hata yok). Sunucuda canlı
+Odoo'ya karşı test edilemedi (sandbox'tan ağ erişimi yok) — görkem'in
+production'da 54 satırlık OTTO Excel'ini tekrar deneyip doğrulaması
+gerekiyor.
 
 ---
 
