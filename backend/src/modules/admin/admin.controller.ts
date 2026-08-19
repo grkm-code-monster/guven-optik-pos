@@ -1122,16 +1122,16 @@ router.get('/branches', async (_req: Request, res: Response) => {
       orderBy: { name: 'asc' },
     });
 
-    const locationIdSet = new Set<number>([
-      ...dbBranches.map((b) => b.odooLocationId!),
-      ...Object.values(LOKASYON_ID_MAP),
-    ]);
-
+    // NOT: Önceden sadece bilinen ID'ler (LOKASYON_ID_MAP + zaten bağlı şubeler)
+    // sorgulanıyordu — Odoo'da yeni oluşturulan bir lokasyon (henüz kod/DB'ye
+    // eklenmemiş) hiçbir zaman bu listede görünmüyordu. Artık Odoo'daki TÜM
+    // aktif iç lokasyonlar çekiliyor, yeni bir şube lokasyonu Odoo'da
+    // oluşturulduğu an otomatik olarak burada seçilebilir hale geliyor.
     const odooLocations = (await execute(
       'stock.location',
       'search_read',
-      [[['id', 'in', [...locationIdSet]], ['usage', '=', 'internal'], ['active', '=', true]]],
-      { fields: ['id', 'name', 'complete_name', 'company_id'], limit: 100, ...ODOO_ALL_COMPANIES_KWARGS },
+      [[['usage', '=', 'internal'], ['active', '=', true]]],
+      { fields: ['id', 'name', 'complete_name', 'company_id'], limit: 300, ...ODOO_ALL_COMPANIES_KWARGS },
     )) as Array<{ id: number; name: string; complete_name?: string; company_id?: [number, string] }>;
 
     const byId = new Map(odooLocations.map((loc) => [loc.id, loc]));

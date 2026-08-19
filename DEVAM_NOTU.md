@@ -1,8 +1,31 @@
 # Güven Optik POS — Devam Notu
-Son güncelleme: 17.08.2026
+Son güncelleme: 19.08.2026
 
 ## Kural: Önce tasarım, sonra kod
 Her yeni özellik için önce Claude'dan tasarım alınır, onaylanır, sonra kodlanır.
+
+---
+
+## 19.08.2026 — Şube ekranı "Odoo Lokasyon" listesi artık canlı Odoo'dan geliyor
+
+**Sorun:** Odoo'da yeni bir lokasyon (örn. "GVNP" — Güven Panayır) oluşturulduğunda,
+Tanımlamalar > Şube ekle/düzenle formundaki "Odoo Lokasyon" açılır listesinde
+görünmüyordu. Sebep: `GET /admin/branches` sadece iki kaynaktaki ID'leri
+sorguluyordu — (1) zaten bir Şube kaydına bağlı `odooLocationId`'ler, (2) kodda
+sabit yazılı `LOKASYON_ID_MAP` (GVN1-GVN10, ANADEPO, ETİCARET). Yeni oluşturulan
+bir Odoo lokasyonu bu ikisinde de olmadığından sorgu ona hiç bakmıyordu.
+
+**Kalıcı çözüm:** `backend/src/modules/admin/admin.controller.ts` — `/branches`
+route'undaki Odoo `stock.location` sorgusu artık sabit ID listesiyle
+sınırlanmıyor, tüm aktif (`active=true`) iç (`usage=internal`) lokasyonları
+çekiyor. Böylece Odoo'da yeni bir lokasyon oluşturulduğu an, kod değişikliği/deploy
+gerekmeden otomatik olarak bu listede görünür. Aynı şekilde bir lokasyon Odoo'da
+pasifleştirilirse (arşivlenirse), yeni şube seçiminde artık listede çıkmaz —
+ama zaten bir şubeye bağlı olan lokasyonlar (DB'de kayıtlı) her durumda listede
+kalmaya devam eder, mevcut şube kayıtları bozulmaz.
+
+**Not:** Bu bir kerelik deploy gerektiriyor (bu değişikliğin kendisi); ondan
+sonra Odoo'da lokasyon ekleme/pasifleştirme için tekrar deploy gerekmeyecek.
 
 ---
 
