@@ -24,7 +24,7 @@ async function main() {
     'search_read',
     [['|', ['name', 'ilike', arama], ['complete_name', 'ilike', arama]]],
     {
-      fields: ['id', 'name', 'complete_name', 'usage', 'active', 'company_id', 'parent_id'],
+      fields: ['id', 'name', 'complete_name', 'usage', 'active', 'company_id', 'location_id'],
       context: { active_test: false },
     },
   )) as Array<{
@@ -34,7 +34,7 @@ async function main() {
     usage: string;
     active: boolean;
     company_id?: [number, string] | false;
-    parent_id?: [number, string] | false;
+    location_id?: [number, string] | false;
   }>;
 
   if (!sonuclar.length) {
@@ -48,7 +48,7 @@ async function main() {
     console.log(`  usage (Konum Tipi): ${loc.usage}  ${loc.usage === 'internal' ? '(OK)' : '(DROPDOWN\'DA GÖZÜKMEZ — internal değil)'}`);
     console.log(`  active (Aktif mi): ${loc.active}  ${loc.active ? '(OK)' : '(DROPDOWN\'DA GÖZÜKMEZ — arşivlenmiş)'}`);
     console.log(`  company_id: ${loc.company_id ? `${loc.company_id[0]} - ${loc.company_id[1]}` : 'YOK (şirket atanmamış)'}`);
-    console.log(`  parent_id: ${loc.parent_id ? `${loc.parent_id[0]} - ${loc.parent_id[1]}` : 'YOK (kök seviye)'}`);
+    console.log(`  location_id (üst konum): ${loc.location_id ? `${loc.location_id[0]} - ${loc.location_id[1]}` : 'YOK (kök seviye)'}`);
   }
 }
 
