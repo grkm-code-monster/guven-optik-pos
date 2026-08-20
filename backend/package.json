@@ -12,7 +12,9 @@
     "fix-variant-explosion": "ts-node --transpile-only scripts/fix-variant-explosion.ts",
     "list-odoo-kategoriler": "ts-node --transpile-only scripts/list-odoo-kategoriler.ts",
     "check-location": "ts-node --transpile-only scripts/check-location.ts",
-    "check-branches-query": "ts-node --transpile-only scripts/check-branches-query.ts"
+    "check-branches-query": "ts-node --transpile-only scripts/check-branches-query.ts",
+    "check-gvnp-stock": "ts-node --transpile-only scripts/check-gvnp-stock.ts",
+    "gvnp-envanter-import": "ts-node --transpile-only scripts/gvnp-envanter-import.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
