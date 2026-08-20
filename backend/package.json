@@ -17,7 +17,8 @@
     "gvnp-envanter-import": "ts-node --transpile-only scripts/gvnp-envanter-import.ts",
     "gvnp-stok-mutabakat": "ts-node --transpile-only scripts/gvnp-stok-mutabakat.ts",
     "gvnp-stok-mutabakat-duzelt": "ts-node --transpile-only scripts/gvnp-stok-mutabakat-duzelt.ts",
-    "check-lot-collision": "ts-node --transpile-only scripts/check-lot-collision.ts"
+    "check-lot-collision": "ts-node --transpile-only scripts/check-lot-collision.ts",
+    "gvnp-son-duzelt": "ts-node --transpile-only scripts/gvnp-son-duzelt.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
