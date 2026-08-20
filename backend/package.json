@@ -10,7 +10,8 @@
     "import-urun-toplu": "ts-node --transpile-only scripts/import-urun-toplu.ts",
     "fix-tracking-serial": "ts-node --transpile-only scripts/fix-tracking-serial.ts",
     "fix-variant-explosion": "ts-node --transpile-only scripts/fix-variant-explosion.ts",
-    "list-odoo-kategoriler": "ts-node --transpile-only scripts/list-odoo-kategoriler.ts"
+    "list-odoo-kategoriler": "ts-node --transpile-only scripts/list-odoo-kategoriler.ts",
+    "check-location": "ts-node --transpile-only scripts/check-location.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
