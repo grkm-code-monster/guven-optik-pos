@@ -14,7 +14,8 @@
     "check-location": "ts-node --transpile-only scripts/check-location.ts",
     "check-branches-query": "ts-node --transpile-only scripts/check-branches-query.ts",
     "check-gvnp-stock": "ts-node --transpile-only scripts/check-gvnp-stock.ts",
-    "gvnp-envanter-import": "ts-node --transpile-only scripts/gvnp-envanter-import.ts"
+    "gvnp-envanter-import": "ts-node --transpile-only scripts/gvnp-envanter-import.ts",
+    "gvnp-stok-mutabakat": "ts-node --transpile-only scripts/gvnp-stok-mutabakat.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
