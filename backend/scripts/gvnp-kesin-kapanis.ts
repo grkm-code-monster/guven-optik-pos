@@ -38,14 +38,26 @@ function parseArgs() {
   return { executeMode: process.argv.includes('--execute') };
 }
 
-async function findTemplateId(urunAdi: string): Promise<number | null> {
+async function findTemplateId(urunAdi: string, model: string): Promise<number | null> {
   const templates = (await execute(
     'product.template', 'search_read',
     [[['name', 'ilike', urunAdi.trim()]]],
-    { fields: ['id', 'name'], limit: 20, context: { active_test: false } },
+    { fields: ['id', 'name'], limit: 200, context: { active_test: false } },
   )) as { id: number; name: string }[];
-  const exact = templates.filter((t) => t.name.trim().toUpperCase() === urunAdi.trim().toUpperCase());
-  return exact.length ? exact[0].id : null;
+
+  const urunAdiUpper = urunAdi.trim().toUpperCase();
+  const exact = templates.filter((t) => t.name.trim().toUpperCase() === urunAdiUpper);
+  if (exact.length) return exact[0].id;
+
+  // Varyant patlaması koruması: "{Ürün Adı} {MODEL}" şeklinde bölünmüş
+  // şablon oluşturulmuş olabilir (bkz. odoo-varyant-import.service.ts /
+  // importVaryantlarSplitByModel) — model adını da eşleştirerek ara.
+  const modelUpper = model.trim().toUpperCase();
+  const split = templates.filter((t) => {
+    const n = t.name.trim().toUpperCase();
+    return n === `${urunAdiUpper} ${modelUpper}` || (n.startsWith(urunAdiUpper) && n.includes(modelUpper));
+  });
+  return split.length ? split[0].id : null;
 }
 
 async function main() {
@@ -60,17 +72,18 @@ async function main() {
   const companyId = getCompanyIdFromLokasyon(LOKASYON_KODU) ?? undefined;
 
   const tmplCache = new Map<string, number | null>();
-  async function tmplIdCached(urunAdi: string): Promise<number | null> {
-    if (!tmplCache.has(urunAdi)) tmplCache.set(urunAdi, await findTemplateId(urunAdi));
-    return tmplCache.get(urunAdi)!;
+  async function tmplIdCached(urunAdi: string, model: string): Promise<number | null> {
+    const key = `${urunAdi}::${model}`;
+    if (!tmplCache.has(key)) tmplCache.set(key, await findTemplateId(urunAdi, model));
+    return tmplCache.get(key)!;
   }
 
-  type Durum = { row: ParsedEnvanterRow; productId: number; quants: Array<{ id: number; quantity: number }>; barcodeAlaniBos: boolean };
+  type Durum = { row: ParsedEnvanterRow; productId: number; barcodeAlaniBos: boolean };
   const durumlar: Durum[] = [];
   const bulunamayan: ParsedEnvanterRow[] = [];
 
   for (const row of rows) {
-    const tmplId = await tmplIdCached(row.urunAdi);
+    const tmplId = await tmplIdCached(row.urunAdi, row.model);
     if (!tmplId) { bulunamayan.push(row); continue; }
     const productId = await findVariantProductId(tmplId, row.model, row.renk, row.olcu);
     if (!productId) { bulunamayan.push(row); continue; }
@@ -80,44 +93,57 @@ async function main() {
       { fields: ['id', 'barcode'], context: { active_test: false } },
     )) as Array<{ id: number; barcode: string | false }>;
 
-    const quants = (await execute(
+    durumlar.push({ row, productId, barcodeAlaniBos: !prod?.barcode });
+  }
+
+  // AYNI productId'ye birden fazla Excel satırı denk gelebilir (aynı model/
+  // renk/ölçü, farklı barkodlu 2 ayrı fiziksel birim) — bu yüzden mükerrer/
+  // eksik tespiti SATIR bazlı değil, productId bazlı toplanarak yapılıyor.
+  type ProductGrup = { productId: number; rows: ParsedEnvanterRow[]; beklenen: number; quants: Array<{ id: number; quantity: number }> };
+  const gruplar = new Map<number, ProductGrup>();
+  for (const d of durumlar) {
+    const g = gruplar.get(d.productId) ?? { productId: d.productId, rows: [], beklenen: 0, quants: [] };
+    g.rows.push(d.row);
+    g.beklenen += d.row.adet;
+    gruplar.set(d.productId, g);
+  }
+  for (const g of gruplar.values()) {
+    g.quants = (await execute(
       'stock.quant', 'search_read',
-      [[['product_id', '=', productId], ['location_id', '=', GVNP_LOCATION_ID], ['quantity', '!=', 0]]],
+      [[['product_id', '=', g.productId], ['location_id', '=', GVNP_LOCATION_ID], ['quantity', '!=', 0]]],
       { fields: ['id', 'quantity'], context: { active_test: false }, limit: 20 },
     )) as Array<{ id: number; quantity: number }>;
-
-    durumlar.push({ row, productId, quants, barcodeAlaniBos: !prod?.barcode });
   }
 
   const barkodDamgalanacak = durumlar.filter((d) => d.barcodeAlaniBos);
-  const gercekEksik = durumlar.filter((d) => d.quants.length === 0 || d.quants.reduce((s, q) => s + q.quantity, 0) !== d.row.adet);
-  const dogruDurumda = durumlar.filter((d) => d.quants.length > 0 && d.quants.reduce((s, q) => s + q.quantity, 0) === d.row.adet);
-  const mukerrer = durumlar.filter((d) => d.quants.length > 1 && d.quants.reduce((s, q) => s + q.quantity, 0) === d.row.adet);
+  const tumGruplar = [...gruplar.values()];
+  const gercekEksik = tumGruplar.filter((g) => g.quants.reduce((s, q) => s + q.quantity, 0) < g.beklenen);
+  const mukerrer = tumGruplar.filter((g) => g.quants.reduce((s, q) => s + q.quantity, 0) > g.beklenen);
+  const dogruDurumda = tumGruplar.filter((g) => g.quants.reduce((s, q) => s + q.quantity, 0) === g.beklenen);
 
-  console.log(`Toplam satır: ${rows.length}`);
-  console.log(`Şablon/varyant bulunamayan: ${bulunamayan.length}`);
-  console.log(`Barkod alanı boş (damgalanacak): ${barkodDamgalanacak.length}`);
-  console.log(`Miktar doğru olan: ${dogruDurumda.length}`);
-  console.log(`Miktar YANLIŞ olan (gerçek sorun): ${gercekEksik.length}`);
-  console.log(`Miktar doğru ama birden fazla lota bölünmüş (mükerrer, temizlenecek): ${mukerrer.length}\n`);
+  console.log(`Toplam satır: ${rows.length}, benzersiz ürün (varyant): ${tumGruplar.length}`);
+  console.log(`Şablon/varyant bulunamayan satır: ${bulunamayan.length}`);
+  console.log(`Barkod alanı boş (damgalanacak) satır: ${barkodDamgalanacak.length}`);
+  console.log(`Miktar doğru ürün: ${dogruDurumda.length}`);
+  console.log(`Miktar EKSİK ürün: ${gercekEksik.length}`);
+  console.log(`Miktar FAZLA (mükerrer) ürün: ${mukerrer.length}\n`);
 
   if (bulunamayan.length) {
-    console.log('--- Bulunamayan ---');
+    console.log('--- Bulunamayan (şablon/varyant, muhtemelen bölünmüş şablon farklı isimde) ---');
     for (const r of bulunamayan) console.log(`  Satır ${r.satirNo}: ${r.urunAdi} (${r.model}/${r.renk}/${r.olcu})`);
   }
   if (gercekEksik.length) {
-    console.log('\n--- Miktar YANLIŞ (elle bakılmalı) ---');
-    for (const d of gercekEksik) {
-      const toplam = d.quants.reduce((s, q) => s + q.quantity, 0);
-      console.log(`  Satır ${d.row.satirNo}: ${d.row.urunAdi} (${d.row.model}/${d.row.renk}/${d.row.olcu}) — beklenen ${d.row.adet}, mevcut ${toplam} (${d.quants.length} lot)`);
+    console.log('\n--- Miktar EKSİK (tamamlanacak) ---');
+    for (const g of gercekEksik) {
+      const toplam = g.quants.reduce((s, q) => s + q.quantity, 0);
+      console.log(`  productId ${g.productId} (satır ${g.rows.map((r) => r.satirNo).join(',')}) — beklenen ${g.beklenen}, mevcut ${toplam}`);
     }
   }
   if (mukerrer.length) {
-    console.log('\n--- Mükerrer (temizlenecek fazla lotlar) ---');
-    for (const d of mukerrer) {
-      const sirali = [...d.quants].sort((a, b) => a.id - b.id);
-      console.log(`  Satır ${d.row.satirNo}: ${d.row.urunAdi} — ${d.quants.length} lot, ilk ${d.row.adet} tanesi kalacak, ${d.quants.length - d.row.adet} tanesi sıfırlanacak`);
-      void sirali;
+    console.log('\n--- Miktar FAZLA (mükerrer, temizlenecek) ---');
+    for (const g of mukerrer) {
+      const toplam = g.quants.reduce((s, q) => s + q.quantity, 0);
+      console.log(`  productId ${g.productId} (satır ${g.rows.map((r) => r.satirNo).join(',')}) — beklenen ${g.beklenen}, mevcut ${toplam}, ${g.quants.length} lot`);
     }
   }
 
@@ -140,53 +166,56 @@ async function main() {
   }
   console.log(`Barkod damgalanan: ${damgalanan}/${barkodDamgalanacak.length}`);
 
-  // 2) Mükerrer temizlik — miktar zaten doğru olduğu için, en eski N tanesi
-  //    (N = row.adet) kalır, fazlalar sıfırlanır.
+  // 2) Mükerrer temizlik — miktar zaten (grup toplamında) fazla olduğu için,
+  //    en eski lotlar toplam "beklenen" miktarına ulaşana kadar korunur,
+  //    fazlalar sıfırlanır.
   let temizlenen = 0;
-  for (const d of mukerrer) {
-    const sirali = [...d.quants].sort((a, b) => a.id - b.id);
-    const fazlalar = sirali.slice(d.row.adet);
-    for (const f of fazlalar) {
+  for (const g of mukerrer) {
+    const sirali = [...g.quants].sort((a, b) => a.id - b.id);
+    let kalanBeklenen = g.beklenen;
+    for (const q of sirali) {
+      if (kalanBeklenen >= q.quantity) {
+        kalanBeklenen -= q.quantity;
+        continue;
+      }
+      const hedef = Math.max(0, kalanBeklenen);
       try {
-        await applyStockAdjustment({
-          productId: d.productId,
-          locationCode: LOKASYON_KODU,
-          qty: 0,
-          quantId: f.id,
-        });
+        await applyStockAdjustment({ productId: g.productId, locationCode: LOKASYON_KODU, qty: hedef, quantId: q.id });
         temizlenen++;
       } catch (e: unknown) {
-        console.log(`  Mükerrer temizlik HATA satır ${d.row.satirNo} quant #${f.id}: ${e instanceof Error ? e.message : e}`);
+        console.log(`  Mükerrer temizlik HATA productId ${g.productId} quant #${q.id}: ${e instanceof Error ? e.message : e}`);
       }
+      kalanBeklenen = 0;
     }
   }
   console.log(`Mükerrer temizlenen quant: ${temizlenen}`);
 
   // 3) Gerçek eksikler — mevcut lotları 1'e çek, kalanı için yeni seri no aç
   let eksikTamamlanan = 0;
-  for (const d of gercekEksik) {
+  for (const g of gercekEksik) {
     try {
-      const sirali = [...d.quants].sort((a, b) => a.id - b.id);
+      const sirali = [...g.quants].sort((a, b) => a.id - b.id);
       let unit = 1;
       for (const q of sirali) {
         if (q.quantity !== 1) {
-          await applyStockAdjustment({ productId: d.productId, locationCode: LOKASYON_KODU, qty: 1, quantId: q.id });
+          await applyStockAdjustment({ productId: g.productId, locationCode: LOKASYON_KODU, qty: 1, quantId: q.id });
         }
         unit++;
       }
-      for (; unit <= d.row.adet; unit++) {
+      const referansSatir = g.rows[0];
+      for (; unit <= g.beklenen; unit++) {
         const now = new Date();
         const tarih = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}${now.getFullYear()}`;
-        const lotNo = `GRS-${tarih}-EXCGVNP-KESINKAPANIS-${d.row.satirNo}-U${unit}`;
-        const lotResult = await getOrCreateStockLot(lotNo, d.productId, companyId, d.row.barkod, d.row.utsKodu || undefined);
-        await applyStockAdjustmentForLot({ productId: d.productId, locationCode: LOKASYON_KODU, lotId: lotResult.lotId, qty: 1 });
+        const lotNo = `GRS-${tarih}-EXCGVNP-KESINKAPANIS-${g.productId}-U${unit}`;
+        const lotResult = await getOrCreateStockLot(lotNo, g.productId, companyId, referansSatir.barkod, referansSatir.utsKodu || undefined);
+        await applyStockAdjustmentForLot({ productId: g.productId, locationCode: LOKASYON_KODU, lotId: lotResult.lotId, qty: 1 });
       }
       eksikTamamlanan++;
     } catch (e: unknown) {
-      console.log(`  Eksik tamamlama HATA satır ${d.row.satirNo}: ${e instanceof Error ? e.message : e}`);
+      console.log(`  Eksik tamamlama HATA productId ${g.productId}: ${e instanceof Error ? e.message : e}`);
     }
   }
-  console.log(`Eksik tamamlanan satır: ${eksikTamamlanan}/${gercekEksik.length}`);
+  console.log(`Eksik tamamlanan ürün: ${eksikTamamlanan}/${gercekEksik.length}`);
 
   console.log('\nBitti. Doğrulamak için: npm run gvnp-stok-mutabakat');
 }
