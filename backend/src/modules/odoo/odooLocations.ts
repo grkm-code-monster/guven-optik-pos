@@ -12,6 +12,7 @@ export const LOKASYON_ID_MAP: Record<string, number> = {
   GVN5: 62,
   GVN7: 64,
   ETICARET: 65,
+  GVNP: 66,
 };
 
 /** Frontend lokasyon → şirket */
@@ -28,6 +29,7 @@ export const LOKASYON_SIRKET: Record<string, string> = {
   GVN5: 'POTENTIAL',
   GVN7: 'NG',
   ETICARET: 'NG',
+  GVNP: 'ADESE',
 };
 
 export const LOKASYON_MAP: Record<string, string> = {
@@ -43,6 +45,7 @@ export const LOKASYON_MAP: Record<string, string> = {
   ANADEPO: 'ANADEPO',
   GVN7: 'GVN7',
   ETICARET: 'ETICARET',
+  GVNP: 'GVNP',
 };
 
 /** Şirket adı → Odoo res.company id */

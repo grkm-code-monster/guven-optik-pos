@@ -27,6 +27,19 @@ kalmaya devam eder, mevcut şube kayıtları bozulmaz.
 **Not:** Bu bir kerelik deploy gerektiriyor (bu değişikliğin kendisi); ondan
 sonra Odoo'da lokasyon ekleme/pasifleştirme için tekrar deploy gerekmeyecek.
 
+**Ek bulgu:** Depo Yönetimi > Excel Envanter sekmesindeki lokasyon seçici
+FARKLI ve daha eski bir kod yolu kullanıyor —
+`backend/src/modules/odoo/odooLocations.ts`'teki sabit `LOKASYON_ID_MAP`
+(transfer/satış/stok kodunun genelinde kullanılan merkezi harita) ve
+`ExcelEnvanterImportTab.tsx`'teki ayrı bir sabit `LOKASYONLAR` dizisi. Bu ikisi
+yukarıdaki dinamik sorgudan etkilenmiyor. GVNP (id 66, ADESE) her ikisine de
+manuel eklendi, ayrıca bu ekranda zaten haritada olan ama listede unutulmuş
+GVN7 ve E-TİCARET de eklendi. **Bu haritanın tamamı hâlâ sabit/manuel** —
+`LOKASYON_ID_MAP` çok sayıda dosyada (transfer, stok, satış) kullanıldığı için
+tamamen dinamik hale getirmek daha büyük, ayrı bir iş; şimdilik yeni
+lokasyonlar için bu dosyaya (ve varsa ilgili frontend listelerine) manuel
+ekleme gerekecek.
+
 ---
 
 ## 17.08.2026 — Excel Envanter: MODEL/RENK/ÖLÇÜ varyant patlaması kalıcı çözümü
