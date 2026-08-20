@@ -32,7 +32,7 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]['id']
 
-const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVN2', 'GVN10', 'ANADEPO', 'GVN5']
+const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVNP', 'GVN2', 'GVN7', 'GVN10', 'ANADEPO', 'ETICARET', 'GVN5']
 
 const inp: React.CSSProperties = {
   padding: '7px 12px',

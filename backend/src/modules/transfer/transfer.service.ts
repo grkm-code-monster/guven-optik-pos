@@ -301,10 +301,13 @@ const OUTGOING_PICKING_TYPE = {
     GVN6: 12,
     GVN8: 12,
     GVN9: 12,
+    GVNP: 12,
     // NG warehouse (id:2) → picking type id:7
     GVN2: 7,
+    GVN7: 7,
     GVN10: 7,
     ANADEPO: 7,
+    ETICARET: 7,
     // POTENTIAL warehouse (id:4) → picking type id:17
     GVN5: 17,
 };

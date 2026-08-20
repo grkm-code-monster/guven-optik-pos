@@ -40,6 +40,25 @@ tamamen dinamik hale getirmek daha büyük, ayrı bir iş; şimdilik yeni
 lokasyonlar için bu dosyaya (ve varsa ilgili frontend listelerine) manuel
 ekleme gerekecek.
 
+**Sistem geneli tarama (aynı gün, devam):** GVNP tek bir ekranda değil,
+tamamen bağımsız olarak kopyalanmış ~13 farklı sabit lokasyon listesinde
+eksikti (her ekran kendi kopyasını tutuyor). Tamamı tek tek bulunup GVNP
+(gerekirse GVN7/E-TİCARET eksikleri de) eklendi:
+- Backend: `odooLocations.ts` (LOKASYON_ID_MAP/LOKASYON_SIRKET/LOKASYON_MAP),
+  `admin.controller.ts` (/branches — dinamik yapıldı), `transfer.service.ts`
+  (OUTGOING_PICKING_TYPE — GVNP→12, GVN7/ETİCARET→7 eklendi),
+  `uyumsoft-efatura.service.ts` (SIRKET_SUBE_MAP), `chatbot-system-prompt.ts`
+  (bilgilendirme metni).
+- Frontend: `StokKontrolTab.tsx`, `StokYonetimiPage.tsx`,
+  `BekleyenTransferler.tsx`, `StokTeminStep.tsx`, `IKPage.tsx`,
+  `TanimlamalarPage.tsx` (SIRKET_TANIMLARI), `DepoPage.tsx` (3 ayrı kopya),
+  `YeniTransfer.tsx`, `ExcelEnvanterImportTab.tsx`.
+
+`npx tsc --noEmit` her iki pakette de temiz. **Bir daha yeni bir şube/lokasyon
+eklendiğinde aynı taramayı tekrar yapmamak için #85 (LOKASYON_ID_MAP'i
+dinamikleştirme) kalıcı çözüm olarak bekliyor** — bu bir sonraki adım olarak
+planlanmalı.
+
 ---
 
 ## 17.08.2026 — Excel Envanter: MODEL/RENK/ÖLÇÜ varyant patlaması kalıcı çözümü

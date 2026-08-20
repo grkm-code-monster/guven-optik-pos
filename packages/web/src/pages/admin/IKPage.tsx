@@ -13,7 +13,7 @@ const td: React.CSSProperties = { padding: '10px 14px', fontSize: 12, borderTop:
 
 const POZISYONLAR = ['MUDUR', 'SATIS', 'KASIYER', 'TEKNIK', 'DIGER']
 const SIRKETLER = [{ id: 1, ad: 'GÜVEN OPTİK 1959' }, { id: 2, ad: 'NG' }, { id: 3, ad: 'ADESE' }, { id: 4, ad: 'POTENTIAL' }]
-const SUBELER = ['GVN1','GVN2','GVN3','GVN4','GVN5','GVN6','GVN8','GVN9','GVN10','ANADEPO']
+const SUBELER = ['GVN1','GVN2','GVN3','GVN4','GVN5','GVN6','GVN7','GVN8','GVN9','GVN10','ANADEPO','ETICARET','GVNP']
 const BELGE_FORM_TIPLERI = [
   { value: 'IS_SOZLESMESI', label: 'İş Sözleşmesi' },
   { value: 'SGK_GIRIS', label: 'SGK Giriş' },

@@ -51,9 +51,12 @@ const LOKASYONLAR = [
   { id: 'GVN6', odooId: 56, sirket: 'ADESE', sirketId: 3 },
   { id: 'GVN8', odooId: 57, sirket: 'ADESE', sirketId: 3 },
   { id: 'GVN9', odooId: 58, sirket: 'ADESE', sirketId: 3 },
+  { id: 'GVNP', odooId: 66, sirket: 'ADESE', sirketId: 3 },
   { id: 'GVN2', odooId: 59, sirket: 'NG', sirketId: 2 },
+  { id: 'GVN7', odooId: 64, sirket: 'NG', sirketId: 2 },
   { id: 'GVN10', odooId: 60, sirket: 'NG', sirketId: 2 },
   { id: 'ANADEPO', odooId: 61, sirket: 'NG', sirketId: 2 },
+  { id: 'ETICARET', odooId: 65, sirket: 'NG', sirketId: 2 },
   { id: 'GVN5', odooId: 62, sirket: 'POTENTIAL', sirketId: 4 },
 ]
 
@@ -226,7 +229,7 @@ function LotTransferTab() {
   const LOKASYON_ID_MAP: Record<string, number> = {
     'GVN1': 53, 'GVN3': 54, 'GVN4': 55, 'GVN6': 56,
     'GVN8': 57, 'GVN9': 58, 'GVN2': 59, 'GVN10': 60,
-    'ANADEPO': 61, 'GVN5': 62,
+    'ANADEPO': 61, 'GVN5': 62, 'GVN7': 64, 'ETICARET': 65, 'GVNP': 66,
   }
 
   const LOKASYON_LISTESI = Object.keys(LOKASYON_ID_MAP).sort()
@@ -507,7 +510,7 @@ function SayimTab() {
     setSuccessMsg(null)
     try {
       const res = await adminApi.get(`/admin/stock?locationId=${
-        { GVN1: 53, GVN3: 54, GVN4: 55, GVN6: 56, GVN8: 57, GVN9: 58, GVN2: 59, GVN10: 60, ANADEPO: 61, GVN5: 62 }[lokasyon] ?? 53
+        { GVN1: 53, GVN3: 54, GVN4: 55, GVN6: 56, GVN8: 57, GVN9: 58, GVN2: 59, GVN10: 60, ANADEPO: 61, GVN5: 62, GVN7: 64, ETICARET: 65, GVNP: 66 }[lokasyon] ?? 53
       }`)
       const data = res.data?.data ?? []
       setRows(data.map((q: any) => ({
@@ -2716,7 +2719,7 @@ function UrunGirisTab() {
   const LOKASYON_ID_MAP: Record<string, number> = {
     'GVN1': 53, 'GVN3': 54, 'GVN4': 55, 'GVN6': 56,
     'GVN8': 57, 'GVN9': 58, 'GVN2': 59, 'GVN10': 60,
-    'ANADEPO': 61, 'GVN5': 62,
+    'ANADEPO': 61, 'GVN5': 62, 'GVN7': 64, 'ETICARET': 65, 'GVNP': 66,
   }
 
   function uyumsoftKolonMapDogrula(): string | null {

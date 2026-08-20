@@ -10,7 +10,7 @@ import { createTransfer, searchTransferProductLots } from '../../api/transfer.ap
 import { extractApiErrorMessage } from '../../utils/extractApiErrorMessage'
 import { transferHataMesaji } from '../../utils/transferError'
 
-const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVN2', 'GVN10', 'ANADEPO', 'GVN5']
+const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVNP', 'GVN2', 'GVN7', 'GVN10', 'ANADEPO', 'ETICARET', 'GVN5']
 
 type LotSatir = {
   lotId: number | null
@@ -42,7 +42,7 @@ function bugunTarih() {
 
 const LOKASYON_ID_MAP: Record<string, number> = {
   GVN1: 53, GVN3: 54, GVN4: 55, GVN6: 56, GVN8: 57, GVN9: 58,
-  GVN2: 59, GVN10: 60, ANADEPO: 61, GVN5: 62,
+  GVN2: 59, GVN10: 60, ANADEPO: 61, GVN5: 62, GVN7: 64, ETICARET: 65, GVNP: 66,
 }
 
 const inp: React.CSSProperties = {

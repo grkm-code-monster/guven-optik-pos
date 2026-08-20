@@ -1349,7 +1349,7 @@ type SirketId = 'ng' | 'adese' | 'potential'
 
 const SIRKET_TANIMLARI: Array<{ id: SirketId; label: string; tamAd: string; vkn: string; subeler: string[] }> = [
   { id: 'ng', label: 'NG', tamAd: 'Nejla Gümüşkesen Optik', vkn: '23819441406', subeler: ['GVN2', 'GVN10', 'ANADEPO'] },
-  { id: 'adese', label: 'ADESE', tamAd: 'Adese Optik Ltd. Şti.', vkn: '0071251547', subeler: ['GVN1', 'GVN3', 'GVN6', 'GVN7', 'GVN8', 'GVN9'] },
+  { id: 'adese', label: 'ADESE', tamAd: 'Adese Optik Ltd. Şti.', vkn: '0071251547', subeler: ['GVN1', 'GVN3', 'GVN6', 'GVN7', 'GVN8', 'GVN9', 'GVNP'] },
   { id: 'potential', label: 'POTENTIAL', tamAd: 'Potential Ophthalmic Dış Tic. Ltd. Şti.', vkn: '', subeler: ['GVN5'] },
 ]
 

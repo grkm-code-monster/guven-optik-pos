@@ -13,9 +13,12 @@ const LOKASYONLAR = [
   { id: 'GVN6', label: 'GVN6 — Mağaza', sirket: 'ADESE' },
   { id: 'GVN8', label: 'GVN8 — Mağaza', sirket: 'ADESE' },
   { id: 'GVN9', label: 'GVN9 — Mağaza', sirket: 'ADESE' },
+  { id: 'GVNP', label: 'GVNP — Mağaza', sirket: 'ADESE' },
   { id: 'ANADEPO', label: 'ANA DEPO', sirket: 'NG' },
   { id: 'GVN2', label: 'GVN2 — Mağaza', sirket: 'NG' },
+  { id: 'GVN7', label: 'GVN7 — Mağaza', sirket: 'NG' },
   { id: 'GVN10', label: 'GVN10 — Mağaza', sirket: 'NG' },
+  { id: 'ETICARET', label: 'E-TİCARET', sirket: 'NG' },
   { id: 'GVN5', label: 'GVN5 — Mağaza', sirket: 'POTANSİYEL' },
 ] as const
 

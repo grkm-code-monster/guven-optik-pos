@@ -15,7 +15,7 @@ import { extractApiErrorMessage } from '../../utils/extractApiErrorMessage'
 import { transferHataMesaji } from '../../utils/transferError'
 import { downloadKutuCiktisiPdf } from '../../utils/kutuCiktisiPdf'
 
-const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVN2', 'GVN10', 'ANADEPO', 'GVN5']
+const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVNP', 'GVN2', 'GVN7', 'GVN10', 'ANADEPO', 'ETICARET', 'GVN5']
 
 const transferTarihFmt = new Intl.DateTimeFormat('tr-TR', {
   day: '2-digit',

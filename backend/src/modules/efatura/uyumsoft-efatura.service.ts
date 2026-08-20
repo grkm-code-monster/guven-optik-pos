@@ -69,7 +69,7 @@ const UYUMSOFT_SENDER_UNVAN =
   process.env.UYUMSOFT_SENDER_UNVAN ?? 'NEJLA GÜMÜŞKESEN';
 
 const SIRKET_SUBE_MAP: Record<string, string[]> = {
-  ADESE: ['GVN1', 'GVN3', 'GVN6', 'GVN8', 'GVN9'],
+  ADESE: ['GVN1', 'GVN3', 'GVN6', 'GVN8', 'GVN9', 'GVNP'],
   // ETICARET: sanal E-Ticaret şubesinin kodu — bu şube üzerinden kesilen tüm
   // e-fatura ve gün sonu belgeleri her zaman NG (Nejla Gümüşkesen) üzerinden gider,
   // hangi fiziksel şubenin stoğu kullanılırsa kullanılsın.
