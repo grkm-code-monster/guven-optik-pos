@@ -6365,6 +6365,76 @@ router.post('/odoo-sablon-olustur', async (req, res, next) => {
   }
 });
 
+/**
+ * Toplu, STOKSUZ ürün açma — "stok cam" gibi barkod/stok gerektirmeyen,
+ * sadece satış ekranında seçilebilir olması gereken ürün listeleri için.
+ * Her satır ayrı bir product.template (varyantsız, tracking=none, stok=0,
+ * barkod yok) olarak açılır. Aynı isim+kategoride zaten bir şablon varsa
+ * atlanır (tekrar çalıştırmak güvenli — idempotent).
+ */
+router.post('/odoo-sablon-toplu-olustur', async (req, res, next) => {
+  try {
+    const { kategoriId, urunAdlari, satisFiyati, tur, izleme, satinAlinabilir } = req.body as {
+      kategoriId?: number | string;
+      urunAdlari?: string[];
+      satisFiyati?: number | string;
+      tur?: string;
+      izleme?: string;
+      satinAlinabilir?: boolean;
+    };
+
+    const katId = kategoriId ? Number(kategoriId) : null;
+    if (!katId) return res.status(400).json({ error: 'kategoriId zorunlu' });
+
+    const adlar = Array.from(
+      new Set((urunAdlari ?? []).map((a) => String(a ?? '').trim()).filter(Boolean)),
+    );
+    if (!adlar.length) return res.status(400).json({ error: 'urunAdlari boş olamaz' });
+
+    const mevcutlar = (await execute(
+      'product.template', 'search_read',
+      [[['categ_id', '=', katId]]],
+      { fields: ['id', 'name'], limit: 2000, context: { active_test: false } },
+    )) as { id: number; name: string }[];
+    const mevcutAdSet = new Set(mevcutlar.map((m) => m.name.trim().toLocaleLowerCase('tr-TR')));
+
+    const olusturulan: { ad: string; tmplId: number }[] = [];
+    const atlanan: string[] = [];
+    const hatalar: { ad: string; sebep: string }[] = [];
+
+    for (const ad of adlar) {
+      const key = ad.toLocaleLowerCase('tr-TR');
+      if (mevcutAdSet.has(key)) { atlanan.push(ad); continue; }
+      try {
+        const tmplId = Number(await execute('product.template', 'create', [{
+          name: ad,
+          type: tur || 'consu',
+          categ_id: katId,
+          list_price: Number(satisFiyati) || 0,
+          standard_price: 0,
+          sale_ok: true,
+          purchase_ok: satinAlinabilir !== false,
+          tracking: izleme || 'none',
+        }]));
+        olusturulan.push({ ad, tmplId });
+        mevcutAdSet.add(key);
+      } catch (e: unknown) {
+        hatalar.push({ ad, sebep: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    return res.json({
+      success: true,
+      olusturulan: olusturulan.length,
+      atlanan: atlanan.length,
+      hata: hatalar.length,
+      detay: { olusturulan, atlanan, hatalar },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/odoo-varyant-import', async (req, res, next) => {
   try {
     const { tmplId, satirlar, sutunSirasi } = req.body;

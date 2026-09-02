@@ -168,7 +168,10 @@ export default function UrunYapilandirmaPage() {
   const [varyantlar, setVaryantlar] = useState<VaryantRow[]>([])
   const [tmplId, setTmplId] = useState<number | null>(null)
 
-  const [sablonModu, setSablonModu] = useState<'sec' | 'yeni' | 'excel'>('sec')
+  const [sablonModu, setSablonModu] = useState<'sec' | 'yeni' | 'excel' | 'toplu'>('sec')
+  const [topluUrunMetin, setTopluUrunMetin] = useState('')
+  const [topluYukleniyor, setTopluYukleniyor] = useState(false)
+  const [topluSonuc, setTopluSonuc] = useState<any>(null)
   const [sablonListesi, setSablonListesi] = useState<OdooSablonListItem[]>([])
   const [sablonArama, setSablonArama] = useState('')
   const [sablonKategoriFiltre, setSablonKategoriFiltre] = useState('')
@@ -496,6 +499,43 @@ export default function UrunYapilandirmaPage() {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Aktarım başarısız' })
     } finally {
       setExcelYukleniyor(false)
+    }
+  }
+
+  async function topluAc() {
+    if (!sablon.kategoriId) {
+      setMesaj({ tip: 'err', text: 'Önce Adım 1\'den bir kategori seçin' })
+      return
+    }
+    const adlar = topluUrunMetin
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (!adlar.length) {
+      setMesaj({ tip: 'err', text: 'Ürün adı listesi boş' })
+      return
+    }
+    const onay = window.confirm(
+      `${adlar.length} ürün adı, seçili kategoride STOKSUZ ve BARKODSUZ şablon olarak açılacak (fiyat 0, sonra düzenlenebilir). Devam?`,
+    )
+    if (!onay) return
+    setTopluYukleniyor(true)
+    setTopluSonuc(null)
+    try {
+      const res = await adminApi.post('/admin/odoo-sablon-toplu-olustur', {
+        kategoriId: sablon.kategoriId,
+        urunAdlari: adlar,
+      })
+      setTopluSonuc(res.data)
+      setMesaj({
+        tip: 'ok',
+        text: `${res.data?.olusturulan ?? 0} ürün açıldı, ${res.data?.atlanan ?? 0} zaten vardı (atlandı), ${res.data?.hata ?? 0} hata`,
+      })
+      if ((res.data?.olusturulan ?? 0) > 0) setTopluUrunMetin('')
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Toplu açma başarısız' })
+    } finally {
+      setTopluYukleniyor(false)
     }
   }
 
@@ -886,7 +926,100 @@ export default function UrunYapilandirmaPage() {
             >
               Excel&apos;den Toplu Aktar
             </button>
+            <button
+              type="button"
+              onClick={() => setSablonModu('toplu')}
+              style={{
+                flex: 1,
+                padding: '10px 16px',
+                border: sablonModu === 'toplu' ? `2px solid ${GREEN}` : '1px solid #e5e7eb',
+                borderRadius: 8,
+                backgroundColor: sablonModu === 'toplu' ? '#f0fdf4' : '#f9fafb',
+                color: sablonModu === 'toplu' ? GREEN : '#6b7280',
+                fontWeight: sablonModu === 'toplu' ? 800 : 500,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Toplu Aç (Stoksuz)
+            </button>
           </div>
+
+          {sablonModu === 'toplu' ? (
+            <div>
+              <div style={{
+                marginBottom: 16,
+                padding: '12px 14px',
+                borderRadius: 10,
+                backgroundColor: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                fontSize: 12,
+                color: '#166534',
+                lineHeight: 1.5,
+              }}>
+                Her satıra bir ürün adı yazın. Her satır, Adım 1&apos;de seçtiğiniz kategoride
+                <strong> stoksuz, barkodsuz, varyantsız</strong> ayrı bir şablon olarak açılır
+                (satış fiyatı 0 — sonra düzenlenebilir). Satış ekranlarında bu kategori
+                seçildiğinde direkt listelenir. Aynı isim+kategoride zaten şablon varsa
+                atlanır, tekrar çalıştırmak güvenlidir.
+              </div>
+              <div style={{ marginBottom: 12, fontSize: 12, color: '#374151' }}>
+                Seçili kategori:{' '}
+                <strong>
+                  {sablon.kategoriId
+                    ? (kategoriler.find((k) => String(k.id) === sablon.kategoriId)?.complete_name ?? `#${sablon.kategoriId}`)
+                    : '— (Adım 1\'den seçin) —'}
+                </strong>
+              </div>
+              <textarea
+                value={topluUrunMetin}
+                onChange={(e) => setTopluUrunMetin(e.target.value)}
+                placeholder={'Stok Cam Beyaz Standart 1.50\nStok Cam Beyaz Standart 1.56\nStok Cam Fotokromik Prime 1.60\n...'}
+                rows={10}
+                style={{ ...inp, fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+                <button type="button" onClick={() => setAdim(1)} style={btnSmall}>← Kategori seç</button>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>
+                  {topluUrunMetin.split('\n').map((s) => s.trim()).filter(Boolean).length} ürün adı
+                </span>
+                <button
+                  type="button"
+                  disabled={topluYukleniyor || !sablon.kategoriId}
+                  onClick={() => void topluAc()}
+                  style={{ ...btnPrimary, backgroundColor: GREEN }}
+                >
+                  {topluYukleniyor ? 'Açılıyor...' : 'Toplu aç →'}
+                </button>
+              </div>
+
+              {topluSonuc ? (
+                <div style={{
+                  marginTop: 16,
+                  padding: 16,
+                  borderRadius: 12,
+                  backgroundColor: '#dcfce7',
+                  border: '1px solid #bbf7d0',
+                }}>
+                  <div style={{ fontWeight: 900, fontSize: 15, color: GREEN, marginBottom: 8 }}>
+                    {topluSonuc.olusturulan} açıldı · {topluSonuc.atlanan} zaten vardı · {topluSonuc.hata} hata
+                  </div>
+                  {(topluSonuc.detay?.atlanan ?? []).length > 0 ? (
+                    <div style={{ fontSize: 11, color: '#92400e', marginBottom: 6 }}>
+                      Zaten vardı: {topluSonuc.detay.atlanan.join(', ')}
+                    </div>
+                  ) : null}
+                  {(topluSonuc.detay?.hatalar ?? []).length > 0 ? (
+                    <div style={{ fontSize: 11, color: RED }}>
+                      {topluSonuc.detay.hatalar.map((h: any) => (
+                        <div key={h.ad}>{h.ad}: {h.sebep}</div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {sablonModu === 'excel' ? (
             <div>
