@@ -502,6 +502,19 @@ export default function UrunYapilandirmaPage() {
     }
   }
 
+  // nginx proxy_read_timeout 60sn — büyük listelerde tek istek zaman aşımına
+  // (504) uğrayıp arka planda aslında başarıyla tamamlanmasına rağmen
+  // tarayıcıda "başarısız" görünmesine sebep oluyordu (bkz. Excel Envanter
+  // importundaki aynı sorun / IMPORT_PARCA_BOYUTU). Bu yüzden istek parçalara
+  // bölünüp arka arkaya gönderiliyor.
+  const TOPLU_AC_PARCA_BOYUTU = 120
+
+  function parcalaraBol<T>(dizi: T[], boyut: number): T[][] {
+    const parcalar: T[][] = []
+    for (let i = 0; i < dizi.length; i += boyut) parcalar.push(dizi.slice(i, i + boyut))
+    return parcalar
+  }
+
   async function topluAc() {
     if (!sablon.kategoriId) {
       setMesaj({ tip: 'err', text: 'Önce Adım 1\'den bir kategori seçin' })
@@ -519,21 +532,37 @@ export default function UrunYapilandirmaPage() {
       `${adlar.length} ürün adı, seçili kategoride STOKSUZ ve BARKODSUZ şablon olarak açılacak (fiyat 0, sonra düzenlenebilir). Devam?`,
     )
     if (!onay) return
+
+    const parcalar = parcalaraBol(adlar, TOPLU_AC_PARCA_BOYUTU)
     setTopluYukleniyor(true)
     setTopluSonuc(null)
+    const toplam = { olusturulan: 0, atlanan: 0, hata: 0, detay: { olusturulan: [] as any[], atlanan: [] as string[], hatalar: [] as any[] } }
     try {
-      const res = await adminApi.post('/admin/odoo-sablon-toplu-olustur', {
-        kategoriId: sablon.kategoriId,
-        urunAdlari: adlar,
-      })
-      setTopluSonuc(res.data)
+      for (let i = 0; i < parcalar.length; i++) {
+        setMesaj({ tip: 'ok', text: `Açılıyor... (${i + 1}/${parcalar.length} parça, ${parcalar[i].length} ürün)` })
+        const res = await adminApi.post('/admin/odoo-sablon-toplu-olustur', {
+          kategoriId: sablon.kategoriId,
+          urunAdlari: parcalar[i],
+        })
+        toplam.olusturulan += res.data?.olusturulan ?? 0
+        toplam.atlanan += res.data?.atlanan ?? 0
+        toplam.hata += res.data?.hata ?? 0
+        toplam.detay.olusturulan.push(...(res.data?.detay?.olusturulan ?? []))
+        toplam.detay.atlanan.push(...(res.data?.detay?.atlanan ?? []))
+        toplam.detay.hatalar.push(...(res.data?.detay?.hatalar ?? []))
+      }
+      setTopluSonuc(toplam)
       setMesaj({
         tip: 'ok',
-        text: `${res.data?.olusturulan ?? 0} ürün açıldı, ${res.data?.atlanan ?? 0} zaten vardı (atlandı), ${res.data?.hata ?? 0} hata`,
+        text: `${toplam.olusturulan} ürün açıldı, ${toplam.atlanan} zaten vardı (atlandı), ${toplam.hata} hata`,
       })
-      if ((res.data?.olusturulan ?? 0) > 0) setTopluUrunMetin('')
+      if (toplam.olusturulan > 0) setTopluUrunMetin('')
     } catch (e: any) {
-      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Toplu açma başarısız' })
+      setTopluSonuc(toplam.olusturulan || toplam.atlanan || toplam.hata ? toplam : null)
+      setMesaj({
+        tip: 'err',
+        text: `${e?.response?.data?.error ?? 'Toplu açma başarısız'} — o ana kadar ${toplam.olusturulan} ürün açılmıştı, kalanı tekrar deneyebilirsiniz (zaten açılanlar atlanır).`,
+      })
     } finally {
       setTopluYukleniyor(false)
     }
