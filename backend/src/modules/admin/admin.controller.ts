@@ -6435,6 +6435,58 @@ router.post('/odoo-sablon-toplu-olustur', async (req, res, next) => {
   }
 });
 
+/**
+ * Bir kategorideki MÜKERRER (aynı isim) product.template kayıtlarını
+ * tespit edip en eskisi (en küçük id) HARİÇ hepsini arşivler (active=false).
+ * "Toplu Aç (Stoksuz)" akışında art arda tıklama/yarış durumu yüzünden
+ * oluşabilecek yinelenen kayıtları tek tıkla temizlemek için.
+ */
+router.post('/odoo-sablon-mukerrer-temizle', async (req, res, next) => {
+  try {
+    const { kategoriId } = req.body as { kategoriId?: number | string };
+    const katId = kategoriId ? Number(kategoriId) : null;
+    if (!katId) return res.status(400).json({ error: 'kategoriId zorunlu' });
+
+    const templates = (await execute(
+      'product.template', 'search_read',
+      [[['categ_id', '=', katId], ['active', '=', true]]],
+      { fields: ['id', 'name'], limit: 10000, order: 'id asc' },
+    )) as { id: number; name: string }[];
+
+    const gruplar = new Map<string, { id: number; name: string }[]>();
+    for (const t of templates) {
+      const key = t.name.trim().toLocaleLowerCase('tr-TR');
+      const arr = gruplar.get(key) ?? [];
+      arr.push(t);
+      gruplar.set(key, arr);
+    }
+
+    const arsivlenecekIdler: number[] = [];
+    const detay: { ad: string; tutulanId: number; arsivlenenIdler: number[] }[] = [];
+    for (const grup of gruplar.values()) {
+      if (grup.length < 2) continue;
+      const sirali = [...grup].sort((a, b) => a.id - b.id);
+      const [tutulan, ...fazlalar] = sirali;
+      arsivlenecekIdler.push(...fazlalar.map((f) => f.id));
+      detay.push({ ad: tutulan.name, tutulanId: tutulan.id, arsivlenenIdler: fazlalar.map((f) => f.id) });
+    }
+
+    if (arsivlenecekIdler.length) {
+      await execute('product.template', 'write', [arsivlenecekIdler, { active: false }]);
+    }
+
+    return res.json({
+      success: true,
+      taranan: templates.length,
+      mukerrerGrup: detay.length,
+      arsivlenen: arsivlenecekIdler.length,
+      detay,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/odoo-varyant-import', async (req, res, next) => {
   try {
     const { tmplId, satirlar, sutunSirasi } = req.body;

@@ -172,6 +172,8 @@ export default function UrunYapilandirmaPage() {
   const [topluUrunMetin, setTopluUrunMetin] = useState('')
   const [topluYukleniyor, setTopluYukleniyor] = useState(false)
   const [topluSonuc, setTopluSonuc] = useState<any>(null)
+  const [mukerrerYukleniyor, setMukerrerYukleniyor] = useState(false)
+  const [mukerrerSonuc, setMukerrerSonuc] = useState<any>(null)
   const [sablonListesi, setSablonListesi] = useState<OdooSablonListItem[]>([])
   const [sablonArama, setSablonArama] = useState('')
   const [sablonKategoriFiltre, setSablonKategoriFiltre] = useState('')
@@ -565,6 +567,33 @@ export default function UrunYapilandirmaPage() {
       })
     } finally {
       setTopluYukleniyor(false)
+    }
+  }
+
+  async function mukerrerTemizle() {
+    if (!sablon.kategoriId) {
+      setMesaj({ tip: 'err', text: 'Önce Adım 1\'den bir kategori seçin' })
+      return
+    }
+    const onay = window.confirm(
+      'Seçili kategoride aynı isimde birden fazla ürün varsa, en eskisi hariç hepsi ARŞİVLENECEK. Devam?',
+    )
+    if (!onay) return
+    setMukerrerYukleniyor(true)
+    setMukerrerSonuc(null)
+    try {
+      const res = await adminApi.post('/admin/odoo-sablon-mukerrer-temizle', {
+        kategoriId: sablon.kategoriId,
+      })
+      setMukerrerSonuc(res.data)
+      setMesaj({
+        tip: 'ok',
+        text: `${res.data?.taranan ?? 0} ürün tarandı, ${res.data?.mukerrerGrup ?? 0} mükerrer grup bulundu, ${res.data?.arsivlenen ?? 0} ürün arşivlendi`,
+      })
+    } catch (e: any) {
+      setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Mükerrer temizleme başarısız' })
+    } finally {
+      setMukerrerYukleniyor(false)
     }
   }
 
@@ -1007,7 +1036,7 @@ export default function UrunYapilandirmaPage() {
                 rows={10}
                 style={{ ...inp, fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }}
               />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
                 <button type="button" onClick={() => setAdim(1)} style={btnSmall}>← Kategori seç</button>
                 <span style={{ fontSize: 12, color: '#6b7280' }}>
                   {topluUrunMetin.split('\n').map((s) => s.trim()).filter(Boolean).length} ürün adı
@@ -1020,7 +1049,39 @@ export default function UrunYapilandirmaPage() {
                 >
                   {topluYukleniyor ? 'Açılıyor...' : 'Toplu aç →'}
                 </button>
+                <button
+                  type="button"
+                  disabled={mukerrerYukleniyor || !sablon.kategoriId}
+                  onClick={() => void mukerrerTemizle()}
+                  title="Seçili kategoride aynı isimde birden fazla ürün varsa en eskisi hariç hepsini arşivler"
+                  style={{ ...btnPrimary, backgroundColor: AMBER }}
+                >
+                  {mukerrerYukleniyor ? 'Temizleniyor...' : 'Mükerrerleri Temizle'}
+                </button>
               </div>
+
+              {mukerrerSonuc ? (
+                <div style={{
+                  marginTop: 16,
+                  padding: 16,
+                  borderRadius: 12,
+                  backgroundColor: '#fffbeb',
+                  border: '1px solid #fde68a',
+                }}>
+                  <div style={{ fontWeight: 900, fontSize: 15, color: AMBER, marginBottom: 8 }}>
+                    {mukerrerSonuc.taranan} ürün tarandı · {mukerrerSonuc.mukerrerGrup} mükerrer grup · {mukerrerSonuc.arsivlenen} arşivlendi
+                  </div>
+                  {(mukerrerSonuc.detay ?? []).length > 0 ? (
+                    <div style={{ fontSize: 11, color: '#92400e', maxHeight: 200, overflowY: 'auto' }}>
+                      {mukerrerSonuc.detay.map((d: any) => (
+                        <div key={d.tutulanId} style={{ marginBottom: 2 }}>
+                          {d.ad}: #{d.tutulanId} tutuldu, {d.arsivlenenIdler.join(', ')} arşivlendi
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {topluSonuc ? (
                 <div style={{
