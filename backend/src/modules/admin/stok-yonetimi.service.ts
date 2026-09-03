@@ -205,18 +205,30 @@ export async function listStokUrunleri(filtre: StokFiltre) {
 
   const templates = (await execute('product.template', 'search_read', [domain], searchKwargs)) ?? [];
 
-  const tmplIds = templates.map((t: { id: number }) => t.id);
+  // stok/KDV/fiyat zenginleştirmesi (her biri ek Odoo çağrısı) pahalı — kdv/
+  // stokDurumu filtreleri bellekte uygulandığı için bunlar AKTİFSE tüm
+  // eşleşen şablonları zenginleştirmemiz gerekiyor (yoksa filtre yanlış
+  // sonuç verir). Ama filtre yoksa sadece o an gösterilecek SAYFAYI
+  // zenginleştirmek yeterli — binlerce satırda (örn. 477+ 'stok cam'
+  // listesi) ekranın dakikalarca "Yükleniyor..." kalmasını önler.
+  const filtreZenginlestirmeGerektiriyor = filtre.kdv === 10 || filtre.kdv === 20
+    || filtre.stokDurumu === 'var' || filtre.stokDurumu === 'sifir';
+  const zenginlestirilecekTemplates = filtreZenginlestirmeGerektiriyor
+    ? templates
+    : templates.slice(offset, offset + limit);
+
+  const tmplIds = zenginlestirilecekTemplates.map((t: { id: number }) => t.id);
   const stockMap = await getTemplateStockMap(tmplIds, filtre.lokasyon, durum !== 'aktif');
   const alisFiyatiMap = await resolveTemplateStandardPriceMap(tmplIds);
 
   const kdvMap = await resolveTemplateKdvMap(tmplIds);
 
-  const multiVariantTmplIds = templates
+  const multiVariantTmplIds = zenginlestirilecekTemplates
     .filter((t: { product_variant_count?: number }) => Math.max(1, Number(t.product_variant_count) || 1) > 1)
     .map((t: { id: number }) => t.id);
   const variantAvgMap = await resolveTemplateVariantAverages(multiVariantTmplIds);
 
-  let rows: StokUrunRow[] = templates.map((t: any) => {
+  let rows: StokUrunRow[] = zenginlestirilecekTemplates.map((t: any) => {
     const kdvOrani = kdvMap.get(t.id) ?? 0;
     const toplamStok = stockMap.get(t.id) ?? 0;
     const varyantSayisi = Math.max(1, Number(t.product_variant_count) || 1);
@@ -250,8 +262,12 @@ export async function listStokUrunleri(filtre: StokFiltre) {
   if (filtre.stokDurumu === 'var') rows = rows.filter((r) => r.toplamStok > 0);
   if (filtre.stokDurumu === 'sifir') rows = rows.filter((r) => r.toplamStok <= 0);
 
-  const total = rows.length;
-  const data = rows.slice(offset, offset + limit);
+  // filtreZenginlestirmeGerektiriyor=true iken `rows` TÜM eşleşen şablonlardan
+  // (filtrelendikten sonra) oluşuyor, bu yüzden burada hâlâ sayfalanması
+  // gerekiyor. false iken `rows` zaten sadece ilgili sayfanın (offset..offset+limit)
+  // zenginleştirilmiş hali — tekrar slice'lamak yanlış pencereyi keser.
+  const total = filtreZenginlestirmeGerektiriyor ? rows.length : templates.length;
+  const data = filtreZenginlestirmeGerektiriyor ? rows.slice(offset, offset + limit) : rows;
   return { data, total, page, limit };
 }
 
