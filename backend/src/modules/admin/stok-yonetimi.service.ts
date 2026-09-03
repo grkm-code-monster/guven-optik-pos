@@ -187,10 +187,16 @@ export async function listStokUrunleri(filtre: StokFiltre) {
   if (filtre.fiyatMin != null) domain.push(['list_price', '>=', filtre.fiyatMin]);
   if (filtre.fiyatMax != null) domain.push(['list_price', '<=', filtre.fiyatMax]);
 
+  // NOT: kdv/stokDurumu filtreleri Odoo domain'inde değil, aşağıda satırlar
+  // çekildikten SONRA bellekte uygulanıyor — bu yüzden Odoo'dan sayfa
+  // boyutundan fazla, GERÇEK toplam eşleşme sayısını karşılayacak kadar
+  // satır çekmemiz lazım, yoksa "total" ve sayfalama yanlış/eksik olur
+  // (bkz. Stok Yönetimi'nde 250 sınırı — sadece ilk ~250 şablon çekilip
+  // gerisi hiç görünmüyordu).
   const fields = ['id', 'name', 'default_code', 'categ_id', 'list_price', 'standard_price', 'taxes_id', 'active', 'product_variant_count'];
   const searchKwargs: Record<string, unknown> = {
     fields,
-    limit: limit + 200,
+    limit: 10000,
     order: 'name asc',
   };
   if (Object.keys(searchContext).length) {
