@@ -525,6 +525,9 @@ export function resolveSearchKategoriId(options) {
 }
 /** Odoo BAKIM kategorisi — hizmet (service) tipi ürünler yalnızca burada aranır */
 const BAKIM_KATEGORI_ID = 63;
+/** Stok cam kategorileri — reçeteye göre öneri paneli, terim yazılmadan da (kategori
+ *  seçilir seçilmez) kataloğu stoktan bağımsız taramalı (bkz. searchUrun minLen). */
+const STOK_CAM_KATEGORI_IDS = [35, 36, 37, 39, 40, 41];
 function catalogProductTypes(options) {
     const kategoriId = resolveSearchKategoriId(options);
     if (kategoriId === BAKIM_KATEGORI_ID) {
@@ -598,7 +601,15 @@ function mergeCatalogVariants(existing, incoming, limit) {
     return existing;
 }
 async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
-    const RESULT_LIMIT = 50;
+    const hasTerm = Boolean(term && String(term).trim());
+    // Terim boşken (sadece kategori seçilerek "kataloğu tara" modunda — örn. BAKIM ve
+    // stok cam kategorileri) 50'lik sınır yetersiz kalıyordu: bir kategoride yüzlerce
+    // şablon olabiliyor (bkz. toplu stok cam açma özelliği — tek kategoride 400+ ürün),
+    // ve sadece isim sırasına göre ilk 50'si dönüyordu. Reçeteye göre öneri paneli bu
+    // listeyi FİLTRELİYOR, yani aranan SPH/CYL kombinasyonu ilk 50'de değilse hiç
+    // görünmüyordu (stokta olsun olmasın fark etmeksizin). Terim yazılı bir aramada
+    // (kullanıcı bir şey yazdı) 50 sınırı makul kalmaya devam ediyor.
+    const RESULT_LIMIT = hasTerm ? 50 : 2000;
     const baseDomain = [
         ['type', 'in', catalogProductTypes(options)],
         ['active', '=', true],
@@ -739,8 +750,10 @@ export async function searchUrun(q, yontem, lokasyon, options) {
     const rawTerm = q.trim();
     const term = normalizeTransferSearchTerm(rawTerm, yontem);
     const katalog = options?.katalog === true;
-    const bakimKatalog = katalog && resolveSearchKategoriId(options) === BAKIM_KATEGORI_ID;
-    const minLen = yontem === 'ad' ? (bakimKatalog ? 0 : 1) : 3;
+    const searchKategoriId = resolveSearchKategoriId(options);
+    const bosTerimliKatalogIzinli =
+        katalog && (searchKategoriId === BAKIM_KATEGORI_ID || STOK_CAM_KATEGORI_IDS.includes(searchKategoriId));
+    const minLen = yontem === 'ad' ? (bosTerimliKatalogIzinli ? 0 : 1) : 3;
     if (!term || term.length < minLen)
         return [];
     return withOdoo('urun-ara', async () => {

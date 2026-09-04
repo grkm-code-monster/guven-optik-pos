@@ -339,7 +339,16 @@ export default function ItemsStep({
   useEffect(() => {
     if (!modalOpen || step !== 3) return
     const term = q.trim()
-    if (term.length < 1 && pickedKategoriId !== BAKIM_KATEGORI_ID) {
+    // Stok cam kategorilerinde (Reçeteye göre öneri paneli) kullanıcı hiçbir şey
+    // yazmadan, sadece kategori seçerek TÜM kategori kataloğunu (stokta olsun
+    // olmasın) görebilmeli — aksi halde öneri paneli arama kutusuna yazı
+    // girilmeden hep boş kalıyor ve "sadece stokta varsa öneriyor" gibi
+    // görünüyordu. BAKIM kategorisi zaten bu şekilde çalışıyordu, aynı
+    // istisnayı stok cam kategorilerine de uyguluyoruz.
+    const bosTerimeIzinVer =
+      pickedKategoriId === BAKIM_KATEGORI_ID ||
+      (pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId))
+    if (term.length < 1 && !bosTerimeIzinVer) {
       setSearchResults([])
       return
     }
