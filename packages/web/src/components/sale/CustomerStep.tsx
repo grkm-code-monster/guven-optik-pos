@@ -349,7 +349,15 @@ export default function CustomerStep({
       setIlce('')
       setNote('')
       setHasPresciption(false)
-      onSelectCustomer(created)
+      // Hızlı Müşteri formunda reçete de girildiyse, backend bunu doğrudan
+      // customer kaydının kendi far_*/near_*/lens_* alanlarına yazıyor (bkz.
+      // customer.service.ts) — yani `created` objesinin kendisi zaten bir
+      // "rx" gibi okunabilir. Önceden burada appliedPrescription hiç
+      // set edilmiyordu, bu yüzden Kalem Ekle ekranındaki "Reçeteye göre
+      // öneri" kutusu (Uzak/Yakın Sağ/Sol butonları) hiç çıkmıyordu —
+      // reçete geçmişinden elle SEÇİLMEDEN Kalem Ekle'ye geçiliyordu.
+      const yeniMusteri = hasPresciption ? { ...created, appliedPrescription: created } : created
+      onSelectCustomer(yeniMusteri)
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Müşteri oluşturulamadı')
     }

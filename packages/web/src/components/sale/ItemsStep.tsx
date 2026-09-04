@@ -96,6 +96,11 @@ function parseOneriTaraf(key: OneriTarafKey): { numaraTipi: 'uzak' | 'yakin'; ta
   return { numaraTipi, taraf }
 }
 
+/** Ondalık yuvarlama farklarına (0.1+0.2 gibi) toleranslı eşitlik */
+function diyoptriEsit(a: number, b: number): boolean {
+  return Math.abs(a - b) < 0.001
+}
+
 function receteOneriFiltrele(
   urunler: any[],
   rx: any,
@@ -114,8 +119,14 @@ function receteOneriFiltrele(
     const uSph = parseStokCamSph(u.ad)
     const uCyl = parseStokCamCyl(u.ad)
     if (uSph === null || uCyl === null) continue
-    if (uSph === sph && uCyl === Math.abs(cyl)) tam.push(u)
-    else if (uSph === tr.sph && uCyl === Math.abs(tr.cyl)) transpoze.push(u)
+    // Stok ürün isimleri her zaman eksi silindir (minus-cyl) biçiminde
+    // ("0100 -0050" gibi) — uCyl İŞARETLİ olarak parse ediliyor (genelde
+    // negatif). Önceden burada Math.abs(cyl) ile karşılaştırılıyordu, bu da
+    // işaretli (negatif) uCyl'in pozitif mutlak değere HİÇBİR ZAMAN eşit
+    // olamamasına, yani öneri listesinin hep boş çıkmasına sebep oluyordu.
+    // Artık işaretli değerler doğrudan karşılaştırılıyor.
+    if (diyoptriEsit(uSph, sph) && diyoptriEsit(uCyl, cyl)) tam.push(u)
+    else if (diyoptriEsit(uSph, tr.sph) && diyoptriEsit(uCyl, tr.cyl)) transpoze.push(u)
   }
   return { tam, transpoze }
 }
