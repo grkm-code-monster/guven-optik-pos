@@ -20,7 +20,8 @@
     "check-lot-collision": "ts-node --transpile-only scripts/check-lot-collision.ts",
     "gvnp-son-duzelt": "ts-node --transpile-only scripts/gvnp-son-duzelt.ts",
     "gvnp-son-duzelt-2": "ts-node --transpile-only scripts/gvnp-son-duzelt-2.ts",
-    "gvnp-kesin-kapanis": "ts-node --transpile-only scripts/gvnp-kesin-kapanis.ts"
+    "gvnp-kesin-kapanis": "ts-node --transpile-only scripts/gvnp-kesin-kapanis.ts",
+    "gider-kategori-sirket-ac": "ts-node --transpile-only scripts/gider-kategori-sirket-ac.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"

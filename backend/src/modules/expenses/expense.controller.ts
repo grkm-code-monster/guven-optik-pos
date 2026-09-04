@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authenticate } from '../../middleware/authenticate';
 import { prisma } from '../../database/prisma';
+import { execute } from '../odoo/odoo.service';
 import { getExpenseCategories, createExpense, getEmployees, searchSuppliers } from './expense.service';
 
 const router = Router();
@@ -20,6 +21,23 @@ async function resolveOdooEmployeeId(userId: string): Promise<number> {
     throw new Error('Odoo çalışan eşlemesi bulunamadı. Lütfen yöneticinize başvurun.');
   }
   return employeeId;
+}
+
+/**
+ * hr.expense oluştururken KULLANILACAK şirketi, çalışanın Odoo'daki KENDİ
+ * kayıtlı şirketinden çek. Önceden companyId hiç gönderilmiyordu, bu yüzden
+ * execute() varsayılan (admin'in ana) şirket bağlamını kullanıyordu — eğer
+ * çalışan farklı bir şirkete kayıtlıysa (örn. İlker YOLCU → GÜVEN OPTİK 1959
+ * dışında bir şirket) Odoo "Uyumsuz şirket kayıtları" hatası veriyordu.
+ * Artık kayıt her zaman çalışanın kendi şirketinde açılıyor.
+ */
+async function resolveEmployeeCompanyId(employeeId: number): Promise<number | undefined> {
+  const rows = (await execute(
+    'hr.employee', 'read', [[employeeId]],
+    { fields: ['id', 'company_id'] },
+  )) as Array<{ id: number; company_id?: [number, string] | false }>;
+  const companyId = rows?.[0]?.company_id;
+  return Array.isArray(companyId) ? companyId[0] : undefined;
 }
 
 function appendOdemeYontemiToDescription(description: string | undefined, odemeYontemi?: string): string {
@@ -71,6 +89,9 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Zorunlu alanlar eksik' });
     }
     const employee_id = await resolveOdooEmployeeId(req.user!.userId);
+    // Frontend companyId göndermiyor; çalışanın kendi şirketini kullan ki
+    // "uyumsuz şirket kayıtları" hatası çıkmasın (bkz. resolveEmployeeCompanyId).
+    const resolvedCompanyId = companyId ?? (await resolveEmployeeCompanyId(employee_id));
     const id = await createExpense({
       name,
       product_id,
@@ -78,7 +99,7 @@ router.post('/', async (req: Request, res: Response) => {
       employee_id,
       payment_mode: payment_mode ?? 'company_account',
       description: appendOdemeYontemiToDescription(description, odeme_yontemi),
-      companyId,
+      companyId: resolvedCompanyId,
     });
     res.json({ success: true, id });
   } catch (err: any) {
