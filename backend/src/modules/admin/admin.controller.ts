@@ -6186,10 +6186,19 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
         { fields: ['id', 'attribute_id', 'product_attribute_value_id'] },
       );
       for (const p of ptavlar) {
-        ptavMap.set(p.id, {
-          attrName: p.attribute_id?.[1] ?? '',
-          valueName: p.product_attribute_value_id?.[1] ?? '',
-        });
+        // Bug fix (15.09.2026): product_attribute_value_id'nin many2one
+        // display_name'i ([1] elemanı) Odoo tarafından "NİTELİK: Değer"
+        // biçiminde (örn. "MODEL: SS320SG") hesaplanıyor — bunu doğrudan
+        // kullanmak "Model" sütununda "MODEL: SS320SG" gibi tekrarlı/çirkin
+        // bir metin göstermeye sebep oluyordu. Nitelik adı zaten ayrı bir
+        // alanda (attrName) var, o yüzden buradan "AttrName: " önekini ayıklıyoruz.
+        const rawValueName = p.product_attribute_value_id?.[1] ?? '';
+        const attrName = p.attribute_id?.[1] ?? '';
+        const prefix = `${attrName}: `;
+        const valueName = rawValueName.startsWith(prefix)
+          ? rawValueName.slice(prefix.length)
+          : rawValueName;
+        ptavMap.set(p.id, { attrName, valueName });
       }
     }
 
