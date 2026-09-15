@@ -25,7 +25,8 @@
     "varyant-yarim-kalan-temizle": "ts-node --transpile-only scripts/varyant-yarim-kalan-temizle.ts",
     "sablon-model-renk-olcu-sifirla": "ts-node --transpile-only scripts/sablon-model-renk-olcu-sifirla.ts",
     "sablon-alt-sablonlari-listele": "ts-node --transpile-only scripts/sablon-alt-sablonlari-listele.ts",
-    "dinamik-nitelik-olustur": "ts-node --transpile-only scripts/dinamik-nitelik-olustur.ts"
+    "dinamik-nitelik-olustur": "ts-node --transpile-only scripts/dinamik-nitelik-olustur.ts",
+    "sablon-alt-sablonlari-arsivle": "ts-node --transpile-only scripts/sablon-alt-sablonlari-arsivle.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
