@@ -63,10 +63,47 @@ function varyantKey(model: string, renk: string, olcu: string): string {
   return `${model.trim().toUpperCase()}|${renk.trim().toUpperCase()}|${olcu.trim().toUpperCase()}`;
 }
 
+/**
+ * DÜZELTME 3 (15.09.2026) — kullanıcı geri bildirimi: "split by model" yöntemi
+ * her MODEL'i AYRI bir Odoo şablonuna açıyordu (örn. "SWING GÜNEŞ GÖZLÜĞÜ
+ * SS320SG" diye 95 ayrı ürün). Bu, patlamayı önlese de kullanıcının beklediği
+ * "TEK ürün, altında Model/Renk/Ölçü varyantları" görünümünü VERMİYORDU.
+ *
+ * Gerçek çözüm: MODEL/RENK/ÖLÇÜ'nün "Talep Üzerine" (dynamic) modda YENİ bir
+ * kopyası (bkz. odoo-varyant-import-dinamik.service.ts) — bu moddaki
+ * nitelikler Odoo'nun otomatik kombinasyon üretimine hiç girmediği için kaç
+ * farklı MODEL olursa olsun patlama riski YOK ve hepsi TEK şablonda kalıyor.
+ *
+ * Mevcut MODEL/RENK/ÖLÇÜ (always modda) nitelikleri onlarca ESKİ şablonda
+ * (örn. OTTO/MUSTANG OPTİK ÇERÇEVE) zaten "split by model" yapısıyla
+ * kullanıldığı için, o ürünlerde tutarlılığı bozmamak adına ESKİ yöntemle
+ * devam ediyoruz. Hangi yöntemin kullanılacağına, bu ana ürün adı için
+ * DAHA ÖNCE oluşturulmuş bir bölünmüş alt şablon (örn. "{Ürün Adı} XYZ")
+ * olup olmadığına bakarak karar veriyoruz — varsa eski (split), yoksa
+ * (SWING gibi sıfırdan/temizlenmiş bir ürün) yeni (dinamik tek şablon) yol.
+ */
 export async function importVaryantlarForTemplate(
   tmplId: number,
   satirlar: VaryantImportSatir[],
 ): Promise<VaryantImportSonuc> {
+  const orijinalAd = (await execute(
+    'product.template', 'read', [[Number(tmplId)]], { fields: ['name'] },
+  ) as { name: string }[])[0]?.name?.trim();
+
+  if (orijinalAd) {
+    const splitOrnegi = await execute(
+      'product.template', 'search_count',
+      [[['name', '=like', `${orijinalAd} %`]]],
+    ) as number;
+
+    if (!splitOrnegi) {
+      console.log(`[varyant-import] "${orijinalAd}" için önceden bölünmüş alt şablon bulunamadı — yeni "dinamik tek şablon" yolu kullanılıyor.`);
+      const { importVaryantlarDinamikTekSablon } = await import('./odoo-varyant-import-dinamik.service');
+      return importVaryantlarDinamikTekSablon(Number(tmplId), satirlar);
+    }
+    console.log(`[varyant-import] "${orijinalAd}" için ${splitOrnegi} bölünmüş alt şablon zaten var — eski "split by model" yolu kullanılıyor (tutarlılık için).`);
+  }
+
   const nitelikler = await execute(
     'product.attribute', 'search_read',
     [[['name', 'in', ['MODEL', 'RENK', 'ÖLÇÜ']]]],
@@ -342,6 +379,25 @@ export async function findVariantProductId(
   renk: string,
   olcu: string,
 ): Promise<number | null> {
+  // Aynı yönlendirme mantığı (bkz. importVaryantlarForTemplate) — bu ana
+  // ürün için önceden bölünmüş alt şablon YOKSA (SWING gibi dinamik-tek-
+  // şablon yoluyla açılmış ürünler), varyantı direkt tmplId üzerinde,
+  // dinamik nitelik setiyle ara.
+  const anaSablonAdi = (await execute(
+    'product.template', 'read', [[tmplId]], { fields: ['name'] },
+  ) as { name: string }[])[0]?.name?.trim();
+
+  if (anaSablonAdi) {
+    const splitOrnegi = await execute(
+      'product.template', 'search_count',
+      [[['name', '=like', `${anaSablonAdi} %`]]],
+    ) as number;
+    if (!splitOrnegi) {
+      const { findVariantProductIdDinamik } = await import('./odoo-varyant-import-dinamik.service');
+      return findVariantProductIdDinamik(tmplId, model, renk, olcu);
+    }
+  }
+
   const attrs = await execute(
     'product.attribute', 'search_read',
     [[['name', 'in', ['MODEL', 'RENK', 'ÖLÇÜ']]]],

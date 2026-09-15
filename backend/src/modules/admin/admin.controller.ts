@@ -6208,6 +6208,11 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
         const ptav = ptavMap.get(ptavId);
         if (ptav) attrs[ptav.attrName] = ptav.valueName;
       }
+      // Düzeltme (15.09.2026): çok-modelli ürünler artık "MODEL (Çoklu)" /
+      // "RENK (Çoklu)" / "ÖLÇÜ (Çoklu)" (dynamic mod) nitelik setini
+      // kullanabiliyor (bkz. odoo-varyant-import-dinamik.service.ts) — eski
+      // sabit "MODEL"/"RENK"/"ÖLÇÜ" adı aramasını, her iki nitelik setini de
+      // kapsayacak şekilde genişlettik.
       return {
         id: v.id,
         active: v.active !== false,
@@ -6216,9 +6221,9 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
         lst_price: v.lst_price || 0,
         standard_price: v.standard_price || 0,
         stok: stockMap.get(v.id) ?? 0,
-        model: attrs.MODEL || '',
-        renk: attrs.RENK || '',
-        olcu: attrs['ÖLÇÜ'] || '',
+        model: attrs.MODEL || attrs['MODEL (Çoklu)'] || '',
+        renk: attrs.RENK || attrs['RENK (Çoklu)'] || '',
+        olcu: attrs['ÖLÇÜ'] || attrs['ÖLÇÜ (Çoklu)'] || '',
         attrs,
       };
     });
