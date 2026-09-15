@@ -24,6 +24,10 @@ import {
   ptavKey,
   temizleImportSonrasiVaryantlar,
 } from './varyant-import-temizlik.service';
+import {
+  importVaryantlarForTemplate,
+  type VaryantImportSatir,
+} from './odoo-varyant-import.service';
 import * as bildirimService from '../bildirim/bildirim.service';
 import {
   getOzelSiparisLoglari,
@@ -6499,290 +6503,46 @@ router.post('/odoo-sablon-mukerrer-temizle', async (req, res, next) => {
 
 router.post('/odoo-varyant-import', async (req, res, next) => {
   try {
-    const { tmplId, satirlar, sutunSirasi } = req.body;
+    const { tmplId, satirlar: rawSatirlar, sutunSirasi } = req.body;
 
-    if (!tmplId || !satirlar?.length || !sutunSirasi) {
+    if (!tmplId || !rawSatirlar?.length || !sutunSirasi) {
       return res.status(400).json({ error: 'Eksik parametre' });
     }
 
-    const nitelikler = await execute(
-      'product.attribute', 'search_read',
-      [[['name', 'in', ['MODEL', 'RENK', 'ÖLÇÜ']]]],
-      { fields: ['id', 'name', 'create_variant'] },
-    );
-    const nitelikMap = new Map<string, number>(
-      (nitelikler as { id: number; name: string }[]).map((n) => [n.name, n.id]),
-    );
-    const modelAttrId = nitelikMap.get('MODEL');
-    const renkAttrId = nitelikMap.get('RENK');
-    const olcuAttrId = nitelikMap.get('ÖLÇÜ');
+    // Düzeltme (15.09.2026): Bu route önceden kendi kopya, KORUMASIZ mantığına
+    // sahipti — Excel toplu aktarımın kullandığı varyant-patlaması korumasını
+    // (bkz. odoo-varyant-import.service.ts, VARYANT_PATLAMA_ESIGI) hiç
+    // içermiyordu. "Yeni şablon oluştur" sihirbazından TEK SEFERDE çok sayıda
+    // farklı model/renk/ölçü içeren büyük bir import yapıldığında (örn. 322
+    // satır) Odoo, MODEL×RENK×ÖLÇÜ tam kartezyen kombinasyonunu (binlerce
+    // varyant) peşinen üretmeye çalışıyor, bu da sunucuyu kilitleyip
+    // 500/502/504 hatalarına yol açıyordu (bkz. "SWING GÜNEŞ GÖZLÜĞÜ" importu).
+    // Artık Excel importuyla AYNI, test edilmiş ve korumalı servise
+    // yönlendiriliyor.
+    const satirlar: VaryantImportSatir[] = (rawSatirlar as string[][]).map((satir, i) => ({
+      index: i,
+      model: satir[sutunSirasi.model]?.trim() ?? '',
+      renk: satir[sutunSirasi.renk]?.trim() ?? '',
+      olcu: sutunSirasi.olcu != null && sutunSirasi.olcu >= 0 ? satir[sutunSirasi.olcu]?.trim() ?? '' : '',
+      barkod: sutunSirasi.barkod != null && sutunSirasi.barkod >= 0 ? satir[sutunSirasi.barkod]?.trim() ?? '' : '',
+      fiyat: sutunSirasi.fiyat != null && sutunSirasi.fiyat >= 0 ? Number(satir[sutunSirasi.fiyat]) || 0 : 0,
+    }));
 
-    if (!modelAttrId || !renkAttrId || !olcuAttrId) {
-      return res.status(400).json({
-        error: 'MODEL, RENK veya ÖLÇÜ niteliği bulunamadı',
-      });
-    }
-
-    const mevcutDegerler = await execute(
-      'product.attribute.value', 'search_read',
-      [[['attribute_id', 'in', [modelAttrId, renkAttrId, olcuAttrId]]]],
-      { fields: ['id', 'name', 'attribute_id'], limit: 10000 },
-    );
-    const degerMap = new Map<string, number>();
-    for (const d of mevcutDegerler as { id: number; name: string; attribute_id: [number, string] }[]) {
-      degerMap.set(
-        `${d.attribute_id[0]}_${d.name.trim().toUpperCase()}`,
-        d.id,
-      );
-    }
-
-    const getOrCreateDeger = async (attrId: number, ad: string): Promise<number> => {
-      const key = `${attrId}_${ad.trim().toUpperCase()}`;
-      if (degerMap.has(key)) return degerMap.get(key)!;
-      const yeniId = Number(await execute(
-        'product.attribute.value', 'create',
-        [{ name: ad.trim(), attribute_id: attrId }],
-      ));
-      degerMap.set(key, yeniId);
-      return yeniId;
-    };
-
-    const mevcutLines = await execute(
-      'product.template.attribute.line', 'search_read',
-      [[['product_tmpl_id', '=', Number(tmplId)]]],
-      { fields: ['id', 'attribute_id', 'value_ids'] },
-    ) as { id: number; attribute_id: [number, string]; value_ids: number[] }[];
-
-    const lineMap = new Map<number, { id: number; value_ids: number[] }>();
-    for (const line of mevcutLines) {
-      const attrId = line.attribute_id[0];
-      if (!lineMap.has(attrId)) {
-        lineMap.set(attrId, { id: line.id, value_ids: line.value_ids });
-      } else {
-        await execute(
-          'product.template.attribute.line', 'unlink', [[line.id]],
-        );
-      }
-    }
-
-    for (const attrId of [modelAttrId, renkAttrId, olcuAttrId]) {
-      if (!lineMap.has(attrId)) {
-        lineMap.set(attrId, { id: -1, value_ids: [] });
-      }
-    }
-
-    type ParsedImportRow = {
-      index: number;
-      modelAd: string;
-      renkAd: string;
-      olcuAd: string | null;
-      barkod: string;
-      fiyat: number;
-      modelId: number;
-      renkId: number;
-      olcuId: number | null;
-    };
-
-    const parsedRows: ParsedImportRow[] = [];
-    const hatalar: { satir: number; sebep: string }[] = [];
-    const attrUniqueValues = new Map<number, Set<number>>();
-
-    for (let i = 0; i < satirlar.length; i++) {
-      const satir = satirlar[i] as string[];
-      const modelAd = satir[sutunSirasi.model]?.trim();
-      const renkAd = satir[sutunSirasi.renk]?.trim();
-      const olcuAd = sutunSirasi.olcu >= 0
-        ? satir[sutunSirasi.olcu]?.trim() : null;
-      const barkod = sutunSirasi.barkod >= 0
-        ? satir[sutunSirasi.barkod]?.trim() : '';
-      const fiyat = sutunSirasi.fiyat >= 0
-        ? Number(satir[sutunSirasi.fiyat]) : 0;
-
-      if (!modelAd || !renkAd) {
-        hatalar.push({ satir: i + 1, sebep: 'Model veya renk boş' });
-        continue;
-      }
-
-      try {
-        const modelId = await getOrCreateDeger(modelAttrId, modelAd);
-        const renkId = await getOrCreateDeger(renkAttrId, renkAd);
-        const olcuId = olcuAd
-          ? await getOrCreateDeger(olcuAttrId, olcuAd)
-          : null;
-
-        const track = (attrId: number, valueId: number) => {
-          if (!attrUniqueValues.has(attrId)) attrUniqueValues.set(attrId, new Set());
-          attrUniqueValues.get(attrId)!.add(valueId);
-        };
-        track(modelAttrId, modelId);
-        track(renkAttrId, renkId);
-        if (olcuId) track(olcuAttrId, olcuId);
-
-        parsedRows.push({
-          index: i,
-          modelAd,
-          renkAd,
-          olcuAd,
-          barkod,
-          fiyat,
-          modelId,
-          renkId,
-          olcuId,
-        });
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message.slice(0, 150) : 'Bilinmeyen hata';
-        hatalar.push({ satir: i + 1, sebep: msg });
-      }
-    }
-
-    // Nitelik satırlarını toplu kur (dynamic modda kartezyen varyant üretmez)
-    for (const [attrId, valueSet] of attrUniqueValues) {
-      const valueIds = [...valueSet];
-      const line = lineMap.get(attrId);
-      if (!line || line.id === -1) {
-        const lineId = Number(await execute(
-          'product.template.attribute.line', 'create',
-          [{
-            product_tmpl_id: Number(tmplId),
-            attribute_id: attrId,
-            value_ids: [[6, 0, valueIds]],
-          }],
-        ));
-        lineMap.set(attrId, { id: lineId, value_ids: valueIds });
-      } else {
-        const merged = [...new Set([...line.value_ids, ...valueIds])];
-        if (merged.length !== line.value_ids.length
-          || merged.some((id) => !line.value_ids.includes(id))) {
-          await execute(
-            'product.template.attribute.line', 'write',
-            [[line.id], { value_ids: [[6, 0, merged]] }],
-          );
-          lineMap.set(attrId, { id: line.id, value_ids: merged });
-        }
-      }
-    }
-
-    const sonuclar: {
-      satir: number; varyantId: number; model: string; renk: string;
-      olcu: string; barkod: string; fiyat: number;
-    }[] = [];
-
-    const korunanPtavKeys = new Set<string>();
-    const korunanVaryantIds = new Set<number>();
-
-    for (const row of parsedRows) {
-      try {
-        const ptavlar = await execute(
-          'product.template.attribute.value', 'search_read',
-          [[
-            ['product_tmpl_id', '=', Number(tmplId)],
-            ['product_attribute_value_id', 'in',
-              [row.modelId, row.renkId, ...(row.olcuId ? [row.olcuId] : [])],
-            ],
-          ]],
-          { fields: ['id', 'attribute_id', 'product_attribute_value_id'] },
-        ) as {
-          id: number;
-          attribute_id: [number, string];
-          product_attribute_value_id: [number, string];
-        }[];
-
-        const modelPtav = ptavlar.find(
-          (p) => p.product_attribute_value_id[0] === row.modelId,
-        );
-        const renkPtav = ptavlar.find(
-          (p) => p.product_attribute_value_id[0] === row.renkId,
-        );
-        const olcuPtav = row.olcuId ? ptavlar.find(
-          (p) => p.product_attribute_value_id[0] === row.olcuId,
-        ) : null;
-
-        if (!modelPtav || !renkPtav || (row.olcuId && !olcuPtav)) {
-          hatalar.push({
-            satir: row.index + 1,
-            sebep: 'PTAV bulunamadı',
-          });
-          continue;
-        }
-
-        const ptavIds = [
-          modelPtav.id,
-          renkPtav.id,
-          ...(olcuPtav ? [olcuPtav.id] : []),
-        ];
-        const key = ptavKey(ptavIds);
-        korunanPtavKeys.add(key);
-
-        const mevcutVaryantlar = await execute(
-          'product.product', 'search_read',
-          [[['product_tmpl_id', '=', Number(tmplId)]]],
-          { fields: ['id', 'product_template_attribute_value_ids'], limit: 5000 },
-        ) as { id: number; product_template_attribute_value_ids: number[] }[];
-
-        const mevcutEslesen = mevcutVaryantlar.find(
-          (v) => ptavKey(v.product_template_attribute_value_ids ?? []) === key,
-        );
-
-        if (mevcutEslesen) {
-          korunanVaryantIds.add(mevcutEslesen.id);
-          hatalar.push({
-            satir: row.index + 1,
-            sebep: 'Varyant zaten mevcut',
-          });
-          continue;
-        }
-
-        const varyantId = Number(await execute(
-          'product.product', 'create',
-          [{
-            product_tmpl_id: Number(tmplId),
-            product_template_attribute_value_ids: [[6, 0, ptavIds]],
-            barcode: row.barkod || false,
-            lst_price: row.fiyat || 0,
-          }],
-        ));
-        korunanVaryantIds.add(varyantId);
-
-        sonuclar.push({
-          satir: row.index + 1,
-          varyantId,
-          model: row.modelAd,
-          renk: row.renkAd,
-          olcu: row.olcuAd || '',
-          barkod: row.barkod || '',
-          fiyat: row.fiyat || 0,
-        });
-      } catch (e: unknown) {
-        const msg = e instanceof Error
-          ? e.message.slice(0, 150)
-          : 'Bilinmeyen hata';
-        hatalar.push({ satir: row.index + 1, sebep: msg });
-      }
-    }
-
-    const temizlik = await temizleImportSonrasiVaryantlar(
-      Number(tmplId),
-      korunanPtavKeys,
-      korunanVaryantIds,
-    );
+    const sonuc = await importVaryantlarForTemplate(Number(tmplId), satirlar);
 
     return res.json({
       success: true,
-      olusturulan: sonuclar.length,
-      hatalar: hatalar.length,
-      otomatikTemizlenen: temizlik.temizlenen,
-      kalanVaryant: temizlik.kalanVaryant,
-      temizlenemedi: temizlik.silinemedi.length,
-      detay: {
-        sonuclar: sonuclar.slice(0, 50),
-        hatalar: hatalar.slice(0, 50),
-        temizlenemediIds: temizlik.silinemedi.slice(0, 20),
-      },
+      olusturulan: sonuc.olusturulan,
+      hatalar: sonuc.hatalar.length,
+      otomatikTemizlenen: sonuc.otomatikTemizlenen,
+      kalanVaryant: sonuc.kalanVaryant,
+      detay: { hatalar: sonuc.hatalar.slice(0, 50) },
     });
   } catch (err) {
     next(err);
   }
 });
+
 
 router.post('/odoo-varyant-onizle', async (req, res, next) => {
   try {

@@ -105,17 +105,6 @@ export async function importVaryantlarForTemplate(
     }
   }
 
-  // Patlama koruması: şu anki (yeni satırlar eklenmeden ÖNCEKİ) kombinasyon
-  // sayısı zaten eşiği geçtiyse, bu şablona hiç yeni değer eklemeye çalışma —
-  // tüm satırları model-bazlı bölünmüş şablonlara yönlendir.
-  const mevcutKombinasyon = [modelAttrId, renkAttrId, olcuAttrId]
-    .map((attrId) => Math.max(1, lineMap.get(attrId)?.value_ids.length || 1))
-    .reduce((a, b) => a * b, 1);
-
-  if (mevcutKombinasyon >= VARYANT_PATLAMA_ESIGI) {
-    return importVaryantlarSplitByModel(tmplId, satirlar, { renkAttrId, olcuAttrId, getOrCreateDeger });
-  }
-
   type ParsedRow = VaryantImportSatir & {
     modelId: number;
     renkId: number;
@@ -133,6 +122,11 @@ export async function importVaryantlarForTemplate(
     }
 
     try {
+      // Not: getOrCreateDeger sadece GLOBAL product.attribute.value kaydını
+      // oluşturur/bulur — bu şablona bir ŞEY BAĞLAMAZ. Aşağıdaki patlama
+      // kontrolünden ÖNCE çalışması güvenlidir; hangi şablona (ana ya da
+      // bölünmüş) gideceğine karar vermeden önce sadece "bu değer var mı"
+      // diye bakıyoruz.
       const modelId = await getOrCreateDeger(modelAttrId, satir.model);
       const renkId = await getOrCreateDeger(renkAttrId, satir.renk);
       const olcuId = await getOrCreateDeger(olcuAttrId, satir.olcu);
@@ -155,6 +149,28 @@ export async function importVaryantlarForTemplate(
       const msg = e instanceof Error ? e.message.slice(0, 150) : 'Bilinmeyen hata';
       hatalar.push({ index: satir.index, sebep: msg });
     }
+  }
+
+  // Patlama koruması (DÜZELTME 15.09.2026): önceden bu kontrol sadece şablonun
+  // İTHALAT ÖNCESİ mevcut attribute satırlarına bakıyordu. Bu yüzden YEPYENİ
+  // bir şablona TEK SEFERDE çok sayıda farklı model/renk/ölçü içeren büyük bir
+  // toplu import yapıldığında (örn. 322 satır, ~100 farklı model), önceki
+  // kombinasyon sayısı 1 göründüğü için koruma hiç devreye girmiyor, Odoo'ya
+  // model×renk×ölçü tam kartezyen (binlerce) varyant üretmesi için attribute
+  // satırı yazılıyor ve bu senkron işlem sunucuyu kilitleyip 500/502/504
+  // hatalarına yol açıyordu (bkz. "SWING GÜNEŞ GÖZLÜĞÜ" importu). Artık eşik,
+  // mevcut değerler İLE bu batch'in getireceği YENİ değerlerin BİRLEŞİMİYLE
+  // (projected) hesaplanıyor.
+  const projectedKombinasyon = [modelAttrId, renkAttrId, olcuAttrId]
+    .map((attrId) => {
+      const mevcut = lineMap.get(attrId)?.value_ids ?? [];
+      const yeni = attrUniqueValues.get(attrId) ?? new Set<number>();
+      return Math.max(1, new Set([...mevcut, ...yeni]).size);
+    })
+    .reduce((a, b) => a * b, 1);
+
+  if (projectedKombinasyon >= VARYANT_PATLAMA_ESIGI) {
+    return importVaryantlarSplitByModel(tmplId, satirlar, { renkAttrId, olcuAttrId, getOrCreateDeger });
   }
 
   for (const [attrId, valueSet] of attrUniqueValues) {
@@ -188,45 +204,51 @@ export async function importVaryantlarForTemplate(
   const korunanVaryantIds = new Set<number>();
   let olusturulan = 0;
 
+  // Performans/kararlılık düzeltmesi (15.09.2026): önceden bu iki sorgu HER
+  // SATIR için tekrar tekrar (322 satırda 322 kez) çalıştırılıyordu — büyük
+  // importlarda yüzlerce gereksiz Odoo round-trip'e, bunun da yavaşlayıp
+  // 500/502/504 hatalarına yol açmasına katkıda bulunuyordu. Artık ikisi de
+  // döngüden ÖNCE bir kez çekiliyor, yeni oluşturulan varyantlar bellek
+  // içindeki listeye ekleniyor.
+  const tumPtavlar = await execute(
+    'product.template.attribute.value', 'search_read',
+    [[['product_tmpl_id', '=', Number(tmplId)]]],
+    { fields: ['id', 'product_attribute_value_id'], limit: 20000 },
+  ) as { id: number; product_attribute_value_id: [number, string] }[];
+  const ptavByValueId = new Map<number, number>();
+  for (const p of tumPtavlar) ptavByValueId.set(p.product_attribute_value_id[0], p.id);
+
+  const mevcutVaryantlar = await execute(
+    'product.product', 'search_read',
+    [[['product_tmpl_id', '=', Number(tmplId)]]],
+    { fields: ['id', 'product_template_attribute_value_ids'], limit: 20000 },
+  ) as { id: number; product_template_attribute_value_ids: number[] }[];
+  const varyantByPtavKey = new Map<string, number>();
+  for (const v of mevcutVaryantlar) {
+    varyantByPtavKey.set(ptavKey(v.product_template_attribute_value_ids ?? []), v.id);
+  }
+
   for (const row of parsedRows) {
     try {
-      const ptavlar = await execute(
-        'product.template.attribute.value', 'search_read',
-        [[
-          ['product_tmpl_id', '=', Number(tmplId)],
-          ['product_attribute_value_id', 'in', [row.modelId, row.renkId, row.olcuId]],
-        ]],
-        { fields: ['id', 'product_attribute_value_id'] },
-      ) as { id: number; product_attribute_value_id: [number, string] }[];
+      const modelPtavId = ptavByValueId.get(row.modelId);
+      const renkPtavId = ptavByValueId.get(row.renkId);
+      const olcuPtavId = ptavByValueId.get(row.olcuId);
 
-      const modelPtav = ptavlar.find((p) => p.product_attribute_value_id[0] === row.modelId);
-      const renkPtav = ptavlar.find((p) => p.product_attribute_value_id[0] === row.renkId);
-      const olcuPtav = ptavlar.find((p) => p.product_attribute_value_id[0] === row.olcuId);
-
-      if (!modelPtav || !renkPtav || !olcuPtav) {
+      if (!modelPtavId || !renkPtavId || !olcuPtavId) {
         hatalar.push({ index: row.index, sebep: 'PTAV bulunamadı' });
         continue;
       }
 
-      const ptavIds = [modelPtav.id, renkPtav.id, olcuPtav.id];
+      const ptavIds = [modelPtavId, renkPtavId, olcuPtavId];
       const key = ptavKey(ptavIds);
       korunanPtavKeys.add(key);
 
       const vKey = varyantKey(row.model, row.renk, row.olcu);
 
-      const mevcutVaryantlar = await execute(
-        'product.product', 'search_read',
-        [[['product_tmpl_id', '=', Number(tmplId)]]],
-        { fields: ['id', 'product_template_attribute_value_ids'], limit: 5000 },
-      ) as { id: number; product_template_attribute_value_ids: number[] }[];
-
-      const mevcutEslesen = mevcutVaryantlar.find(
-        (v) => ptavKey(v.product_template_attribute_value_ids ?? []) === key,
-      );
-
-      if (mevcutEslesen) {
-        korunanVaryantIds.add(mevcutEslesen.id);
-        varyantIdByKey.set(vKey, mevcutEslesen.id);
+      const mevcutVaryantId = varyantByPtavKey.get(key);
+      if (mevcutVaryantId) {
+        korunanVaryantIds.add(mevcutVaryantId);
+        varyantIdByKey.set(vKey, mevcutVaryantId);
         continue;
       }
 
@@ -241,6 +263,7 @@ export async function importVaryantlarForTemplate(
       ));
       korunanVaryantIds.add(varyantId);
       varyantIdByKey.set(vKey, varyantId);
+      varyantByPtavKey.set(key, varyantId);
       olusturulan++;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message.slice(0, 150) : 'Bilinmeyen hata';
@@ -395,39 +418,40 @@ async function importVaryantlarSplitByModel(
       }
     }
 
+    const tumPtavlar = await execute(
+      'product.template.attribute.value', 'search_read',
+      [[['product_tmpl_id', '=', splitTmplId]]],
+      { fields: ['id', 'product_attribute_value_id'], limit: 20000 },
+    ) as { id: number; product_attribute_value_id: [number, string] }[];
+    const ptavByValueId = new Map<number, number>();
+    for (const p of tumPtavlar) ptavByValueId.set(p.product_attribute_value_id[0], p.id);
+
     const mevcutVaryantlar = await execute(
       'product.product', 'search_read',
       [[['product_tmpl_id', '=', splitTmplId]]],
-      { fields: ['id', 'product_template_attribute_value_ids'], limit: 5000 },
+      { fields: ['id', 'product_template_attribute_value_ids'], limit: 20000 },
     ) as { id: number; product_template_attribute_value_ids: number[] }[];
+    const varyantByPtavKey = new Map<string, number>();
+    for (const v of mevcutVaryantlar) {
+      varyantByPtavKey.set(ptavKey(v.product_template_attribute_value_ids ?? []), v.id);
+    }
 
     for (const row of parsedRows) {
       try {
-        const ptavlar = await execute(
-          'product.template.attribute.value', 'search_read',
-          [[
-            ['product_tmpl_id', '=', splitTmplId],
-            ['product_attribute_value_id', 'in', [row.renkId, row.olcuId]],
-          ]],
-          { fields: ['id', 'product_attribute_value_id'] },
-        ) as { id: number; product_attribute_value_id: [number, string] }[];
-
-        const renkPtav = ptavlar.find((p) => p.product_attribute_value_id[0] === row.renkId);
-        const olcuPtav = ptavlar.find((p) => p.product_attribute_value_id[0] === row.olcuId);
-        if (!renkPtav || !olcuPtav) {
+        const renkPtavId = ptavByValueId.get(row.renkId);
+        const olcuPtavId = ptavByValueId.get(row.olcuId);
+        if (!renkPtavId || !olcuPtavId) {
           hatalar.push({ index: row.index, sebep: 'PTAV bulunamadı (bölünmüş şablon)' });
           continue;
         }
 
-        const ptavIds = [renkPtav.id, olcuPtav.id];
+        const ptavIds = [renkPtavId, olcuPtavId];
         const key = ptavKey(ptavIds);
         const vKey = varyantKey(row.model, row.renk, row.olcu);
 
-        const mevcutEslesen = mevcutVaryantlar.find(
-          (v) => ptavKey(v.product_template_attribute_value_ids ?? []) === key,
-        );
-        if (mevcutEslesen) {
-          varyantIdByKey.set(vKey, mevcutEslesen.id);
+        const mevcutVaryantId = varyantByPtavKey.get(key);
+        if (mevcutVaryantId) {
+          varyantIdByKey.set(vKey, mevcutVaryantId);
           continue;
         }
 
@@ -441,6 +465,7 @@ async function importVaryantlarSplitByModel(
           }],
         ));
         varyantIdByKey.set(vKey, varyantId);
+        varyantByPtavKey.set(key, varyantId);
         olusturulan++;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message.slice(0, 150) : 'Bilinmeyen hata';
