@@ -22,7 +22,7 @@
  */
 import 'dotenv/config';
 import { execute } from '../src/modules/odoo/odoo.service';
-import { isVaryantGuvenleSilinebilir } from './varyant-import-temizlik.service';
+import { isVaryantGuvenleSilinebilir } from '../src/modules/admin/varyant-import-temizlik.service';
 
 function parseArgs() {
   const tmplIdArg = process.argv.find((a) => a.startsWith('--tmplId='));
