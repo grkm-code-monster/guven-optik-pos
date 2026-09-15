@@ -6514,7 +6514,13 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
   try {
     const { tmplId, satirlar: rawSatirlar, sutunSirasi } = req.body;
 
+    // Tanı logu (15.09.2026) — "0 varyant oluşturuldu, 0 hata" anomalisini
+    // teşhis etmek için: isteğin gerçekte kaç satırla, hangi sutunSirasi ile
+    // geldiğini kaydediyoruz. pm2 logs guven-backend ile görülebilir.
+    console.log(`[varyant-import] İstek alındı: tmplId=${tmplId}, rawSatirlar.length=${rawSatirlar?.length}, sutunSirasi=${JSON.stringify(sutunSirasi)}`);
+
     if (!tmplId || !rawSatirlar?.length || !sutunSirasi) {
+      console.log('[varyant-import] Eksik parametre nedeniyle 400 döndü.');
       return res.status(400).json({ error: 'Eksik parametre' });
     }
 
@@ -6537,7 +6543,14 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
       fiyat: sutunSirasi.fiyat != null && sutunSirasi.fiyat >= 0 ? Number(satir[sutunSirasi.fiyat]) || 0 : 0,
     }));
 
+    console.log(`[varyant-import] Ayrıştırılan satır sayısı: ${satirlar.length}. İlk 3 örnek: ${JSON.stringify(satirlar.slice(0, 3))}`);
+
     const sonuc = await importVaryantlarForTemplate(Number(tmplId), satirlar);
+
+    console.log(`[varyant-import] Sonuç: olusturulan=${sonuc.olusturulan}, zatenMevcut=${sonuc.zatenMevcut}, hatalar=${sonuc.hatalar.length}, sonuclar.length=${sonuc.sonuclar.length}`);
+    if (sonuc.hatalar.length) {
+      console.log(`[varyant-import] İlk 5 hata: ${JSON.stringify(sonuc.hatalar.slice(0, 5))}`);
+    }
 
     return res.json({
       success: true,

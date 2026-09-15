@@ -157,6 +157,12 @@ async function importVaryantlarSplitByModel(
     byModel.get(modelKey)!.push(s);
   }
 
+  // Tanı logu (15.09.2026) — bkz. admin.controller.ts /odoo-varyant-import.
+  console.log(`[varyant-import-split] Ana şablon: "${orijinal.name}" (#${orijinalTmplId}). Toplam satır: ${satirlar.length}, gruplanan model sayısı: ${byModel.size}, gruplama sırasında hataya düşen: ${hatalar.length}.`);
+  if (byModel.size === 0 && satirlar.length > 0) {
+    console.log(`[varyant-import-split] UYARI: ${satirlar.length} satır geldi ama HİÇBİRİ modele gruplanamadı. İlk 3 satır ham hali: ${JSON.stringify(satirlar.slice(0, 3))}`);
+  }
+
   const splitTmplCache = new Map<string, number>();
 
   async function resolveSplitTmplId(model: string): Promise<number> {
@@ -323,6 +329,8 @@ async function importVaryantlarSplitByModel(
         hatalar.push({ index: row.index, sebep: msg });
       }
     }
+
+    console.log(`[varyant-import-split] Model "${model}" (split şablon #${splitTmplId}) işlendi — bu grupta ${rows.length} satır, şu ana kadar toplam: olusturulan=${olusturulan}, zatenMevcut=${zatenMevcut}, hatalar=${hatalar.length}.`);
   }
 
   return { varyantIdByKey, olusturulan, zatenMevcut, hatalar, sonuclar, otomatikTemizlenen: 0, kalanVaryant: 0 };
