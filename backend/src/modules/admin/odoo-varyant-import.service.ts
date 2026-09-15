@@ -1,6 +1,6 @@
 import { execute } from '../odoo/odoo.service';
 import { resolveOrCreateCategoryId } from '../odoo/odoo-category.util';
-import { ptavKey, temizleImportSonrasiVaryantlar } from './varyant-import-temizlik.service';
+import { ptavKey } from './varyant-import-temizlik.service';
 
 export type VaryantImportSatir = {
   index: number;
@@ -12,24 +12,28 @@ export type VaryantImportSatir = {
 };
 
 /**
- * Kalıcı varyant patlaması koruması.
+ * Kalıcı varyant patlaması koruması — DÜZELTME 2 (15.09.2026).
  *
  * Odoo'da MODEL/RENK/ÖLÇÜ özniteliklerinin "Varyant Oluşturma" modu "Anında"
  * (always) — bir şablonun attribute satırına yeni değer eklendiğinde Odoo o
- * şablonun TÜM model×renk×ölçü kombinasyonunu peşinen üretmeye çalışıyor.
- * Bu modu değiştirmek Odoo tarafından engelleniyor (zaten varyantı olan bir
- * niteliği "Talep Üzerine"ye çevirmiyor — bkz. fix-variant-explosion.ts denemesi).
+ * şablonun TÜM model×renk×ölçü kombinasyonunu peşinen üretmeye çalışıyor. Bu
+ * modu değiştirmek Odoo tarafından engelleniyor (bkz. fix-variant-explosion.ts).
  *
- * Bu yüzden kalıcı çözüm burada: bir şablon zaten bu eşiğe yaklaşmışsa/geçmişse
- * ("OTTO OPTİK ÇERÇEVE", "MUSTANG OPTİK ÇERÇEVE" gibi), o şablona YENİ bir
- * MODEL değeri eklemek yerine, o model için otomatik olarak ayrı, küçük bir
- * "bölünmüş şablon" (`"{Ürün Adı} {MODEL}"`) oluşturup varyantı oraya
- * (sadece RENK×ÖLÇÜ niteliğiyle) yazıyoruz. Böylece hiçbir şablon asla
- * patlama sınırına yaklaşmıyor — mevcut varyantlara/stoğa dokunulmuyor,
- * sadece yeni büyüme güvenli şablonlara yönlendiriliyor.
+ * İLK düzeltme (eşik = 500 kombinasyon) YETERSİZ çıktı: bir şablona MODEL,
+ * RENK ve ÖLÇÜ satırlarının HER ÜÇÜ de yazıldığı an — sayı KAÇ olursa olsun,
+ * 400 olsun 2 olsun — Odoo o üç satırın TAM kartezyen çarpımını anında
+ * üretiyor. Gerçek dünyada bir "MODEL" zaten kendi başına ayrı bir üründür
+ * (SS320SG başka bir ürün, GTR0315SG başka bir ürün) — aynı RENK/ÖLÇÜ
+ * aralığını paylaşmaları hiç gerekmez, o yüzden MODEL'i hiçbir zaman ana
+ * şablonun paylaşılan bir varyant niteliği yapmamak gerekiyor.
+ *
+ * KALICI ÇÖZÜM: MODEL artık HİÇBİR ZAMAN ana şablonun (örn. "SWING GÜNEŞ
+ * GÖZLÜĞÜ") kendi attribute satırına yazılmıyor. Her farklı MODEL değeri,
+ * kendi küçük "bölünmüş şablonuna" (`"{Ürün Adı} {MODEL}"`) yönlendiriliyor;
+ * o şablonda SADECE RENK×ÖLÇÜ niteliği olur (genelde tek haneli sayıda
+ * kombinasyon — asla patlamaz). Ana şablona hiçbir zaman MODEL bazlı bir
+ * attribute satırı eklenmez, bu yüzden "kaç satır" sorusu artık önemsiz.
  */
-const VARYANT_PATLAMA_ESIGI = 500;
-
 export type VaryantImportSonuc = {
   varyantIdByKey: Map<string, number>;
   olusturulan: number;
@@ -83,207 +87,12 @@ export async function importVaryantlarForTemplate(
     return yeniId;
   };
 
-  const mevcutLines = await execute(
-    'product.template.attribute.line', 'search_read',
-    [[['product_tmpl_id', '=', Number(tmplId)]]],
-    { fields: ['id', 'attribute_id', 'value_ids'] },
-  ) as { id: number; attribute_id: [number, string]; value_ids: number[] }[];
-
-  const lineMap = new Map<number, { id: number; value_ids: number[] }>();
-  for (const line of mevcutLines) {
-    const attrId = line.attribute_id[0];
-    if (!lineMap.has(attrId)) {
-      lineMap.set(attrId, { id: line.id, value_ids: line.value_ids });
-    } else {
-      await execute('product.template.attribute.line', 'unlink', [[line.id]]);
-    }
-  }
-
-  for (const attrId of [modelAttrId, renkAttrId, olcuAttrId]) {
-    if (!lineMap.has(attrId)) {
-      lineMap.set(attrId, { id: -1, value_ids: [] });
-    }
-  }
-
-  type ParsedRow = VaryantImportSatir & {
-    modelId: number;
-    renkId: number;
-    olcuId: number;
-  };
-
-  const parsedRows: ParsedRow[] = [];
-  const hatalar: { index: number; sebep: string }[] = [];
-  const attrUniqueValues = new Map<number, Set<number>>();
-
-  for (const satir of satirlar) {
-    if (!satir.model?.trim() || !satir.renk?.trim() || !satir.olcu?.trim()) {
-      hatalar.push({ index: satir.index, sebep: 'Model, renk veya ölçü boş' });
-      continue;
-    }
-
-    try {
-      // Not: getOrCreateDeger sadece GLOBAL product.attribute.value kaydını
-      // oluşturur/bulur — bu şablona bir ŞEY BAĞLAMAZ. Aşağıdaki patlama
-      // kontrolünden ÖNCE çalışması güvenlidir; hangi şablona (ana ya da
-      // bölünmüş) gideceğine karar vermeden önce sadece "bu değer var mı"
-      // diye bakıyoruz.
-      const modelId = await getOrCreateDeger(modelAttrId, satir.model);
-      const renkId = await getOrCreateDeger(renkAttrId, satir.renk);
-      const olcuId = await getOrCreateDeger(olcuAttrId, satir.olcu);
-
-      const track = (attrId: number, valueId: number) => {
-        if (!attrUniqueValues.has(attrId)) attrUniqueValues.set(attrId, new Set());
-        attrUniqueValues.get(attrId)!.add(valueId);
-      };
-      track(modelAttrId, modelId);
-      track(renkAttrId, renkId);
-      track(olcuAttrId, olcuId);
-
-      parsedRows.push({
-        ...satir,
-        modelId,
-        renkId,
-        olcuId,
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message.slice(0, 150) : 'Bilinmeyen hata';
-      hatalar.push({ index: satir.index, sebep: msg });
-    }
-  }
-
-  // Patlama koruması (DÜZELTME 15.09.2026): önceden bu kontrol sadece şablonun
-  // İTHALAT ÖNCESİ mevcut attribute satırlarına bakıyordu. Bu yüzden YEPYENİ
-  // bir şablona TEK SEFERDE çok sayıda farklı model/renk/ölçü içeren büyük bir
-  // toplu import yapıldığında (örn. 322 satır, ~100 farklı model), önceki
-  // kombinasyon sayısı 1 göründüğü için koruma hiç devreye girmiyor, Odoo'ya
-  // model×renk×ölçü tam kartezyen (binlerce) varyant üretmesi için attribute
-  // satırı yazılıyor ve bu senkron işlem sunucuyu kilitleyip 500/502/504
-  // hatalarına yol açıyordu (bkz. "SWING GÜNEŞ GÖZLÜĞÜ" importu). Artık eşik,
-  // mevcut değerler İLE bu batch'in getireceği YENİ değerlerin BİRLEŞİMİYLE
-  // (projected) hesaplanıyor.
-  const projectedKombinasyon = [modelAttrId, renkAttrId, olcuAttrId]
-    .map((attrId) => {
-      const mevcut = lineMap.get(attrId)?.value_ids ?? [];
-      const yeni = attrUniqueValues.get(attrId) ?? new Set<number>();
-      return Math.max(1, new Set([...mevcut, ...yeni]).size);
-    })
-    .reduce((a, b) => a * b, 1);
-
-  if (projectedKombinasyon >= VARYANT_PATLAMA_ESIGI) {
-    return importVaryantlarSplitByModel(tmplId, satirlar, { renkAttrId, olcuAttrId, getOrCreateDeger });
-  }
-
-  for (const [attrId, valueSet] of attrUniqueValues) {
-    const valueIds = [...valueSet];
-    const line = lineMap.get(attrId);
-    if (!line || line.id === -1) {
-      const lineId = Number(await execute(
-        'product.template.attribute.line', 'create',
-        [{
-          product_tmpl_id: Number(tmplId),
-          attribute_id: attrId,
-          value_ids: [[6, 0, valueIds]],
-        }],
-      ));
-      lineMap.set(attrId, { id: lineId, value_ids: valueIds });
-    } else {
-      const merged = [...new Set([...line.value_ids, ...valueIds])];
-      if (merged.length !== line.value_ids.length
-        || merged.some((id) => !line.value_ids.includes(id))) {
-        await execute(
-          'product.template.attribute.line', 'write',
-          [[line.id], { value_ids: [[6, 0, merged]] }],
-        );
-        lineMap.set(attrId, { id: line.id, value_ids: merged });
-      }
-    }
-  }
-
-  const varyantIdByKey = new Map<string, number>();
-  const korunanPtavKeys = new Set<string>();
-  const korunanVaryantIds = new Set<number>();
-  let olusturulan = 0;
-
-  // Performans/kararlılık düzeltmesi (15.09.2026): önceden bu iki sorgu HER
-  // SATIR için tekrar tekrar (322 satırda 322 kez) çalıştırılıyordu — büyük
-  // importlarda yüzlerce gereksiz Odoo round-trip'e, bunun da yavaşlayıp
-  // 500/502/504 hatalarına yol açmasına katkıda bulunuyordu. Artık ikisi de
-  // döngüden ÖNCE bir kez çekiliyor, yeni oluşturulan varyantlar bellek
-  // içindeki listeye ekleniyor.
-  const tumPtavlar = await execute(
-    'product.template.attribute.value', 'search_read',
-    [[['product_tmpl_id', '=', Number(tmplId)]]],
-    { fields: ['id', 'product_attribute_value_id'], limit: 20000 },
-  ) as { id: number; product_attribute_value_id: [number, string] }[];
-  const ptavByValueId = new Map<number, number>();
-  for (const p of tumPtavlar) ptavByValueId.set(p.product_attribute_value_id[0], p.id);
-
-  const mevcutVaryantlar = await execute(
-    'product.product', 'search_read',
-    [[['product_tmpl_id', '=', Number(tmplId)]]],
-    { fields: ['id', 'product_template_attribute_value_ids'], limit: 20000 },
-  ) as { id: number; product_template_attribute_value_ids: number[] }[];
-  const varyantByPtavKey = new Map<string, number>();
-  for (const v of mevcutVaryantlar) {
-    varyantByPtavKey.set(ptavKey(v.product_template_attribute_value_ids ?? []), v.id);
-  }
-
-  for (const row of parsedRows) {
-    try {
-      const modelPtavId = ptavByValueId.get(row.modelId);
-      const renkPtavId = ptavByValueId.get(row.renkId);
-      const olcuPtavId = ptavByValueId.get(row.olcuId);
-
-      if (!modelPtavId || !renkPtavId || !olcuPtavId) {
-        hatalar.push({ index: row.index, sebep: 'PTAV bulunamadı' });
-        continue;
-      }
-
-      const ptavIds = [modelPtavId, renkPtavId, olcuPtavId];
-      const key = ptavKey(ptavIds);
-      korunanPtavKeys.add(key);
-
-      const vKey = varyantKey(row.model, row.renk, row.olcu);
-
-      const mevcutVaryantId = varyantByPtavKey.get(key);
-      if (mevcutVaryantId) {
-        korunanVaryantIds.add(mevcutVaryantId);
-        varyantIdByKey.set(vKey, mevcutVaryantId);
-        continue;
-      }
-
-      const varyantId = Number(await execute(
-        'product.product', 'create',
-        [{
-          product_tmpl_id: Number(tmplId),
-          product_template_attribute_value_ids: [[6, 0, ptavIds]],
-          barcode: row.barkod || false,
-          lst_price: row.fiyat || 0,
-        }],
-      ));
-      korunanVaryantIds.add(varyantId);
-      varyantIdByKey.set(vKey, varyantId);
-      varyantByPtavKey.set(key, varyantId);
-      olusturulan++;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message.slice(0, 150) : 'Bilinmeyen hata';
-      hatalar.push({ index: row.index, sebep: msg });
-    }
-  }
-
-  const temizlik = await temizleImportSonrasiVaryantlar(
-    Number(tmplId),
-    korunanPtavKeys,
-    korunanVaryantIds,
-  );
-
-  return {
-    varyantIdByKey,
-    olusturulan,
-    hatalar,
-    otomatikTemizlenen: temizlik.temizlenen,
-    kalanVaryant: temizlik.kalanVaryant,
-  };
+  // MODEL, ana şablonun (tmplId) KENDİ attribute satırına ARTIK HİÇ
+  // YAZILMIYOR — her satır doğrudan kendi model-bazlı bölünmüş şablonuna
+  // yönlendiriliyor (bkz. importVaryantlarSplitByModel ve yukarıdaki
+  // dosya-başı açıklama). Ana şablon bu yüzden asla MODEL×RENK×ÖLÇÜ
+  // kartezyen patlamasına maruz kalmaz.
+  return importVaryantlarSplitByModel(tmplId, satirlar, { renkAttrId, olcuAttrId, getOrCreateDeger });
 }
 
 /**
@@ -521,19 +330,56 @@ export async function findVariantProductId(
     { fields: ['id'], limit: 10 },
   ) as { id: number }[];
 
-  if (ptavlar.length < 3) return null;
-  const key = ptavKey(ptavlar.map((p) => p.id));
+  if (ptavlar.length === 3) {
+    const key = ptavKey(ptavlar.map((p) => p.id));
+    const variants = await execute(
+      'product.product', 'search_read',
+      [[['product_tmpl_id', '=', tmplId]]],
+      { fields: ['id', 'product_template_attribute_value_ids'], limit: 5000 },
+    ) as { id: number; product_template_attribute_value_ids: number[] }[];
 
-  const variants = await execute(
+    const match = variants.find(
+      (v) => ptavKey(v.product_template_attribute_value_ids ?? []) === key,
+    );
+    if (match) return match.id;
+  }
+
+  // Bulunamadıysa: varyant, MODEL'e göre bölünmüş bir alt şablonda olabilir
+  // (bkz. importVaryantlarSplitByModel — "{Ürün Adı} {MODEL}" şablonu, sadece
+  // RENK×ÖLÇÜ niteliğiyle). Ana şablonun adını okuyup o alt şablonu ara.
+  const anaSablon = (await execute(
+    'product.template', 'read', [[tmplId]], { fields: ['name'] },
+  ) as { name: string }[])[0];
+  if (!anaSablon) return null;
+
+  const splitAdi = `${anaSablon.name.trim()} ${model.trim()}`.trim();
+  const splitTmpl = (await execute(
+    'product.template', 'search_read',
+    [[['name', '=', splitAdi]]], { fields: ['id'], limit: 1 },
+  ) as { id: number }[])[0];
+  if (!splitTmpl) return null;
+
+  const splitPtavlar = await execute(
+    'product.template.attribute.value', 'search_read',
+    [[
+      ['product_tmpl_id', '=', splitTmpl.id],
+      ['product_attribute_value_id', 'in', [renkId, olcuId]],
+    ]],
+    { fields: ['id'], limit: 10 },
+  ) as { id: number }[];
+  if (splitPtavlar.length < 2) return null;
+  const splitKey = ptavKey(splitPtavlar.map((p) => p.id));
+
+  const splitVariants = await execute(
     'product.product', 'search_read',
-    [[['product_tmpl_id', '=', tmplId]]],
+    [[['product_tmpl_id', '=', splitTmpl.id]]],
     { fields: ['id', 'product_template_attribute_value_ids'], limit: 5000 },
   ) as { id: number; product_template_attribute_value_ids: number[] }[];
 
-  const match = variants.find(
-    (v) => ptavKey(v.product_template_attribute_value_ids ?? []) === key,
+  const splitMatch = splitVariants.find(
+    (v) => ptavKey(v.product_template_attribute_value_ids ?? []) === splitKey,
   );
-  return match?.id ?? null;
+  return splitMatch?.id ?? null;
 }
 
 // ── Cam / Lens gibi Model-Renk-Ölçü niteliği OLMAYAN kategoriler için:

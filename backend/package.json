@@ -22,7 +22,8 @@
     "gvnp-son-duzelt-2": "ts-node --transpile-only scripts/gvnp-son-duzelt-2.ts",
     "gvnp-kesin-kapanis": "ts-node --transpile-only scripts/gvnp-kesin-kapanis.ts",
     "gider-kategori-sirket-ac": "ts-node --transpile-only scripts/gider-kategori-sirket-ac.ts",
-    "varyant-yarim-kalan-temizle": "ts-node --transpile-only scripts/varyant-yarim-kalan-temizle.ts"
+    "varyant-yarim-kalan-temizle": "ts-node --transpile-only scripts/varyant-yarim-kalan-temizle.ts",
+    "sablon-model-renk-olcu-sifirla": "ts-node --transpile-only scripts/sablon-model-renk-olcu-sifirla.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
