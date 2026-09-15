@@ -770,6 +770,16 @@ export default function UrunYapilandirmaPage() {
     }
   }
 
+  // nginx proxy_read_timeout 60sn — bir varyant satırı MODEL grubu başına
+  // birkaç, satır başına da 1-2 sıralı Odoo XML-RPC çağrısı gerektiriyor.
+  // Büyük tek seferlik importlarda (200+ satır) TEK istek zaman aşımına
+  // (502/504) uğrayıp istemciye hiç yanıt dönmeden backend'in arka planda
+  // işlemeye devam etmesine sebep oluyordu — bu da bir sonraki denemede
+  // "0 varyant oluşturuldu, 0 hata" gibi yanıltıcı bir sonuca yol açıyordu
+  // (satırlar aslında önceki denemede zaten oluşmuştu). Excel Envanter
+  // importuyla aynı, kanıtlanmış parçalama deseni uygulanıyor.
+  const VARYANT_IMPORT_PARCA_BOYUTU = 15
+
   async function varyantImportOlustur() {
     if (!onizleme || !tmplId) return
     const onay = window.confirm(
@@ -779,29 +789,66 @@ export default function UrunYapilandirmaPage() {
     )
     if (!onay) return
     const satirlar = parseImportMetin(importMetin)
+    const parcalar = parcalaraBol(satirlar, VARYANT_IMPORT_PARCA_BOYUTU)
     setImportYukleniyor(true)
+    setImportSonuc(null)
+    const birlesik = {
+      olusturulan: 0, zatenMevcut: 0, hatalar: 0, otomatikTemizlenen: 0,
+      kalanVaryant: 0, yeniNitelikDeger: onizleme.yeniDeger,
+      detay: { hatalar: [] as any[], sonuclar: [] as any[] },
+      basarisizParca: 0,
+    }
     try {
-      const res = await adminApi.post('/admin/odoo-varyant-import', {
-        tmplId,
-        satirlar,
-        sutunSirasi: apiSutunSirasi(),
-      })
-      setImportSonuc(res.data)
+      for (let i = 0; i < parcalar.length; i++) {
+        setMesaj({ tip: 'ok', text: `Varyantlar oluşturuluyor... (${i + 1}/${parcalar.length} parça, ${parcalar[i].length} satır)` })
+        try {
+          const res = await adminApi.post('/admin/odoo-varyant-import', {
+            tmplId,
+            satirlar: parcalar[i],
+            sutunSirasi: apiSutunSirasi(),
+          })
+          birlesik.olusturulan += res.data?.olusturulan ?? 0
+          birlesik.zatenMevcut += res.data?.zatenMevcut ?? 0
+          birlesik.hatalar += res.data?.hatalar ?? 0
+          birlesik.otomatikTemizlenen += res.data?.otomatikTemizlenen ?? 0
+          birlesik.kalanVaryant = res.data?.kalanVaryant ?? birlesik.kalanVaryant
+          birlesik.detay.hatalar.push(...(res.data?.detay?.hatalar ?? []))
+          birlesik.detay.sonuclar.push(...(res.data?.detay?.sonuclar ?? []))
+        } catch (e: any) {
+          // Bu parça isteği ağ/timeout hatasıyla düşmüş olabilir; backend arka
+          // planda işlemeye devam etmiş olabileceğinden satırları doğrudan
+          // "kayıp" saymıyoruz, sadece bu parçanın sonucunu göremediğimizi
+          // bildirip diğer parçalarla devam ediyoruz.
+          birlesik.basarisizParca++
+          birlesik.detay.hatalar.push({
+            index: -1,
+            sebep: `Parça ${i + 1} için yanıt alınamadı (${e?.response?.data?.error ?? e?.message ?? 'zaman aşımı'}) — bu parçadaki satırlar arka planda oluşmuş olabilir, önizlemeyi tekrar çalıştırıp kontrol edin.`,
+          })
+        }
+      }
+      setImportSonuc(birlesik)
       setOnizleme(null)
       setImportMetin('')
-      const yeni = (res.data?.detay?.sonuclar ?? []).map((s: any) => ({
-        odooId: s.varyantId,
-        name: `${s.model} / ${s.renk} / ${s.olcu}`,
-        model: s.model,
-        renk: s.renk,
-        olcu: s.olcu,
-        icReferans: '',
-        barkod: s.barkod || '',
-        satisFiyati: String(s.fiyat ?? 0),
-        maliyet: '0',
-        durum: 'bekliyor' as const,
-      }))
+      const yeni = birlesik.detay.sonuclar
+        .filter((s: any) => s.durum === 'olusturuldu')
+        .map((s: any) => ({
+          odooId: s.varyantId,
+          name: `${s.model} / ${s.renk} / ${s.olcu}`,
+          model: s.model,
+          renk: s.renk,
+          olcu: s.olcu,
+          icReferans: '',
+          barkod: s.barkod || '',
+          satisFiyati: String(s.fiyat ?? 0),
+          maliyet: '0',
+          durum: 'bekliyor' as const,
+        }))
       if (yeni.length) setVaryantlar((prev) => [...prev, ...yeni])
+      setMesaj({
+        tip: birlesik.basarisizParca ? 'err' : 'ok',
+        text: `${birlesik.olusturulan} varyant oluşturuldu, ${birlesik.zatenMevcut} zaten vardı, ${birlesik.hatalar} hata`
+          + (birlesik.basarisizParca ? ` — ${birlesik.basarisizParca} parça için yanıt alınamadı, aşağıdaki detaya bakın` : ''),
+      })
     } catch {
       alert('Import başarısız')
     } finally {
@@ -1940,11 +1987,12 @@ export default function UrunYapilandirmaPage() {
                 <div style={{
                   padding: 16,
                   borderRadius: 8,
-                  backgroundColor: '#dcfce7',
-                  border: '1px solid #bbf7d0',
+                  backgroundColor: importSonuc.basarisizParca ? '#fef3c7' : '#dcfce7',
+                  border: importSonuc.basarisizParca ? '1px solid #fde68a' : '1px solid #bbf7d0',
                 }}>
-                  <div style={{ fontWeight: 800, fontSize: 15, color: GREEN, marginBottom: 8 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: importSonuc.basarisizParca ? AMBER : GREEN, marginBottom: 8 }}>
                     {importSonuc.olusturulan} varyant oluşturuldu
+                    {importSonuc.zatenMevcut > 0 ? ` · ${importSonuc.zatenMevcut} zaten vardı` : ''}
                   </div>
                   <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6 }}>
                     {importSonuc.yeniNitelikDeger > 0 ? (
@@ -1957,6 +2005,20 @@ export default function UrunYapilandirmaPage() {
                       <div>
                         {importSonuc.otomatikTemizlenen} gereksiz varyant otomatik temizlendi
                         {importSonuc.kalanVaryant != null ? ` (kalan: ${importSonuc.kalanVaryant})` : ''}
+                      </div>
+                    ) : null}
+                    {importSonuc.basarisizParca > 0 ? (
+                      <div style={{ color: RED, fontWeight: 700, marginTop: 6 }}>
+                        {importSonuc.basarisizParca} parça için sunucudan yanıt alınamadı — bu satırlar arka planda oluşmuş olabilir, aşağıdan "Mevcut varyantları gör" ile kontrol edin ve eksik kalanları tekrar deneyin.
+                      </div>
+                    ) : null}
+                    {(importSonuc.detay?.hatalar ?? []).length > 0 ? (
+                      <div style={{ marginTop: 6, maxHeight: 160, overflowY: 'auto' }}>
+                        {importSonuc.detay.hatalar.slice(0, 30).map((h: any, i: number) => (
+                          <div key={i} style={{ color: RED, fontSize: 12 }}>
+                            {h.index >= 0 ? `Satır ${h.index + 1}: ` : ''}{h.sebep}
+                          </div>
+                        ))}
                       </div>
                     ) : null}
                   </div>

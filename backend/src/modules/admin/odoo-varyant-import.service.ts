@@ -37,9 +37,26 @@ export type VaryantImportSatir = {
 export type VaryantImportSonuc = {
   varyantIdByKey: Map<string, number>;
   olusturulan: number;
+  // Düzeltme (15.09.2026): "zaten var" eşleşmesi ne "oluşturuldu" ne de
+  // "hata" sayılıyordu — bu yüzden bir önceki (nginx 504 nedeniyle arka
+  // planda tamamlanmış ama istemciye hiç yanıt dönmemiş) denemenin
+  // ürettiği varyantlarla eşleşen bir tekrar-import "0 varyant oluşturuldu,
+  // 0 hata" gibi anlaşılması güç, sanki-başarısız bir sonuç veriyordu.
+  // Artık ayrıca sayılıp UI'da gösteriliyor.
+  zatenMevcut: number;
   hatalar: { index: number; sebep: string }[];
   otomatikTemizlenen: number;
   kalanVaryant: number;
+  sonuclar: {
+    index: number;
+    model: string;
+    renk: string;
+    olcu: string;
+    barkod: string;
+    fiyat: number;
+    varyantId: number;
+    durum: 'olusturuldu' | 'zaten_var';
+  }[];
 };
 
 function varyantKey(model: string, renk: string, olcu: string): string {
@@ -114,7 +131,9 @@ async function importVaryantlarSplitByModel(
   const { renkAttrId, olcuAttrId, getOrCreateDeger } = ctx;
   const varyantIdByKey = new Map<string, number>();
   const hatalar: { index: number; sebep: string }[] = [];
+  const sonuclar: VaryantImportSonuc['sonuclar'] = [];
   let olusturulan = 0;
+  let zatenMevcut = 0;
 
   const orijinal = (await execute(
     'product.template', 'read',
@@ -124,7 +143,7 @@ async function importVaryantlarSplitByModel(
 
   if (!orijinal) {
     for (const s of satirlar) hatalar.push({ index: s.index, sebep: 'Orijinal şablon bulunamadı' });
-    return { varyantIdByKey, olusturulan, hatalar, otomatikTemizlenen: 0, kalanVaryant: 0 };
+    return { varyantIdByKey, olusturulan, zatenMevcut, hatalar, sonuclar, otomatikTemizlenen: 0, kalanVaryant: 0 };
   }
 
   const byModel = new Map<string, VaryantImportSatir[]>();
@@ -209,22 +228,36 @@ async function importVaryantlarSplitByModel(
       }
     }
 
-    for (const [attrId, valueSet] of attrUniqueValues) {
-      const valueIds = [...valueSet];
-      const line = lineByAttr.get(attrId);
-      if (!line) {
-        const lineId = Number(await execute(
-          'product.template.attribute.line', 'create',
-          [{ product_tmpl_id: splitTmplId, attribute_id: attrId, value_ids: [[6, 0, valueIds]] }],
-        ));
-        lineByAttr.set(attrId, { id: lineId, value_ids: valueIds });
-      } else {
-        const merged = [...new Set([...line.value_ids, ...valueIds])];
-        if (merged.length !== line.value_ids.length || merged.some((id) => !line.value_ids.includes(id))) {
-          await execute('product.template.attribute.line', 'write', [[line.id], { value_ids: [[6, 0, merged]] }]);
-          lineByAttr.set(attrId, { id: line.id, value_ids: merged });
+    // Düzeltme (15.09.2026): bu blok try/catch İÇİNDE değildi — bir model
+    // grubunda burada atılan bir hata (örn. Odoo XML-RPC geçici hatası)
+    // yakalanmadan yukarı fırlıyor, İSTEĞİN TAMAMINI (o ana kadar işlenmiş
+    // diğer TÜM model gruplarının sonuçlarıyla birlikte) durdurup 500'e
+    // sebep oluyordu — hem de bu satırlar "hata" olarak dahi kaydedilmeden.
+    // Artık bir model grubunun attribute satırı yazımı başarısız olursa,
+    // SADECE o modelin satırları hataya düşüyor, diğer modellerle devam
+    // ediliyor.
+    try {
+      for (const [attrId, valueSet] of attrUniqueValues) {
+        const valueIds = [...valueSet];
+        const line = lineByAttr.get(attrId);
+        if (!line) {
+          const lineId = Number(await execute(
+            'product.template.attribute.line', 'create',
+            [{ product_tmpl_id: splitTmplId, attribute_id: attrId, value_ids: [[6, 0, valueIds]] }],
+          ));
+          lineByAttr.set(attrId, { id: lineId, value_ids: valueIds });
+        } else {
+          const merged = [...new Set([...line.value_ids, ...valueIds])];
+          if (merged.length !== line.value_ids.length || merged.some((id) => !line.value_ids.includes(id))) {
+            await execute('product.template.attribute.line', 'write', [[line.id], { value_ids: [[6, 0, merged]] }]);
+            lineByAttr.set(attrId, { id: line.id, value_ids: merged });
+          }
         }
       }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message.slice(0, 150) : 'Nitelik satırı yazılamadı (bölünmüş şablon)';
+      for (const r of rows) hatalar.push({ index: r.index, sebep: msg });
+      continue;
     }
 
     const tumPtavlar = await execute(
@@ -261,6 +294,11 @@ async function importVaryantlarSplitByModel(
         const mevcutVaryantId = varyantByPtavKey.get(key);
         if (mevcutVaryantId) {
           varyantIdByKey.set(vKey, mevcutVaryantId);
+          zatenMevcut++;
+          sonuclar.push({
+            index: row.index, model: row.model, renk: row.renk, olcu: row.olcu,
+            barkod: row.barkod, fiyat: row.fiyat, varyantId: mevcutVaryantId, durum: 'zaten_var',
+          });
           continue;
         }
 
@@ -276,6 +314,10 @@ async function importVaryantlarSplitByModel(
         varyantIdByKey.set(vKey, varyantId);
         varyantByPtavKey.set(key, varyantId);
         olusturulan++;
+        sonuclar.push({
+          index: row.index, model: row.model, renk: row.renk, olcu: row.olcu,
+          barkod: row.barkod, fiyat: row.fiyat, varyantId, durum: 'olusturuldu',
+        });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message.slice(0, 150) : 'Bilinmeyen hata';
         hatalar.push({ index: row.index, sebep: msg });
@@ -283,7 +325,7 @@ async function importVaryantlarSplitByModel(
     }
   }
 
-  return { varyantIdByKey, olusturulan, hatalar, otomatikTemizlenen: 0, kalanVaryant: 0 };
+  return { varyantIdByKey, olusturulan, zatenMevcut, hatalar, sonuclar, otomatikTemizlenen: 0, kalanVaryant: 0 };
 }
 
 export async function findVariantProductId(
@@ -442,7 +484,9 @@ export async function importTekVaryantlarForTemplate(
   return {
     varyantIdByKey,
     olusturulan,
+    zatenMevcut: 0,
     hatalar,
+    sonuclar: [],
     otomatikTemizlenen: 0,
     kalanVaryant: mevcutVaryantlar.length,
   };

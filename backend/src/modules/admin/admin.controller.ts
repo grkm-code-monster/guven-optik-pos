@@ -6542,10 +6542,13 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
     return res.json({
       success: true,
       olusturulan: sonuc.olusturulan,
+      // Düzeltme (15.09.2026): "zaten var" eşleşen satırlar artık ayrıca
+      // sayılıyor — bkz. odoo-varyant-import.service.ts VaryantImportSonuc.
+      zatenMevcut: sonuc.zatenMevcut,
       hatalar: sonuc.hatalar.length,
       otomatikTemizlenen: sonuc.otomatikTemizlenen,
       kalanVaryant: sonuc.kalanVaryant,
-      detay: { hatalar: sonuc.hatalar.slice(0, 50) },
+      detay: { hatalar: sonuc.hatalar.slice(0, 50), sonuclar: sonuc.sonuclar },
     });
   } catch (err) {
     next(err);
