@@ -215,14 +215,27 @@ export default function UrunYapilandirmaPage() {
   }, [yukle])
 
   useEffect(() => {
-    if (adim === 2) {
-      setSablonYukleniyor(true)
-      adminApi.get('/admin/odoo-sablon-listesi')
+    if (adim !== 2) return
+    // Bug fix (15.09.2026): önceden bu istek hiçbir filtre göndermeden TEK SEFERLİK
+    // çekiliyor, arama kutusu ve kategori seçimi sadece bu 100 kayıtlık ilk sayfa
+    // üzerinde istemci tarafında süzüyordu — kategoride/toplamda 100'den fazla şablon
+    // varsa aranan ürün (örn. "SWING") hiç bulunamıyordu. Artık yazılan arama metni ve
+    // seçilen kategori backend'e gönderiliyor, backend de gerçek Odoo domain'iyle
+    // (child_of) arıyor.
+    setSablonYukleniyor(true)
+    const t = setTimeout(() => {
+      adminApi.get('/admin/odoo-sablon-listesi', {
+        params: {
+          q: sablonArama.trim() || undefined,
+          kategoriId: sablonKategoriFiltre || undefined,
+        },
+      })
         .then((res) => setSablonListesi(res.data?.data ?? []))
         .catch(() => {})
         .finally(() => setSablonYukleniyor(false))
-    }
-  }, [adim])
+    }, 300)
+    return () => clearTimeout(t)
+  }, [adim, sablonArama, sablonKategoriFiltre])
 
   useEffect(() => {
     if (importMod === 'liste' && tmplId) {
@@ -252,16 +265,12 @@ export default function UrunYapilandirmaPage() {
     [kategoriler],
   )
 
-  const filtreliSablonlar = useMemo(() => {
-    return sablonListesi.filter((s) => {
-      const adMatch = !sablonArama
-        || s.name?.toLowerCase().includes(sablonArama.toLowerCase())
-        || (typeof s.default_code === 'string' && s.default_code.toLowerCase().includes(sablonArama.toLowerCase()))
-      const katMatch = !sablonKategoriFiltre
-        || s.categ_id?.[0] === Number(sablonKategoriFiltre)
-      return adMatch && katMatch
-    })
-  }, [sablonListesi, sablonArama, sablonKategoriFiltre])
+  // Not (15.09.2026): arama/kategori filtresi artık backend'e gönderiliyor (bkz. yukarıdaki
+  // useEffect) — backend 'q' için ilike, kategori için child_of (alt kategoriler dahil)
+  // kullanıyor. Burada tekrar aynısını istemci tarafında (özellikle kategoriyi KESİN eşleşme
+  // ile) yapmak, alt kategorideki ürünleri yanlışlıkla listeden düşürürdü. sablonListesi zaten
+  // backend'den filtrelenmiş geliyor.
+  const filtreliSablonlar = sablonListesi
 
   const sablonVaryantSayisi = useMemo(() => {
     const attrs = aktifNitelikler.filter((id) => (seciliDegerler[id]?.length ?? 0) > 0)

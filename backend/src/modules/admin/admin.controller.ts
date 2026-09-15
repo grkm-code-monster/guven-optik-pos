@@ -6116,7 +6116,10 @@ router.get('/odoo-sablon-listesi', async (req, res, next) => {
     const { q, kategoriId } = req.query;
     const domain: unknown[] = [['type', 'in', ['product', 'consu', 'service']]];
     if (q) domain.push(['name', 'ilike', String(q)]);
-    if (kategoriId) domain.push(['categ_id', '=', Number(kategoriId)]);
+    // Bug fix (15.09.2026): önceden '=' (kesin eşleşme) kullanılıyordu — kullanıcı bir
+    // üst/orta kategori seçtiğinde, ürünler o kategorinin ALT kategorilerinde kayıtlı
+    // olduğu için hiç sonuç dönmüyordu. child_of ile tüm alt ağaç da dahil ediliyor.
+    if (kategoriId) domain.push(['categ_id', 'child_of', Number(kategoriId)]);
 
     const data = await execute('product.template', 'search_read',
       [domain],
@@ -6125,7 +6128,14 @@ router.get('/odoo-sablon-listesi', async (req, res, next) => {
           'list_price', 'standard_price', 'type',
           'product_variant_count', 'attribute_line_ids',
           'sale_ok', 'purchase_ok', 'active'],
-        limit: 100,
+        // Bug fix (15.09.2026): sabit 100 sınırı, önceden frontend'in filtreleri hiç
+        // backend'e göndermeden (bkz. eski TEK SEFERLİK fetch) TÜM şablonları çekip
+        // istemci tarafında filtrelemesiyle birleşince, kategoride/toplamda 100'den
+        // fazla şablon olduğunda aranan ürün (örn. "SWING") listede hiç görünmüyordu.
+        // Artık q/kategoriId backend'e gönderiliyor (bkz. frontend), yine de tek bir
+        // kategoride binlerce ürün olabildiği için (bkz. STOK CAM) üst sınır
+        // yükseltildi.
+        limit: 3000,
         order: 'name asc',
       },
     );
