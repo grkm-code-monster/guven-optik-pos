@@ -497,7 +497,15 @@ router.post('/payment', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Zorunlu alanlar eksik' });
     }
 
-    const { payment } = await applyOpenAccountPayment(req.user!.userId, {
+    // Düzeltme (23.09.2026): applyOpenAccountPayment ödeme Odoo'ya
+    // yazılamasa BİLE (fatura bulunamadı, mutabakat hatası vb.) yerel
+    // kaydı yine de tutuyor ve hatayı odooSyncError alanında dönüyor — ama
+    // bu route o alanı ÖNCEDEN yoksayıp her zaman "başarılı" dönüyordu, bu
+    // yüzden kullanıcı Odoo'daki açık hesap/fatura kaydının GERÇEKTEN
+    // güncellenip güncellenmediğini hiç göremiyordu. Toplu ödeme
+    // (payment-toplu) rotası zaten bunu dönüyordu — tek ödeme rotası da
+    // aynı bilgiyi vermeli.
+    const { payment, odooSyncError } = await applyOpenAccountPayment(req.user!.userId, {
       customerId,
       saleId,
       amount: Number(amount),
@@ -508,7 +516,7 @@ router.post('/payment', async (req: Request, res: Response) => {
       installment,
     });
 
-    res.json({ success: true, data: payment });
+    res.json({ success: true, data: payment, odooSyncError, odooSyncOk: !odooSyncError });
   } catch (err: any) {
     const msg = err?.message ?? 'Ödeme kaydedilemedi';
     if (msg.includes('bulunamadı') || msg.includes('geçersiz') || msg.includes('fazla') || msg.includes('açık bakiye')) {

@@ -161,10 +161,16 @@ export default function AcikHesapPage() {
 
   useEffect(() => {
     if (paymentType !== 'CARD' && bulkPaymentType !== 'CARD') return
+    // Düzeltme (23.09.2026): '/admin/banks' sadece ADMIN rolüne (veya
+    // TANIMLAMALAR ek yetkisine) açık — STORE_MANAGER gibi diğer roller bu
+    // isteği alıp sessizce (.catch boş) reddediliyordu, bu yüzden Açık Hesap
+    // ödeme ekranında banka listesi hiç gelmiyordu. Satış akışındaki
+    // PaymentStep.tsx ile AYNI, herkese açık '/sales/payment-banks' ucunu
+    // kullanıyoruz (zaten aktif banka/POS'ları filtreleyerek dönüyor).
     apiClient
-      .get('/admin/banks')
+      .get('/sales/payment-banks')
       .then((res) => {
-        const data = res.data ?? []
+        const data = res.data?.data ?? []
         setBanks(data.map((b: any) => ({ id: b.id, name: b.name })))
         const map = new Map<string, Array<{ id: string; name: string }>>()
         for (const b of data) {
@@ -354,9 +360,22 @@ export default function AcikHesapPage() {
         body.installment = installment
       }
 
-      await apiClient.post('/open-account/payment', body)
+      const res = await apiClient.post('/open-account/payment', body)
       setModalOpen(false)
-      setSuccess('Ödeme kaydedildi.')
+      // Düzeltme (23.09.2026): backend artık ödeme yerel olarak kaydedilse
+      // bile Odoo'ya (açık faturaya) yazılamadıysa bunu odooSyncError ile
+      // bildiriyor — önceden bu her zaman görmezden gelinip "Ödeme
+      // kaydedildi" gösteriliyordu, kullanıcı Odoo'nun güncellenmediğini
+      // fark edemiyordu.
+      const odooSyncError = res.data?.odooSyncError
+      if (odooSyncError) {
+        setError(
+          `Ödeme yerel olarak kaydedildi, ANCAK Odoo'ya işlenemedi: ${odooSyncError}. `
+          + 'Odoo\'daki açık hesap/fatura kaydını elle kontrol edin.',
+        )
+      } else {
+        setSuccess('Ödeme kaydedildi (Odoo\'daki açık hesap kaydı da güncellendi).')
+      }
       await loadSummary()
       await loadDetail(selectedCustomerId)
     } catch (e: any) {
