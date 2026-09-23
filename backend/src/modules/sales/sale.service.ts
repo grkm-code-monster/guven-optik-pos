@@ -24,6 +24,7 @@ import type {
   AddSaleItemInputType,
   ConfirmSaleInputType,
   CreateSaleInputType,
+  ReassignSaleUserInputType,
   UpdateDraftMetaInputType,
   VoidSaleInputType,
 } from './sale.types';
@@ -1415,5 +1416,84 @@ export async function getSaleById(saleId: string) {
           : (item.product?.name ?? 'Ürün'),
     })),
   };
+}
+
+/**
+ * Satış temsilcisini sonradan düzeltme (23.09.2026).
+ *
+ * Neden gerekli: bazı personel kendi satışını unutup başka bir çalışan
+ * adına ya da tamamen yanlışlıkla kendi hesabıyla bitiriyor. Prim/performans
+ * raporları (report.service.ts) sale.userId'yi HER ZAMAN o an güncel
+ * değeriyle canlı okuyup gruplandığı için (saklı/anlık görüntü bir alan
+ * DEĞİL), burada userId'yi düzeltmek raporları da otomatik doğru hale
+ * getiriyor — ayrıca prim tablolarını yeniden hesaplamaya gerek yok.
+ *
+ * Yetki: STORE_MANAGER kendi şubesindeki satışları düzeltebilir;
+ * REGIONAL_MANAGER/ADMIN şube sınırı olmadan düzeltebilir. Yeni temsilci de
+ * satışla AYNI şubeden, aktif bir kullanıcı olmak zorunda — aksi halde
+ * şube bazlı prim/ciro istatistikleri karışır.
+ */
+export async function reassignSaleUser(
+  saleId: string,
+  actingUser: { userId: string; role: Role; branchId: string | null },
+  input: ReassignSaleUserInputType,
+) {
+  const { role, branchId: actingBranchId } = actingUser;
+  if (role !== Role.STORE_MANAGER && role !== Role.REGIONAL_MANAGER && role !== Role.ADMIN) {
+    throw codeError('INSUFFICIENT_PERMISSION', 'Bu işlem için yetkiniz yok.');
+  }
+
+  const sale = await prisma.sale.findUnique({
+    where: { id: saleId },
+    include: { user: { select: { id: true, name: true } } },
+  });
+  if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
+
+  if (role === Role.STORE_MANAGER && sale.branchId !== actingBranchId) {
+    throw codeError('INSUFFICIENT_PERMISSION', 'Sadece kendi şubenizdeki satışları düzenleyebilirsiniz.');
+  }
+
+  const yeniUser = await prisma.user.findUnique({
+    where: { id: input.yeniUserId },
+    select: { id: true, name: true, isActive: true, branchId: true, role: true },
+  });
+  if (!yeniUser) throw codeError('USER_NOT_FOUND', 'Seçilen personel bulunamadı.');
+  if (!yeniUser.isActive) throw codeError('USER_NOT_FOUND', 'Seçilen personel pasif durumda.');
+  if (yeniUser.branchId !== sale.branchId) {
+    throw codeError('USER_BRANCH_MISMATCH', 'Seçilen personel bu satışın şubesinde değil.');
+  }
+
+  const eskiUserId = sale.userId;
+  const eskiUserName = sale.user?.name ?? eskiUserId;
+
+  if (eskiUserId === yeniUser.id) {
+    return { ...sale, user: yeniUser };
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const guncel = await tx.sale.update({
+      where: { id: saleId },
+      data: { userId: yeniUser.id },
+      include: { user: { select: { id: true, name: true } } },
+    });
+    await tx.auditLog.create({
+      data: {
+        userId: actingUser.userId,
+        action: 'SALE_REASSIGN_USER',
+        entity: 'Sale',
+        entityId: saleId,
+        payload: {
+          eskiUserId,
+          eskiUserName,
+          yeniUserId: yeniUser.id,
+          yeniUserName: yeniUser.name,
+          not: input.not ?? null,
+        },
+      },
+    });
+    return guncel;
+  });
+
+  return updated;
 }
 

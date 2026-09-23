@@ -8,6 +8,7 @@ import {
   ConfirmSaleInput,
   CreateSaleInput,
   PersonelFiyatHesaplaInput,
+  ReassignSaleUserInput,
   UpdateDraftMetaInput,
   VoidSaleInput,
 } from './sale.types';
@@ -50,6 +51,8 @@ function handleSaleError(err: unknown, res: Response): boolean {
     TRANSFER_FAILED: { status: 502, message: 'Transfer başarısız.' },
     CARD_PAYMENT_FIELDS_REQUIRED: { status: 400, message: 'Kart ödemesi için bankId, posDeviceId ve installment zorunludur.' },
     COMMISSION_RATE_NOT_FOUND: { status: 400, message: 'Komisyon oranı bulunamadı.' },
+    USER_NOT_FOUND: { status: 404, message: 'Seçilen personel bulunamadı.' },
+    USER_BRANCH_MISMATCH: { status: 400, message: 'Seçilen personel bu satışın şubesinde değil.' },
   };
 
   const m = map[code];
@@ -215,6 +218,53 @@ router.post('/:id/void', authorize(Role.STORE_MANAGER, Role.ADMIN), async (req: 
     return res.status(200).json(sale);
   } catch (err) {
     if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+// Satış temsilcisini düzeltme (23.09.2026) — bkz. sale.service.ts
+// reassignSaleUser üzerindeki açıklama.
+router.post(
+  '/:id/temsilci-degistir',
+  authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = ReassignSaleUserInput.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Geçersiz istek gövdesi.',
+        details: parsed.error.errors,
+      });
+      const sale = await saleService.reassignSaleUser(
+        req.params.id,
+        { userId: req.user!.userId, role: req.user!.role, branchId: req.user!.branchId },
+        parsed.data,
+      );
+      return res.status(200).json(sale);
+    } catch (err) {
+      if (handleSaleError(err, res)) return;
+      next(err);
+    }
+  },
+);
+
+// Satış temsilcisi seçici için: aynı şubedeki aktif, satış yapabilecek
+// personel listesi. POS_ROLES kapsamındaki herkes görebilir (sadece
+// yukarıdaki değiştirme rotası STORE_MANAGER+ ile sınırlı).
+router.get('/branch-staff', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const canPickOtherBranch = req.user!.role === Role.REGIONAL_MANAGER || req.user!.role === Role.ADMIN;
+    const branchId = canPickOtherBranch && typeof req.query.branchId === 'string' && req.query.branchId
+      ? req.query.branchId
+      : req.user!.branchId;
+
+    const users = await prisma.user.findMany({
+      where: { branchId, isActive: true },
+      select: { id: true, name: true, role: true },
+      orderBy: { name: 'asc' },
+    });
+    return res.status(200).json({ success: true, data: users });
+  } catch (err) {
     next(err);
   }
 });

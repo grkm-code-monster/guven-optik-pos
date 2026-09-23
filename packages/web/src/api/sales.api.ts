@@ -77,6 +77,23 @@ export async function voidSale(saleId: string, input: { voidReason: string }): P
   return res.data
 }
 
+export type BranchStaffMember = { id: string; name: string; role: string }
+
+// Satış temsilcisini düzeltme (23.09.2026) — bkz. backend sale.service.ts
+// reassignSaleUser. branchId verilmezse çağıranın kendi şubesi kullanılır.
+export async function getBranchStaff(branchId?: string): Promise<BranchStaffMember[]> {
+  const res = await apiClient.get('/sales/branch-staff', { params: branchId ? { branchId } : undefined })
+  return res.data?.data ?? []
+}
+
+export async function reassignSaleUser(
+  saleId: string,
+  input: { yeniUserId: string; not?: string },
+): Promise<Sale> {
+  const res = await apiClient.post(`/sales/${saleId}/temsilci-degistir`, input)
+  return res.data
+}
+
 export type PersonelFiyatSonuc = { maliyet: number; kdvOrani: number; fiyat: number }
 
 export async function hesaplaPersonelFiyati(odooProductId: string): Promise<PersonelFiyatSonuc> {

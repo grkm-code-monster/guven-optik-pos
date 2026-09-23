@@ -3,9 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import { apiClient } from '../api/client'
-import { getSaleById, voidSale } from '../api/sales.api'
+import { getSaleById, voidSale, getBranchStaff, reassignSaleUser, type BranchStaffMember } from '../api/sales.api'
 import type { Sale } from '../api/types'
 import { getMountFrameItems, isLensMeasurementSaleItem } from '../utils/saleMeasurements'
+import { useAuthStore } from '../store/auth.store'
 
 const cardStyle: CSSProperties = {
   backgroundColor: 'white',
@@ -346,6 +347,14 @@ export default function SaleDetailPage() {
   const [voidReason, setVoidReason] = useState('')
   const [voidSaving, setVoidSaving] = useState(false)
 
+  // Satış temsilcisini düzeltme (23.09.2026) — personel bazen kendi satışını
+  // unutup başka bir çalışan adına ya da yanlışlıkla kendi hesabıyla
+  // bitiriyor. Mağaza müdürü buradan sonradan doğru temsilciyi atayabilsin.
+  const [temsilciOpen, setTemsilciOpen] = useState(false)
+  const [temsilciStaff, setTemsilciStaff] = useState<BranchStaffMember[]>([])
+  const [yeniTemsilciId, setYeniTemsilciId] = useState('')
+  const [temsilciSaving, setTemsilciSaving] = useState(false)
+
   const [payModalOpen, setPayModalOpen] = useState(false)
   const [payAmount, setPayAmount] = useState('')
   const [payType, setPayType] = useState<'CASH' | 'CARD' | 'HAVALE'>('CASH')
@@ -388,10 +397,14 @@ export default function SaleDetailPage() {
 
   useEffect(() => {
     if (payType !== 'CARD') return
+    // Düzeltme (23.09.2026): '/admin/banks' sadece ADMIN rolüne açık —
+    // STORE_MANAGER gibi roller için sessizce başarısız oluyordu (bkz.
+    // AcikHesapPage.tsx'teki aynı düzeltme). Herkese açık, satış akışının
+    // kullandığı uca geçirildi.
     apiClient
-      .get('/admin/banks')
+      .get('/sales/payment-banks')
       .then((res) => {
-        const data = res.data ?? []
+        const data = res.data?.data ?? []
         setBanks(data.map((b: any) => ({ id: b.id, name: b.name })))
         const map = new Map<string, Array<{ id: string; name: string }>>()
         for (const b of data) {
@@ -621,7 +634,7 @@ export default function SaleDetailPage() {
     setPaySaving(true)
     setError(null)
     try {
-      await apiClient.post('/open-account/payment', {
+      const res = await apiClient.post('/open-account/payment', {
         customerId: sale.customerId,
         saleId: sale.id,
         amount: n,
@@ -635,7 +648,14 @@ export default function SaleDetailPage() {
         installment: payType === 'CARD' ? installment : undefined,
       })
       setPayModalOpen(false)
-      setSuccess('Açık hesap ödemesi kaydedildi.')
+      // Düzeltme (23.09.2026): bkz. AcikHesapPage.tsx — Odoo senkron hatası
+      // artık gizlenmiyor.
+      const odooSyncError = res.data?.odooSyncError
+      if (odooSyncError) {
+        setError(`Ödeme yerel olarak kaydedildi, ANCAK Odoo'ya işlenemedi: ${odooSyncError}`)
+      } else {
+        setSuccess('Açık hesap ödemesi kaydedildi (Odoo\'daki kayıt da güncellendi).')
+      }
       await load()
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Ödeme kaydedilemedi')
@@ -646,6 +666,33 @@ export default function SaleDetailPage() {
 
   const posOptions = bankId ? posDevicesByBankId.get(bankId) ?? [] : []
   const canVoid = sale?.status === 'PAID' || sale?.status === 'DRAFT'
+
+  const myRole = useAuthStore((s) => s.user?.role)
+  const canReassignTemsilci = myRole === 'STORE_MANAGER' || myRole === 'REGIONAL_MANAGER' || myRole === 'ADMIN'
+
+  useEffect(() => {
+    if (!temsilciOpen || !sale?.branchId) return
+    getBranchStaff(sale.branchId)
+      .then(setTemsilciStaff)
+      .catch(() => setTemsilciStaff([]))
+  }, [temsilciOpen, sale?.branchId])
+
+  async function submitTemsilciDegistir() {
+    if (!sale?.id || !yeniTemsilciId) return
+    setTemsilciSaving(true)
+    setError(null)
+    try {
+      await reassignSaleUser(sale.id, { yeniUserId: yeniTemsilciId })
+      setTemsilciOpen(false)
+      setYeniTemsilciId('')
+      setSuccess('Satış temsilcisi güncellendi.')
+      await load()
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'Satış temsilcisi güncellenemedi')
+    } finally {
+      setTemsilciSaving(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -1288,6 +1335,100 @@ export default function SaleDetailPage() {
           })}
         </div>
       </div>
+
+      {canReassignTemsilci ? (
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: temsilciOpen ? 14 : 0 }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>Satış Temsilcisi</div>
+              <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
+                {sale?.user?.name ?? 'Bilinmiyor'}
+              </div>
+            </div>
+            {!temsilciOpen ? (
+              <button
+                type="button"
+                onClick={() => setTemsilciOpen(true)}
+                style={{
+                  border: '1px solid #e5e7eb',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: 999,
+                  padding: '8px 16px',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                Düzelt
+              </button>
+            ) : null}
+          </div>
+
+          {temsilciOpen ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 12, color: '#6b7280' }}>
+                Personel bu satışı unutmuş, başkası adına ya da yanlışlıkla kendi hesabıyla girmiş olabilir.
+                Doğru personeli seçin — prim/performans raporları buna göre otomatik düzelir.
+              </div>
+              <select
+                value={yeniTemsilciId}
+                onChange={(e) => setYeniTemsilciId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 10,
+                }}
+              >
+                <option value="">Personel seçin</option>
+                {temsilciStaff.map((u) => (
+                  <option key={u.id} value={u.id} disabled={u.id === sale?.userId}>
+                    {u.name}{u.id === sale?.userId ? ' (mevcut)' : ''}
+                  </option>
+                ))}
+              </select>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTemsilciOpen(false)
+                    setYeniTemsilciId('')
+                  }}
+                  style={{
+                    flex: 1,
+                    border: '1px solid #e5e7eb',
+                    backgroundColor: '#fff',
+                    borderRadius: 999,
+                    padding: '10px 14px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  disabled={temsilciSaving || !yeniTemsilciId}
+                  onClick={() => void submitTemsilciDegistir()}
+                  style={{
+                    flex: 1,
+                    border: 'none',
+                    backgroundColor: primary,
+                    color: 'white',
+                    borderRadius: 999,
+                    padding: '10px 14px',
+                    fontWeight: 900,
+                    cursor: temsilciSaving || !yeniTemsilciId ? 'not-allowed' : 'pointer',
+                    opacity: temsilciSaving || !yeniTemsilciId ? 0.6 : 1,
+                  }}
+                >
+                  Kaydet
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {canVoid ? (
         <div style={{ ...cardStyle, backgroundColor: '#fff5f5', borderColor: '#fecaca' }}>

@@ -125,6 +125,16 @@ export const VoidSaleInput = z.object({
 });
 export type VoidSaleInputType = z.infer<typeof VoidSaleInput>;
 
+// Satış temsilcisini düzeltme (23.09.2026) — personel kendi satışını başka
+// bir çalışan adına girmiş/yanlışlıkla kendi adına bitirmiş olabiliyor.
+// Mağaza müdürü, satış tamamlandıktan SONRA bile doğru temsilciyi
+// atayabilsin diye eklendi.
+export const ReassignSaleUserInput = z.object({
+  yeniUserId: z.string().min(1),
+  not: z.string().max(300).optional(),
+});
+export type ReassignSaleUserInputType = z.infer<typeof ReassignSaleUserInput>;
+
 export const UpdateDraftMetaInput = z.object({
   step: z.union([
     z.literal(1),
