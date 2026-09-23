@@ -509,17 +509,25 @@ export async function getDailyReport(branchId: string, date: Date) {
     throw codeError('BRANCH_NOT_FOUND', 'Şube bulunamadı.');
   }
 
+  // ÖNEMLİ (23.09.2026 düzeltmesi): önce İSTENEN TARİHE ait vardiyayı ara
+  // (açık ya da kapalı fark etmez). Eskiden önce "şu an açık olan vardiya"
+  // aranıyordu — bu yüzden bugün yeni vardiya açılınca, GEÇMİŞ bir günün
+  // raporu isteğinde de bugünün (henüz satışsız) açık vardiyası bulunuyor
+  // ve geçmiş günün kapanmış vardiyası/satışları hiç görünmüyordu.
   let shift = await prisma.shift.findFirst({
-    where: { branchId, status: ShiftStatus.OPEN },
+    where: {
+      branchId,
+      openedAt: { gte: start, lte: end },
+    },
     orderBy: { openedAt: 'desc' },
   });
 
   if (!shift) {
+    // İstenen günde açılmış bir vardiya yoksa, son çare olarak şu an açık
+    // olan vardiyaya bak (ör. gece yarısını geçen, önceki gün açılmış ama
+    // hâlâ açık bir vardiyanın "bugün" için canlı raporu istenmesi gibi).
     shift = await prisma.shift.findFirst({
-      where: {
-        branchId,
-        openedAt: { gte: start },
-      },
+      where: { branchId, status: ShiftStatus.OPEN },
       orderBy: { openedAt: 'desc' },
     });
   }
@@ -762,17 +770,19 @@ export async function getPersonalDailyReport(
     throw codeError('BRANCH_NOT_FOUND', 'Şube bulunamadı.');
   }
 
+  // ÖNEMLİ (23.09.2026 düzeltmesi): bkz. getDailyReport'taki açıklama — önce
+  // istenen tarihe ait vardiyayı ara, sadece bulunamazsa şu an açık olana düş.
   let shift = await prisma.shift.findFirst({
-    where: { branchId, status: ShiftStatus.OPEN },
+    where: {
+      branchId,
+      openedAt: { gte: start, lte: end },
+    },
     orderBy: { openedAt: 'desc' },
   });
 
   if (!shift) {
     shift = await prisma.shift.findFirst({
-      where: {
-        branchId,
-        openedAt: { gte: start },
-      },
+      where: { branchId, status: ShiftStatus.OPEN },
       orderBy: { openedAt: 'desc' },
     });
   }
