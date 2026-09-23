@@ -28,6 +28,48 @@ export async function getMonthlyPersonelBreakdown(ay: number, yil: number): Prom
   return res.data
 }
 
+export type KasaDuzeltmeInput = {
+  tarih: string // YYYY-MM-DD
+  nakit?: string
+  kartBrut?: string
+  kdv?: string
+  komisyon?: string
+  ciro?: string
+  vakif?: string
+  aciklama?: string
+}
+
+export type KasaDuzeltmeKaydi = {
+  id: string
+  branchId: string
+  userId: string
+  tarih: string
+  nakit: string
+  kartBrut: string
+  kdv: string
+  komisyon: string
+  ciro: string
+  vakif: string
+  aciklama: string
+  createdAt: string
+}
+
+// Kasa Bakiye Düzeltme (23.09.2026) — Masraflar sayfasındaki, sadece
+// müdürlerin görebileceği bağımsız kasa açılış bakiyesi düzeltme ekranı.
+export async function createKasaDuzeltme(input: KasaDuzeltmeInput): Promise<KasaDuzeltmeKaydi> {
+  const res = await apiClient.post('/reports/kasa-duzeltme', input)
+  return res.data?.data
+}
+
+export async function getKasaDuzeltmeListesi(): Promise<KasaDuzeltmeKaydi[]> {
+  const res = await apiClient.get('/reports/kasa-duzeltme')
+  return res.data?.data ?? []
+}
+
+export async function deleteKasaDuzeltme(id: string): Promise<void> {
+  await apiClient.delete(`/reports/kasa-duzeltme/${id}`)
+}
+
 export async function downloadExcel(date: string): Promise<Blob> {
   const res = await apiClient.get('/reports/daily/excel', {
     params: { date },

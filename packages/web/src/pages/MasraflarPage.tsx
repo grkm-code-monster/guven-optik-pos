@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { apiClient } from '../api/client'
 import { useAuthStore } from '../store/auth.store'
+import {
+  createKasaDuzeltme,
+  getKasaDuzeltmeListesi,
+  deleteKasaDuzeltme,
+  type KasaDuzeltmeKaydi,
+} from '../api/reports.api'
 
 type ExpenseCategory = { id: number; name: string }
 
@@ -70,6 +76,239 @@ const inputStyle: CSSProperties = {
   boxSizing: 'border-box',
 }
 
+const KASA_DUZELTME_ALANLARI: Array<{ key: 'nakit' | 'kartBrut' | 'kdv' | 'komisyon' | 'ciro' | 'vakif'; label: string }> = [
+  { key: 'nakit', label: 'Daha önce toplanmış nakit' },
+  { key: 'kartBrut', label: 'Daha önce gelmiş slip (kart) toplamı' },
+  { key: 'kdv', label: 'Daha önce gelmiş KDV toplamı' },
+  { key: 'komisyon', label: 'Daha önce gelmiş komisyon toplamı' },
+  { key: 'ciro', label: 'Daha önce gelmiş ciro toplamı' },
+  { key: 'vakif', label: 'Daha önce gelmiş vakıf ödemesi toplamı' },
+]
+
+function todayYmd(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function KasaDuzeltmePaneli() {
+  const [tarih, setTarih] = useState(todayYmd())
+  const [tutarlar, setTutarlar] = useState<Record<string, string>>({})
+  const [aciklama, setAciklama] = useState('Sehven düzeltme')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [kayitlar, setKayitlar] = useState<KasaDuzeltmeKaydi[]>([])
+  const [listLoading, setListLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+
+  function refreshList() {
+    setListLoading(true)
+    getKasaDuzeltmeListesi()
+      .then(setKayitlar)
+      .catch(() => setKayitlar([]))
+      .finally(() => setListLoading(false))
+  }
+
+  useEffect(() => {
+    refreshList()
+  }, [])
+
+  async function handleSave(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setSuccess(null)
+
+    const hepsiSifirMi = KASA_DUZELTME_ALANLARI.every((a) => {
+      const v = Number(String(tutarlar[a.key] ?? '0').replace(',', '.'))
+      return !Number.isFinite(v) || v === 0
+    })
+    if (hepsiSifirMi) {
+      setError('En az bir tutar girmelisiniz.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      await createKasaDuzeltme({
+        tarih,
+        aciklama: aciklama.trim() || 'Sehven düzeltme',
+        ...Object.fromEntries(
+          KASA_DUZELTME_ALANLARI.map((a) => [
+            a.key,
+            String(Number(String(tutarlar[a.key] ?? '0').replace(',', '.')) || 0),
+          ]),
+        ),
+      })
+      setSuccess(`${tarih} tarihi için kasa bakiye düzeltmesi kaydedildi.`)
+      setTutarlar({})
+      setAciklama('Sehven düzeltme')
+      refreshList()
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? e?.message ?? 'Düzeltme kaydedilemedi.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!window.confirm('Bu düzeltme kaydını silmek istediğinize emin misiniz?')) return
+    try {
+      await deleteKasaDuzeltme(id)
+      refreshList()
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? e?.message ?? 'Silinemedi.')
+    }
+  }
+
+  return (
+    <div style={{ ...cardStyle, borderColor: '#fcd34d', backgroundColor: '#fffbeb' }}>
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div>
+          <div style={{ fontWeight: 800, fontSize: '1rem', color: '#92400e' }}>
+            Kasa Bakiye Düzeltme (sadece müdür)
+          </div>
+          <div style={{ fontSize: '12px', color: '#92400e', marginTop: '4px' }}>
+            Sisteme geçmeden önceki günlere ait nakit / slip / KDV / komisyon / ciro / vakıf birikimini
+            kaydedin. Herhangi bir satışa bağlı değildir; kasa formlarına "Sehven düzeltme" olarak işlenir.
+          </div>
+        </div>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: '#92400e' }}>{expanded ? 'Kapat ▲' : 'Aç ▼'}</div>
+      </div>
+
+      {expanded ? (
+        <div style={{ marginTop: '16px' }}>
+          {success ? (
+            <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#f0fdf4', border: '1px solid #86efac', color: '#166534', fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
+              {success}
+            </div>
+          ) : null}
+          {error ? (
+            <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
+              {error}
+            </div>
+          ) : null}
+
+          <form onSubmit={(ev) => void handleSave(ev)}>
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <label>
+                <div style={labelStyle}>Hangi güne ait devreden bakiye?</div>
+                <input
+                  type="date"
+                  value={tarih}
+                  onChange={(e) => setTarih(e.target.value)}
+                  style={{ ...inputStyle, backgroundColor: 'white', maxWidth: '220px' }}
+                  required
+                />
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                {KASA_DUZELTME_ALANLARI.map((a) => (
+                  <label key={a.key}>
+                    <div style={labelStyle}>{a.label}</div>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      placeholder="0,00"
+                      value={tutarlar[a.key] ?? ''}
+                      onChange={(e) => setTutarlar((prev) => ({ ...prev, [a.key]: e.target.value }))}
+                      style={{ ...inputStyle, backgroundColor: 'white' }}
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <label>
+                <div style={labelStyle}>Açıklama</div>
+                <input
+                  type="text"
+                  value={aciklama}
+                  onChange={(e) => setAciklama(e.target.value)}
+                  style={{ ...inputStyle, backgroundColor: 'white' }}
+                />
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              disabled={saving}
+              style={{
+                marginTop: '16px',
+                padding: '10px 20px',
+                borderRadius: '10px',
+                border: 'none',
+                backgroundColor: '#92400e',
+                color: 'white',
+                fontWeight: 700,
+                fontSize: '0.9rem',
+                cursor: saving ? 'not-allowed' : 'pointer',
+                opacity: saving ? 0.7 : 1,
+              }}
+            >
+              {saving ? 'Kaydediliyor…' : 'Düzeltmeyi Kaydet'}
+            </button>
+          </form>
+
+          <div style={{ marginTop: '20px', borderTop: '1px solid #fcd34d', paddingTop: '16px' }}>
+            <div style={{ fontWeight: 700, fontSize: '13px', color: '#92400e', marginBottom: '8px' }}>
+              Geçmiş düzeltme kayıtları
+            </div>
+            {listLoading ? (
+              <div style={{ fontSize: '13px', color: '#92400e' }}>Yükleniyor…</div>
+            ) : kayitlar.length === 0 ? (
+              <div style={{ fontSize: '13px', color: '#92400e' }}>Henüz düzeltme kaydı yok.</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: '#92400e' }}>
+                      <th style={{ padding: '6px 8px' }}>Tarih</th>
+                      <th style={{ padding: '6px 8px' }}>Nakit</th>
+                      <th style={{ padding: '6px 8px' }}>Kart</th>
+                      <th style={{ padding: '6px 8px' }}>KDV</th>
+                      <th style={{ padding: '6px 8px' }}>Komisyon</th>
+                      <th style={{ padding: '6px 8px' }}>Ciro</th>
+                      <th style={{ padding: '6px 8px' }}>Vakıf</th>
+                      <th style={{ padding: '6px 8px' }}>Açıklama</th>
+                      <th style={{ padding: '6px 8px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {kayitlar.map((k) => (
+                      <tr key={k.id} style={{ borderTop: '1px solid #fde68a' }}>
+                        <td style={{ padding: '6px 8px' }}>{k.tarih.slice(0, 10)}</td>
+                        <td style={{ padding: '6px 8px' }}>{k.nakit}</td>
+                        <td style={{ padding: '6px 8px' }}>{k.kartBrut}</td>
+                        <td style={{ padding: '6px 8px' }}>{k.kdv}</td>
+                        <td style={{ padding: '6px 8px' }}>{k.komisyon}</td>
+                        <td style={{ padding: '6px 8px' }}>{k.ciro}</td>
+                        <td style={{ padding: '6px 8px' }}>{k.vakif}</td>
+                        <td style={{ padding: '6px 8px' }}>{k.aciklama}</td>
+                        <td style={{ padding: '6px 8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => void handleDelete(k.id)}
+                            style={{ border: 'none', background: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}
+                          >
+                            Sil
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function MasraflarPage() {
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [categoryId, setCategoryId] = useState('')
@@ -92,6 +331,8 @@ export default function MasraflarPage() {
   const [success, setSuccess] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
   const shiftId = useAuthStore((s) => s.shiftId)
+  const myRole = useAuthStore((s) => s.user?.role)
+  const isManager = myRole === 'STORE_MANAGER' || myRole === 'REGIONAL_MANAGER' || myRole === 'ADMIN'
 
   const searchSuppliers = async (query: string) => {
     try {
@@ -246,6 +487,8 @@ export default function MasraflarPage() {
   return (
     <div className="space-y-4">
       <div style={{ fontWeight: 800, fontSize: '1.25rem', color: '#111' }}>Masraflar</div>
+
+      {isManager ? <KasaDuzeltmePaneli /> : null}
 
       {success ? (
         <div

@@ -9,6 +9,8 @@ import * as reportEngine from './report-engine.service';
 import * as reportExport from './report-export.service';
 import * as reportTemplate from './report-template.service';
 import * as gunlukNot from './gunluk-not.service';
+import * as kasaDuzeltmeService from './kasa-duzeltme.service';
+import { CreateKasaDuzeltmeInput } from './kasa-duzeltme.service';
 import { ReportExportInput, ReportQueryInput } from './report-engine.types';
 import {
   CreateReportRequestInput,
@@ -489,6 +491,69 @@ router.get('/daily/excel', authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, 
     next(err);
   }
 });
+
+// 23.09.2026: Kasa Bakiye Düzeltme — Masraflar altında sadece müdürlerin
+// görebileceği, sisteme geçmeden önceki nakit/slip/KDV/komisyon/ciro/vakıf
+// birikimini telafi eden bağımsız düzeltme kaydı. bkz. kasa-duzeltme.service.ts
+router.post(
+  '/kasa-duzeltme',
+  authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = CreateKasaDuzeltmeInput.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz alanlar.', detail: parsed.error.flatten() });
+      }
+      const kayit = await kasaDuzeltmeService.createKasaDuzeltme(
+        { userId: req.user!.userId, role: req.user!.role, branchId: req.user!.branchId },
+        parsed.data,
+      );
+      return res.status(201).json({ success: true, data: kayit });
+    } catch (err: any) {
+      if (err?.code) return res.status(400).json({ error: err.code, message: err.message });
+      next(err);
+    }
+  },
+);
+
+router.get(
+  '/kasa-duzeltme',
+  authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const branchId =
+        (req.user!.role === Role.REGIONAL_MANAGER || req.user!.role === Role.ADMIN) &&
+        typeof req.query.branchId === 'string' &&
+        req.query.branchId
+          ? req.query.branchId
+          : req.user!.branchId;
+      if (!branchId) {
+        return res.status(400).json({ error: 'BRANCH_REQUIRED', message: 'Şube belirlenemedi.' });
+      }
+      const kayitlar = await kasaDuzeltmeService.listKasaDuzeltme(branchId);
+      return res.status(200).json({ success: true, data: kayitlar });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.delete(
+  '/kasa-duzeltme/:id',
+  authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const sonuc = await kasaDuzeltmeService.deleteKasaDuzeltme(
+        { userId: req.user!.userId, role: req.user!.role, branchId: req.user!.branchId },
+        req.params.id,
+      );
+      return res.status(200).json(sonuc);
+    } catch (err: any) {
+      if (err?.code) return res.status(400).json({ error: err.code, message: err.message });
+      next(err);
+    }
+  },
+);
 
 router.get('/patron/ozet', authorizeOrYetki([EK_YETKI.PATRON_PANELI], Role.ADMIN, Role.REGIONAL_MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {

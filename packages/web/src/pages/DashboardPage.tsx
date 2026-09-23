@@ -1074,6 +1074,20 @@ function GunlukKasaView({
       {onDateChange ? (
         <input type="date" value={date} onChange={(e) => onDateChange(e.target.value)} style={{ marginBottom: 12, padding: 8, borderRadius: 8, border: '1px solid #e5e7eb' }} />
       ) : null}
+      {(() => {
+        const d = (report as any)?.kasaDuzeltme as
+          | { nakit: string; kartBrut: string; kdv: string; komisyon: string; ciro: string; vakif: string }
+          | undefined
+        if (!d) return null
+        const varMi = [d.nakit, d.kartBrut, d.kdv, d.komisyon, d.ciro, d.vakif].some((v) => Number(v) !== 0)
+        if (!varMi) return null
+        return (
+          <div style={{ padding: '10px 14px', borderRadius: 8, backgroundColor: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e', fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
+            Sehven düzeltme (devreden bakiye) uygulandı — Nakit {formatMoney(d.nakit)}, Kart {formatMoney(d.kartBrut)},
+            KDV {formatMoney(d.kdv)}, Komisyon {formatMoney(d.komisyon)}, Ciro {formatMoney(d.ciro)}, Vakıf {formatMoney(d.vakif)}
+          </div>
+        )
+      })()}
       {showRep && onRepFilter ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
           <button type="button" onClick={() => onRepFilter(null)} style={{ ...BTN_STYLE, borderColor: !repFilter ? RED : '#e5e7eb', color: !repFilter ? RED : '#374151' }}>Tümü</button>

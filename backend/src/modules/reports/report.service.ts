@@ -12,6 +12,7 @@ import { prisma } from '../../database/prisma';
 import { execute } from '../odoo/odoo.service';
 import { kategoriTespit, kategoriAltKirilimTespit } from '../../utils/kategoriTespit';
 import { getOrFetchTodayRate } from '../admin/doviz-kuru.service';
+import { getKasaDuzeltmeToplamForGun, getKasaDuzeltmeNakitTumZamanlar } from './kasa-duzeltme.service';
 
 type DashboardKategori =
   | 'GUNES_GOZLUGU'
@@ -495,7 +496,11 @@ async function computeRunningKasaBakiye(branchId: string, date: Date) {
 
   const cashInAll = cashInAllAgg._sum.grossAmount ?? new Prisma.Decimal(0);
   const cashOutAll = cashOutAllAgg._sum.amount ?? new Prisma.Decimal(0);
-  const kasaNakit = cashInAll.minus(cashOutAll);
+  // 23.09.2026: sisteme geçmeden önceki günlerin nakit birikimi, müdürün "Kasa
+  // Bakiye Düzeltme" ekranından girdiği kayıtlarla (tarihten bağımsız, TÜM
+  // ZAMANLAR) bu kümülatif bakiyeye kalıcı olarak eklenir.
+  const duzeltmeNakitTumZamanlar = await getKasaDuzeltmeNakitTumZamanlar(branchId);
+  const kasaNakit = cashInAll.minus(cashOutAll).plus(duzeltmeNakitTumZamanlar);
   const toplamSgkHakki = sgkMonthAgg._sum.sgkAmount ?? new Prisma.Decimal(0);
 
   return { kasaNakit: kasaNakit.toString(), toplamSgkHakki: toplamSgkHakki.toString() };
@@ -535,6 +540,11 @@ export async function getDailyReport(branchId: string, date: Date) {
   if (!shift) {
     const labIncidents = await buildLabIncidentsSummary(branchId, start, end);
     const runningKasaBakiye = await computeRunningKasaBakiye(branchId, date);
+    // 23.09.2026: vardiya hiç bulunamasa bile, o güne müdür tarafından girilmiş
+    // bir "Kasa Bakiye Düzeltme" kaydı varsa (sisteme geçmeden önceki birikim)
+    // bunu günün toplamlarına yansıt — aksi halde geçmiş güne ait düzeltme hiç
+    // görünmezdi.
+    const d = await getKasaDuzeltmeToplamForGun(branchId, start, end);
     return {
       date: date.toISOString(),
       branchId,
@@ -542,27 +552,36 @@ export async function getDailyReport(branchId: string, date: Date) {
       shiftId: null,
       shiftOpenedAt: null,
       openCash: '0',
-      totalSales: '0',
+      totalSales: d.ciro.toString(),
       totalDiscount: '0',
-      totalNet: '0',
-      cashTotal: '0',
-      cardGross: '0',
-      cardNet: '0',
-      totalCommission: '0',
+      totalNet: d.ciro.toString(),
+      cashTotal: d.nakit.toString(),
+      cardGross: d.kartBrut.toString(),
+      cardNet: d.kartBrut.minus(d.komisyon).toString(),
+      totalCommission: d.komisyon.toString(),
       transferTotal: '0',
       openAccountTotal: '0',
-      taxTotal: '0',
+      taxTotal: d.kdv.toString(),
       cashIn: '0',
       cashOut: '0',
       advanceTotal: '0',
-      expectedCash: '0',
+      expectedCash: d.nakit.toString(),
       physicalCash: null,
       diff: null,
       saleCount: 0,
       bankBreakdown: [],
       salesDetail: [],
       ...zeroExtras(),
+      toplamVakifOdemesi: d.vakif.toString(),
       ...runningKasaBakiye,
+      kasaDuzeltme: {
+        nakit: d.nakit.toString(),
+        kartBrut: d.kartBrut.toString(),
+        kdv: d.kdv.toString(),
+        komisyon: d.komisyon.toString(),
+        ciro: d.ciro.toString(),
+        vakif: d.vakif.toString(),
+      },
       labIncidents,
     };
   }
@@ -687,7 +706,23 @@ export async function getDailyReport(branchId: string, date: Date) {
     _sum: { sgkAmount: true, prescriptionAmount: true },
   });
   const toplamSgkHakki = gunlukSgkVakifAgg._sum.sgkAmount ?? new Prisma.Decimal(0);
-  const toplamVakifOdemesi = gunlukSgkVakifAgg._sum.prescriptionAmount ?? new Prisma.Decimal(0);
+
+  // 23.09.2026: müdürün "Kasa Bakiye Düzeltme" ekranından bu güne (tarih) girdiği
+  // bağımsız kayıt varsa — sisteme geçmeden önceki nakit/slip/KDV/komisyon/ciro/
+  // vakıf birikimini telafi eder — günün gerçek satış toplamlarına ADDİTİF olarak
+  // eklenir, böylece o günün kasa formu tam tutar.
+  const duzeltme = await getKasaDuzeltmeToplamForGun(branchId, start, end);
+  const cashTotalDuzeltilmis = cashTotal.plus(duzeltme.nakit);
+  const cardGrossDuzeltilmis = cardGross.plus(duzeltme.kartBrut);
+  const totalCommissionDuzeltilmis = totalCommission.plus(duzeltme.komisyon);
+  const cardNetDuzeltilmis = cardNet.plus(duzeltme.kartBrut).minus(duzeltme.komisyon);
+  const taxTotalDuzeltilmis = taxTotal.plus(duzeltme.kdv);
+  const totalSalesDuzeltilmis = totalSales.plus(duzeltme.ciro);
+  const totalNetDuzeltilmis = totalNet.plus(duzeltme.ciro);
+  const expectedCashDuzeltilmis = expectedCash.plus(duzeltme.nakit);
+  const toplamVakifOdemesi = (gunlukSgkVakifAgg._sum.prescriptionAmount ?? new Prisma.Decimal(0)).plus(
+    duzeltme.vakif,
+  );
   const repMap = new Map<string, { repName: string; saleCount: number; ciro: Prisma.Decimal }>();
 
   for (const sale of paidSales) {
@@ -707,14 +742,14 @@ export async function getDailyReport(branchId: string, date: Date) {
   const temsilciBreakdown = mapTemsilciBreakdown(repMap, personelMap);
 
   const derived = buildDerivedMetrics({
-    totalSales,
-    taxTotal,
-    totalCommission,
-    cashTotal,
+    totalSales: totalSalesDuzeltilmis,
+    taxTotal: taxTotalDuzeltilmis,
+    totalCommission: totalCommissionDuzeltilmis,
+    cashTotal: cashTotalDuzeltilmis,
     cashOut,
-    cardNet,
+    cardNet: cardNetDuzeltilmis,
     transferTotal,
-    totalNet,
+    totalNet: totalNetDuzeltilmis,
     saleCount,
     toplamSgkHakki,
     toplamVakifOdemesi,
@@ -733,20 +768,20 @@ export async function getDailyReport(branchId: string, date: Date) {
     shiftId: shift.id,
     shiftOpenedAt: shift.openedAt,
     openCash: openCash.toString(),
-    totalSales: totalSales.toString(),
+    totalSales: totalSalesDuzeltilmis.toString(),
     totalDiscount: totalDiscount.toString(),
-    totalNet: totalNet.toString(),
-    cashTotal: cashTotal.toString(),
-    cardGross: cardGross.toString(),
-    cardNet: cardNet.toString(),
-    totalCommission: totalCommission.toString(),
+    totalNet: totalNetDuzeltilmis.toString(),
+    cashTotal: cashTotalDuzeltilmis.toString(),
+    cardGross: cardGrossDuzeltilmis.toString(),
+    cardNet: cardNetDuzeltilmis.toString(),
+    totalCommission: totalCommissionDuzeltilmis.toString(),
     transferTotal: transferTotal.toString(),
     openAccountTotal: openAccountTotal.toString(),
-    taxTotal: taxTotal.toString(),
+    taxTotal: taxTotalDuzeltilmis.toString(),
     cashIn: cashIn.toString(),
     cashOut: cashOut.toString(),
     advanceTotal: advanceTotal.toString(),
-    expectedCash: expectedCash.toString(),
+    expectedCash: expectedCashDuzeltilmis.toString(),
     physicalCash: shift.physicalCash ? shift.physicalCash.toString() : null,
     diff: shift.diff ? shift.diff.toString() : null,
     saleCount,
@@ -755,6 +790,14 @@ export async function getDailyReport(branchId: string, date: Date) {
     labIncidents,
     ...derived,
     ...runningKasaBakiye,
+    kasaDuzeltme: {
+      nakit: duzeltme.nakit.toString(),
+      kartBrut: duzeltme.kartBrut.toString(),
+      kdv: duzeltme.kdv.toString(),
+      komisyon: duzeltme.komisyon.toString(),
+      ciro: duzeltme.ciro.toString(),
+      vakif: duzeltme.vakif.toString(),
+    },
   };
 }
 

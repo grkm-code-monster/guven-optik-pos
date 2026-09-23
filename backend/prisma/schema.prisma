@@ -666,6 +666,29 @@ model AuditLog {
   createdAt DateTime @default(now())
 }
 
+/// Sisteme geçilmeden önceki (veya sisteme hiç girilmemiş) günlere ait kasa
+/// birikimini telafi etmek için müdürün elle girdiği, herhangi bir Sale/Shift
+/// kaydına bağlı OLMAYAN bağımsız düzeltme kaydı (23.09.2026). "tarih" alanı
+/// hangi günün açılış/devreden bakiyesini temsil ettiğini belirtir — o günün
+/// Günlük Kasa Raporu'na eklenir; "nakit" alanı ayrıca kasaNakit'in TÜM ZAMANLAR
+/// kümülatif toplamına da (tarihten bağımsız, kalıcı olarak) eklenir.
+model KasaDuzeltme {
+  id        String   @id @default(uuid())
+  branchId  String
+  userId    String // düzeltmeyi giren müdür
+  tarih     DateTime @db.Date
+  nakit     Decimal  @default(0) @db.Decimal(10, 2)
+  kartBrut  Decimal  @default(0) @db.Decimal(10, 2)
+  kdv       Decimal  @default(0) @db.Decimal(10, 2)
+  komisyon  Decimal  @default(0) @db.Decimal(10, 2)
+  ciro      Decimal  @default(0) @db.Decimal(10, 2)
+  vakif     Decimal  @default(0) @db.Decimal(10, 2)
+  aciklama  String   @default("Sehven düzeltme")
+  createdAt DateTime @default(now())
+
+  @@index([branchId, tarih])
+}
+
 enum CampaignType {
   KASA
   NAKIT_ORAN
