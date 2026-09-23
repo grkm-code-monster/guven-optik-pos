@@ -683,6 +683,7 @@ model KasaDuzeltme {
   komisyon  Decimal  @default(0) @db.Decimal(10, 2)
   ciro      Decimal  @default(0) @db.Decimal(10, 2)
   vakif     Decimal  @default(0) @db.Decimal(10, 2)
+  acikHesap Decimal  @default(0) @db.Decimal(10, 2) // 23.09.2026: eski sistemdeki açık hesap devri
   aciklama  String   @default("Sehven düzeltme")
   createdAt DateTime @default(now())
 

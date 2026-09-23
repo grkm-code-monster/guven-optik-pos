@@ -76,13 +76,17 @@ const inputStyle: CSSProperties = {
   boxSizing: 'border-box',
 }
 
-const KASA_DUZELTME_ALANLARI: Array<{ key: 'nakit' | 'kartBrut' | 'kdv' | 'komisyon' | 'ciro' | 'vakif'; label: string }> = [
+const KASA_DUZELTME_ALANLARI: Array<{
+  key: 'nakit' | 'kartBrut' | 'kdv' | 'komisyon' | 'ciro' | 'vakif' | 'acikHesap'
+  label: string
+}> = [
   { key: 'nakit', label: 'Daha önce toplanmış nakit' },
   { key: 'kartBrut', label: 'Daha önce gelmiş slip (kart) toplamı' },
   { key: 'kdv', label: 'Daha önce gelmiş KDV toplamı' },
   { key: 'komisyon', label: 'Daha önce gelmiş komisyon toplamı' },
   { key: 'ciro', label: 'Daha önce gelmiş ciro toplamı' },
   { key: 'vakif', label: 'Daha önce gelmiş vakıf ödemesi toplamı' },
+  { key: 'acikHesap', label: 'Daha önce gelmiş açık hesap (veresiye) toplamı' },
 ]
 
 function todayYmd(): string {
@@ -272,6 +276,7 @@ function KasaDuzeltmePaneli() {
                       <th style={{ padding: '6px 8px' }}>Komisyon</th>
                       <th style={{ padding: '6px 8px' }}>Ciro</th>
                       <th style={{ padding: '6px 8px' }}>Vakıf</th>
+                      <th style={{ padding: '6px 8px' }}>Açık Hesap</th>
                       <th style={{ padding: '6px 8px' }}>Açıklama</th>
                       <th style={{ padding: '6px 8px' }}></th>
                     </tr>
@@ -286,6 +291,7 @@ function KasaDuzeltmePaneli() {
                         <td style={{ padding: '6px 8px' }}>{k.komisyon}</td>
                         <td style={{ padding: '6px 8px' }}>{k.ciro}</td>
                         <td style={{ padding: '6px 8px' }}>{k.vakif}</td>
+                        <td style={{ padding: '6px 8px' }}>{k.acikHesap}</td>
                         <td style={{ padding: '6px 8px' }}>{k.aciklama}</td>
                         <td style={{ padding: '6px 8px' }}>
                           <button

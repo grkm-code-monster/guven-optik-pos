@@ -499,7 +499,10 @@ const GUNLUK_KASA_SUTUNLARI: GunlukKasaSutunDef[] = [
     label: 'Vergi Hariç',
     varsayilanGorunur: true,
     totalType: 'value',
-    totalRender: (t) => formatMoney(t.taxFree),
+    // 23.09.2026: toplam satırında "Vergi Hariç" artık banka komisyonu da
+    // düşülerek gösteriliyor (kullanıcı isteği) — tekil satırlardaki hücre
+    // değeri (t.taxFree ile ilgisiz, satış bazlı) değişmedi, sadece TOPLAM.
+    totalRender: (t) => formatMoney(t.taxFree - t.commission),
   },
   {
     key: 'iskonto',
@@ -1076,15 +1079,17 @@ function GunlukKasaView({
       ) : null}
       {(() => {
         const d = (report as any)?.kasaDuzeltme as
-          | { nakit: string; kartBrut: string; kdv: string; komisyon: string; ciro: string; vakif: string }
+          | { nakit: string; kartBrut: string; kdv: string; komisyon: string; ciro: string; vakif: string; acikHesap?: string }
           | undefined
         if (!d) return null
-        const varMi = [d.nakit, d.kartBrut, d.kdv, d.komisyon, d.ciro, d.vakif].some((v) => Number(v) !== 0)
+        const acikHesap = d.acikHesap ?? '0'
+        const varMi = [d.nakit, d.kartBrut, d.kdv, d.komisyon, d.ciro, d.vakif, acikHesap].some((v) => Number(v) !== 0)
         if (!varMi) return null
         return (
           <div style={{ padding: '10px 14px', borderRadius: 8, backgroundColor: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e', fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
             Sehven düzeltme (devreden bakiye) uygulandı — Nakit {formatMoney(d.nakit)}, Kart {formatMoney(d.kartBrut)},
-            KDV {formatMoney(d.kdv)}, Komisyon {formatMoney(d.komisyon)}, Ciro {formatMoney(d.ciro)}, Vakıf {formatMoney(d.vakif)}
+            KDV {formatMoney(d.kdv)}, Komisyon {formatMoney(d.komisyon)}, Ciro {formatMoney(d.ciro)}, Vakıf {formatMoney(d.vakif)},
+            Açık Hesap {formatMoney(acikHesap)}
           </div>
         )
       })()}

@@ -560,7 +560,7 @@ export async function getDailyReport(branchId: string, date: Date) {
       cardNet: d.kartBrut.minus(d.komisyon).toString(),
       totalCommission: d.komisyon.toString(),
       transferTotal: '0',
-      openAccountTotal: '0',
+      openAccountTotal: d.acikHesap.toString(),
       taxTotal: d.kdv.toString(),
       cashIn: '0',
       cashOut: '0',
@@ -581,6 +581,7 @@ export async function getDailyReport(branchId: string, date: Date) {
         komisyon: d.komisyon.toString(),
         ciro: d.ciro.toString(),
         vakif: d.vakif.toString(),
+        acikHesap: d.acikHesap.toString(),
       },
       labIncidents,
     };
@@ -720,6 +721,7 @@ export async function getDailyReport(branchId: string, date: Date) {
   const totalSalesDuzeltilmis = totalSales.plus(duzeltme.ciro);
   const totalNetDuzeltilmis = totalNet.plus(duzeltme.ciro);
   const expectedCashDuzeltilmis = expectedCash.plus(duzeltme.nakit);
+  const openAccountTotalDuzeltilmis = openAccountTotal.plus(duzeltme.acikHesap);
   const toplamVakifOdemesi = (gunlukSgkVakifAgg._sum.prescriptionAmount ?? new Prisma.Decimal(0)).plus(
     duzeltme.vakif,
   );
@@ -776,7 +778,7 @@ export async function getDailyReport(branchId: string, date: Date) {
     cardNet: cardNetDuzeltilmis.toString(),
     totalCommission: totalCommissionDuzeltilmis.toString(),
     transferTotal: transferTotal.toString(),
-    openAccountTotal: openAccountTotal.toString(),
+    openAccountTotal: openAccountTotalDuzeltilmis.toString(),
     taxTotal: taxTotalDuzeltilmis.toString(),
     cashIn: cashIn.toString(),
     cashOut: cashOut.toString(),
@@ -797,6 +799,7 @@ export async function getDailyReport(branchId: string, date: Date) {
       komisyon: duzeltme.komisyon.toString(),
       ciro: duzeltme.ciro.toString(),
       vakif: duzeltme.vakif.toString(),
+      acikHesap: duzeltme.acikHesap.toString(),
     },
   };
 }

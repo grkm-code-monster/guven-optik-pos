@@ -25,6 +25,7 @@ export const CreateKasaDuzeltmeInput = z.object({
   komisyon: decimalString.optional().default('0'),
   ciro: decimalString.optional().default('0'),
   vakif: decimalString.optional().default('0'),
+  acikHesap: decimalString.optional().default('0'),
   aciklama: z.string().max(300).optional(),
   branchId: z.string().optional(), // sadece REGIONAL_MANAGER/ADMIN başka şube seçebilir
 });
@@ -67,6 +68,7 @@ export async function createKasaDuzeltme(
       komisyon: new Prisma.Decimal(input.komisyon ?? '0'),
       ciro: new Prisma.Decimal(input.ciro ?? '0'),
       vakif: new Prisma.Decimal(input.vakif ?? '0'),
+      acikHesap: new Prisma.Decimal(input.acikHesap ?? '0'),
       aciklama: input.aciklama?.trim() || 'Sehven düzeltme',
     },
   });
@@ -86,6 +88,7 @@ export async function createKasaDuzeltme(
         komisyon: input.komisyon,
         ciro: input.ciro,
         vakif: input.vakif,
+        acikHesap: input.acikHesap,
         aciklama: kayit.aciklama,
       },
     },
@@ -133,7 +136,7 @@ export async function deleteKasaDuzeltme(
 export async function getKasaDuzeltmeToplamForGun(branchId: string, start: Date, end: Date) {
   const agg = await prisma.kasaDuzeltme.aggregate({
     where: { branchId, tarih: { gte: start, lte: end } },
-    _sum: { nakit: true, kartBrut: true, kdv: true, komisyon: true, ciro: true, vakif: true },
+    _sum: { nakit: true, kartBrut: true, kdv: true, komisyon: true, ciro: true, vakif: true, acikHesap: true },
   });
   return {
     nakit: agg._sum.nakit ?? new Prisma.Decimal(0),
@@ -142,6 +145,7 @@ export async function getKasaDuzeltmeToplamForGun(branchId: string, start: Date,
     komisyon: agg._sum.komisyon ?? new Prisma.Decimal(0),
     ciro: agg._sum.ciro ?? new Prisma.Decimal(0),
     vakif: agg._sum.vakif ?? new Prisma.Decimal(0),
+    acikHesap: agg._sum.acikHesap ?? new Prisma.Decimal(0),
   };
 }
 

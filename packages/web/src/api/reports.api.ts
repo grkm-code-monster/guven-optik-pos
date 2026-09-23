@@ -36,6 +36,7 @@ export type KasaDuzeltmeInput = {
   komisyon?: string
   ciro?: string
   vakif?: string
+  acikHesap?: string
   aciklama?: string
 }
 
@@ -50,6 +51,7 @@ export type KasaDuzeltmeKaydi = {
   komisyon: string
   ciro: string
   vakif: string
+  acikHesap: string
   aciklama: string
   createdAt: string
 }
