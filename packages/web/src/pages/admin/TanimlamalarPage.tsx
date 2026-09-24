@@ -4,7 +4,12 @@ import { downloadEticaretApiDokumani } from '../../utils/eticaretApiDokumani'
 
 type TabId = 'komisyon' | 'personeller' | 'subeler' | 'sirket-tanimlari' | 'eticaret'
 
-const INSTALLMENTS = [1, 2, 3, 6, 9, 12] as const
+// 24.09.2026: satış ekranlarındaki (PaymentStep, AcikHesapPage, SaleDetailPage)
+// taksit seçenekleriyle birebir eşleşmesi için 1'den 12'ye TÜM taksitler
+// tanımlanabiliyor. NOT: bu sayfa gerçekte kullanılan "Tanımlamalar → Komisyon
+// Oranları" ekranı — admin/KomisyonPage.tsx adında route'a bağlı olmayan, aynı
+// işi yapan kullanılmayan bir kopya daha var, karıştırmamak için not düşüldü.
+const INSTALLMENTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
 
 type Rate = {
   id: string
