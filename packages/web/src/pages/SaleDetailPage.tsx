@@ -1628,7 +1628,7 @@ export default function SaleDetailPage() {
                   onChange={(e) => setInstallment(Number(e.target.value))}
                   style={{ padding: 10, borderRadius: 10, border: '1px solid #e5e7eb' }}
                 >
-                  {[1, 3, 6, 9, 12].map((n) => (
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => (
                     <option key={n} value={n}>
                       {n} taksit
                     </option>

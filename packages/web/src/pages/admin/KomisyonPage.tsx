@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { adminApi } from './AdminLayout'
 
-const INSTALLMENTS = [1, 2, 3, 6, 9, 12] as const
+// 24.09.2026: satış ekranındaki taksit seçenekleriyle (PaymentStep, AcikHesapPage,
+// SaleDetailPage) birebir eşleşmesi için 1'den 12'ye TÜM taksitler tanımlanabiliyor —
+// eskiden burada [1,2,3,6,9,12] vardı, satış ekranlarında [1,3,6,9,12] vardı; "2" bu
+// yüzden hiç görünmüyordu (iki liste birbirinden bağımsız, elle tutuluyordu).
+const INSTALLMENTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
 
 type Rate = {
   id: string

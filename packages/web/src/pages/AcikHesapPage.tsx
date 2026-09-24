@@ -719,7 +719,7 @@ export default function AcikHesapPage() {
                       borderRadius: 10,
                     }}
                   >
-                    {[1, 3, 6, 9, 12].map((n) => (
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => (
                       <option key={n} value={n}>
                         {n}
                       </option>
@@ -970,7 +970,7 @@ export default function AcikHesapPage() {
                     onChange={(e) => setBulkInstallment(Number(e.target.value))}
                     style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10 }}
                   >
-                    {[1, 3, 6, 9, 12].map((n) => (
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => (
                       <option key={n} value={n}>{n}</option>
                     ))}
                   </select>
