@@ -8,6 +8,7 @@
  *
  * Kullanım: npm run excel-varyant-kesif
  */
+import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execute } from '../src/modules/odoo/odoo.service';
