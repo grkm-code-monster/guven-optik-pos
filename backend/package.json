@@ -28,7 +28,8 @@
     "dinamik-nitelik-olustur": "ts-node --transpile-only scripts/dinamik-nitelik-olustur.ts",
     "sablon-alt-sablonlari-arsivle": "ts-node --transpile-only scripts/sablon-alt-sablonlari-arsivle.ts",
     "kasa-gun-tanisi": "ts-node --transpile-only scripts/kasa-gun-tanisi.ts",
-    "excel-varyant-kesif": "ts-node --transpile-only scripts/excel-varyant-kesif.ts"
+    "excel-varyant-kesif": "ts-node --transpile-only scripts/excel-varyant-kesif.ts",
+    "excel-varyant-toplu-olustur": "ts-node --transpile-only scripts/excel-varyant-toplu-olustur.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
