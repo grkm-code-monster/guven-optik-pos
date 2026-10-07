@@ -1,8 +1,13 @@
 /**
- * "AKTARILACAK 1" Excel listesindeki 45 Ürün Şablonu / 877 (dedupe sonrası)
- * satırı Odoo'ya aktarır. Barkod/fiyat/adet verilmiyor (boş/0 geçilir).
- * KDV %10 sabit. Kategori Excel'deki "Ürün Kategorisi" sütunundan çözülür/
- * gerekirse oluşturulur.
+ * Excel listelerindeki Ürün Şablonu / Model / Renk / Ölçü satırlarını Odoo'ya
+ * aktarır. Barkod/fiyat/adet verilmiyor (boş/0 geçilir). KDV %10 sabit.
+ *
+ * Kategori iki şekilde gelebilir (veri JSON'undaki alana göre):
+ *   - kategoriId (number): Excel'de "#44All / OPTİK ÇERÇEVE / ORTA GRUP" gibi
+ *     ID'si belli verildiyse DOĞRUDAN o categ_id kullanılır — hiçbir arama/
+ *     oluşturma yapılmaz, YENİ KATEGORİ KESİNLİKLE AÇILMAZ.
+ *   - kategori (string): sadece isim verildiyse resolveOrCreateCategoryId ile
+ *     çözülür, bulunamazsa yeni kategori açılır (AKTARILACAK 1 dosyası gibi).
  *
  * Her Ürün Şablonu için:
  *   - Odoo'da tam adıyla (trim) eşleşen TEK şablon varsa → onu kullanır.
@@ -18,35 +23,82 @@
  * Varsayılan: DRY RUN (hiçbir şey yazmaz, sadece plan basar).
  * Gerçek çalıştırma: --execute
  * Tek markayla test: --sadece="OPTICALL OPTİK ÇERÇEVE"
+ * Farklı veri dosyası: --data=excel-varyant-aktarim-2.json
  *
  * Kullanım:
- *   npm run excel-varyant-toplu-olustur
- *   npm run excel-varyant-toplu-olustur -- --sadece="RAPSODİ OPTİK ÇERÇEVE" --execute
- *   npm run excel-varyant-toplu-olustur -- --execute
+ *   npm run excel-varyant-toplu-olustur -- --data=excel-varyant-aktarim-2.json
+ *   npm run excel-varyant-toplu-olustur -- --data=excel-varyant-aktarim-2.json --sadece="HAWK OPTİK ÇERÇEVE" --execute
+ *   npm run excel-varyant-toplu-olustur -- --data=excel-varyant-aktarim-2.json --execute
  */
 import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execute } from '../src/modules/odoo/odoo.service';
-import { resolveOrCreateCategoryId } from '../src/modules/odoo/odoo-category.util';
 import {
-  createEnvanterSablon,
   importVaryantlarForTemplate,
   type VaryantImportSatir,
 } from '../src/modules/admin/odoo-varyant-import.service';
 
-type Satir = { urunAdi: string; model: string; renk: string; olcu: string; kategori: string };
+type Satir = {
+  urunAdi: string; model: string; renk: string; olcu: string;
+  kategori?: string; kategoriId?: number; kategoriAdi?: string;
+};
 
 function parseArgs() {
   const execute_ = process.argv.includes('--execute');
   const sadeceArg = process.argv.find((a) => a.startsWith('--sadece='));
   const sadece = sadeceArg ? sadeceArg.split('=').slice(1).join('=').replace(/^"|"$/g, '') : null;
-  return { execute: execute_, sadece };
+  const dataArg = process.argv.find((a) => a.startsWith('--data='));
+  const data = dataArg ? dataArg.split('=')[1] : 'excel-varyant-aktarim.json';
+  return { execute: execute_, sadece, data };
+}
+
+/** kategoriId verilmişse DOĞRUDAN o id ile, yoksa isimle çözüp/oluşturup yeni şablon açar. */
+async function sablonAc(ad: string, satir: Satir): Promise<number> {
+  let categId: number;
+  if (satir.kategoriId != null) {
+    // Doğrulama: ID gerçekten var mı ve isim eşleşiyor mu (yanlış ID'yle
+    // sessizce yanlış kategoriye ürün açmamak için).
+    const kat = (await execute(
+      'product.category', 'read', [[satir.kategoriId]], { fields: ['id', 'complete_name'] },
+    )) as { id: number; complete_name: string }[];
+    if (!kat.length) {
+      throw new Error(`kategoriId #${satir.kategoriId} Odoo'da bulunamadı`);
+    }
+    categId = kat[0].id;
+    console.log(`  (kategori #${categId} "${kat[0].complete_name}" doğrudan kullanılıyor — yeni kategori açılmadı)`);
+  } else if (satir.kategori) {
+    const { resolveOrCreateCategoryId } = await import('../src/modules/odoo/odoo-category.util');
+    const resolved = await resolveOrCreateCategoryId(satir.kategori);
+    categId = resolved.id;
+  } else {
+    throw new Error('Satırda ne kategoriId ne de kategori var');
+  }
+
+  const tmplData: Record<string, unknown> = {
+    name: ad,
+    type: 'product',
+    categ_id: categId,
+    list_price: 0,
+    standard_price: 0,
+    sale_ok: true,
+    purchase_ok: true,
+    tracking: 'serial',
+  };
+  const taxes = (await execute(
+    'account.tax', 'search_read',
+    [[['type_tax_use', '=', 'sale'], ['amount', '=', 10]]],
+    { fields: ['id'], limit: 1 },
+  )) as { id: number }[];
+  if (taxes.length) tmplData.taxes_id = [[6, 0, [taxes[0].id]]];
+
+  return Number(await execute('product.template', 'create', [tmplData]));
 }
 
 async function main() {
-  const { execute: doExecute, sadece } = parseArgs();
-  const dataPath = path.join(__dirname, 'data', 'excel-varyant-aktarim.json');
+  const { execute: doExecute, sadece, data } = parseArgs();
+  const dataPath = path.join(__dirname, 'data', data);
+  console.log(`Veri dosyası: ${data}`);
   const tumSatirlar: Satir[] = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
 
   const gruplar = new Map<string, Satir[]>();
@@ -93,17 +145,14 @@ async function main() {
         tmplId = mevcutSablonlar[0].id;
         console.log(`• ${ad} — mevcut şablon #${tmplId} kullanılacak (${rows.length} satır)`);
       } else {
+        const katEtiketi = rows[0].kategoriId != null
+          ? `#${rows[0].kategoriId} ${rows[0].kategoriAdi ?? ''}`.trim()
+          : rows[0].kategori;
         if (!doExecute) {
-          console.log(`• ${ad} — YENİ ŞABLON açılacak (kategori: ${rows[0].kategori}, KDV %10) — ${rows.length} satır`);
+          console.log(`• ${ad} — YENİ ŞABLON açılacak (kategori: ${katEtiketi}, KDV %10) — ${rows.length} satır`);
           continue;
         }
-        tmplId = await createEnvanterSablon({
-          kategori: rows[0].kategori,
-          urunAdi: ad,
-          satisFiyati: 0,
-          maliyetFiyati: 0,
-          kdvOrani: 10,
-        });
+        tmplId = await sablonAc(ad, rows[0]);
         console.log(`✓ ${ad} — yeni şablon oluşturuldu #${tmplId}`);
       }
 

@@ -13,10 +13,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execute } from '../src/modules/odoo/odoo.service';
 
-type Satir = { urunAdi: string; model: string; renk: string; olcu: string; kategori: string };
+type Satir = {
+  urunAdi: string; model: string; renk: string; olcu: string;
+  kategori?: string; kategoriId?: number; kategoriAdi?: string;
+};
+
+function parseArgs() {
+  const dataArg = process.argv.find((a) => a.startsWith('--data='));
+  const data = dataArg ? dataArg.split('=')[1] : 'excel-varyant-aktarim.json';
+  return { data };
+}
 
 async function main() {
-  const dataPath = path.join(__dirname, 'data', 'excel-varyant-aktarim.json');
+  const { data } = parseArgs();
+  const dataPath = path.join(__dirname, 'data', data);
+  console.log(`Veri dosyası: ${data}\n`);
   const satirlar: Satir[] = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
 
   const gruplar = new Map<string, Satir[]>();
