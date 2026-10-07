@@ -1,6 +1,8 @@
 /**
  * Excel listelerindeki Ürün Şablonu / Model / Renk / Ölçü satırlarını Odoo'ya
- * aktarır. Barkod/fiyat/adet verilmiyor (boş/0 geçilir). KDV %10 sabit.
+ * aktarır. Barkod/fiyat/adet verilmiyor (boş/0 geçilir). KDV varsayılan %10;
+ * veri JSON'unda satırda kdvOrani verilmişse (örn. 20) o oran kullanılır
+ * (örn. AKTARILACAK 5 — güneş gözlüğü, %20 KDV).
  *
  * Kategori iki şekilde gelebilir (veri JSON'undaki alana göre):
  *   - kategoriId (number): Excel'de "#44All / OPTİK ÇERÇEVE / ORTA GRUP" gibi
@@ -42,6 +44,7 @@ import {
 type Satir = {
   urunAdi: string; model: string; renk: string; olcu: string;
   kategori?: string; kategoriId?: number; kategoriAdi?: string;
+  kdvOrani?: number;
 };
 
 function parseArgs() {
@@ -85,12 +88,17 @@ async function sablonAc(ad: string, satir: Satir): Promise<number> {
     purchase_ok: true,
     tracking: 'serial',
   };
+  const kdvOrani = satir.kdvOrani ?? 10;
   const taxes = (await execute(
     'account.tax', 'search_read',
-    [[['type_tax_use', '=', 'sale'], ['amount', '=', 10]]],
+    [[['type_tax_use', '=', 'sale'], ['amount', '=', kdvOrani]]],
     { fields: ['id'], limit: 1 },
   )) as { id: number }[];
-  if (taxes.length) tmplData.taxes_id = [[6, 0, [taxes[0].id]]];
+  if (taxes.length) {
+    tmplData.taxes_id = [[6, 0, [taxes[0].id]]];
+  } else {
+    console.log(`  ⚠️ %${kdvOrani} satış KDV'si Odoo'da bulunamadı — taxes_id boş kalacak`);
+  }
 
   return Number(await execute('product.template', 'create', [tmplData]));
 }
@@ -149,7 +157,7 @@ async function main() {
           ? `#${rows[0].kategoriId} ${rows[0].kategoriAdi ?? ''}`.trim()
           : rows[0].kategori;
         if (!doExecute) {
-          console.log(`• ${ad} — YENİ ŞABLON açılacak (kategori: ${katEtiketi}, KDV %10) — ${rows.length} satır`);
+          console.log(`• ${ad} — YENİ ŞABLON açılacak (kategori: ${katEtiketi}, KDV %${rows[0].kdvOrani ?? 10}) — ${rows.length} satır`);
           continue;
         }
         tmplId = await sablonAc(ad, rows[0]);
