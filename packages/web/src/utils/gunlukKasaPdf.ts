@@ -228,7 +228,12 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
     fmtPdfDate(row.createdAt),
     row.deliveryDate ? fmtPdfDate(row.deliveryDate) : '—',
     truncate(row.customerName, 24),
-    truncate(row.itemSummary || '—', 36),
+    // 09.10.2026: Ürün Kalemleri artık 36 karakterde "…" ile kesilmiyor — autoTable
+    // zaten styles.overflow: 'linebreak' ile hücre içinde otomatik satır sarması
+    // yapıp satır yüksekliğini içeriğe göre büyütüyor (bkz. aşağıdaki autoTable
+    // çağrısı). Burada önceden yapılan sabit-karakter kesme, autoTable'ın bu
+    // sarma mantığına hiç şans vermeden metni kırpıyordu; artık tam metin veriliyor.
+    (row.itemSummary || '—').trim(),
     fmtPdfMoney(row.grossTotal),
     fmtPdfMoney(row.netTotal),
     fmtPdfMoney(row.taxExcluded),
@@ -287,7 +292,7 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
       0: { cellWidth: 18 },
       1: { cellWidth: 18 },
       2: { cellWidth: 24 },
-      3: { cellWidth: 38 },
+      3: { cellWidth: 50 },
       4: { halign: 'right', cellWidth: 16 },
       5: { halign: 'right', cellWidth: 16 },
       6: { halign: 'right', cellWidth: 16 },
