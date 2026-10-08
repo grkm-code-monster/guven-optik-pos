@@ -173,6 +173,15 @@ function cardCommissionTotal(row: SalesDetailRow) {
   return row.cardPayments.reduce((s, p) => s + Number(p.commissionAmount), 0)
 }
 
+// Yalnızca satışın KENDİ gününde yapılmış kart ödemelerinin komisyonu — başka bir
+// günün açık hesap borcunun bugün kredi kartıyla tahsil edilmesinden (bkz.
+// backend report.service.ts -> isOpenAccountCollection) kaynaklanan komisyonlar hariç.
+function cardCommissionSalesOnlyTotal(row: SalesDetailRow) {
+  return row.cardPayments
+    .filter((p) => !p.isOpenAccountCollection)
+    .reduce((s, p) => s + Number(p.commissionAmount), 0)
+}
+
 function summarizeGunlukKasaRows(rows: SalesDetailRow[]) {
   return rows
     .filter((s) => s.tip !== 'MASRAF')
@@ -185,10 +194,11 @@ function summarizeGunlukKasaRows(rows: SalesDetailRow[]) {
       acc.cash += Number(s.cashAmount)
       acc.slip += cardSlipTotal(s)
       acc.commission += cardCommissionTotal(s)
+      acc.commissionSalesOnly += cardCommissionSalesOnlyTotal(s)
       acc.sgk += Number(s.sgkAmount)
       return acc
     },
-    { gross: 0, net: 0, taxFree: 0, discount: 0, cash: 0, slip: 0, commission: 0, sgk: 0 },
+    { gross: 0, net: 0, taxFree: 0, discount: 0, cash: 0, slip: 0, commission: 0, commissionSalesOnly: 0, sgk: 0 },
   )
 }
 
@@ -1113,13 +1123,18 @@ function GunlukKasaView({
           <MetricCards
             items={[
               { label: 'Brüt Ciro', value: formatMoney(summary.gross) },
-              // Gün Toplamı = Brüt Tutar - İndirim - (günün KDV toplamı) - (günün banka komisyonu toplamı)
+              // Gün Toplamı = Brüt Tutar - İndirim - (günün KDV toplamı) - (günün SATIŞLARINA ait banka komisyonu)
               // summary.taxFree zaten (netTotal - taxTotal) satış bazında hesaplanıp toplanıyor,
               // yani net toplamdan günün KDV'sini düşmüş halini veriyor; buradan banka komisyonu
               // da düşülerek "Gün Toplamı" elde ediliyor. Not: "Sipariş Bedeli" (summary.net /
               // netTotal) mantığı başka yerlerde (tablo, PDF detay satırları) aynen kullanılmaya
               // devam ediyor, burada sadece bu üst özet kart için ek bir türetilmiş değer kullanıldı.
-              { label: 'Gün Toplamı', value: formatMoney(summary.taxFree - summary.commission) },
+              // 08.10.2026: summary.commission yerine summary.commissionSalesOnly kullanılıyor —
+              // satışı BAŞKA bir güne ait olup bugün açık hesaptan kredi kartıyla tahsil edilen
+              // ödemelerin komisyonu artık bu toplama dahil edilmiyor (bkz. cardCommissionSalesOnlyTotal).
+              // "Vergi Hariç" toplam satırı ve "Banka Kom." toplam satırı kasıtlı olarak eski
+              // summary.commission değerini kullanmaya devam ediyor (genel komisyon anlamı değişmedi).
+              { label: 'Gün Toplamı', value: formatMoney(summary.taxFree - summary.commissionSalesOnly) },
               { label: 'Nakit Giriş', value: formatMoney(summary.cash) },
               { label: 'Nakit Çıkış', value: formatMoney(report?.cashOut) },
               { label: 'Slip Toplamı', value: formatMoney(summary.slip) },

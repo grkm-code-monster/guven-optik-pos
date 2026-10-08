@@ -184,6 +184,10 @@ export interface DailyReport {
       installment: number
       grossAmount: string
       commissionAmount: string
+      // Satışın kendi günü dışında (başka bir günün açık hesap borcu için) yapılmış
+      // kredi kartı tahsilatı mı? true ise bu ödemenin komisyonu "Gün Toplamı" gibi
+      // günün kendi satış komisyonunu temsil eden toplamlara dahil edilmemeli.
+      isOpenAccountCollection?: boolean
     }>
     transferAmount: string
     itemSummary: string

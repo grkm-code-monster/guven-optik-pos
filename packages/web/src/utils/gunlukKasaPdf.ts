@@ -19,6 +19,9 @@ export type GunlukKasaPdfRow = {
     installment: number
     grossAmount: string
     commissionAmount?: string
+    // Satışın kendi günü dışında (başka bir günün açık hesap borcu için) yapılmış
+    // kredi kartı tahsilatı mı? bkz. report.service.ts -> isOpenAccountCollection.
+    isOpenAccountCollection?: boolean
   }>
   repName?: string
 }
@@ -30,10 +33,13 @@ export type GunlukKasaPdfSummary = {
   discount: number
   cash: number
   slip: number
-  // Banka komisyonu toplamı — "Gün Toplamı" özet kartının hesaplanması için gerekli.
+  // Banka komisyonu toplamı — "Vergi Hariç"/"Banka Kom." gibi genel toplamlar için.
   // (DashboardPage.tsx'teki summarizeGunlukKasaRows çıktısında zaten mevcut; burada da
   // tip tanımına eklendi ki PDF kartında kullanılabilsin.)
   commission: number
+  // 08.10.2026: "Gün Toplamı" kartı için — satışı BAŞKA bir güne ait olup bugün açık
+  // hesaptan kredi kartıyla tahsil edilen ödemelerin komisyonu HARİÇ tutulmuş toplam.
+  commissionSalesOnly: number
   sgk: number
 }
 
@@ -104,10 +110,13 @@ function drawSummaryCards(
 
   const kartlar = [
     { baslik: 'BRÜT CİRO', deger: fmtPdfCurrency(summary.gross) },
-    // Gün Toplamı = Brüt Tutar - İndirim - günün KDV toplamı - günün banka komisyonu toplamı
+    // Gün Toplamı = Brüt Tutar - İndirim - günün KDV toplamı - günün SATIŞLARINA ait banka komisyonu
     // (summary.taxFree = netTotal - taxTotal satış bazında toplanmış hali; buradan komisyon
     // da düşülüyor). "Sipariş Bedeli" (summary.net) tablo/detay satırlarında değişmeden kalıyor.
-    { baslik: 'GÜN TOPLAMI', deger: fmtPdfCurrency(summary.taxFree - summary.commission) },
+    // 08.10.2026: summary.commission yerine summary.commissionSalesOnly kullanılıyor — satışı
+    // başka bir güne ait olup bugün açık hesaptan tahsil edilen kart ödemelerinin komisyonu
+    // bu toplama dahil edilmiyor (DashboardPage.tsx ile tutarlı).
+    { baslik: 'GÜN TOPLAMI', deger: fmtPdfCurrency(summary.taxFree - summary.commissionSalesOnly) },
     { baslik: 'NAKİT GİRİŞ', deger: fmtPdfCurrency(summary.cash) },
     { baslik: 'SLİP TOPLAMI', deger: fmtPdfCurrency(summary.slip) },
     { baslik: 'İSKONTO %', deger: discountPct },

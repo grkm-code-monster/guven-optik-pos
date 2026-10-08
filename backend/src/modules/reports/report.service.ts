@@ -349,11 +349,28 @@ const paidSalesSelect = {
       commissionAmount: true,
       installment: true,
       bankId: true,
+      createdAt: true,
     },
   },
 } as const;
 
 type PaidSaleForDetail = Prisma.SaleGetPayload<{ select: typeof paidSalesSelect }>;
+
+// 08.10.2026: "Gün Toplamı" kartındaki banka komisyonu, satışın KENDİSİ o gün
+// yapılmış kart ödemelerini saymalı — satışı geçmiş bir güne ait olup, açık
+// hesap borcu olarak kalan bir bakiyenin BUGÜN kredi kartıyla tahsil edildiği
+// ödemeler (bkz. openaccount.controller.ts -> applyOpenAccountPayment) bu
+// satışın `payments` ilişkisine aynı saleId ile ekleniyor, ama Payment.createdAt
+// satışın kendi createdAt'inden FARKLI bir güne denk geliyor. Böyle bir kart
+// ödemesinin komisyonu o günün kendi cirosundan kaynaklanmıyor; "Gün Toplamı"
+// hesaplamasını şişirmemesi için işaretleniyor.
+function isSameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
 
 async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
   const bankIds = Array.from(
@@ -395,6 +412,8 @@ async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
         installment: p.installment ?? 1,
         grossAmount: p.grossAmount.toString(),
         commissionAmount: p.commissionAmount?.toString() ?? '0',
+        // Satışın kendi günü dışında yapılmış açık hesap tahsilatı mı?
+        isOpenAccountCollection: !isSameCalendarDay(p.createdAt, sale.createdAt),
       })),
     transferAmount: sale.payments
       .filter((p) => p.paymentType === PaymentType.TRANSFER)
