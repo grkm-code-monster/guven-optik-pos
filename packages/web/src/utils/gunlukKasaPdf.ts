@@ -30,6 +30,10 @@ export type GunlukKasaPdfSummary = {
   discount: number
   cash: number
   slip: number
+  // Banka komisyonu toplamı — "Gün Toplamı" özet kartının hesaplanması için gerekli.
+  // (DashboardPage.tsx'teki summarizeGunlukKasaRows çıktısında zaten mevcut; burada da
+  // tip tanımına eklendi ki PDF kartında kullanılabilsin.)
+  commission: number
   sgk: number
 }
 
@@ -100,7 +104,10 @@ function drawSummaryCards(
 
   const kartlar = [
     { baslik: 'BRÜT CİRO', deger: fmtPdfCurrency(summary.gross) },
-    { baslik: 'SİPARİŞ BEDELİ', deger: fmtPdfCurrency(summary.net) },
+    // Gün Toplamı = Brüt Tutar - İndirim - günün KDV toplamı - günün banka komisyonu toplamı
+    // (summary.taxFree = netTotal - taxTotal satış bazında toplanmış hali; buradan komisyon
+    // da düşülüyor). "Sipariş Bedeli" (summary.net) tablo/detay satırlarında değişmeden kalıyor.
+    { baslik: 'GÜN TOPLAMI', deger: fmtPdfCurrency(summary.taxFree - summary.commission) },
     { baslik: 'NAKİT GİRİŞ', deger: fmtPdfCurrency(summary.cash) },
     { baslik: 'SLİP TOPLAMI', deger: fmtPdfCurrency(summary.slip) },
     { baslik: 'İSKONTO %', deger: discountPct },

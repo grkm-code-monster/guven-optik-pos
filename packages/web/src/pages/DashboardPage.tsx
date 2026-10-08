@@ -1113,7 +1113,13 @@ function GunlukKasaView({
           <MetricCards
             items={[
               { label: 'Brüt Ciro', value: formatMoney(summary.gross) },
-              { label: 'Sipariş Bedeli', value: formatMoney(summary.net) },
+              // Gün Toplamı = Brüt Tutar - İndirim - (günün KDV toplamı) - (günün banka komisyonu toplamı)
+              // summary.taxFree zaten (netTotal - taxTotal) satış bazında hesaplanıp toplanıyor,
+              // yani net toplamdan günün KDV'sini düşmüş halini veriyor; buradan banka komisyonu
+              // da düşülerek "Gün Toplamı" elde ediliyor. Not: "Sipariş Bedeli" (summary.net /
+              // netTotal) mantığı başka yerlerde (tablo, PDF detay satırları) aynen kullanılmaya
+              // devam ediyor, burada sadece bu üst özet kart için ek bir türetilmiş değer kullanıldı.
+              { label: 'Gün Toplamı', value: formatMoney(summary.taxFree - summary.commission) },
               { label: 'Nakit Giriş', value: formatMoney(summary.cash) },
               { label: 'Nakit Çıkış', value: formatMoney(report?.cashOut) },
               { label: 'Slip Toplamı', value: formatMoney(summary.slip) },
