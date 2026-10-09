@@ -348,6 +348,9 @@ model SaleItem {
   deliveryDate  DateTime?
   lensOrderMeasurement Json?
 
+  maintenanceNature      String?
+  maintenanceDescription String?
+
   atolyeBranchId    String?
   sentToLabAt       DateTime?
   sentToLabByUserId String?

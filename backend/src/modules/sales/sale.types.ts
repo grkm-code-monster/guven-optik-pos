@@ -92,6 +92,8 @@ export const AddSaleItemInput = z.object({
   pairWithItemId: z.string().uuid().optional(),
   prescription: PrescriptionInput.optional(),
   frames: z.array(FrameInput).optional(),
+  maintenanceNature: z.string().optional().nullable(),
+  maintenanceDescription: z.string().optional().nullable(),
 });
 export type AddSaleItemInputType = z.infer<typeof AddSaleItemInput>;
 

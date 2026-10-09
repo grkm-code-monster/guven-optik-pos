@@ -77,6 +77,8 @@ export interface SaleItem {
   prescription?: Prescription
   frames?: Frame[]
   lensOrderMeasurement?: Record<string, unknown> | null
+  maintenanceNature?: string | null
+  maintenanceDescription?: string | null
   product?: Product
 }
 

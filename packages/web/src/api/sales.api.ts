@@ -22,6 +22,8 @@ export async function addItem(
     pairWithItemId?: string
     prescription?: any
     frames?: any[]
+    maintenanceNature?: string | null
+    maintenanceDescription?: string | null
   }
 ): Promise<SaleItem & { prescription_missing?: boolean }> {
   const res = await apiClient.post(`/sales/${saleId}/items`, input)
@@ -44,6 +46,8 @@ export async function updateItem(
     linkType?: string
     prescription?: any
     frames?: any[]
+    maintenanceNature?: string | null
+    maintenanceDescription?: string | null
   }
 ): Promise<SaleItem & { prescription_missing?: boolean }> {
   const res = await apiClient.put(`/sales/${saleId}/items/${itemId}`, input)

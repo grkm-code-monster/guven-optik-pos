@@ -229,6 +229,8 @@ export async function addSaleItem(saleId: string, input: AddSaleItemInputType) {
         linkedItemId: input.linkedItemId,
         linkType: input.linkType,
         status: ItemStatus.PENDING,
+        maintenanceNature: input.maintenanceNature?.trim() || null,
+        maintenanceDescription: input.maintenanceDescription?.trim() || null,
       },
     });
 
@@ -399,6 +401,8 @@ export async function updateSaleItem(saleItemId: string, input: AddSaleItemInput
         lineTotal,
         linkedItemId: input.linkedItemId,
         linkType: input.linkType,
+        maintenanceNature: input.maintenanceNature?.trim() || null,
+        maintenanceDescription: input.maintenanceDescription?.trim() || null,
       },
     });
 

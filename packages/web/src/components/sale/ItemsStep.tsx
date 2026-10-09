@@ -309,6 +309,8 @@ export default function ItemsStep({
   const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount')
   const [discountInput, setDiscountInput] = useState('0')
   const [prescriptionType, setPrescriptionType] = useState<string>('')
+  const [maintenanceNature, setMaintenanceNature] = useState<string>('')
+  const [maintenanceDescription, setMaintenanceDescription] = useState<string>('')
   const [oneriTabu, setOneriTabu] = useState<'oneri' | 'tumü'>('oneri')
   const [oneriTaraf, setOneriTaraf] = useState<OneriTarafKey>('uzak_r')
   const [kontaktOneriTaraf, setKontaktOneriTaraf] = useState<'r' | 'l'>('r')
@@ -409,6 +411,8 @@ export default function ItemsStep({
     setDiscountType('amount')
     setDiscountInput('0')
     setPrescriptionType('')
+    setMaintenanceNature('')
+    setMaintenanceDescription('')
     setSelectedTaxId(null)
     setError(null)
     setEditingItem(null)
@@ -591,6 +595,10 @@ export default function ItemsStep({
     if (pickedKategoriId != null) {
       payload.odooCategoryId = pickedKategoriId
     }
+    if (pickedType?.type === 'MAINTENANCE') {
+      payload.maintenanceNature = maintenanceNature.trim() || null
+      payload.maintenanceDescription = maintenanceDescription.trim() || null
+    }
     if (pickedType?.type === 'LENS') {
       if (pendingLinkedItemId && pendingLinkedItemId !== 'KENDI_CERCEVE') {
         payload.linkType = 'FRAME_LENS'
@@ -676,6 +684,8 @@ export default function ItemsStep({
     setModalOpen(true)
     setEditingItem(item)
     setPrescriptionType(item?.prescription?.prescriptionType ?? '')
+    setMaintenanceNature(item?.maintenanceNature ?? '')
+    setMaintenanceDescription(item?.maintenanceDescription ?? '')
     setError(null)
     const matchedType = typeCards.find((t) => t.type === item?.product?.category) ?? typeCards[0]
     setPickedType(matchedType)
@@ -1283,6 +1293,52 @@ export default function ItemsStep({
                         </button>
                       ))}
                     </div>
+                  </div>
+                ) : null}
+                {pickedType?.type === 'MAINTENANCE' ? (
+                  <div style={{ marginBottom: 12, display: 'grid', gap: 10 }}>
+                    <label>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: '#6b7280',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          marginBottom: 6,
+                        }}
+                      >
+                        Niteliği
+                      </div>
+                      <input
+                        type="text"
+                        value={maintenanceNature}
+                        onChange={(e) => setMaintenanceNature(e.target.value)}
+                        placeholder="Örn. Orijinal menteşe"
+                        style={inputStyle}
+                      />
+                    </label>
+                    <label>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: '#6b7280',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          marginBottom: 6,
+                        }}
+                      >
+                        Açıklama
+                      </div>
+                      <textarea
+                        value={maintenanceDescription}
+                        onChange={(e) => setMaintenanceDescription(e.target.value)}
+                        placeholder="Bakım/onarım ile ilgili detaylı açıklama"
+                        rows={3}
+                        style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+                      />
+                    </label>
                   </div>
                 ) : null}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>

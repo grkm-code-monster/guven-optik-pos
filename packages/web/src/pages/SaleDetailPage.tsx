@@ -315,6 +315,20 @@ function PdfItemCard({ it, indent = false }: { it: any; indent?: boolean }) {
               </span>
             </div>
           ) : null}
+          {it.maintenanceNature || it.maintenanceDescription ? (
+            <div style={{ marginTop: 6, fontSize: 11, color: '#374151' }}>
+              {it.maintenanceNature ? (
+                <div>
+                  <span style={{ color: '#6b7280', fontWeight: 700 }}>Nitelik:</span> {it.maintenanceNature}
+                </div>
+              ) : null}
+              {it.maintenanceDescription ? (
+                <div>
+                  <span style={{ color: '#6b7280', fontWeight: 700 }}>Açıklama:</span> {it.maintenanceDescription}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontWeight: 700 }}>{pdfPara(Number(it.lineTotal))}</div>
