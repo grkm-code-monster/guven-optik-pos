@@ -40,6 +40,16 @@ const DEPLOY_STEPS: { id: string; label: string; cwd: string; cmd: string; args:
     cmd: 'npx',
     args: ['prisma', 'migrate', 'deploy'],
   },
+  {
+    id: 'prisma-generate',
+    label: 'prisma generate',
+    cwd: 'backend',
+    cmd: 'npx',
+    // migrate deploy şema değişikliklerini DB'ye uygular ama Prisma Client'ı
+    // yeniden üretmez — bu adım olmadan yeni şema alanları backend build'inde
+    // "does not exist in type ...CreateInput" hatasına yol açıyor.
+    args: ['prisma', 'generate'],
+  },
   { id: 'build-backend', label: 'npm run build (backend)', cwd: 'backend', cmd: 'npm', args: ['run', 'build'] },
   { id: 'build-web', label: 'npm run build (web)', cwd: 'packages/web', cmd: 'npm', args: ['run', 'build'] },
   {
