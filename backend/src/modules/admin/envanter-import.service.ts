@@ -204,9 +204,18 @@ export async function parseEnvanterExcel(buffer: Buffer): Promise<ParsedEnvanter
     }
   }
 
+  // ÖNEMLİ: ws.rowCount, Excel'in bazı dosyalarda (ör. bu şablon) sayfanın
+  // "kullanılan aralık" meta verisini gerçek veriden çok daha büyük (hatta
+  // Excel'in mutlak maksimumu 1.048.576'ya kadar) rapor edebiliyor. Daha
+  // önce burada `for (r=2; r<=ws.rowCount; r++)` ile TÜM bu aralık tek tek
+  // dolaşılıyordu — 52 satırlık bir dosyada bile milyonlarca boş satırı
+  // gezip her biri için Row nesnesi oluşturuyordu, bu da süreci dakikalarca
+  // kilitleyip (hatta belleği tüketip) backend'in sessizce çökmesine/
+  // yeniden başlamasına yol açıyordu (nginx 502). `eachRow` ise sadece
+  // GERÇEKTEN veri içeren satırları ziyaret eder — doğru ve güvenli yol bu.
   const rows: ParsedEnvanterRow[] = [];
-  for (let r = 2; r <= ws.rowCount; r++) {
-    const row = ws.getRow(r);
+  ws.eachRow({ includeEmpty: false }, (row, r) => {
+    if (r < 2) return;
     const get = (key: EnvanterImportHeader) => {
       const col = colIndex.get(key);
       return col ? row.getCell(col).value : undefined;
@@ -239,10 +248,10 @@ export async function parseEnvanterExcel(buffer: Buffer): Promise<ParsedEnvanter
     };
 
     const bos = !parsed.kategori && !parsed.urunAdi && !parsed.barkod && !parsed.model;
-    if (bos) continue;
+    if (bos) return;
 
     rows.push(parsed);
-  }
+  });
 
   return rows;
 }
