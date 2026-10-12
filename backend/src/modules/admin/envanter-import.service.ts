@@ -310,6 +310,7 @@ async function loadOdooLookup(): Promise<{
   attrValues: Map<string, number>;
   variantsByTmpl: Map<number, Set<string>>;
 }> {
+  console.log(`[envanter-onizle] loadOdooLookup başladı ts=${new Date().toISOString()}`);
   const barcodeSet = new Set<string>();
   const withBarcode = await execute(
     'product.product', 'search_read',
@@ -319,12 +320,14 @@ async function loadOdooLookup(): Promise<{
   for (const p of withBarcode) {
     if (p.barcode?.trim()) barcodeSet.add(p.barcode.trim());
   }
+  console.log(`[envanter-onizle] loadOdooLookup: barkod seti tamam (${barcodeSet.size})`);
 
   const templates = await execute(
     'product.template', 'search_read',
     [[]],
     { fields: ['id', 'name', 'categ_id'], limit: 5000, context: { active_test: false } },
   ) as { id: number; name: string; categ_id: [number, string] | false }[];
+  console.log(`[envanter-onizle] loadOdooLookup: şablonlar tamam (${templates.length})`);
 
   const templatesByName = new Map<string, Array<{ id: number; name: string; categName: string }>>();
   for (const t of templates) {
@@ -379,6 +382,7 @@ async function loadOdooLookup(): Promise<{
       variantsByTmpl.set(tmplId, set);
     }
   }
+  console.log(`[envanter-onizle] loadOdooLookup TAMAMLANDI ts=${new Date().toISOString()}`);
 
   return { barcodeSet, templatesByName, attrIds, attrValues, variantsByTmpl };
 }
@@ -516,7 +520,10 @@ export async function previewEnvanterImport(
   const excelBirimler = new Map<string, number>();
   const satirlar: EnvanterSatirOnizleme[] = [];
 
+  let rowIdx = 0;
   for (const row of rows) {
+    rowIdx++;
+    console.log(`[envanter-onizle] satır ${rowIdx}/${rows.length} işleniyor (satirNo=${row.satirNo})`);
     const validationError = validateRow(row);
     if (validationError) {
       satirlar.push({ ...row, durum: 'HATA', mesaj: validationError });

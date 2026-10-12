@@ -29,6 +29,16 @@ process.on('unhandledRejection', (reason) => {
   );
   process.exit(1);
 });
+// TEŞHİS: Excel envanter önizlemesinde sebepsiz 502'lerin kaynağını bulmak
+// için eklendi — sürece dışarıdan bir sinyal (SIGTERM/SIGINT) gelirse,
+// yukarıdaki uncaughtException/unhandledRejection'ın YAKALAYAMADIĞI bu
+// durumu görünür kılar. Teşhis bitince kaldırılabilir.
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(sig, () => {
+    console.error(`[DIAG] ${sig} alındı — süreç kapanıyor. ts=${new Date().toISOString()}`);
+    process.exit(0);
+  });
+}
 
 app.listen(port, () => {
   console.log(`API listening on http://localhost:${port}`);

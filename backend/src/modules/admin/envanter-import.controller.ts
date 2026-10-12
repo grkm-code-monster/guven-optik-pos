@@ -36,19 +36,25 @@ router.post(
   '/onizle',
   upload.single('file'),
   async (req: Request, res: Response, next: NextFunction) => {
+    const t0 = Date.now();
+    console.log(`[envanter-onizle] İSTEK BAŞLADI ts=${new Date().toISOString()}`);
     try {
       if (!req.file?.buffer?.length) {
         return res.status(400).json({ error: 'Excel dosyası (file) zorunlu' });
       }
+      console.log(`[envanter-onizle] dosya alındı +${Date.now() - t0}ms boyut=${req.file.buffer.length}`);
 
       const rows = await parseEnvanterExcel(req.file.buffer);
+      console.log(`[envanter-onizle] parse tamam +${Date.now() - t0}ms satır=${rows.length}`);
       if (!rows.length) {
         return res.status(400).json({ error: 'Excel dosyasında işlenecek satır yok' });
       }
 
       const onizleme = await previewEnvanterImport(rows);
+      console.log(`[envanter-onizle] preview tamam +${Date.now() - t0}ms`);
       return res.json({ success: true, ...onizleme });
     } catch (err) {
+      console.error(`[envanter-onizle] HATA +${Date.now() - t0}ms:`, err);
       next(err);
     }
   },
