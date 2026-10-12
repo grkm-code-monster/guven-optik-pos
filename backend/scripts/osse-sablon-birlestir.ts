@@ -220,6 +220,11 @@ async function main() {
         if (v.barcode && !hedef.barcode) patch.barcode = v.barcode;
         if (v.standard_price && !hedef.standard_price) patch.standard_price = v.standard_price;
         if (Object.keys(patch).length) {
+          if (patch.barcode) {
+            // Odoo aynı barkodun iki üründe olmasına izin vermiyor — önce
+            // kaynaktaki (mükerrer) varyanttan barkodu kaldır, sonra kanoniğe yaz.
+            await execute('product.product', 'write', [[v.id], { barcode: false }]);
+          }
           await execute('product.product', 'write', [[hedef.id], patch]);
           console.log(`      → kanonik #${hedef.id} güncellendi: ${JSON.stringify(patch)}`);
         }
