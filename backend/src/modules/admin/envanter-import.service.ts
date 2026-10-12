@@ -396,12 +396,30 @@ async function loadOdooLookup(): Promise<{
   return { barcodeSet, templatesByName, attrIds, attrValues, variantsByTmpl };
 }
 
-function findTemplate(
+async function findTemplate(
   lookup: Awaited<ReturnType<typeof loadOdooLookup>>,
   urunAdi: string,
   kategori: string,
-): { id: number; name: string } | null {
-  const candidates = lookup.templatesByName.get(urunAdi.trim().toUpperCase()) ?? [];
+): Promise<{ id: number; name: string } | null> {
+  let candidates = lookup.templatesByName.get(urunAdi.trim().toUpperCase()) ?? [];
+
+  // ÖNEMLİ: loadOdooLookup, şablonları `limit: 5000` ile ÖN YÜKLÜYOR —
+  // katalogda 5000'den fazla şablon varsa (bu mağazada öyle), bazı mevcut
+  // şablonlar bu listeye hiç girmeyebilir. Önceden sadece bu listeye
+  // bakılıyordu ve eşleşme yoksa doğrudan "yeni şablon" denip Odoo'da ZATEN
+  // VAR OLAN bir ürün için MÜKERRER şablon açılıyordu (ör. "OSSE GÜNEŞ
+  // GÖZLÜĞÜ"). Artık ön-yüklenen listede yoksa, canlı bir Odoo araması ile
+  // de kontrol ediliyor — tıpkı gerçek uygulama (uygula) adımındaki
+  // findTemplateId'nin yaptığı gibi.
+  if (!candidates.length) {
+    const live = (await execute(
+      'product.template', 'search_read',
+      [[['name', '=', urunAdi.trim()]]],
+      { fields: ['id', 'name', 'categ_id'], limit: 20, context: { active_test: false } },
+    )) as { id: number; name: string; categ_id: [number, string] | false }[];
+    candidates = live.map((t) => ({ id: t.id, name: t.name, categName: t.categ_id ? t.categ_id[1] : '' }));
+  }
+
   if (!candidates.length) return null;
   if (candidates.length === 1) return candidates[0];
 
@@ -596,7 +614,7 @@ export async function previewEnvanterImport(
     }
 
     if (lookup.barcodeSet.has(row.barkod.trim())) {
-      const tmpl = findTemplate(lookup, row.urunAdi, row.kategori);
+      const tmpl = await findTemplate(lookup, row.urunAdi, row.kategori);
       if (!tmpl) {
         satirlar.push({
           ...row,
@@ -645,7 +663,7 @@ export async function previewEnvanterImport(
       continue;
     }
 
-    const tmpl = findTemplate(lookup, row.urunAdi, row.kategori);
+    const tmpl = await findTemplate(lookup, row.urunAdi, row.kategori);
     if (!tmpl) {
       satirlar.push({
         ...row,
