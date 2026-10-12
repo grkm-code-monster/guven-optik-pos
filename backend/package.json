@@ -34,7 +34,8 @@
     "vivaldi-tanisi": "ts-node --transpile-only scripts/vivaldi-tanisi.ts",
     "envanter-yanlis-lokasyon-duzelt": "ts-node --transpile-only scripts/envanter-yanlis-lokasyon-duzelt.ts",
     "osse-sablon-incele": "ts-node --transpile-only scripts/osse-sablon-incele.ts",
-    "osse-sablon-birlestir": "ts-node --transpile-only scripts/osse-sablon-birlestir.ts"
+    "osse-sablon-birlestir": "ts-node --transpile-only scripts/osse-sablon-birlestir.ts",
+    "osse-son-varyant-duzelt": "ts-node --transpile-only scripts/osse-son-varyant-duzelt.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
