@@ -32,7 +32,8 @@
     "excel-varyant-toplu-olustur": "ts-node --transpile-only scripts/excel-varyant-toplu-olustur.ts",
     "zeiss-lens-toplu-olustur": "ts-node --transpile-only scripts/zeiss-lens-toplu-olustur.ts",
     "vivaldi-tanisi": "ts-node --transpile-only scripts/vivaldi-tanisi.ts",
-    "envanter-yanlis-lokasyon-duzelt": "ts-node --transpile-only scripts/envanter-yanlis-lokasyon-duzelt.ts"
+    "envanter-yanlis-lokasyon-duzelt": "ts-node --transpile-only scripts/envanter-yanlis-lokasyon-duzelt.ts",
+    "osse-sablon-incele": "ts-node --transpile-only scripts/osse-sablon-incele.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
