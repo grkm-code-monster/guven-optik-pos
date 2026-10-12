@@ -6759,10 +6759,11 @@ router.post('/stok-kontrol/uts-duzeltme-sablon', async (req: Request, res: Respo
 
 router.get('/stok-urunleri', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { q, kategoriId, fiyatMin, fiyatMax, stokDurumu, lokasyon, kdv, durum, page, limit } = req.query;
+    const { q, model, kategoriId, fiyatMin, fiyatMax, stokDurumu, lokasyon, kdv, durum, page, limit } = req.query;
     const durumVal = durum ? String(durum) : undefined;
     const result = await stokYonetimi.listStokUrunleri({
       q: q ? String(q) : undefined,
+      model: model ? String(model) : undefined,
       kategoriId: kategoriId ? Number(kategoriId) : undefined,
       fiyatMin: fiyatMin != null ? Number(fiyatMin) : undefined,
       fiyatMax: fiyatMax != null ? Number(fiyatMax) : undefined,

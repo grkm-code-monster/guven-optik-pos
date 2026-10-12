@@ -33,6 +33,7 @@ const ODOO_LOCATION_TO_CODE = Object.fromEntries(
 
 type StokFiltre = {
   q?: string;
+  model?: string;
   kategoriId?: number;
   fiyatMin?: number;
   fiyatMax?: number;
@@ -182,6 +183,41 @@ export async function listStokUrunleri(filtre: StokFiltre) {
   if (filtre.q?.trim()) {
     const q = filtre.q.trim();
     domain.push('|', ['name', 'ilike', q], ['default_code', 'ilike', q]);
+  }
+  if (filtre.model?.trim()) {
+    // "Model Ara": kullanıcı marka/kategori adını değil, sadece model kodunu
+    // yazıyor (ör. "MU2237"). Model kodu product.template.name içinde DEĞİL —
+    // varyant seviyesinde bir nitelik (attribute) değeri olarak tutuluyor.
+    // Önce eşleşen nitelik değerlerini, sonra o değerlere sahip varyantları,
+    // en son o varyantların şablon (template) id'lerini buluyoruz.
+    const modelQ = filtre.model.trim();
+    const ptavs = (await execute(
+      'product.template.attribute.value',
+      'search_read',
+      [[['name', 'ilike', modelQ]]],
+      { fields: ['id'], limit: 500 },
+    )) ?? [];
+    const ptavIds = ptavs.map((p: { id: number }) => p.id).filter(Boolean);
+
+    let modelTmplIds: number[] = [];
+    if (ptavIds.length) {
+      const variantlar = (await execute(
+        'product.product',
+        'search_read',
+        [[['product_template_attribute_value_ids', 'in', ptavIds]]],
+        { fields: ['product_tmpl_id'], limit: 3000 },
+      )) ?? [];
+      modelTmplIds = [
+        ...new Set(variantlar.map((v: { product_tmpl_id: unknown }) => m2oId(v.product_tmpl_id)).filter(Boolean) as number[]),
+      ];
+    }
+    // default_code'da da model kodu geçebilir (ör. ürün kendi tek şablonuysa) —
+    // o yüzden ayrıca default_code'da da arıyoruz.
+    domain.push(
+      '|',
+      ['default_code', 'ilike', modelQ],
+      ['id', 'in', modelTmplIds.length ? modelTmplIds : [-1]],
+    );
   }
   if (filtre.kategoriId) domain.push(['categ_id', 'child_of', filtre.kategoriId]);
   if (filtre.fiyatMin != null) domain.push(['list_price', '>=', filtre.fiyatMin]);

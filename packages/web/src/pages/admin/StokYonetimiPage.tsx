@@ -122,6 +122,7 @@ export default function StokYonetimiPage() {
   const [mesaj, setMesaj] = useState<{ tip: 'ok' | 'err'; text: string } | null>(null)
 
   const [arama, setArama] = useState('')
+  const [modelAra, setModelAra] = useState('')
   const [kategoriId, setKategoriId] = useState('')
   const [fiyatMin, setFiyatMin] = useState('')
   const [fiyatMax, setFiyatMax] = useState('')
@@ -195,6 +196,7 @@ export default function StokYonetimiPage() {
     try {
       const res = await getStokUrunleri({
         q: arama || undefined,
+        model: modelAra || undefined,
         kategoriId: kategoriId ? Number(kategoriId) : undefined,
         fiyatMin: fiyatMin ? Number(fiyatMin) : undefined,
         fiyatMax: fiyatMax ? Number(fiyatMax) : undefined,
@@ -214,7 +216,7 @@ export default function StokYonetimiPage() {
     } finally {
       if (reqId === yukleReqRef.current) setLoading(false)
     }
-  }, [arama, kategoriId, fiyatMin, fiyatMax, stokDurumu, effectiveUrunDurumu, lokasyon, kdv, page])
+  }, [arama, modelAra, kategoriId, fiyatMin, fiyatMax, stokDurumu, effectiveUrunDurumu, lokasyon, kdv, page])
 
   useEffect(() => {
     getOdooKategoriler().then((k) => setKategoriler(k)).catch(() => {})
@@ -797,6 +799,16 @@ export default function StokYonetimiPage() {
               value={arama}
               onChange={(e) => { setArama(e.target.value); setPage(1) }}
               placeholder="Ürün adı / iç ref"
+              style={{ ...inp, marginTop: 4 }}
+            />
+          </label>
+
+          <label style={{ display: 'block', marginBottom: 12 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Model Ara</span>
+            <input
+              value={modelAra}
+              onChange={(e) => { setModelAra(e.target.value); setPage(1) }}
+              placeholder="Örn. MU2237"
               style={{ ...inp, marginTop: 4 }}
             />
           </label>
