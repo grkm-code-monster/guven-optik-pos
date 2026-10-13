@@ -171,6 +171,9 @@ export async function importVaryantlarDinamikTekSablon(
       }
     }
   } catch (e: unknown) {
+    // TANI (13.10.2026): tam hatayı görmek için kesmeden logluyoruz — bkz.
+    // ALLIGATOR OPTİK ÇERÇEVE (#1984) "_unlink_or_archive" arızası.
+    console.log(`[varyant-import-dinamik] TAM HATA (ham): ${e instanceof Error ? (e.stack ?? e.message) : JSON.stringify(e)}`);
     const msg = e instanceof Error ? e.message.slice(0, 200) : 'Nitelik satırı yazılamadı';
     console.log(`[varyant-import-dinamik] Attribute satırı yazma hatası: ${msg}`);
     for (const r of parsedRows) hatalar.push({ index: r.index, sebep: msg });
