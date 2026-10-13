@@ -53,9 +53,20 @@ async function main() {
     { fields: ['id', 'attribute_id', 'value_ids'] },
   )) as { id: number; attribute_id: [number, string]; value_ids: number[] }[];
 
+  console.log('Ham attribute satırları:');
+  for (const l of lines) {
+    console.log(`  satır #${l.id} — nitelik: "${l.attribute_id[1]}" (#${l.attribute_id[0]}) — değer sayısı: ${l.value_ids.length}`);
+  }
+  console.log('');
+
   const lineByAttrName = new Map<string, { id: number; attrId: number; value_ids: number[] }>();
   for (const l of lines) {
-    lineByAttrName.set(l.attribute_id[1].trim().toUpperCase(), { id: l.id, attrId: l.attribute_id[0], value_ids: l.value_ids });
+    const key = l.attribute_id[1].trim().toUpperCase();
+    if (lineByAttrName.has(key)) {
+      console.log(`  ⚠️  "${key}" adında BİRDEN FAZLA satır var (#${lineByAttrName.get(key)!.id} ve #${l.id}) — bu durum güvenli değil, script'i durduruyorum.`);
+      process.exit(1);
+    }
+    lineByAttrName.set(key, { id: l.id, attrId: l.attribute_id[0], value_ids: l.value_ids });
   }
 
   const modelLine = lineByAttrName.get('MODEL');
