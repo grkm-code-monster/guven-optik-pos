@@ -208,7 +208,24 @@ export default function GarantiPage() {
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>Garanti & İade</h1>
         <div style={{ display: 'flex', gap: 8 }}>
           {(['pos', 'depo'] as const).map(s => (
-            <button key={s} type="button" onClick={() => { setSekme(s); if (s === 'depo') setUnreadCount(0) }}
+            <button key={s} type="button" onClick={() => {
+              setSekme(s)
+              if (s === 'depo') setUnreadCount(0)
+              if (s === 'pos') {
+                // "+ Yeni Kayıt" zaten aktif "pos" sekmesindeyken de her tıklamada
+                // akışı baştan başlatmalı — önceden sadece sekme state'i set ediliyordu,
+                // sekme zaten "pos" ise React hiçbir şey render etmiyordu (buton "çalışmıyor" gibi görünüyordu).
+                setPosStep(1)
+                setSeciliMusteri(null)
+                setSeciliSatis(null)
+                setSeciliKalem(null)
+                setMusteriQ('')
+                setMusteriSonuc([])
+                setMusteriSatislar([])
+                setYeniKayit(null)
+                setForm({ type: 'CUSTOMER_WARRANTY', expectedOutcome: 'UNKNOWN', problemDesc: '' })
+              }
+            }}
               style={{ position: 'relative', padding: '8px 18px', borderRadius: 8, border: sekme === s ? 'none' : '1px solid #e5e7eb', backgroundColor: sekme === s ? '#C8102E' : 'white', color: sekme === s ? 'white' : '#374151', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
               {s === 'pos' ? '+ Yeni Kayıt' : 'Operasyon — İşlem'}
               {s === 'depo' && unreadCount > 0 && (
