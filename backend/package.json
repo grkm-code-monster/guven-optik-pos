@@ -37,7 +37,8 @@
     "osse-sablon-birlestir": "ts-node --transpile-only scripts/osse-sablon-birlestir.ts",
     "osse-son-varyant-duzelt": "ts-node --transpile-only scripts/osse-son-varyant-duzelt.ts",
     "sablon-1984-teshis": "ts-node --transpile-only scripts/sablon-1984-teshis.ts",
-    "alligator-acil-varyant-ac": "ts-node --transpile-only scripts/alligator-acil-varyant-ac.ts"
+    "alligator-acil-varyant-ac": "ts-node --transpile-only scripts/alligator-acil-varyant-ac.ts",
+    "alligator-32432-yeniden-aktif": "ts-node --transpile-only scripts/alligator-32432-yeniden-aktif.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
