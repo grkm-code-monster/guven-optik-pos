@@ -1007,7 +1007,10 @@ export default function ItemsStep({
                     </button>
                   ))}
                 </div>
-                {pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId) && customerPrescription ? (() => {
+                {(
+                  (pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId)) ||
+                  (pickedKategoriIds?.some((id) => STOK_CAM_KATEGORI_IDS.includes(id)) ?? false)
+                ) && customerPrescription ? (() => {
                   const rx = customerPrescription as any
                   const uzakVar = receteUzakVar(rx)
                   const yakinVar = receteYakinVar(rx)
