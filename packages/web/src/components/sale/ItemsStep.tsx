@@ -349,7 +349,8 @@ export default function ItemsStep({
     // istisnayı stok cam kategorilerine de uyguluyoruz.
     const bosTerimeIzinVer =
       pickedKategoriId === BAKIM_KATEGORI_ID ||
-      (pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId))
+      (pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId)) ||
+      (pickedKategoriIds?.some((id) => STOK_CAM_KATEGORI_IDS.includes(id)) ?? false)
     if (term.length < 1 && !bosTerimeIzinVer) {
       setSearchResults([])
       return

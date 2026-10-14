@@ -22,6 +22,10 @@ export const DIREKT_KATEGORI_ID: Partial<Record<ItemType, number>> = {
 /** Tek tıkta tüm alt kategorileri birlikte ara */
 export const MULTI_KATEGORI_IDS: Partial<Record<string, number[]>> = {
   'Progresif': [11, 12, 13, 14],
+  // Stok Cam: Beyaz (Standart/Plus/Prime) + Fotokromik (Standart/Plus/Prime) —
+  // reçete bazlı öneri aynı diyoptride BİRDEN FAZLA alt tipte (Org ET, Org,
+  // Fotokromik Füme vb.) eşleşme bulabilsin diye tek tıkta hepsi birlikte aranır.
+  'Stok Cam': [35, 36, 37, 39, 40, 41],
 }
 
 export function hasKategoriTree(type: ItemType): boolean {

@@ -751,8 +751,11 @@ export async function searchUrun(q, yontem, lokasyon, options) {
     const term = normalizeTransferSearchTerm(rawTerm, yontem);
     const katalog = options?.katalog === true;
     const searchKategoriId = resolveSearchKategoriId(options);
+    const kategoriIdsIcinde = Array.isArray(options?.kategoriIds) && options.kategoriIds.length > 0
+        ? options.kategoriIds
+        : (searchKategoriId != null ? [searchKategoriId] : []);
     const bosTerimliKatalogIzinli =
-        katalog && (searchKategoriId === BAKIM_KATEGORI_ID || STOK_CAM_KATEGORI_IDS.includes(searchKategoriId));
+        katalog && kategoriIdsIcinde.some((id) => id === BAKIM_KATEGORI_ID || STOK_CAM_KATEGORI_IDS.includes(id));
     const minLen = yontem === 'ad' ? (bosTerimliKatalogIzinli ? 0 : 1) : 3;
     if (!term || term.length < minLen)
         return [];
