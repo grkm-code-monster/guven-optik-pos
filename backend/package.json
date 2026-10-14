@@ -40,7 +40,8 @@
     "alligator-acil-varyant-ac": "ts-node --transpile-only scripts/alligator-acil-varyant-ac.ts",
     "alligator-32432-yeniden-aktif": "ts-node --transpile-only scripts/alligator-32432-yeniden-aktif.ts",
     "alligator-combinasyon-bul": "ts-node --transpile-only scripts/alligator-combinasyon-bul.ts",
-    "alligator-all146ao-yeni-sablon": "ts-node --transpile-only scripts/alligator-all146ao-yeni-sablon.ts"
+    "alligator-all146ao-yeni-sablon": "ts-node --transpile-only scripts/alligator-all146ao-yeni-sablon.ts",
+    "test-izole-fallback": "ts-node --transpile-only scripts/test-izole-fallback.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
