@@ -172,12 +172,36 @@ export async function importVaryantlarDinamikTekSablon(
     }
   } catch (e: unknown) {
     // TANI (13.10.2026): tam hatayı görmek için kesmeden logluyoruz — bkz.
-    // ALLIGATOR OPTİK ÇERÇEVE (#1984) "_unlink_or_archive" arızası.
+    // ALLIGATOR OPTİK ÇERÇEVE (#1984) "_unlink_or_archive" / "duplicate key
+    // ... combination_indices" arızası. Kök neden: şablonda Odoo'nun kendi
+    // içi kombinasyon hesaplaması (muhtemelen eski 'always' modda MODEL/
+    // RENK/ÖLÇÜ satırlarıyla yeni 'dynamic' (Çoklu) satırların BİRLİKTE
+    // var olması) bozuk bir durumda — bu nitelik satırına HERHANGİ bir yazma
+    // işlemi, ilgisiz mevcut bir varyantla "duplicate key" çakışmasına yol
+    // açıp tüm isteği patlatabiliyor (bkz. 13-14.10.2026 ALLIGATOR olayı).
+    //
+    // DÜZELTME (14.10.2026): böyle bir arıza tek bir ürünle sınırlı değil —
+    // ileride başka şablonlarda da çıkabilir ve satışı bloke eder. Bu yüzden
+    // artık PES ETMİYORUZ: ana şablona yazamadığımızda, bu kod tabanında
+    // zaten yıllardır kullanılan "model başına izole küçük şablon" yöntemine
+    // (bkz. odoo-varyant-import.service.ts importVaryantlarSplitByModel,
+    // OTTO/MUSTANG ürünleri) otomatik düşüyoruz — ana şablona HİÇ dokunmadan,
+    // her model için "{ürün adı} {MODEL}" diye ayrı, temiz bir şablon açıp
+    // istenen RENK×ÖLÇÜ varyantlarını oraya yazıyoruz.
     console.log(`[varyant-import-dinamik] TAM HATA (ham): ${e instanceof Error ? (e.stack ?? e.message) : JSON.stringify(e)}`);
-    const msg = e instanceof Error ? e.message.slice(0, 200) : 'Nitelik satırı yazılamadı';
-    console.log(`[varyant-import-dinamik] Attribute satırı yazma hatası: ${msg}`);
-    for (const r of parsedRows) hatalar.push({ index: r.index, sebep: msg });
-    return { varyantIdByKey, olusturulan, zatenMevcut, hatalar, sonuclar, otomatikTemizlenen: 0, kalanVaryant: 0 };
+    const msg = e instanceof Error ? e.message.slice(0, 300) : 'Nitelik satırı yazılamadı';
+    console.log(`[varyant-import-dinamik] Attribute satırı yazma hatası — ana şablona yazılamadı, izole şablon yoluna düşülüyor: ${msg}`);
+
+    const fallback = await izoleSablonaDusFallback(tmplId, parsedRows, msg);
+    return {
+      varyantIdByKey: fallback.varyantIdByKey,
+      olusturulan: fallback.olusturulan,
+      zatenMevcut: fallback.zatenMevcut,
+      hatalar: fallback.hatalar,
+      sonuclar: fallback.sonuclar,
+      otomatikTemizlenen: 0,
+      kalanVaryant: 0,
+    };
   }
 
   const tumPtavlar = await execute(
@@ -250,6 +274,178 @@ export async function importVaryantlarDinamikTekSablon(
   console.log(`[varyant-import-dinamik] Bitti — olusturulan=${olusturulan}, zatenMevcut=${zatenMevcut}, hatalar=${hatalar.length}.`);
 
   return { varyantIdByKey, olusturulan, zatenMevcut, hatalar, sonuclar, otomatikTemizlenen: 0, kalanVaryant: mevcutVaryantlar.length + olusturulan };
+}
+
+/**
+ * Ana şablona (dinamik "Çoklu" nitelik satırları üzerinden) yazma başarısız
+ * olduğunda devreye giren güvenlik ağı (bkz. yukarıdaki catch bloğu). Ana
+ * şablona HİÇ dokunmadan, her MODEL için "{ürün adı} {MODEL}" adıyla ayrı,
+ * temiz bir şablon açar (yoksa oluşturur, varsa yeniden kullanır) ve o
+ * modelin RENK×ÖLÇÜ varyantlarını ESKİ, global RENK/ÖLÇÜ nitelikleriyle
+ * (always modda — bkz. odoo-varyant-import.service.ts importVaryantlarSplitByModel,
+ * OTTO/MUSTANG'da kullanılan aynı yöntem) orada oluşturur. 13-14.10.2026
+ * ALLIGATOR OPTİK ÇERÇEVE (#1984) olayında elle uygulanan çözümün otomatiği.
+ */
+async function izoleSablonaDusFallback(
+  tmplId: number,
+  rows: Array<VaryantImportSatir & { modelId: number; renkId: number; olcuId: number }>,
+  anaHataMesaji: string,
+): Promise<{
+  varyantIdByKey: Map<string, number>;
+  olusturulan: number;
+  zatenMevcut: number;
+  hatalar: { index: number; sebep: string }[];
+  sonuclar: VaryantImportSonuc['sonuclar'];
+}> {
+  const varyantIdByKey = new Map<string, number>();
+  const hatalar: { index: number; sebep: string }[] = [];
+  const sonuclar: VaryantImportSonuc['sonuclar'] = [];
+  let olusturulan = 0;
+  const zatenMevcut = 0;
+
+  const [tmpl] = (await execute(
+    'product.template', 'read', [[tmplId]], { fields: ['name', 'categ_id', 'taxes_id'] },
+  )) as { name: string; categ_id: [number, string] | false; taxes_id: number[] }[];
+  if (!tmpl) {
+    for (const r of rows) hatalar.push({ index: r.index, sebep: `Ana şablon bulunamadı (izole yol). Asıl hata: ${anaHataMesaji}` });
+    return { varyantIdByKey, olusturulan, zatenMevcut, hatalar, sonuclar };
+  }
+
+  const nitelikler = (await execute(
+    'product.attribute', 'search_read',
+    [[['name', 'in', ['RENK', 'ÖLÇÜ']]]],
+    { fields: ['id', 'name'] },
+  )) as { id: number; name: string }[];
+  const renkAttrId = nitelikler.find((n) => n.name === 'RENK')?.id;
+  const olcuAttrId = nitelikler.find((n) => n.name === 'ÖLÇÜ')?.id;
+  if (!renkAttrId || !olcuAttrId) {
+    for (const r of rows) hatalar.push({ index: r.index, sebep: `RENK/ÖLÇÜ niteliği bulunamadı (izole yol). Asıl hata: ${anaHataMesaji}` });
+    return { varyantIdByKey, olusturulan, zatenMevcut, hatalar, sonuclar };
+  }
+
+  async function getOrCreateDeger(attrId: number, ad: string): Promise<number> {
+    const bulunan = (await execute(
+      'product.attribute.value', 'search_read',
+      [[['attribute_id', '=', attrId], ['name', '=', ad.trim()]]],
+      { fields: ['id'], limit: 1 },
+    )) as { id: number }[];
+    if (bulunan.length) return bulunan[0].id;
+    return Number(await execute('product.attribute.value', 'create', [{ name: ad.trim(), attribute_id: attrId }]));
+  }
+
+  const byModel = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const key = r.model.trim().toUpperCase();
+    if (!byModel.has(key)) byModel.set(key, []);
+    byModel.get(key)!.push(r);
+  }
+
+  for (const [, modelRows] of byModel) {
+    const modelAd = modelRows[0].model.trim();
+    const splitAdi = `${tmpl.name.trim()} ${modelAd}`;
+    try {
+      let splitTmplId: number;
+      const mevcut = (await execute(
+        'product.template', 'search_read', [[['name', '=', splitAdi]]],
+        { fields: ['id'], limit: 1, context: { active_test: false } },
+      )) as { id: number }[];
+      if (mevcut.length) {
+        splitTmplId = mevcut[0].id;
+      } else {
+        splitTmplId = Number(await execute('product.template', 'create', [{
+          name: splitAdi,
+          type: 'product',
+          categ_id: tmpl.categ_id ? tmpl.categ_id[0] : false,
+          taxes_id: tmpl.taxes_id?.length ? [[6, 0, tmpl.taxes_id]] : undefined,
+          sale_ok: true,
+          purchase_ok: true,
+          tracking: 'serial',
+        }]));
+        console.log(`[varyant-import-dinamik] İzole şablon oluşturuldu: #${splitTmplId} "${splitAdi}"`);
+      }
+
+      const renkIdByName = new Map<string, number>();
+      const olcuIdByName = new Map<string, number>();
+      for (const r of modelRows) {
+        const rKey = r.renk.trim().toUpperCase();
+        if (!renkIdByName.has(rKey)) renkIdByName.set(rKey, await getOrCreateDeger(renkAttrId, r.renk));
+        const oKey = r.olcu.trim().toUpperCase();
+        if (!olcuIdByName.has(oKey)) olcuIdByName.set(oKey, await getOrCreateDeger(olcuAttrId, r.olcu));
+      }
+
+      const mevcutLines = (await execute(
+        'product.template.attribute.line', 'search_read',
+        [[['product_tmpl_id', '=', splitTmplId], ['attribute_id', 'in', [renkAttrId, olcuAttrId]]]],
+        { fields: ['id', 'attribute_id', 'value_ids'] },
+      )) as { id: number; attribute_id: [number, string]; value_ids: number[] }[];
+      const lineByAttr = new Map(mevcutLines.map((l) => [l.attribute_id[0], l]));
+
+      async function upsertLine(attrId: number, valueIds: number[]) {
+        const line = lineByAttr.get(attrId);
+        if (!line) {
+          await execute('product.template.attribute.line', 'create', [{
+            product_tmpl_id: splitTmplId, attribute_id: attrId, value_ids: [[6, 0, valueIds]],
+          }]);
+        } else {
+          const merged = [...new Set([...line.value_ids, ...valueIds])];
+          if (merged.length !== line.value_ids.length) {
+            await execute('product.template.attribute.line', 'write', [[line.id], { value_ids: [[6, 0, merged]] }]);
+          }
+        }
+      }
+      await upsertLine(renkAttrId, [...renkIdByName.values()]);
+      await upsertLine(olcuAttrId, [...olcuIdByName.values()]);
+
+      const tumPtavlar = (await execute(
+        'product.template.attribute.value', 'search_read',
+        [[['product_tmpl_id', '=', splitTmplId]]],
+        { fields: ['id', 'product_attribute_value_id'], limit: 1000 },
+      )) as { id: number; product_attribute_value_id: [number, string] }[];
+      const ptavByValueId = new Map(tumPtavlar.map((p) => [p.product_attribute_value_id[0], p.id]));
+
+      const tumVaryantlar = (await execute(
+        'product.product', 'search_read',
+        [[['product_tmpl_id', '=', splitTmplId]]],
+        { fields: ['id', 'barcode', 'product_template_attribute_value_ids'], limit: 1000 },
+      )) as { id: number; barcode: string | false; product_template_attribute_value_ids: number[] }[];
+      const varyantByKey = new Map(tumVaryantlar.map((v) => [ptavKey(v.product_template_attribute_value_ids ?? []), v.id]));
+
+      for (const r of modelRows) {
+        const renkId = renkIdByName.get(r.renk.trim().toUpperCase())!;
+        const olcuId = olcuIdByName.get(r.olcu.trim().toUpperCase())!;
+        const rPtav = ptavByValueId.get(renkId);
+        const oPtav = ptavByValueId.get(olcuId);
+        if (!rPtav || !oPtav) {
+          hatalar.push({ index: r.index, sebep: 'İzole şablon: beklenen nitelik değeri oluşmadı' });
+          continue;
+        }
+        const key = ptavKey([rPtav, oPtav]);
+        const varyantId = varyantByKey.get(key);
+        if (!varyantId) {
+          hatalar.push({ index: r.index, sebep: 'İzole şablon: beklenen kombinasyon oluşmadı' });
+          continue;
+        }
+        if (r.barkod || r.fiyat) {
+          const patch: Record<string, unknown> = {};
+          if (r.barkod) patch.barcode = r.barkod;
+          if (r.fiyat) patch.lst_price = r.fiyat;
+          await execute('product.product', 'write', [[varyantId], patch]).catch(() => undefined);
+        }
+        const vKey = varyantKey(r.model, r.renk, r.olcu);
+        varyantIdByKey.set(vKey, varyantId);
+        olusturulan++;
+        sonuclar.push({
+          index: r.index, model: r.model, renk: r.renk, olcu: r.olcu,
+          barkod: r.barkod, fiyat: r.fiyat, varyantId, durum: 'olusturuldu',
+        });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message.slice(0, 200) : 'İzole şablon oluşturulamadı';
+      for (const r of modelRows) hatalar.push({ index: r.index, sebep: `İzole yol da başarısız: ${msg}` });
+    }
+  }
+
+  return { varyantIdByKey, olusturulan, zatenMevcut, hatalar, sonuclar };
 }
 
 /**
