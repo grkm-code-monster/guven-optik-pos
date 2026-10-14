@@ -43,6 +43,14 @@ export type GunlukKasaPdfSummary = {
   sgk: number
 }
 
+export type GunlukKasaPdfGarantiRow = {
+  claimNo: string
+  customerName: string
+  productName: string
+  statusLabel: string
+  note?: string
+}
+
 export type GunlukKasaPdfParams = {
   branchName: string
   date: string
@@ -50,6 +58,8 @@ export type GunlukKasaPdfParams = {
   summary: GunlukKasaPdfSummary
   showRep?: boolean
   durumNotu?: string
+  // O gün açılan/güncellenen garanti & iade kayıtları — bkz. GunlukKasaView.
+  garantiKayitlari?: GunlukKasaPdfGarantiRow[]
 }
 
 function fmtPdfMoney(value: string | number | null | undefined): string {
@@ -178,8 +188,63 @@ function drawDurumNotuSection(
   }
 }
 
+function drawGarantiSection(
+  doc: jsPDF,
+  kayitlar: GunlukKasaPdfGarantiRow[],
+  startY: number,
+  marginX: number,
+): number {
+  if (!kayitlar.length) return startY
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const contentWidth = pageWidth - marginX * 2
+  let y = startY + 10
+
+  if (y > pageHeight - 30) {
+    doc.addPage()
+    y = 20
+  }
+
+  doc.setFont(PDF_FONT_FAMILY, 'bold')
+  doc.setFontSize(12)
+  doc.setTextColor(163, 45, 45)
+  doc.text('Günün Garanti & İade Kayıtları', marginX, y)
+  y += 7
+
+  doc.setFont(PDF_FONT_FAMILY, 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(55, 65, 81)
+  for (const k of kayitlar) {
+    if (y > pageHeight - 20) {
+      doc.addPage()
+      y = 20
+    }
+    const baslik = `${k.claimNo} · ${k.customerName} · ${k.productName} · ${k.statusLabel}`
+    const baslikLines = doc.splitTextToSize(baslik, contentWidth) as string[]
+    for (const line of baslikLines) {
+      doc.setFont(PDF_FONT_FAMILY, 'bold')
+      doc.text(line, marginX, y)
+      y += 5
+    }
+    if (k.note) {
+      doc.setFont(PDF_FONT_FAMILY, 'normal')
+      const notLines = doc.splitTextToSize(`Not: ${k.note}`, contentWidth) as string[]
+      for (const line of notLines) {
+        if (y > pageHeight - 16) {
+          doc.addPage()
+          y = 20
+        }
+        doc.text(line, marginX, y)
+        y += 5
+      }
+    }
+    y += 2
+  }
+  return y
+}
+
 async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF> {
-  const { branchName, date, rows, summary, showRep, durumNotu = '' } = params
+  const { branchName, date, rows, summary, showRep, durumNotu = '', garantiKayitlari = [] } = params
   const doc = await createPdfDoc({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
@@ -311,7 +376,8 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
   })
 
   const tableEndY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? tableStartY
-  drawDurumNotuSection(doc, durumNotu, tableEndY, marginX)
+  const garantiEndY = drawGarantiSection(doc, garantiKayitlari, tableEndY, marginX)
+  drawDurumNotuSection(doc, durumNotu, garantiEndY, marginX)
 
   const pageCount = doc.getNumberOfPages()
   for (let page = 1; page <= pageCount; page += 1) {

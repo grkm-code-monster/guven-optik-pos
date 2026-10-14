@@ -116,17 +116,38 @@ export async function getClaims(filters: {
   status?: WarrantyStatus
   branchId?: string
   search?: string
+  /** Tek bir gün (YYYY-MM-DD) için o gün OLUŞTURULAN veya GÜNCELLENEN kayıtları getirir —
+   *  Günlük Kasa Formu'nda o günkü garanti hareketlerini göstermek için kullanılır. */
+  tarih?: string
 }) {
   const where: any = {}
   if (filters.status) where.status = filters.status
   if (filters.branchId) where.branchId = filters.branchId
-  if (filters.search) {
-    where.OR = [
-      { claimNo: { contains: filters.search, mode: 'insensitive' } },
-      { customer: { name: { contains: filters.search, mode: 'insensitive' } } },
-      { productName: { contains: filters.search, mode: 'insensitive' } },
-    ]
+  const andConditions: any[] = []
+  if (filters.tarih) {
+    const gunBas = new Date(`${filters.tarih}T00:00:00`)
+    const gunSon = new Date(`${filters.tarih}T23:59:59.999`)
+    andConditions.push({
+      OR: [
+        { createdAt: { gte: gunBas, lte: gunSon } },
+        { updatedAt: { gte: gunBas, lte: gunSon } },
+        // addMessage() sadece warrantyMessage satırı oluşturuyor, claim'in kendi
+        // updatedAt'ını güncellemiyor — bu yüzden "bugün sadece not eklendi" durumunu
+        // yakalamak için mesaj tarihine de bakmak gerekiyor.
+        { messages: { some: { createdAt: { gte: gunBas, lte: gunSon } } } },
+      ],
+    })
   }
+  if (filters.search) {
+    andConditions.push({
+      OR: [
+        { claimNo: { contains: filters.search, mode: 'insensitive' } },
+        { customer: { name: { contains: filters.search, mode: 'insensitive' } } },
+        { productName: { contains: filters.search, mode: 'insensitive' } },
+      ],
+    })
+  }
+  if (andConditions.length) where.AND = andConditions
   return prisma.warrantyClaim.findMany({
     where,
     include: {

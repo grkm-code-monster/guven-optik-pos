@@ -15,6 +15,7 @@ import {
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
 import { useAuthStore } from '../store/auth.store'
 import { apiClient } from '../api/client'
+import { getWarrantyClaims, type WarrantyClaim } from '../api/warranty.api'
 
 ChartJS.register(
   CategoryScale,
@@ -30,7 +31,7 @@ ChartJS.register(
 import { getDailyReport, getPersonalDailyReport, getRangeReport, getMonthlyPersonelBreakdown, downloadExcel, getGunlukDurumNotu, saveGunlukDurumNotu, sendGunlukDurumNotuEmail, type PersonelAylikRow } from '../api/reports.api'
 import { getCurrentShift } from '../api/shifts.api'
 import type { DailyReport, User } from '../api/types'
-import { downloadGunlukKasaPdf, generateGunlukKasaPdfBlob, formatKasaFormuBaslik } from '../utils/gunlukKasaPdf'
+import { downloadGunlukKasaPdf, generateGunlukKasaPdfBlob, formatKasaFormuBaslik, type GunlukKasaPdfGarantiRow } from '../utils/gunlukKasaPdf'
 
 type SalesDetailRow = NonNullable<DailyReport['salesDetail']>[number]
 
@@ -960,6 +961,12 @@ function HedefBar({ current, target, label }: { current: number; target: number;
   )
 }
 
+const GARANTI_DURUM_LABEL: Record<string, string> = {
+  OPEN: 'Açık', SENT_TO_SUPPLIER: 'Firmaya gönderildi',
+  WAITING_RESPONSE: 'Yanıt bekleniyor', IN_RETURN_PROCESS: 'İade sürecinde',
+  RESOLVED: 'Çözümlendi', OUT_OF_WARRANTY: 'Garanti dışı',
+}
+
 function GunlukKasaView({
   report,
   date,
@@ -999,6 +1006,36 @@ function GunlukKasaView({
   const [ekAliciInput, setEkAliciInput] = useState('')
   const [emailGonderiliyor, setEmailGonderiliyor] = useState(false)
   const [gonderimZamani, setGonderimZamani] = useState<string | null>(null)
+  const [garantiKayitlari, setGarantiKayitlari] = useState<WarrantyClaim[]>([])
+
+  useEffect(() => {
+    if (!branchId || !date) {
+      setGarantiKayitlari([])
+      return
+    }
+    getWarrantyClaims({ branchId, tarih: date })
+      .then((data) => setGarantiKayitlari(Array.isArray(data) ? data : []))
+      .catch(() => setGarantiKayitlari([]))
+  }, [branchId, date])
+
+  function gununSonNotu(k: WarrantyClaim, gun: string): string | undefined {
+    const gunMesajlari = (k.messages ?? []).filter((m) => m.createdAt.slice(0, 10) === gun)
+    if (gunMesajlari.length) return gunMesajlari[gunMesajlari.length - 1].message
+    if (k.createdAt.slice(0, 10) === gun) return k.problemDesc
+    return k.messages?.length ? k.messages[k.messages.length - 1].message : k.problemDesc
+  }
+
+  const garantiPdfRows: GunlukKasaPdfGarantiRow[] = useMemo(
+    () =>
+      garantiKayitlari.map((k) => ({
+        claimNo: k.claimNo,
+        customerName: k.customer?.name ?? '—',
+        productName: k.productName ?? '—',
+        statusLabel: GARANTI_DURUM_LABEL[k.status] ?? k.status,
+        note: gununSonNotu(k, date),
+      })),
+    [garantiKayitlari, date],
+  )
 
   useEffect(() => {
     if (!branchId || !date) return
@@ -1054,6 +1091,7 @@ function GunlukKasaView({
         summary,
         showRep,
         durumNotu: notDraft,
+        garantiKayitlari: garantiPdfRows,
       })
       const result = await sendGunlukDurumNotuEmail(branchId, date, pdfBlob, pdfFilename, ekList)
       setGonderimZamani(result.gonderimZamani)
@@ -1075,6 +1113,7 @@ function GunlukKasaView({
       summary,
       showRep,
       durumNotu: notDraft,
+      garantiKayitlari: garantiPdfRows,
     })
   }
 
@@ -1104,6 +1143,25 @@ function GunlukKasaView({
           </div>
         )
       })()}
+      {garantiKayitlari.length > 0 ? (
+        <div style={{ padding: '10px 14px', borderRadius: 8, backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', marginBottom: 6 }}>
+            ✦ Günün garanti & iade kayıtları ({garantiKayitlari.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {garantiKayitlari.map((k) => {
+              const sonNot = gununSonNotu(k, date)
+              return (
+                <div key={k.id} style={{ fontSize: 12, color: '#374151' }}>
+                  <strong>{k.claimNo}</strong> · {k.customer?.name ?? '—'} · {k.productName ?? '—'} ·{' '}
+                  <span style={{ color: '#1d4ed8', fontWeight: 600 }}>{GARANTI_DURUM_LABEL[k.status] ?? k.status}</span>
+                  {sonNot ? <span style={{ color: '#6b7280' }}> — {sonNot}</span> : null}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
       {showRep && onRepFilter ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
           <button type="button" onClick={() => onRepFilter(null)} style={{ ...BTN_STYLE, borderColor: !repFilter ? RED : '#e5e7eb', color: !repFilter ? RED : '#374151' }}>Tümü</button>

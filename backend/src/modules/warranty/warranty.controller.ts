@@ -75,11 +75,12 @@ router.get('/stats', async (req, res, next) => {
 
 router.get('/', async (req, res, next) => {
   try {
-    const { status, branchId, search } = req.query
+    const { status, branchId, search, tarih } = req.query
     res.json(await warrantyService.getClaims({
       status: status as any,
       branchId: branchId as string,
       search: search as string,
+      tarih: tarih as string,
     }))
   } catch (e) { next(e) }
 })
