@@ -1315,7 +1315,7 @@ export async function getSales(branchId: string, filters?: any) {
   if (q) {
     where.OR = [
       { customer: { name: { contains: q, mode: 'insensitive' } } },
-      { customer: { phone: { contains: q } } },
+      { customer: { phone: { contains: q, mode: 'insensitive' } } },
       { referansNo: { contains: q, mode: 'insensitive' } },
       { id: { contains: q, mode: 'insensitive' } },
     ];
