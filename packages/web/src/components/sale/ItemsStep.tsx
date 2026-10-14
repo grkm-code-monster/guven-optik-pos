@@ -1577,6 +1577,8 @@ const overlayStyle: CSSProperties = {
 const modalStyle: CSSProperties = {
   width: '100%',
   maxWidth: '720px',
+  maxHeight: '90vh',
+  overflowY: 'auto',
   backgroundColor: 'white',
   borderRadius: '14px',
   border: '1px solid #e5e7eb',
