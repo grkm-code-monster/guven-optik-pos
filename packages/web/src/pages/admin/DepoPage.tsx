@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import { adminApi } from './AdminLayout'
+import { turkishFold, trIncludes } from '../../utils/turkishSearch'
 import {
   adimEtiketi,
   deleteUrunGirisDraft,
@@ -2077,18 +2078,18 @@ function varyantNitelikAramaMetni(v: {
   defaultCode?: string
   nitelikler?: Array<{ nitelikAdi: string; degerAdi: string }>
 }): string {
-  return [
+  return turkishFold([
     v.name ?? '',
     v.defaultCode ?? '',
     ...(v.nitelikler ?? []).flatMap((n) => [n.nitelikAdi, n.degerAdi]),
-  ].join(' ').toLowerCase()
+  ].join(' '))
 }
 
 function varyantFiltreEslesir(
   v: { name?: string; defaultCode?: string; nitelikler?: Array<{ nitelikAdi: string; degerAdi: string }> },
   term: string,
 ): boolean {
-  const q = term.trim().toLowerCase()
+  const q = turkishFold(term)
   if (!q) return true
   return varyantNitelikAramaMetni(v).includes(q)
 }
@@ -2525,15 +2526,15 @@ function UrunGirisTab() {
   const [branches, setBranches] = useState<Array<{ id: string; code: string; name: string }>>([])
 
   const gelenFaturalarFiltreli = useMemo(() => {
-    const q = gelenAramaMetni.trim().toLowerCase()
+    const q = turkishFold(gelenAramaMetni)
     const qDigits = q.replace(/\D/g, '')
     const tarihFiltre = gelenFaturaTarihiFiltre.trim().slice(0, 10)
 
     return gelenFaturalar.filter((f) => {
       if (tarihFiltre && (f.faturaTarihi ?? '').slice(0, 10) !== tarihFiltre) return false
       if (!q) return true
-      const no = (f.uyumsoftNo ?? '').toLowerCase()
-      const adi = (f.tedarikciAdi ?? '').toLowerCase()
+      const no = turkishFold(f.uyumsoftNo)
+      const adi = turkishFold(f.tedarikciAdi)
       if (no.includes(q) || adi.includes(q)) return true
       if (qDigits.length >= 3) {
         return (f.uyumsoftNo ?? '').replace(/\D/g, '').includes(qDigits)
@@ -2899,9 +2900,9 @@ function UrunGirisTab() {
         const vknEslesen = liste.find((c) => (c.vat || '').replace(/\D/g, '') === vknDigits)
         if (vknEslesen) return vknEslesen
       }
-      const adNorm = (adi || '').trim().toLowerCase()
+      const adNorm = turkishFold(adi)
       if (adNorm) {
-        const adEslesen = liste.find((c) => c.name.toLowerCase() === adNorm)
+        const adEslesen = liste.find((c) => turkishFold(c.name) === adNorm)
         if (adEslesen) return adEslesen
       }
       return liste.length === 1 ? liste[0] : null
@@ -3297,7 +3298,7 @@ function UrunGirisTab() {
           { id: 103, name: 'Güneş Camı RX', default_code: 'RX-003', barcode: '', type: 'product', list_price: 0, standard_price: 0 },
           { id: 104, name: 'Çerçeve RX', default_code: 'CERCEVE-001', barcode: '', type: 'product', list_price: 0, standard_price: 0 },
           { id: 105, name: 'Kontakt Lens', default_code: 'KL-001', barcode: '', type: 'product', list_price: 0, standard_price: 0 },
-        ].filter(u => u.name.toLowerCase().includes(q.toLowerCase()) || u.default_code.toLowerCase().includes(q.toLowerCase())))
+        ].filter(u => trIncludes(u.name, q) || trIncludes(u.default_code, q)))
       }
     } catch (err) {
       console.error('[urun-ara frontend hata]', err)
@@ -3570,7 +3571,7 @@ function UrunGirisTab() {
       setDisMusteriSonuclar([
         { id: 201, name: 'Örnek Optik A.Ş.', vat: '1234567890' },
         { id: 202, name: 'Demo Optik Ltd.', vat: '9876543210' },
-      ].filter(p => p.name.toLowerCase().includes(q.toLowerCase())))
+      ].filter(p => trIncludes(p.name, q)))
     } finally {
       setDisMusteriAramaLoading(false)
     }
@@ -4608,8 +4609,7 @@ function UrunGirisTab() {
                     .filter(f => {
                       if (islendiFiltreAktif && f.islendi) return false
                       if (faturaArama) {
-                        const q = faturaArama.toLowerCase()
-                        return f.name.toLowerCase().includes(q) || f.partner_name.toLowerCase().includes(q) || f.ref.toLowerCase().includes(q)
+                        return trIncludes(f.name, faturaArama) || trIncludes(f.partner_name, faturaArama) || trIncludes(f.ref, faturaArama)
                       }
                       return true
                     })
@@ -4672,8 +4672,7 @@ function UrunGirisTab() {
                   {faturaListesi.filter(f => {
                     if (islendiFiltreAktif && f.islendi) return false
                     if (faturaArama) {
-                      const q = faturaArama.toLowerCase()
-                      return f.name.toLowerCase().includes(q) || f.partner_name.toLowerCase().includes(q)
+                      return trIncludes(f.name, faturaArama) || trIncludes(f.partner_name, faturaArama)
                     }
                     return true
                   }).length === 0 && (

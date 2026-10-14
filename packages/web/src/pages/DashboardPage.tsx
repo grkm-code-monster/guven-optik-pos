@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { trEquals } from '../utils/turkishSearch'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -1506,7 +1507,7 @@ function PersonelDashboard({ user }: { user: User }) {
   const myRep = useMemo(
     () =>
       (report?.temsilciBreakdown ?? []).find(
-        (r) => r.repName?.toLowerCase().trim() === user.name?.toLowerCase().trim(),
+        (r) => trEquals(r.repName, user.name),
       ),
     [report?.temsilciBreakdown, user.name],
   )

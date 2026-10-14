@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { adminApi } from './AdminLayout'
 import { getWarrantyStatsAdmin, type WarrantyClaim } from '../../api/warranty.api'
 import WarrantyDetailPanel from './WarrantyDetailPanel'
+import { trEquals } from '../../utils/turkishSearch'
 
 type AdminRole = 'ADMIN' | 'STORE_MANAGER' | 'WAREHOUSE_MANAGER' | 'SALES_STAFF' | 'REGIONAL_MANAGER' | 'ACCOUNTANT'
 
@@ -291,7 +292,7 @@ export default function GarantiYonetimPage() {
             const urgent = isUrgentDeadline(s.nearestDeadline)
             const open = expandedSupplier === s.supplierName
             const supplierClaims = claims.filter(
-              (c) => c.supplierName?.toLowerCase() === s.supplierName.toLowerCase(),
+              (c) => trEquals(c.supplierName, s.supplierName),
             )
             return (
               <div

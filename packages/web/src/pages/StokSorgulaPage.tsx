@@ -4,6 +4,7 @@ import { apiClient } from '../api/client'
 import { adminApi } from './admin/AdminLayout'
 import { useAuthStore } from '../store/auth.store'
 import FiyatDegisenUrunlerTab from '../components/stok/FiyatDegisenUrunlerTab'
+import { trIncludes } from '../utils/turkishSearch'
 
 const PRIMARY = '#c0392b'
 
@@ -133,7 +134,7 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
       list = list.filter((row) => {
         const categName = row.categName
         if (!categName) return false
-        return selectedCategories.some((c) => categName.toLowerCase().includes(c.toLowerCase()))
+        return selectedCategories.some((c) => trIncludes(categName, c))
       })
     }
     if (onlyInStock) {
