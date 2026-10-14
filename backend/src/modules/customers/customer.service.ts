@@ -89,13 +89,10 @@ export async function resolveOdooCustomer(
 }
 
 export async function createCustomer(input: any) {
-  const existing = await prisma.customer.findUnique({
-    where: { phone: input.phone },
-  });
-  if (existing) {
-    throw codeError('CUSTOMER_PHONE_EXISTS', 'Bu telefon numarası zaten kayıtlı.');
-  }
-
+  // 14.10.2026: müşteri eşleşmesi/tekillik kontrolü artık SADECE T.C. kimlik
+  // numarasına göre yapılıyor — telefon numarası artık benzersiz (unique) değil.
+  // Sebep: aynı telefonu (örn. annelerinin numarasını) paylaşan kardeş müşteriler
+  // ikinci kaydı açarken "telefon zaten kayıtlı" hatasıyla engelleniyordu.
   if (input.identityNo?.trim()) {
     const tcExists = await prisma.customer.findFirst({ where: { identityNo: input.identityNo.trim() } });
     if (tcExists) {
@@ -234,10 +231,11 @@ export async function updateCustomer(id: string, input: any) {
   if (!existing) {
     throw codeError('CUSTOMER_NOT_FOUND', 'Müşteri bulunamadı.');
   }
-  if (input.phone && input.phone !== existing.phone) {
-    const other = await prisma.customer.findUnique({ where: { phone: input.phone } });
+  // 14.10.2026: telefon artık benzersizlik kontrolüne tabi değil (bkz. createCustomer).
+  if (input.identityNo?.trim() && input.identityNo.trim() !== existing.identityNo) {
+    const other = await prisma.customer.findFirst({ where: { identityNo: input.identityNo.trim(), id: { not: id } } });
     if (other) {
-      throw codeError('CUSTOMER_PHONE_EXISTS', 'Bu telefon numarası zaten kayıtlı.');
+      throw codeError('CUSTOMER_TC_EXISTS', 'Bu TC kimlik numarası zaten kayıtlı.');
     }
   }
 

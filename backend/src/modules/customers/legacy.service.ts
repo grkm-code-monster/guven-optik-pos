@@ -102,34 +102,13 @@ async function findPossibleDuplicate(legacy: {
   telefon1?: string | null;
   cepTelefon?: string | null;
 }) {
+  // 14.10.2026: müşteri eşleşmesi artık SADECE T.C. kimlik numarasına göre yapılıyor —
+  // aynı telefonu paylaşan farklı kişiler (örn. kardeşler, aynı anneye kayıtlı telefon)
+  // artık telefon eşleşmesi yüzünden yanlışlıkla aynı müşteri sayılmıyor.
   const tc = legacy.tcKimlikNo?.trim();
   if (tc) {
     const byTc = await prisma.customer.findFirst({ where: { identityNo: tc } });
     if (byTc) return byTc;
-  }
-
-  const phones = [legacy.cepTelefon, legacy.telefon1]
-    .map((p) => p?.trim())
-    .filter(Boolean) as string[];
-
-  for (const phone of phones) {
-    const exact = await prisma.customer.findUnique({ where: { phone } });
-    if (exact) return exact;
-
-    const digits = normalizePhoneDigits(phone);
-    if (digits.length >= 7) {
-      const candidates = await prisma.customer.findMany({
-        where: {
-          OR: [
-            { phone: { contains: digits.slice(-10), mode: 'insensitive' } },
-            { phone: { contains: digits, mode: 'insensitive' } },
-          ],
-        },
-        take: 5,
-      });
-      const matched = candidates.find((c) => normalizePhoneDigits(c.phone) === digits);
-      if (matched) return matched;
-    }
   }
 
   return null;
@@ -149,11 +128,7 @@ async function createCustomerFromLegacy(legacy: Awaited<ReturnType<typeof getLeg
     throw codeError('LEGACY_PHONE_MISSING', 'Arşiv kaydında telefon bilgisi yok, güncel kayıt oluşturulamaz.');
   }
 
-  const existingPhone = await prisma.customer.findUnique({ where: { phone } });
-  if (existingPhone) {
-    throw codeError('CUSTOMER_PHONE_EXISTS', 'Bu telefon numarası zaten kayıtlı.');
-  }
-
+  // 14.10.2026: telefon artık benzersizlik kontrolüne tabi değil — bkz. findPossibleDuplicate.
   if (legacy.tcKimlikNo?.trim()) {
     const tcExists = await prisma.customer.findFirst({
       where: { identityNo: legacy.tcKimlikNo.trim() },

@@ -93,7 +93,10 @@ model Gorevli {
 model Customer {
   id               String    @id @default(uuid())
   name             String
-  phone            String    @unique
+  // 14.10.2026: artık benzersiz (unique) DEĞİL — aynı telefonu paylaşan kardeş/aile
+  // üyesi müşteriler artık birbirini "zaten kayıtlı" diye engellemiyor. Müşteri
+  // eşleşmesi/tekillik kontrolü artık identityNo (T.C. kimlik no) üzerinden yapılıyor.
+  phone            String
   note             String?
   adres            String?
   il               String?
