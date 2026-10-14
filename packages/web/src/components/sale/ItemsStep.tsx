@@ -74,6 +74,17 @@ function transpozHesapla(sph: number, cyl: number, aks: number): { sph: number; 
   return { sph: yeniSph, cyl: yeniCyl, aks: yeniAks }
 }
 
+/** Stok cam ürün isimlerindeki "±NNNN" biçimine (4 haneli, işaretli) çevirir. */
+function stokCamSayiFormatla(n: number): string {
+  const yuvarlak = Math.round(Math.abs(n) * 100)
+  return `${n < 0 ? '-' : ''}${String(yuvarlak).padStart(4, '0')}`
+}
+
+/** Reçete SPH/CYL'sinden, stok cam ürün adlarıyla eşleşecek arama terimini üretir. */
+function stokCamAramaTerimi(sph: number, cyl: number): string {
+  return `${stokCamSayiFormatla(sph)} ${stokCamSayiFormatla(cyl)}`
+}
+
 type OneriTarafKey = 'uzak_r' | 'uzak_l' | 'yakin_r' | 'yakin_l'
 
 function receteTarafDolu(rx: any, numaraTipi: 'uzak' | 'yakin', taraf: 'r' | 'l'): boolean {
@@ -314,6 +325,8 @@ export default function ItemsStep({
   const [oneriTabu, setOneriTabu] = useState<'oneri' | 'tumü'>('oneri')
   const [oneriTaraf, setOneriTaraf] = useState<OneriTarafKey>('uzak_r')
   const [kontaktOneriTaraf, setKontaktOneriTaraf] = useState<'r' | 'l'>('r')
+  const [receteOneriSonuclari, setReceteOneriSonuclari] = useState<{ tam: TransferUrun[]; transpoze: TransferUrun[] }>({ tam: [], transpoze: [] })
+  const [receteOneriYukleniyor, setReceteOneriYukleniyor] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
   const [editingItem, setEditingItem] = useState<any | null>(null)
@@ -390,6 +403,67 @@ export default function ItemsStep({
 
     return () => clearTimeout(t)
   }, [modalOpen, step, q, aramaYontemi, pickedKategoriId, pickedKategoriIds])
+
+  // Reçeteye göre öneri: kullanıcının yazdığı arama metninden tamamen BAĞIMSIZ,
+  // reçetedeki SPH/CYL numaralarını doğrudan backend'e arama terimi olarak
+  // gönderir (hem tam hem transpozeli) ve 6 stok cam kategorisinin TAMAMINDA
+  // arar. Önceden sadece o an yüklü olan (ve 2000 satırda kesilen) katalog
+  // listesi client-side filtreleniyordu — bu da alfabetik sırada geç gelen
+  // markaların (örn. "Org 1.5") hiç görünmemesine sebep oluyordu.
+  useEffect(() => {
+    if (!modalOpen || step !== 3) {
+      setReceteOneriSonuclari({ tam: [], transpoze: [] })
+      return
+    }
+    const stokCamKategoriler = pickedKategoriIds?.length
+      ? pickedKategoriIds.filter((id) => STOK_CAM_KATEGORI_IDS.includes(id))
+      : pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId)
+        ? [pickedKategoriId]
+        : []
+    if (!stokCamKategoriler.length || !customerPrescription) {
+      setReceteOneriSonuclari({ tam: [], transpoze: [] })
+      return
+    }
+    const rx = customerPrescription as any
+    const { numaraTipi, taraf } = parseOneriTaraf(oneriTaraf)
+    const prefix = numaraTipi === 'uzak' ? 'far' : 'near'
+    const sphRaw = parseFloat(String(rx?.[`${prefix}_${taraf}_sph`] ?? '0'))
+    const cylRaw = parseFloat(String(rx?.[`${prefix}_${taraf}_cyl`] ?? '0'))
+    const aksRaw = parseInt(String(rx?.[`${prefix}_${taraf}_aks`] ?? '0'))
+    if (isNaN(sphRaw) && isNaN(cylRaw)) {
+      setReceteOneriSonuclari({ tam: [], transpoze: [] })
+      return
+    }
+    const sph = isNaN(sphRaw) ? 0 : sphRaw
+    const cyl = isNaN(cylRaw) ? 0 : cylRaw
+    const aks = isNaN(aksRaw) ? 0 : aksRaw
+    const tr = transpozHesapla(sph, cyl, aks)
+    const tamTerim = stokCamAramaTerimi(sph, cyl)
+    const transpozeTerim = stokCamAramaTerimi(tr.sph, tr.cyl)
+    const lokasyon = getAktifLokasyon()
+    let iptal = false
+    setReceteOneriYukleniyor(true)
+    Promise.all([
+      searchTransferProducts({ q: tamTerim, yontem: 'ad', lokasyon, kategoriIds: stokCamKategoriler, katalog: true }).catch(() => []),
+      tamTerim === transpozeTerim
+        ? Promise.resolve([])
+        : searchTransferProducts({ q: transpozeTerim, yontem: 'ad', lokasyon, kategoriIds: stokCamKategoriler, katalog: true }).catch(() => []),
+    ])
+      .then(([tamRows, transpozeRows]) => {
+        if (iptal) return
+        const tamIds = new Set(tamRows.map((r) => String(r.id)))
+        setReceteOneriSonuclari({
+          tam: tamRows,
+          transpoze: transpozeRows.filter((r) => !tamIds.has(String(r.id))),
+        })
+      })
+      .finally(() => {
+        if (!iptal) setReceteOneriYukleniyor(false)
+      })
+    return () => {
+      iptal = true
+    }
+  }, [modalOpen, step, pickedKategoriId, pickedKategoriIds, customerPrescription, oneriTaraf])
 
   function resetModalState() {
     kameraKapat()
@@ -1039,17 +1113,16 @@ export default function ItemsStep({
                     )
                   }
                   const activeKey = tabDefs.some((t) => t.key === oneriTaraf) ? oneriTaraf : tabDefs[0].key
-                  const { numaraTipi, taraf } = parseOneriTaraf(activeKey)
-                  const { tam, transpoze } = receteOneriFiltrele(searchResults, rx, taraf, numaraTipi)
                   const onerilen = [
-                    ...tam.map((u) => ({ ...u, _eslesme: 'tam' as const })),
-                    ...transpoze.map((u) => ({ ...u, _eslesme: 'transpoze' as const })),
+                    ...receteOneriSonuclari.tam.map((u) => ({ ...u, _eslesme: 'tam' as const })),
+                    ...receteOneriSonuclari.transpoze.map((u) => ({ ...u, _eslesme: 'transpoze' as const })),
                   ]
                   return (
                     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
                       <div style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                         ✦ Reçeteye göre öneri
-                        {onerilen.length > 0 && <span style={{ background: '#dbeafe', color: '#1d4ed8', fontSize: 11, padding: '2px 8px', borderRadius: 999 }}>{onerilen.length} eşleşme</span>}
+                        {receteOneriYukleniyor && <span style={{ color: '#6b7280', fontSize: 11 }}>aranıyor…</span>}
+                        {!receteOneriYukleniyor && onerilen.length > 0 && <span style={{ background: '#dbeafe', color: '#1d4ed8', fontSize: 11, padding: '2px 8px', borderRadius: 999 }}>{onerilen.length} eşleşme</span>}
                       </div>
                       <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
                         {tabDefs.map((tab) => (
