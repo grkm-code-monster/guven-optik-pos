@@ -600,8 +600,47 @@ function mergeCatalogVariants(existing, incoming, limit) {
     }
     return existing;
 }
+/** JS tarafında Türkçe karakter/büyük-küçük harf farkı gözetmeyen "içerir" kontrolü için. */
+function turkishFoldBackend(s) {
+    return String(s ?? '')
+        .replace(/İ/g, 'i').replace(/I/g, 'ı').replace(/ı/g, 'i')
+        .replace(/Ğ/g, 'g').replace(/ğ/g, 'g')
+        .replace(/Ş/g, 's').replace(/ş/g, 's')
+        .replace(/Ç/g, 'c').replace(/ç/g, 'c')
+        .replace(/Ö/g, 'o').replace(/ö/g, 'o')
+        .replace(/Ü/g, 'u').replace(/ü/g, 'u')
+        .replace(/W/g, 'v').replace(/w/g, 'v')
+        .toLowerCase().trim();
+}
+/** N kelimeden en az birinin name/default_code'da geçtiği (OR) Odoo domain'i üretir — geniş aday
+ *  havuzu çekmek için; kesin "hepsi geçsin" (AND) kontrolü mapleme sonrası JS'de yapılır (bkz.
+ *  tokenlarınTumuGeciyorMu), çünkü model kodu (örn. "203OO") şablon adında değil varyant
+ *  nitelik değerinde yaşıyor ve Odoo domain'inde tek seferde ikisini birleştirip aratamıyoruz. */
+function buildAnyTokenDomain(tokens) {
+    const conditions = [];
+    for (const t of tokens) {
+        conditions.push(['name', 'ilike', t]);
+        conditions.push(['default_code', 'ilike', t]);
+    }
+    if (conditions.length <= 1)
+        return conditions;
+    const ors = Array(conditions.length - 1).fill('|');
+    return [...ors, ...conditions];
+}
+function searchTokenlariAyikla(term) {
+    return String(term ?? '').trim().split(/\s+/).filter(Boolean);
+}
+/** "OTTO 203" gibi çok kelimeli aramada HER kelimenin (sırası önemsiz) ürün adı + varyant
+ *  metninde (örn. "OTTO OPTİK ÇERÇEVE" + "203OO / C79M / 50") geçmesini zorunlu kılar. */
+function tokenlarinTumuGeciyorMu(tokens, ad, varyant) {
+    if (tokens.length <= 1)
+        return true;
+    const hay = turkishFoldBackend(`${ad ?? ''} ${varyant ?? ''}`);
+    return tokens.every((t) => hay.includes(turkishFoldBackend(t)));
+}
 async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
     const hasTerm = Boolean(term && String(term).trim());
+    const tokens = searchTokenlariAyikla(term);
     // Terim boşken (sadece kategori seçilerek "kataloğu tara" modunda — örn. BAKIM ve
     // stok cam kategorileri) 50'lik sınır yetersiz kalıyordu: bir kategoride yüzlerce
     // şablon olabiliyor (bkz. toplu stok cam açma özelliği — tek kategoride 400+ ürün),
@@ -616,9 +655,7 @@ async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
         ['sale_ok', '=', true],
     ];
     const domain = applyKategoriToDomain(
-        term && String(term).trim()
-            ? [...baseDomain, '|', ['name', 'ilike', term], ['default_code', 'ilike', term]]
-            : baseDomain,
+        hasTerm ? [...baseDomain, ...buildAnyTokenDomain(tokens)] : baseDomain,
         options,
     );
     const seenIds = new Set();
@@ -668,7 +705,7 @@ async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
     if (!collected.length) {
         const variantDomain = applyKategoriToDomain([
             ['active', '=', true],
-            '|', ['name', 'ilike', term], ['default_code', 'ilike', term],
+            ...buildAnyTokenDomain(tokens),
         ], options);
         const directVariants = (await odooService.execute('product.product', 'search_read', [variantDomain], {
             fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids', 'tracking'],
@@ -702,7 +739,10 @@ async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
         return [];
     }
     const mapped = await mapVariantsBatchToTransferUrun(merged.slice(0, RESULT_LIMIT), companyId, lokasyon);
-    return dedupeTransferUrunResults(mapped);
+    const sonFiltreli = tokens.length > 1
+        ? mapped.filter((u) => tokenlarinTumuGeciyorMu(tokens, u.ad, u.varyant))
+        : mapped;
+    return dedupeTransferUrunResults(sonFiltreli);
 }
 async function mapProductsKatalog(productIds, lotRows, companyId, lokasyon) {
     const sonuclar = [];
