@@ -31,7 +31,7 @@ ChartJS.register(
 import { getDailyReport, getPersonalDailyReport, getRangeReport, getMonthlyPersonelBreakdown, downloadExcel, getGunlukDurumNotu, saveGunlukDurumNotu, sendGunlukDurumNotuEmail, type PersonelAylikRow } from '../api/reports.api'
 import { getCurrentShift } from '../api/shifts.api'
 import type { DailyReport, User } from '../api/types'
-import { downloadGunlukKasaPdf, generateGunlukKasaPdfBlob, formatKasaFormuBaslik, type GunlukKasaPdfGarantiRow } from '../utils/gunlukKasaPdf'
+import { downloadGunlukKasaPdf, generateGunlukKasaPdfBlob, formatKasaFormuBaslik, type GunlukKasaPdfGarantiRow, type GunlukKasaPdfAcikHesapRow } from '../utils/gunlukKasaPdf'
 
 type SalesDetailRow = NonNullable<DailyReport['salesDetail']>[number]
 
@@ -1037,6 +1037,18 @@ function GunlukKasaView({
     [garantiKayitlari, date],
   )
 
+  const acikHesapTahsilatlari = report?.acikHesapTahsilatlari ?? []
+  const acikHesapPdfRows: GunlukKasaPdfAcikHesapRow[] = useMemo(
+    () =>
+      acikHesapTahsilatlari.map((k) => ({
+        customerName: k.customerName,
+        saleDate: k.saleDate,
+        paymentTypeLabel: k.paymentTypeLabel,
+        amount: k.amount,
+      })),
+    [acikHesapTahsilatlari],
+  )
+
   useEffect(() => {
     if (!branchId || !date) return
     setNotYukleniyor(true)
@@ -1092,6 +1104,7 @@ function GunlukKasaView({
         showRep,
         durumNotu: notDraft,
         garantiKayitlari: garantiPdfRows,
+        acikHesapTahsilatlari: acikHesapPdfRows,
       })
       const result = await sendGunlukDurumNotuEmail(branchId, date, pdfBlob, pdfFilename, ekList)
       setGonderimZamani(result.gonderimZamani)
@@ -1114,6 +1127,7 @@ function GunlukKasaView({
       showRep,
       durumNotu: notDraft,
       garantiKayitlari: garantiPdfRows,
+      acikHesapTahsilatlari: acikHesapPdfRows,
     })
   }
 
@@ -1143,6 +1157,21 @@ function GunlukKasaView({
           </div>
         )
       })()}
+      {acikHesapTahsilatlari.length > 0 ? (
+        <div style={{ padding: '10px 14px', borderRadius: 8, backgroundColor: '#fffbeb', border: '1px solid #fcd34d', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
+            ✦ Bugün tahsil edilen geçmiş açık hesap ödemeleri ({acikHesapTahsilatlari.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {acikHesapTahsilatlari.map((k) => (
+              <div key={k.paymentId} style={{ fontSize: 12, color: '#374151' }}>
+                <strong>{k.customerName}</strong> · Satış tarihi: {fmtDate(k.saleDate)} ·{' '}
+                <span style={{ fontWeight: 600 }}>{k.paymentTypeLabel}</span> · {formatMoney(k.amount)}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {garantiKayitlari.length > 0 ? (
         <div style={{ padding: '10px 14px', borderRadius: 8, backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', marginBottom: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', marginBottom: 6 }}>

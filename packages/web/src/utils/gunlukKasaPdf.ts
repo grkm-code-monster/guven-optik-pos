@@ -51,6 +51,13 @@ export type GunlukKasaPdfGarantiRow = {
   note?: string
 }
 
+export type GunlukKasaPdfAcikHesapRow = {
+  customerName: string
+  saleDate: string
+  paymentTypeLabel: string
+  amount: string
+}
+
 export type GunlukKasaPdfParams = {
   branchName: string
   date: string
@@ -60,6 +67,9 @@ export type GunlukKasaPdfParams = {
   durumNotu?: string
   // O gün açılan/güncellenen garanti & iade kayıtları — bkz. GunlukKasaView.
   garantiKayitlari?: GunlukKasaPdfGarantiRow[]
+  // Bu vardiyada tahsil edilmiş ama BAŞKA (eski) bir satışın açık hesap bakiyesine
+  // ait ödemeler — bkz. GunlukKasaView.
+  acikHesapTahsilatlari?: GunlukKasaPdfAcikHesapRow[]
 }
 
 function fmtPdfMoney(value: string | number | null | undefined): string {
@@ -243,8 +253,49 @@ function drawGarantiSection(
   return y
 }
 
+function drawAcikHesapSection(
+  doc: jsPDF,
+  kayitlar: GunlukKasaPdfAcikHesapRow[],
+  startY: number,
+  marginX: number,
+): number {
+  if (!kayitlar.length) return startY
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const contentWidth = pageWidth - marginX * 2
+  let y = startY + 10
+
+  if (y > pageHeight - 30) {
+    doc.addPage()
+    y = 20
+  }
+
+  doc.setFont(PDF_FONT_FAMILY, 'bold')
+  doc.setFontSize(12)
+  doc.setTextColor(163, 45, 45)
+  doc.text('Bugün Tahsil Edilen Geçmiş Açık Hesap Ödemeleri', marginX, y)
+  y += 7
+
+  doc.setFont(PDF_FONT_FAMILY, 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(55, 65, 81)
+  for (const k of kayitlar) {
+    if (y > pageHeight - 16) {
+      doc.addPage()
+      y = 20
+    }
+    const satir = `${k.customerName} · Satış tarihi: ${fmtPdfDate(k.saleDate)} · ${k.paymentTypeLabel} · ${fmtPdfCurrency(k.amount)}`
+    const lines = doc.splitTextToSize(satir, contentWidth) as string[]
+    for (const line of lines) {
+      doc.text(line, marginX, y)
+      y += 5
+    }
+  }
+  return y
+}
+
 async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF> {
-  const { branchName, date, rows, summary, showRep, durumNotu = '', garantiKayitlari = [] } = params
+  const { branchName, date, rows, summary, showRep, durumNotu = '', garantiKayitlari = [], acikHesapTahsilatlari = [] } = params
   const doc = await createPdfDoc({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
@@ -376,7 +427,8 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
   })
 
   const tableEndY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? tableStartY
-  const garantiEndY = drawGarantiSection(doc, garantiKayitlari, tableEndY, marginX)
+  const acikHesapEndY = drawAcikHesapSection(doc, acikHesapTahsilatlari, tableEndY, marginX)
+  const garantiEndY = drawGarantiSection(doc, garantiKayitlari, acikHesapEndY, marginX)
   drawDurumNotuSection(doc, durumNotu, garantiEndY, marginX)
 
   const pageCount = doc.getNumberOfPages()

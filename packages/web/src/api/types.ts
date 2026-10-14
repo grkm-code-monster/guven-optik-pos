@@ -210,6 +210,17 @@ export interface DailyReport {
       ozelSiparisId: string | null
     }>
   }
+  // Bu vardiyada tahsil edilmiş ama BAŞKA (eski) bir satışın açık hesap bakiyesine ait
+  // ödemeler — artık "sehven" eski günün raporunda değil, burada gösteriliyor.
+  acikHesapTahsilatlari?: Array<{
+    paymentId: string
+    saleId: string
+    customerName: string
+    saleDate: string
+    collectedAt: string
+    paymentTypeLabel: string
+    amount: string
+  }>
 }
 
 export interface BankBreakdown {

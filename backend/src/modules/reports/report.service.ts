@@ -372,7 +372,10 @@ function isSameCalendarDay(a: Date, b: Date): boolean {
   );
 }
 
-async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
+async function buildSalesDetail(
+  paidSales: PaidSaleForDetail[],
+  shiftWindow?: { openedAt: Date; closedAt: Date | null },
+) {
   const bankIds = Array.from(
     new Set(
       paidSales
@@ -384,6 +387,20 @@ async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
     ? await prisma.bank.findMany({ where: { id: { in: bankIds } }, select: { id: true, name: true } })
     : [];
   const bankNameById = new Map(banks.map((b) => [b.id, b.name]));
+
+  // 14.10.2026 düzeltmesi: bir satışın `payments` ilişkisi, o satışın açık hesap
+  // bakiyesi BAŞKA bir gün/vardiyada tahsil edilmiş olsa bile TÜM ödemeleri içeriyor.
+  // Bu satırı bu VARDİYANIN raporunda gösterirken, sadece bu vardiyanın açık olduğu
+  // zaman aralığında fiilen tahsil edilmiş ödemeleri say — aksi halde geçmiş bir
+  // satış bugün tahsil edildiğinde, o tahsilat yanlışlıkla satışın kendi (eski)
+  // gününün kasa formunda da görünmeye devam ederdi (bkz. report.service.ts'teki
+  // shiftZamanAraligi açıklaması).
+  function vardiyaIcindeMi(p: { createdAt: Date }): boolean {
+    if (!shiftWindow) return true
+    if (p.createdAt < shiftWindow.openedAt) return false
+    if (shiftWindow.closedAt && p.createdAt > shiftWindow.closedAt) return false
+    return true
+  }
 
   const sorted = [...paidSales].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   return sorted.map((sale) => ({
@@ -402,11 +419,11 @@ async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
     sgkAmount: sale.sgkAmount?.toString() ?? '0',
     repName: sale.user?.name ?? '—',
     cashAmount: sale.payments
-      .filter((p) => p.paymentType === PaymentType.CASH)
+      .filter((p) => p.paymentType === PaymentType.CASH && vardiyaIcindeMi(p))
       .reduce((s, p) => s + Number(p.grossAmount), 0)
       .toFixed(2),
     cardPayments: sale.payments
-      .filter((p) => p.paymentType === PaymentType.CARD)
+      .filter((p) => p.paymentType === PaymentType.CARD && vardiyaIcindeMi(p))
       .map((p) => ({
         bankName: p.bankId ? (bankNameById.get(p.bankId) ?? '—') : '—',
         installment: p.installment ?? 1,
@@ -416,7 +433,7 @@ async function buildSalesDetail(paidSales: PaidSaleForDetail[]) {
         isOpenAccountCollection: !isSameCalendarDay(p.createdAt, sale.createdAt),
       })),
     transferAmount: sale.payments
-      .filter((p) => p.paymentType === PaymentType.TRANSFER)
+      .filter((p) => p.paymentType === PaymentType.TRANSFER && vardiyaIcindeMi(p))
       .reduce((s, p) => s + Number(p.grossAmount), 0)
       .toFixed(2),
     itemSummary: sale.items.map((i) => i.odooProductName ?? i.product?.name ?? '—').join(', '),
@@ -468,14 +485,53 @@ async function buildMasrafDetailRows(shiftId: string) {
   }));
 }
 
-async function buildSalesDetailWithMasraflar(paidSales: PaidSaleForDetail[], shiftId: string) {
+async function buildSalesDetailWithMasraflar(
+  paidSales: PaidSaleForDetail[],
+  shiftId: string,
+  shiftWindow?: { openedAt: Date; closedAt: Date | null },
+) {
   const [salesDetail, masrafRows] = await Promise.all([
-    buildSalesDetail(paidSales),
+    buildSalesDetail(paidSales, shiftWindow),
     buildMasrafDetailRows(shiftId),
   ]);
   return [...salesDetail, ...masrafRows].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
+}
+
+/**
+ * Bu vardiyanın açık olduğu zaman aralığında tahsil edilmiş ama BAŞKA (eski) bir
+ * satışın açık hesap bakiyesine ait olan ödemeler — "sehven" eski günün kasa
+ * formunda görünen açık hesap tahsilatlarının artık GÖSTERİLMESİ gereken yer burası.
+ */
+async function buildAcikHesapTahsilatRows(
+  branchId: string,
+  shift: { id: string; openedAt: Date; closedAt: Date | null },
+) {
+  const payments = await prisma.payment.findMany({
+    where: {
+      paymentType: { in: [PaymentType.CASH, PaymentType.CARD, PaymentType.TRANSFER] },
+      createdAt: {
+        gte: shift.openedAt,
+        ...(shift.closedAt ? { lte: shift.closedAt } : {}),
+      },
+      sale: { branchId, status: SaleStatus.PAID, shiftId: { not: shift.id } },
+    },
+    include: {
+      sale: { select: { id: true, createdAt: true, customer: { select: { name: true } } } },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  const PAYMENT_TYPE_LABEL: Record<string, string> = { CASH: 'Nakit', CARD: 'Kart', TRANSFER: 'Havale' };
+  return payments.map((p) => ({
+    paymentId: p.id,
+    saleId: p.sale.id,
+    customerName: p.sale.customer?.name ?? '—',
+    saleDate: p.sale.createdAt.toISOString(),
+    collectedAt: p.createdAt.toISOString(),
+    paymentTypeLabel: PAYMENT_TYPE_LABEL[p.paymentType] ?? p.paymentType,
+    amount: p.grossAmount.toString(),
+  }));
 }
 
 /**
@@ -629,20 +685,34 @@ export async function getDailyReport(branchId: string, date: Date) {
     _count: { _all: true },
   });
 
+  // ÖNEMLİ (14.10.2026 düzeltmesi — "sehven açık hesap" hatası): eskiden bu toplamlar
+  // `sale.shiftId === shift.id` ile hesaplanıyordu — yani bir ödemenin hangi GÜNE
+  // sayılacağı, o ödemenin bağlı olduğu SATIŞIN vardiyasına göre belirleniyordu. Ama
+  // geçmiş bir satışın açık hesap bakiyesi BUGÜN tahsil edildiğinde (bkz.
+  // openaccount.controller.ts -> applyOpenAccountPayment), yeni Payment kaydı yine o
+  // ESKİ satışa (ve dolayısıyla ESKİ vardiyaya) bağlanıyordu — bu da bugün kasaya giren
+  // parayı bugünün kasa formunda hiç GÖSTERMEYİP, haftalar önceki kapanmış bir günün
+  // raporuna "sehven" eklemiş oluyordu (hem fazla göstererek hem de bugünün kasasını
+  // eksik göstererek). Artık ödeme hangi SATIŞA ait olursa olsun, bu VARDİYANIN açık
+  // olduğu zaman aralığında (openedAt–closedAt) fiilen TAHSİL EDİLMİŞ mi diye bakılıyor.
+  const shiftZamanAraligi = {
+    gte: shift.openedAt,
+    ...(shift.closedAt ? { lte: shift.closedAt } : {}),
+  };
   const cashAgg = await prisma.payment.aggregate({
-    where: { sale: { shiftId: shift.id, status: SaleStatus.PAID }, paymentType: PaymentType.CASH },
+    where: { sale: { branchId, status: SaleStatus.PAID }, paymentType: PaymentType.CASH, createdAt: shiftZamanAraligi },
     _sum: { grossAmount: true },
   });
   const cardAgg = await prisma.payment.aggregate({
-    where: { sale: { shiftId: shift.id, status: SaleStatus.PAID }, paymentType: PaymentType.CARD },
+    where: { sale: { branchId, status: SaleStatus.PAID }, paymentType: PaymentType.CARD, createdAt: shiftZamanAraligi },
     _sum: { grossAmount: true, netAmount: true, commissionAmount: true },
   });
   const transferAgg = await prisma.payment.aggregate({
-    where: { sale: { shiftId: shift.id, status: SaleStatus.PAID }, paymentType: PaymentType.TRANSFER },
+    where: { sale: { branchId, status: SaleStatus.PAID }, paymentType: PaymentType.TRANSFER, createdAt: shiftZamanAraligi },
     _sum: { grossAmount: true },
   });
   const openAccountAgg = await prisma.payment.aggregate({
-    where: { sale: { shiftId: shift.id, status: SaleStatus.PAID }, paymentType: PaymentType.OPEN_ACCOUNT },
+    where: { sale: { branchId, status: SaleStatus.PAID }, paymentType: PaymentType.OPEN_ACCOUNT, createdAt: shiftZamanAraligi },
     _sum: { grossAmount: true },
   });
 
@@ -687,7 +757,8 @@ export async function getDailyReport(branchId: string, date: Date) {
     where: {
       paymentType: PaymentType.CARD,
       bankId: { not: null },
-      sale: { shiftId: shift.id, status: SaleStatus.PAID },
+      sale: { branchId, status: SaleStatus.PAID },
+      createdAt: shiftZamanAraligi,
     },
     _sum: {
       grossAmount: true,
@@ -807,7 +878,15 @@ export async function getDailyReport(branchId: string, date: Date) {
     diff: shift.diff ? shift.diff.toString() : null,
     saleCount,
     bankBreakdown,
-    salesDetail: await buildSalesDetailWithMasraflar(paidSales, shift.id),
+    salesDetail: await buildSalesDetailWithMasraflar(paidSales, shift.id, {
+      openedAt: shift.openedAt,
+      closedAt: shift.closedAt,
+    }),
+    acikHesapTahsilatlari: await buildAcikHesapTahsilatRows(branchId, {
+      id: shift.id,
+      openedAt: shift.openedAt,
+      closedAt: shift.closedAt,
+    }),
     labIncidents,
     ...derived,
     ...runningKasaBakiye,

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authenticate } from '../../middleware/authenticate';
 import { prisma } from '../../database/prisma';
-import { PaymentType, SaleStatus, Prisma, CashMovementType } from '@prisma/client';
+import { PaymentType, SaleStatus, Prisma, CashMovementType, ShiftStatus } from '@prisma/client';
 import { calculateCommission } from '../payments/commission.service';
 import { execute } from '../odoo/odoo.service';
 
@@ -310,10 +310,25 @@ async function applyOpenAccountPayment(
   });
 
   if (normalizedType === PaymentType.CASH) {
+    // ÖNEMLİ (14.10.2026 — "sehven açık hesap" düzeltmesi): bu nakit SATIŞIN KENDİ
+    // (eski) vardiyasında değil, ŞU AN fiilen elden tahsil ediliyor — bu yüzden kasa
+    // hareketi, satışın eski vardiyasına değil, ŞUBENİN ŞU AN AÇIK olan vardiyasına
+    // yazılmalı. Eskiden `sale.shiftId` kullanılıyordu; bu da haftalar önce kapanmış
+    // bir vardiyaya nakit giriş kaydı düşürüyor, o vardiyanın kasa formunu "sehven"
+    // şişiriyor ve bugünün gerçek kasasını eksik gösteriyordu.
+    const aktifVardiya = await prisma.shift.findFirst({
+      where: { branchId: sale.branchId, status: ShiftStatus.OPEN },
+      orderBy: { openedAt: 'desc' },
+    });
+    if (!aktifVardiya) {
+      console.warn(
+        `[openaccount] Açık vardiya yok (branchId=${sale.branchId}) — nakit açık hesap tahsilatı satışın eski vardiyasına (${sale.shiftId}) işleniyor, kasa formunda yanlış günde görünebilir.`,
+      );
+    }
     await prisma.cashMovement.create({
       data: {
         branchId: sale.branchId,
-        shiftId: sale.shiftId,
+        shiftId: aktifVardiya?.id ?? sale.shiftId,
         userId,
         type: CashMovementType.CASH_IN,
         amount: new Prisma.Decimal(amt),

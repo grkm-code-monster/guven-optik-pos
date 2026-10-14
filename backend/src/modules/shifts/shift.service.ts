@@ -1,4 +1,4 @@
-import { CashMovementType, PaymentType, Prisma, Role, ShiftStatus } from '@prisma/client';
+import { CashMovementType, PaymentType, Prisma, Role, SaleStatus, ShiftStatus } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import type { CloseShiftInputType, OpenShiftInputType } from './shift.types';
 
@@ -51,7 +51,11 @@ export async function ensureOpenShift(userId: string, branchId: string) {
   });
 }
 
-async function calculateExpectedCash(shiftId: string, openCash: Prisma.Decimal) {
+async function calculateExpectedCash(
+  shift: { id: string; branchId: string; openedAt: Date; closedAt: Date | null },
+  openCash: Prisma.Decimal,
+) {
+  const shiftId = shift.id;
   const cashInAgg = await prisma.cashMovement.aggregate({
     where: { shiftId, type: CashMovementType.CASH_IN },
     _sum: { amount: true },
@@ -69,10 +73,21 @@ async function calculateExpectedCash(shiftId: string, openCash: Prisma.Decimal) 
   const cashOut = cashOutAgg._sum.amount ?? new Prisma.Decimal(0);
   const advance = advanceAgg._sum.amount ?? new Prisma.Decimal(0);
 
+  // ÖNEMLİ (14.10.2026 — "sehven açık hesap" düzeltmesi): eskiden burada
+  // `sale: { shiftId }` ile sadece BU vardiyada YAPILMIŞ satışların nakit ödemeleri
+  // sayılıyordu. Ama geçmiş bir satışın açık hesap bakiyesi bu vardiya SIRASINDA
+  // nakit tahsil edilirse, o ödeme ESKİ satışa (ve dolayısıyla ESKİ vardiyaya) bağlı
+  // olduğu için bu sorguya hiç girmiyordu — kasadaki fiziki para fazla çıkıyor ama
+  // sistem bunu "beklenmiyor" sayıyordu. Artık ödeme hangi satışa ait olursa olsun,
+  // bu vardiyanın açık olduğu zaman aralığında tahsil edilmiş mi diye bakılıyor.
   const cashPayments = await prisma.payment.findMany({
     where: {
       paymentType: PaymentType.CASH,
-      sale: { shiftId },
+      sale: { branchId: shift.branchId, status: SaleStatus.PAID },
+      createdAt: {
+        gte: shift.openedAt,
+        ...(shift.closedAt ? { lte: shift.closedAt } : {}),
+      },
     },
     select: { grossAmount: true },
   });
@@ -105,7 +120,7 @@ export async function closeShift(
   }
 
   const openCash = shift.openCash ?? new Prisma.Decimal(0);
-  const expectedCash = await calculateExpectedCash(shiftId, openCash);
+  const expectedCash = await calculateExpectedCash(shift, openCash);
 
   const physicalCash = new Prisma.Decimal(input.physicalCash);
   const diff = physicalCash.minus(expectedCash);
@@ -135,7 +150,7 @@ export async function autoCloseOpenShifts(now: Date = new Date()) {
   let kapatilan = 0;
   for (const shift of acikVardiyalar) {
     const openCash = shift.openCash ?? new Prisma.Decimal(0);
-    const expectedCash = await calculateExpectedCash(shift.id, openCash);
+    const expectedCash = await calculateExpectedCash(shift, openCash);
 
     await prisma.shift.update({
       where: { id: shift.id },
