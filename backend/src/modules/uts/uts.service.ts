@@ -164,15 +164,40 @@ export async function gondermeBildiriminiYap(
       body,
       { headers: { utsToken: utsSube.token, 'Content-Type': 'application/json' } },
     );
+    // TANI (14.10.2026): UTS'nin HTTP 200 dönüp gövdede hata/ret bildirdiği
+    // ama bizim kodun bunu görmezden gelip "başarılı" yazdığı durumları
+    // ("GVN2 → ADESE OPTİK verme bildirimi uygulamada başarılı görünüyor
+    // ama uts.gov.tr portalında yok" şikayeti) geriye dönük inceleyebilmek
+    // için ham request+response burada loglanıyor. Önceden HİÇBİR YERDE
+    // bu veri tutulmuyordu.
+    console.log(
+      `[UTS ${bildirim.tip}] → ${baseUrl}${endpoint} body=${JSON.stringify(body)} ` +
+      `resp=${JSON.stringify(resp.data)}`,
+    );
     sonuclar.push(resp.data);
   }
 
+  // UTS'nin "ekle" uçları başarıda SNC alanında bir bildirim/işlem no'su
+  // döner; bu alan BOŞSA (ör. gövdede HTA/hata kodu dönmüş ama HTTP yine de
+  // 200'se) artık koşulsuz "GONDERILDI" YAZMIYORUZ — SNC yoksa durum HATA
+  // olarak işaretlenip gerçek gövde hataDetay'a kaydediliyor, böylece
+  // ekranda "başarılı" görünüp UTS'ye hiç ulaşmamış bir bildirim kalmıyor.
   const first = sonuclar[0] as { SNC?: string } | undefined;
+  const snc = first?.SNC || null;
+  if (!snc) {
+    const hataDetay = `UTS SNC üretmedi (olası ret) — ham yanıt: ${JSON.stringify(sonuclar[0] ?? null)}`;
+    await prisma.utsBildirim.update({
+      where: { id: bildirim.id },
+      data: { durum: 'HATA', utsBildirimId: null, hataDetay },
+    });
+    throw new Error(hataDetay);
+  }
+
   await prisma.utsBildirim.update({
     where: { id: bildirim.id },
     data: {
       durum: 'GONDERILDI',
-      utsBildirimId: first?.SNC || null,
+      utsBildirimId: snc,
       gonderimZamani: new Date(),
       hataDetay: null,
     },

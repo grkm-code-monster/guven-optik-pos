@@ -44,7 +44,8 @@
     "test-izole-fallback": "ts-node --transpile-only scripts/test-izole-fallback.ts",
     "test-sablon-temizle": "ts-node --transpile-only scripts/test-sablon-temizle.ts",
     "tr-arama-testi": "ts-node --transpile-only scripts/tr-arama-testi.ts",
-    "tr-arama-testi-prisma": "ts-node --transpile-only scripts/tr-arama-testi-prisma.ts"
+    "tr-arama-testi-prisma": "ts-node --transpile-only scripts/tr-arama-testi-prisma.ts",
+    "uts-gvn2-teshis": "ts-node --transpile-only scripts/uts-gvn2-teshis.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
