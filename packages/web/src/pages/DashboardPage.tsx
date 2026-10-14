@@ -1049,6 +1049,8 @@ function GunlukKasaView({
     [acikHesapTahsilatlari],
   )
 
+  const manuelTahsilatlar = report?.manuelTahsilatlar ?? []
+
   useEffect(() => {
     if (!branchId || !date) return
     setNotYukleniyor(true)
@@ -1167,6 +1169,22 @@ function GunlukKasaView({
               <div key={k.paymentId} style={{ fontSize: 12, color: '#374151' }}>
                 <strong>{k.customerName}</strong> · Satış tarihi: {fmtDate(k.saleDate)} ·{' '}
                 <span style={{ fontWeight: 600 }}>{k.paymentTypeLabel}</span> · {formatMoney(k.amount)}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {manuelTahsilatlar.length > 0 ? (
+        <div style={{ padding: '10px 14px', borderRadius: 8, backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#166534', marginBottom: 6 }}>
+            ✦ Manuel / kağıt üstü eski borç tahsilatları ({manuelTahsilatlar.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {manuelTahsilatlar.map((k) => (
+              <div key={k.id} style={{ fontSize: 12, color: '#374151' }}>
+                <strong>{k.customerName}</strong> ·{' '}
+                <span style={{ fontWeight: 600 }}>{k.paymentTypeLabel}</span> · {formatMoney(k.amount)}
+                {k.aciklama ? <span style={{ color: '#6b7280' }}> — {k.aciklama}</span> : null}
               </div>
             ))}
           </div>

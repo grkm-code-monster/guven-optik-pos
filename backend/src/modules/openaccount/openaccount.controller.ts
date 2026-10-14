@@ -4,6 +4,7 @@ import { prisma } from '../../database/prisma';
 import { PaymentType, SaleStatus, Prisma, CashMovementType, ShiftStatus } from '@prisma/client';
 import { calculateCommission } from '../payments/commission.service';
 import { execute } from '../odoo/odoo.service';
+import { createManuelTahsilat, listManuelTahsilat } from './manuel-tahsilat.service';
 
 const router = Router();
 router.use(authenticate);
@@ -642,6 +643,40 @@ router.post('/payment-toplu', async (req: Request, res: Response) => {
         odooSyncOk: odooErrors.length === 0,
       },
     });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Manuel / kağıt üstü eski borç tahsilatı (14.10.2026) — satış kaydı olmayan
+// müşteriler için Açık Hesap sayfasındaki yeni sekmeden girilen serbest tahsilat.
+router.post('/manuel-tahsilat', async (req: Request, res: Response) => {
+  try {
+    const { customerId, tutar, odemeTuru, aciklama } = req.body;
+    if (!customerId || tutar == null || !odemeTuru) {
+      return res.status(400).json({ success: false, error: 'Zorunlu alanlar eksik' });
+    }
+
+    const { kayit, cashMovementUyari } = await createManuelTahsilat(
+      { userId: req.user!.userId, branchId: req.user!.branchId },
+      { customerId, tutar: Number(tutar), odemeTuru, aciklama },
+    );
+
+    res.json({ success: true, data: kayit, cashMovementUyari });
+  } catch (err: any) {
+    const msg = err?.message ?? 'Tahsilat kaydedilemedi';
+    if (err?.code && ['CUSTOMER_NOT_FOUND', 'INVALID_AMOUNT', 'INVALID_PAYMENT_TYPE', 'BRANCH_REQUIRED'].includes(err.code)) {
+      return res.status(400).json({ success: false, error: msg });
+    }
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+router.get('/manuel-tahsilat', async (req: Request, res: Response) => {
+  try {
+    const branchId = req.user!.branchId;
+    const list = await listManuelTahsilat(branchId);
+    res.json({ success: true, data: list });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

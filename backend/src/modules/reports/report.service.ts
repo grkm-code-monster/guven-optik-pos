@@ -13,6 +13,7 @@ import { execute } from '../odoo/odoo.service';
 import { kategoriTespit, kategoriAltKirilimTespit } from '../../utils/kategoriTespit';
 import { getOrFetchTodayRate } from '../admin/doviz-kuru.service';
 import { getKasaDuzeltmeToplamForGun, getKasaDuzeltmeNakitTumZamanlar } from './kasa-duzeltme.service';
+import { buildManuelTahsilatRows } from '../openaccount/manuel-tahsilat.service';
 
 type DashboardKategori =
   | 'GUNES_GOZLUGU'
@@ -884,6 +885,10 @@ export async function getDailyReport(branchId: string, date: Date) {
     }),
     acikHesapTahsilatlari: await buildAcikHesapTahsilatRows(branchId, {
       id: shift.id,
+      openedAt: shift.openedAt,
+      closedAt: shift.closedAt,
+    }),
+    manuelTahsilatlar: await buildManuelTahsilatRows(branchId, {
       openedAt: shift.openedAt,
       closedAt: shift.closedAt,
     }),

@@ -221,6 +221,16 @@ export interface DailyReport {
     paymentTypeLabel: string
     amount: string
   }>
+  // Müşterinin sistemde satış kaydı HİÇ olmadığı (kağıt üstü eski borç) durumlar için
+  // Açık Hesap sayfasının "Manuel Tahsilat" sekmesinden girilen serbest tahsilatlar.
+  manuelTahsilatlar?: Array<{
+    id: string
+    customerName: string
+    amount: string
+    paymentTypeLabel: string
+    aciklama: string | null
+    createdAt: string
+  }>
 }
 
 export interface BankBreakdown {

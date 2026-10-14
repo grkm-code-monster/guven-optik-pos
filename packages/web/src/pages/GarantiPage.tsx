@@ -4,6 +4,8 @@ import {
   getWarrantyStats, getWarrantyClaims, createWarrantyClaim,
   updateWarrantyClaim, addWarrantyMessage, type WarrantyClaim
 } from '../api/warranty.api'
+import { createCustomer } from '../api/customers.api'
+import { useAuthStore } from '../store/auth.store'
 
 const DURUM_LABEL: Record<string, string> = {
   OPEN: 'Açık', SENT_TO_SUPPLIER: 'Firmaya gönderildi',
@@ -39,7 +41,89 @@ const KATEGORI_LABEL: Record<string, string> = {
 const KATEGORI_FILTRE_ETIKETLERI = Array.from(new Set(Object.values(KATEGORI_LABEL)))
 
 export default function GarantiPage() {
-  const [sekme, setSekme] = useState<'pos' | 'depo'>('pos')
+  const user = useAuthStore((s) => s.user)
+  const [sekme, setSekme] = useState<'pos' | 'depo' | 'dis-musteri'>('pos')
+
+  // Dış Müşteri Kaydı akışı — ürünü başka bir optikten almış, sistemimizde hiç
+  // satış kaydı olmayan ama markasına baktığımız bir müşteri için: önce müşteri
+  // kaydı aç, sonra satışa bağlı olmadan serbest bir garanti formu doldur.
+  const [disStep, setDisStep] = useState<1 | 2 | 3>(1)
+  const [disAd, setDisAd] = useState('')
+  const [disTelefon, setDisTelefon] = useState('')
+  const [disTc, setDisTc] = useState('')
+  const [disMusteriKaydediliyor, setDisMusteriKaydediliyor] = useState(false)
+  const [disMusteriHata, setDisMusteriHata] = useState<string | null>(null)
+  const [disMusteri, setDisMusteri] = useState<any>(null)
+  const [disUrunAdi, setDisUrunAdi] = useState('')
+  const [disAlindigiYer, setDisAlindigiYer] = useState('')
+  const [disForm, setDisForm] = useState({ type: 'CUSTOMER_WARRANTY', expectedOutcome: 'UNKNOWN', problemDesc: '' })
+  const [disKaydediliyor, setDisKaydediliyor] = useState(false)
+  const [disYeniKayit, setDisYeniKayit] = useState<any>(null)
+
+  function disMusteriAkisiSifirla() {
+    setDisStep(1)
+    setDisAd('')
+    setDisTelefon('')
+    setDisTc('')
+    setDisMusteriHata(null)
+    setDisMusteri(null)
+    setDisUrunAdi('')
+    setDisAlindigiYer('')
+    setDisForm({ type: 'CUSTOMER_WARRANTY', expectedOutcome: 'UNKNOWN', problemDesc: '' })
+    setDisYeniKayit(null)
+  }
+
+  async function disMusteriKaydet() {
+    if (!disAd.trim() || !disTelefon.trim()) {
+      setDisMusteriHata('Ad soyad ve telefon zorunlu')
+      return
+    }
+    setDisMusteriKaydediliyor(true)
+    setDisMusteriHata(null)
+    try {
+      const musteri = await createCustomer({
+        name: disAd.trim(),
+        phone: disTelefon.trim(),
+        identityNo: disTc.trim() || undefined,
+      })
+      setDisMusteri(musteri)
+      setDisStep(2)
+    } catch (e: any) {
+      setDisMusteriHata(e?.response?.data?.message ?? 'Müşteri kaydedilemedi')
+    } finally {
+      setDisMusteriKaydediliyor(false)
+    }
+  }
+
+  async function disGarantiKaydet() {
+    if (!disUrunAdi.trim()) {
+      setDisMusteriHata('Ürün adı/marka/model zorunlu')
+      return
+    }
+    setDisKaydediliyor(true)
+    setDisMusteriHata(null)
+    try {
+      const problemDesc = disAlindigiYer.trim()
+        ? `Ürünün alındığı yer: ${disAlindigiYer.trim()}${disForm.problemDesc ? ` — ${disForm.problemDesc}` : ''}`
+        : disForm.problemDesc
+      const result = await createWarrantyClaim({
+        customerId: disMusteri?.id,
+        branchId: user?.branchId,
+        type: disForm.type,
+        expectedOutcome: disForm.expectedOutcome,
+        problemDesc,
+        productName: disUrunAdi.trim(),
+        chainJson: JSON.stringify(['Dış Müşteri Kaydı', user?.branchId ?? 'Şube', 'Müşteri']),
+      })
+      setDisYeniKayit(result)
+      setDisStep(3)
+      void loadClaims()
+    } catch (e: any) {
+      setDisMusteriHata(e?.response?.data?.message ?? 'Garanti kaydı oluşturulamadı')
+    } finally {
+      setDisKaydediliyor(false)
+    }
+  }
   const [stats, setStats] = useState<any>(null)
   const [claims, setClaims] = useState<WarrantyClaim[]>([])
   const [search, setSearch] = useState('')
@@ -235,6 +319,10 @@ export default function GarantiPage() {
               )}
             </button>
           ))}
+          <button type="button" onClick={() => { disMusteriAkisiSifirla(); setSekme('dis-musteri') }}
+            style={{ padding: '8px 18px', borderRadius: 8, border: sekme === 'dis-musteri' ? 'none' : '1px solid #e5e7eb', backgroundColor: sekme === 'dis-musteri' ? '#C8102E' : 'white', color: sekme === 'dis-musteri' ? 'white' : '#374151', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            Dış Müşteri Kaydı
+          </button>
         </div>
       </div>
 
@@ -509,6 +597,91 @@ export default function GarantiPage() {
                 </button>
                 <button type="button" onClick={() => void depoKaydet()} style={{ padding: '10px 24px', borderRadius: 8, background: '#C8102E', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>Kaydet</button>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {sekme === 'dis-musteri' && (
+        <div style={card}>
+          {disStep === 1 && (
+            <div>
+              <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>
+                Sistemde hiç satış kaydı olmayan, farklı bir optikten ürün almış bir müşteri için önce kısa bir müşteri kaydı oluşturun.
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Ad Soyad *</div>
+                  <input value={disAd} onChange={e => setDisAd(e.target.value)} placeholder="Ad Soyad" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Telefon *</div>
+                  <input value={disTelefon} onChange={e => setDisTelefon(e.target.value)} placeholder="05xx xxx xx xx" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>TC Kimlik No (opsiyonel)</div>
+                  <input value={disTc} onChange={e => setDisTc(e.target.value)} placeholder="TC Kimlik No" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} />
+                </div>
+              </div>
+              {disMusteriHata && <div style={{ color: '#991b1b', fontSize: 12, marginBottom: 10 }}>{disMusteriHata}</div>}
+              <button type="button" onClick={() => void disMusteriKaydet()} disabled={disMusteriKaydediliyor}
+                style={{ padding: '10px 24px', borderRadius: 8, background: '#C8102E', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+                {disMusteriKaydediliyor ? 'Kaydediliyor...' : 'Müşteriyi Ekle ve Devam Et'}
+              </button>
+            </div>
+          )}
+
+          {disStep === 2 && (
+            <div>
+              <div style={{ background: '#f9fafb', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12 }}>
+                <span style={{ color: '#6b7280' }}>Müşteri:</span> <strong>{disMusteri?.name}</strong> · {disMusteri?.phone}
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Ürün Adı / Marka / Model *</div>
+                <input value={disUrunAdi} onChange={e => setDisUrunAdi(e.target.value)} placeholder="Örn: Ray-Ban RB2140 çerçeve" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} />
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Ürünün alındığı yer</div>
+                <input value={disAlindigiYer} onChange={e => setDisAlindigiYer(e.target.value)} placeholder="Örn: X Optik - Kadıköy" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Kayıt türü</div>
+                  <select value={disForm.type} onChange={e => setDisForm(f => ({ ...f, type: e.target.value }))} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}>
+                    {Object.entries(TUR_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Beklenen sonuç</div>
+                  <select value={disForm.expectedOutcome} onChange={e => setDisForm(f => ({ ...f, expectedOutcome: e.target.value }))} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}>
+                    <option value="UNKNOWN">Belirsiz</option>
+                    <option value="REPAIR">Tamir</option>
+                    <option value="REPLACEMENT">Değişim</option>
+                    <option value="REFUND">İade</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>Sorun açıklaması</div>
+                <textarea value={disForm.problemDesc} onChange={e => setDisForm(f => ({ ...f, problemDesc: e.target.value }))} rows={3} placeholder="Ürünle ilgili sorunu açıklayın..." style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }} />
+              </div>
+              {disMusteriHata && <div style={{ color: '#991b1b', fontSize: 12, marginBottom: 10 }}>{disMusteriHata}</div>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={() => setDisStep(1)} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontSize: 13 }}>← Geri</button>
+                <button type="button" onClick={() => void disGarantiKaydet()} disabled={disKaydediliyor}
+                  style={{ padding: '10px 24px', borderRadius: 8, background: '#C8102E', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+                  {disKaydediliyor ? 'Kaydediliyor...' : 'Garanti Kaydı Oluştur'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {disStep === 3 && disYeniKayit && (
+            <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+              <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 6 }}>Kayıt oluşturuldu: {disYeniKayit.claimNo}</div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>Bu numara ile takip edebilirsiniz.</div>
+              <button type="button" onClick={() => disMusteriAkisiSifirla()} style={{ padding: '10px 24px', borderRadius: 8, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontSize: 13 }}>Yeni kayıt</button>
             </div>
           )}
         </div>

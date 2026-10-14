@@ -696,6 +696,29 @@ model KasaDuzeltme {
   @@index([branchId, tarih])
 }
 
+/// Manuel / Kağıt Üstü Eski Borç Tahsilatı (14.10.2026) — müşterinin sistemde HİÇ
+/// satış kaydı olmadığı (borç sadece elde kağıt üzerinde tutulduğu) durumlarda,
+/// sadece müşteri kaydı seçilerek/girilerek yapılan serbest tahsilat kaydı.
+/// Hiçbir Sale/Payment'a bağlı DEĞİLDİR — bkz. openaccount modülü,
+/// manuel-tahsilat.service.ts. odemeTuru = CASH olduğunda, tahsilatın ANINDA açık
+/// olan vardiyaya bir CashMovement (CASH_IN) olarak da yansıtılır ki kasa sayımı
+/// (vardiya kapanışı beklenen nakit) doğru çıksın.
+model ManuelTahsilat {
+  id          String    @id @default(uuid())
+  branchId    String
+  userId      String // kaydı giren personel
+  customerId  String
+  customerAdi String // customer silinirse/değişirse de görünüm bozulmasın diye anlık kopya
+  tutar       Decimal   @db.Decimal(10, 2)
+  odemeTuru   String // CASH | CARD | TRANSFER
+  aciklama    String?
+  shiftId     String? // oluşturulduğu an açık olan vardiya (varsa)
+  createdAt   DateTime  @default(now())
+
+  @@index([branchId, createdAt])
+  @@index([customerId])
+}
+
 enum CampaignType {
   KASA
   NAKIT_ORAN

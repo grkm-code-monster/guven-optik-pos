@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { apiClient } from '../api/client'
-import { searchCustomers } from '../api/customers.api'
+import { searchCustomers, createCustomer } from '../api/customers.api'
 
 type SummaryRow = {
   customer: { id: string; name: string; phone: string }
@@ -52,7 +52,143 @@ function fmtDate(iso: string) {
   }
 }
 
+type ManuelTahsilatRow = {
+  id: string
+  customerName: string
+  amount: string
+  paymentTypeLabel: string
+  aciklama: string | null
+  createdAt: string
+}
+
 export default function AcikHesapPage() {
+  const [sekme, setSekme] = useState<'acik-hesap' | 'manuel-tahsilat'>('acik-hesap')
+
+  // --- Manuel Tahsilat sekmesi (14.10.2026): sistemde hiç satış kaydı olmayan,
+  // borcu sadece kağıt üzerinde tutulan müşteriler için serbest tahsilat girişi.
+  const [mtMusteriQ, setMtMusteriQ] = useState('')
+  const [mtMusteriSonuc, setMtMusteriSonuc] = useState<any[]>([])
+  const [mtMusteriAraniyor, setMtMusteriAranıyor] = useState(false)
+  const [mtSeciliMusteri, setMtSeciliMusteri] = useState<{ id: string; name: string; phone: string } | null>(null)
+  const [mtYeniMusteriAcik, setMtYeniMusteriAcik] = useState(false)
+  const [mtYeniAd, setMtYeniAd] = useState('')
+  const [mtYeniTelefon, setMtYeniTelefon] = useState('')
+  const [mtYeniTc, setMtYeniTc] = useState('')
+  const [mtYeniKaydediliyor, setMtYeniKaydediliyor] = useState(false)
+  const [mtTutar, setMtTutar] = useState('')
+  const [mtOdemeTuru, setMtOdemeTuru] = useState<'CASH' | 'CARD' | 'TRANSFER'>('CASH')
+  const [mtAciklama, setMtAciklama] = useState('')
+  const [mtKaydediliyor, setMtKaydediliyor] = useState(false)
+  const [mtHata, setMtHata] = useState<string | null>(null)
+  const [mtBasari, setMtBasari] = useState<string | null>(null)
+  const [mtListe, setMtListe] = useState<ManuelTahsilatRow[]>([])
+  const [mtListeYukleniyor, setMtListeYukleniyor] = useState(false)
+
+  async function mtListeYukle() {
+    setMtListeYukleniyor(true)
+    try {
+      const res = await apiClient.get('/open-account/manuel-tahsilat')
+      setMtListe(Array.isArray(res.data?.data) ? res.data.data : [])
+    } catch {
+      setMtListe([])
+    } finally {
+      setMtListeYukleniyor(false)
+    }
+  }
+
+  useEffect(() => {
+    if (sekme === 'manuel-tahsilat') void mtListeYukle()
+  }, [sekme])
+
+  useEffect(() => {
+    const q = mtMusteriQ.trim()
+    if (q.length < 3) {
+      setMtMusteriSonuc([])
+      return
+    }
+    const t = setTimeout(() => {
+      setMtMusteriAranıyor(true)
+      searchCustomers(q)
+        .then((rows) => setMtMusteriSonuc(Array.isArray(rows) ? rows : []))
+        .catch(() => setMtMusteriSonuc([]))
+        .finally(() => setMtMusteriAranıyor(false))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [mtMusteriQ])
+
+  function mtAkisiSifirla() {
+    setMtMusteriQ('')
+    setMtMusteriSonuc([])
+    setMtSeciliMusteri(null)
+    setMtYeniMusteriAcik(false)
+    setMtYeniAd('')
+    setMtYeniTelefon('')
+    setMtYeniTc('')
+    setMtTutar('')
+    setMtOdemeTuru('CASH')
+    setMtAciklama('')
+    setMtHata(null)
+    setMtBasari(null)
+  }
+
+  async function mtYeniMusteriKaydet() {
+    if (!mtYeniAd.trim() || !mtYeniTelefon.trim()) {
+      setMtHata('Ad soyad ve telefon zorunlu')
+      return
+    }
+    setMtYeniKaydediliyor(true)
+    setMtHata(null)
+    try {
+      const musteri = await createCustomer({
+        name: mtYeniAd.trim(),
+        phone: mtYeniTelefon.trim(),
+        identityNo: mtYeniTc.trim() || undefined,
+      })
+      setMtSeciliMusteri({ id: musteri.id, name: musteri.name, phone: musteri.phone })
+      setMtYeniMusteriAcik(false)
+      setMtMusteriQ('')
+      setMtMusteriSonuc([])
+    } catch (e: any) {
+      setMtHata(e?.response?.data?.message ?? 'Müşteri kaydedilemedi')
+    } finally {
+      setMtYeniKaydediliyor(false)
+    }
+  }
+
+  async function mtTahsilatKaydet() {
+    if (!mtSeciliMusteri) {
+      setMtHata('Önce müşteri seçin veya ekleyin')
+      return
+    }
+    const n = Number(String(mtTutar).replace(',', '.'))
+    if (!Number.isFinite(n) || n <= 0) {
+      setMtHata('Tutar geçerli olmalı')
+      return
+    }
+    setMtKaydediliyor(true)
+    setMtHata(null)
+    setMtBasari(null)
+    try {
+      const res = await apiClient.post('/open-account/manuel-tahsilat', {
+        customerId: mtSeciliMusteri.id,
+        tutar: n,
+        odemeTuru: mtOdemeTuru,
+        aciklama: mtAciklama.trim() || null,
+      })
+      const uyari = res.data?.cashMovementUyari
+      setMtBasari(uyari ? `Tahsilat kaydedildi. ${uyari}` : 'Tahsilat kaydedildi ve kasa formuna işlendi.')
+      setMtSeciliMusteri(null)
+      setMtTutar('')
+      setMtOdemeTuru('CASH')
+      setMtAciklama('')
+      await mtListeYukle()
+    } catch (e: any) {
+      setMtHata(e?.response?.data?.error ?? 'Tahsilat kaydedilemedi')
+    } finally {
+      setMtKaydediliyor(false)
+    }
+  }
+
   const [summary, setSummary] = useState<SummaryRow[]>([])
   const [summaryLoading, setSummaryLoading] = useState(true)
 
@@ -389,8 +525,195 @@ export default function AcikHesapPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ fontWeight: 900, fontSize: 18 }}>Açık Hesap</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ fontWeight: 900, fontSize: 18 }}>Açık Hesap</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {(['acik-hesap', 'manuel-tahsilat'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSekme(s)}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 8,
+                border: sekme === s ? 'none' : '1px solid #e5e7eb',
+                backgroundColor: sekme === s ? primary : 'white',
+                color: sekme === s ? 'white' : '#374151',
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              {s === 'acik-hesap' ? 'Açık Hesap' : 'Manuel Tahsilat (Kağıt Üstü Borç)'}
+            </button>
+          ))}
+        </div>
+      </div>
 
+      {sekme === 'manuel-tahsilat' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ ...cardStyle, backgroundColor: '#f9fafb', fontSize: 13, color: '#6b7280' }}>
+            Sistemde hiç satış kaydı olmayan, borcu sadece kağıt üzerinde tutulan bir müşteriden tahsilat aldıysanız
+            burayı kullanın. Müşteriyi arayın ya da yoksa yeni kayıt açın, sonra tutarı girin — nakit tahsilat
+            otomatik olarak bugünün kasa formuna işlenir.
+          </div>
+
+          {mtBasari ? (
+            <div style={{ ...cardStyle, borderColor: '#bbf7d0', backgroundColor: '#f0fdf4', color: '#166534' }}>
+              {mtBasari}
+            </div>
+          ) : null}
+          {mtHata ? (
+            <div style={{ ...cardStyle, borderColor: '#fecaca', backgroundColor: '#fef2f2', color: danger }}>
+              {mtHata}
+            </div>
+          ) : null}
+
+          <div style={cardStyle}>
+            {!mtSeciliMusteri ? (
+              <>
+                <div style={{ fontWeight: 900, marginBottom: 8 }}>1. Müşteri Seç</div>
+                <input
+                  value={mtMusteriQ}
+                  onChange={(e) => setMtMusteriQ(e.target.value)}
+                  placeholder="İsim veya telefon (en az 3 karakter)"
+                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10, outline: 'none', fontSize: 14 }}
+                />
+                {mtMusteriAraniyor ? <div style={{ marginTop: 8, fontSize: 13, color: '#6b7280' }}>Aranıyor...</div> : null}
+                {mtMusteriSonuc.length > 0 ? (
+                  <div style={{ marginTop: 8, border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                    {mtMusteriSonuc.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setMtSeciliMusteri({ id: c.id, name: c.name, phone: c.phone })}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', border: 'none', borderBottom: '1px solid #f3f4f6', backgroundColor: 'white', cursor: 'pointer' }}
+                      >
+                        <div style={{ fontWeight: 800 }}>{c.name}</div>
+                        <div style={{ fontSize: 12, color: '#6b7280' }}>{c.phone}</div>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div style={{ marginTop: 14 }}>
+                  {!mtYeniMusteriAcik ? (
+                    <button
+                      type="button"
+                      onClick={() => setMtYeniMusteriAcik(true)}
+                      style={{ border: '1px solid #e5e7eb', backgroundColor: 'white', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontWeight: 800, fontSize: 13 }}
+                    >
+                      + Yeni Müşteri Kaydı Aç
+                    </button>
+                  ) : (
+                    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+                      <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 13 }}>Yeni Müşteri</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                        <input value={mtYeniAd} onChange={(e) => setMtYeniAd(e.target.value)} placeholder="Ad Soyad *" style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} />
+                        <input value={mtYeniTelefon} onChange={(e) => setMtYeniTelefon(e.target.value)} placeholder="Telefon *" style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} />
+                        <input value={mtYeniTc} onChange={(e) => setMtYeniTc(e.target.value)} placeholder="TC Kimlik No (opsiyonel)" style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} />
+                      </div>
+                      <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                        <button type="button" onClick={() => setMtYeniMusteriAcik(false)} style={{ border: '1px solid #e5e7eb', backgroundColor: 'white', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13 }}>Vazgeç</button>
+                        <button
+                          type="button"
+                          disabled={mtYeniKaydediliyor}
+                          onClick={() => void mtYeniMusteriKaydet()}
+                          style={{ border: 'none', backgroundColor: primary, color: 'white', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 800, fontSize: 13, opacity: mtYeniKaydediliyor ? 0.7 : 1 }}
+                        >
+                          {mtYeniKaydediliyor ? 'Kaydediliyor...' : 'Müşteriyi Kaydet'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 800 }}>MÜŞTERİ</div>
+                    <div style={{ fontWeight: 900, fontSize: 15 }}>{mtSeciliMusteri.name}</div>
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>{mtSeciliMusteri.phone}</div>
+                  </div>
+                  <button type="button" onClick={() => mtAkisiSifirla()} style={{ border: '1px solid #e5e7eb', backgroundColor: 'white', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12 }}>
+                    Değiştir
+                  </button>
+                </div>
+
+                <div style={{ fontWeight: 900, marginBottom: 8 }}>2. Tahsilat Bilgisi</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <label>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>TUTAR</div>
+                    <input
+                      value={mtTutar}
+                      onChange={(e) => setMtTutar(e.target.value)}
+                      style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10, outline: 'none' }}
+                    />
+                  </label>
+                  <label>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>ÖDEME TÜRÜ</div>
+                    <select
+                      value={mtOdemeTuru}
+                      onChange={(e) => setMtOdemeTuru(e.target.value as 'CASH' | 'CARD' | 'TRANSFER')}
+                      style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10 }}
+                    >
+                      <option value="CASH">Nakit</option>
+                      <option value="CARD">Kart</option>
+                      <option value="TRANSFER">Havale</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label style={{ display: 'block', marginTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>AÇIKLAMA (opsiyonel)</div>
+                  <input
+                    value={mtAciklama}
+                    onChange={(e) => setMtAciklama(e.target.value)}
+                    placeholder="Örn: eski kağıt üstü borç — Ekim tahsilatı"
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10, outline: 'none' }}
+                  />
+                </label>
+
+                <div style={{ marginTop: 14 }}>
+                  <button
+                    type="button"
+                    disabled={mtKaydediliyor}
+                    onClick={() => void mtTahsilatKaydet()}
+                    style={{ border: 'none', backgroundColor: primary, color: 'white', borderRadius: 10, padding: '12px 20px', cursor: 'pointer', fontWeight: 900, opacity: mtKaydediliyor ? 0.7 : 1 }}
+                  >
+                    {mtKaydediliyor ? 'Kaydediliyor...' : 'Tahsilatı Kaydet'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div style={cardStyle}>
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>Son Manuel Tahsilatlar</div>
+            {mtListeYukleniyor ? (
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Yükleniyor...</div>
+            ) : mtListe.length === 0 ? (
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Henüz manuel tahsilat girilmemiş.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {mtListe.map((k) => (
+                  <div key={k.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 10, fontSize: 13 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <strong>{k.customerName}</strong>
+                      <span style={{ fontWeight: 900 }}>{money(k.amount)}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                      {k.paymentTypeLabel} · {fmtDate(k.createdAt)}{k.aciklama ? ` — ${k.aciklama}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {success ? (
         <div style={{ ...cardStyle, borderColor: '#bbf7d0', backgroundColor: '#f0fdf4', color: '#166534' }}>
           {success}
@@ -572,6 +895,8 @@ export default function AcikHesapPage() {
       ) : null}
 
       {error ? <div style={{ color: danger, fontSize: 13 }}>{error}</div> : null}
+      </div>
+      )}
 
       {modalOpen && modalSale && detail ? (
         <div
