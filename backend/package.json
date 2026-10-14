@@ -42,7 +42,8 @@
     "alligator-combinasyon-bul": "ts-node --transpile-only scripts/alligator-combinasyon-bul.ts",
     "alligator-all146ao-yeni-sablon": "ts-node --transpile-only scripts/alligator-all146ao-yeni-sablon.ts",
     "test-izole-fallback": "ts-node --transpile-only scripts/test-izole-fallback.ts",
-    "test-sablon-temizle": "ts-node --transpile-only scripts/test-sablon-temizle.ts"
+    "test-sablon-temizle": "ts-node --transpile-only scripts/test-sablon-temizle.ts",
+    "tr-arama-testi": "ts-node --transpile-only scripts/tr-arama-testi.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
