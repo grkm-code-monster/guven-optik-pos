@@ -640,6 +640,22 @@ function buildAnyTokenDomain(tokens) {
     const ors = Array(conditions.length - 1).fill('|');
     return [...ors, ...conditions];
 }
+/** HER kelimenin (sırası önemsiz) name/default_code'da geçmesini zorunlu kılan (AND)
+ *  domain — her kelime kendi içinde name-OR-default_code, kelimeler arası AND.
+ *  "Et", "1.56" gibi KISA/yaygın tek kelimeler OR domaininde (buildAnyTokenDomain)
+ *  binlerce alakasız şablonu eşleştirip 300'lük limiti doldurup asıl markayı
+ *  alfabetik sırada dışarıda bırakabiliyordu (15.10.2026 — "Org Et 1.56" markası
+ *  "Ürün adı" kutusunda hiç çıkmıyor şikayeti). Marka adının TAMAMI genelde şablon
+ *  adında geçtiği için önce bu sıkı AND domaini deniyoruz; model kodu gibi sadece
+ *  varyant niteliğinde yaşayan kelimeler için (ör. "OTTO 203") bu domain boş
+ *  sonuç verirse OR domainine (buildAnyTokenDomain) geri düşülüyor. */
+function buildAllTokenDomain(tokens) {
+    let domain = [];
+    for (const t of tokens) {
+        domain = [...domain, '|', ['name', 'ilike', t], ['default_code', 'ilike', t]];
+    }
+    return domain;
+}
 function searchTokenlariAyikla(term) {
     return String(term ?? '').trim().split(/\s+/).filter(Boolean);
 }
@@ -675,27 +691,40 @@ async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
         ['active', '=', true],
         ['sale_ok', '=', true],
     ];
-    const domain = applyKategoriToDomain(
-        hasTerm ? [...baseDomain, ...buildAnyTokenDomain(tokens)] : baseDomain,
-        options,
-    );
-    const seenIds = new Set();
-    const templateBatches = await mapWithConcurrency(SIRKET_SEARCH_IDS, 3, async (cid) => {
-        const rows = (await odooService.execute('product.template', 'search_read', [domain], {
-            fields: ['id', 'name', 'list_price'],
-            limit: RESULT_LIMIT,
-            order: 'name asc',
-        }, cid)) ?? [];
-        return rows.map((r) => ({ ...r, _cid: cid }));
-    });
-    const allTemplates = [];
-    for (const batch of templateBatches) {
-        for (const r of batch) {
-            if (!seenIds.has(r.id)) {
-                seenIds.add(r.id);
-                allTemplates.push(r);
+    async function sablonAra(tokenDomainEkle) {
+        const d = applyKategoriToDomain(
+            hasTerm ? [...baseDomain, ...tokenDomainEkle(tokens)] : baseDomain,
+            options,
+        );
+        const seen = new Set();
+        const batches = await mapWithConcurrency(SIRKET_SEARCH_IDS, 3, async (cid) => {
+            const rows = (await odooService.execute('product.template', 'search_read', [d], {
+                fields: ['id', 'name', 'list_price'],
+                limit: RESULT_LIMIT,
+                order: 'name asc',
+            }, cid)) ?? [];
+            return rows.map((r) => ({ ...r, _cid: cid }));
+        });
+        const out = [];
+        for (const batch of batches) {
+            for (const r of batch) {
+                if (!seen.has(r.id)) {
+                    seen.add(r.id);
+                    out.push(r);
+                }
             }
         }
+        return out;
+    }
+    // Önce HER kelimenin geçmesini zorunlu kılan sıkı (AND) domainle dene — marka
+    // adının tamamı genelde şablon adında geçtiği için bu çoğu zaman yeterli ve
+    // "Et"/"1.56" gibi kısa kelimelerin OR domaininde binlerce alakasız sonucu
+    // 300'lük limite doldurup asıl markayı dışarıda bırakmasını önler. Sonuç boş
+    // çıkarsa (ör. model kodu sadece varyant niteliğinde yaşıyorsa) eski geniş
+    // OR domainine geri düş.
+    let allTemplates = hasTerm && tokens.length > 1 ? await sablonAra(buildAllTokenDomain) : [];
+    if (!allTemplates.length) {
+        allTemplates = await sablonAra(buildAnyTokenDomain);
     }
     const templates = allTemplates.slice(0, RESULT_LIMIT);
     // PERFORMANS DÜZELTMESİ (15.10.2026): önceden her şablon için AYRI bir Odoo
