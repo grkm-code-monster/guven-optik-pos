@@ -290,7 +290,9 @@ Bu kullanıcı ŞUBE MÜDÜRÜ (${userBranch ?? ''}). Şu konularda "Yönetimini
 export const CHATBOT_CONFIG = {
   // Anthropic ücretli (min. $5 bakiye) olduğu için ücretsiz katmanı olan
   // Google Gemini'ye geçildi (15.10.2026) — bkz. chatbot.service.ts.
-  model: 'gemini-2.0-flash',
+  // gemini-2.0-flash kullanımdan kaldırıldı (Google'ın kendi hata mesajı),
+  // güncel ücretsiz-katman modeline geçildi.
+  model: 'gemini-3.8-flash',
   maxTokens: 1000,
   limitPerUser: 20,
   limitResetMonths: 12, // 1 yılda bir sıfırla
