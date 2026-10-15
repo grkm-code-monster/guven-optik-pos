@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useAuthStore } from '../store/auth.store'
 
 interface Mesaj {
@@ -74,7 +75,12 @@ export default function ChatbotPanel({ onKapat }: { onKapat: () => void }) {
     'Fatura durumu nasıl kontrol edilir?',
   ]
 
-  return (
+  // Bazı sayfalarda (örn. Admin paneli) bir üst elemanın CSS yapısı (transform/
+  // overflow/z-index) fixed konumlandırmayı bozup paneli sayfa akışına
+  // "kaçırabiliyordu" — panel tam ekran genişliğinde, okunamaz halde dağılıyordu
+  // (15.10.2026 şikayeti). document.body'ye portal ile bağlayarak paneli hangi
+  // sayfada açılırsa açılsın gerçek viewport'a göre sabitliyoruz.
+  return createPortal(
     <div className="fixed bottom-4 right-4 w-96 h-[600px] bg-white rounded-xl shadow-2xl flex flex-col border border-gray-200 z-50">
       <div className="flex items-center justify-between px-4 py-3 bg-blue-600 rounded-t-xl">
         <div className="flex items-center gap-2">
@@ -152,7 +158,8 @@ export default function ChatbotPanel({ onKapat }: { onKapat: () => void }) {
           Gönder
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -165,14 +172,17 @@ export function ChatbotButon() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setAcik((a) => !a)}
-        className="fixed bottom-4 right-4 w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 text-xl font-bold z-40 flex items-center justify-center"
-        title="Yardım"
-      >
-        ?
-      </button>
+      {createPortal(
+        <button
+          type="button"
+          onClick={() => setAcik((a) => !a)}
+          className="fixed bottom-4 right-4 w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 text-xl font-bold z-40 flex items-center justify-center"
+          title="Yardım"
+        >
+          ?
+        </button>,
+        document.body,
+      )}
       {acik && <ChatbotPanel onKapat={() => setAcik(false)} />}
     </>
   )
