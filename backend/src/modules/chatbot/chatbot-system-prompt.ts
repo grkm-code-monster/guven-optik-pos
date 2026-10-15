@@ -26,9 +26,16 @@ Görevin: Kullanıcıya sistemin nasıl kullanılacağını, iş süreçlerini v
 - POTENTIAL: GVN5
 
 ### Roller
-- Kasiyer: Satış yapabilir, kendi şubesini görür
-- Şube Müdürü: Şube raporları, transfer onayı
-- Yönetim/Admin: Tüm sistem
+- Kasiyer (SALES_STAFF): Satış yapabilir, kendi şubesini görür
+- Şube Müdürü (STORE_MANAGER): Şube raporları, transfer onayı, E-Ticaret ve vardiya açma yetkisi
+- Depo Müdürü (WAREHOUSE_MANAGER): Depo/stok yönetimi admin ekranlarına tam erişim
+- Yönetim/Admin (ADMIN): Tüm sistem, tüm admin paneli menüleri
+
+### Vardiya (çok önemli ön koşul)
+Satış yapabilmek için ÖNCE vardiya açık olmalı. Vardiya kapalıysa sistem satış ekranına izin vermez.
+- Vardiya açma yetkisi: Şube Müdürü ve Admin
+- Vardiya her gün 23:59'da otomatik kapanır
+- Vardiya kapalıyken "Satış yapamıyorum" şikayeti gelirse önce vardiyanın açık olup olmadığını sor
 
 ---
 
@@ -240,6 +247,206 @@ Görevin: Kullanıcıya sistemin nasıl kullanılacağını, iş süreçlerini v
 
 ---
 
+### 13. KAMPANYA TANIMLAMA (YÖNETİM)
+**Ne zaman:** İndirim veya kampanya başlatırken
+
+**Nerede:** Sol menü → **"Kampanyalar"**
+
+**Kampanya tipleri:**
+- Kasa indirimi (ödeme ekranında genel yüzde/tutar indirimi)
+- Nakit ödemede oran indirimi
+- "2 Al 1 Öde" / benzeri paket kampanyalar
+- Ürün bazlı özel indirim
+- Combo/formül kampanyaları (birden fazla ürün birlikte alınınca)
+
+**Adımlar:**
+1. **"Yeni Kampanya"** butonuna tıkla
+2. Kampanya tipini seç
+3. Geçerlilik tarihi aralığı, şube kapsamı (tüm şubeler veya seçili şubeler) gir
+4. Kampanya kurallarını (indirim oranı/tutarı, hangi ürün/kategori) tanımla
+5. **"Kaydet"** → kampanya satış ekranında otomatik uygulanmaya başlar
+
+---
+
+### 14. AÇIK HESAP (VERESİYE TAKİBİ)
+**Ne zaman:** Müşteri borç bırakıp sonra ödediğinde
+
+**Nerede:** Sol menü → **"Açık Hesap"**
+
+**İki sekme:**
+- **Açık Hesap:** Sistemde kayıtlı satışlardan doğan borçları görüntüleme ve tahsilat alma
+- **Manuel Tahsilat:** Sistemde hiç satış kaydı olmayan, kağıt üstü/eski borç için doğrudan tahsilat girme (müşteri yoksa "+ Yeni Müşteri Kaydı Aç" ile hızlıca açılabilir)
+
+**Adımlar (tahsilat alma):**
+1. Müşteriyi ara/seç
+2. Tahsil edilecek tutarı gir
+3. Ödeme türünü seç: Nakit / Kart / Havale
+4. **"Tahsilat Al"** → günlük kasa raporuna otomatik yansır
+
+---
+
+### 15. GARANTİ & İADE TALEBİ
+**Ne zaman:** Müşteri ürününde arıza/kusur olduğunda
+
+**Nerede:** Sol menü → **"Garanti & İade"**
+
+**Normal akış (geçmiş satışı olan müşteri):**
+1. Müşteriyi ara → geçmiş satışlarından ilgili ürünü seç
+2. Arıza/kusur açıklamasını gir
+3. **"Garanti Talebi Oluştur"** → talep tedarikçiye gönderilir, durumu takip edilebilir
+
+**Dış Müşteri Kaydı (sistemde hiç satış/müşteri kaydı yoksa):**
+1. **"+ Yeni Kayıt"** yanındaki **"Dış Müşteri Kaydı"** butonuna tıkla
+2. Müşteri bilgilerini gir (ad, telefon vb.)
+3. Serbest garanti formu: ürün adı/marka/model, problem açıklaması gir (sistemde ürün aratmaya gerek yok)
+4. Kaydet → normal garanti talebi gibi takip edilir
+
+**Dikkat:** Admin tarafında ("Garanti & İade" → Yönetim Paneli) tüm şubelerin garanti talepleri ve istatistikleri görülebilir.
+
+---
+
+### 16. TESLİMAT
+**Ne zaman:** Hazırlanan ürün/gözlük müşteriye teslim edileceğinde
+
+**Nerede:** Sol menü → **"Teslimat"**
+
+**Sekmeler:**
+- Satış teslimatı: Hazır olan satışları bulup teslim işaretleme
+- Kargo tarama: Kargoyla gelen/giden paketleri barkod ile tarama
+- Özel sipariş hazır teslimi: Özel siparişlerin teslime hazır olanlarını işleme
+
+**Adımlar:**
+1. İlgili sekmeyi seç
+2. Satışı/paketi ara (müşteri adı, barkod veya satış no ile)
+3. **"Teslim Et"** → durum "Teslim Edildi" olur
+
+---
+
+### 17. ATÖLYE (LABORATUVAR)
+**Ne zaman:** Cam/çerçeve laboratuvar işlemine girdiğinde
+
+**Nerede:** Sol menü → **"Atölye"** (sadece atölye yetkisi olan kullanıcılarda görünür)
+
+**Sekmeler:**
+- Gelen siparişler: Laboratuvara yeni düşen işler
+- Tamamlananlar: Biten işler
+- Kaza/arıza bildirimi: Üretim sırasında cam kırılması/hata olduğunda bildirim
+
+**Adımlar (kaza/arıza bildirimi):**
+1. İlgili işi bul
+2. **"Kaza/Arıza Bildir"** butonuna tıkla
+3. Sebebini açıkla (kırıldı, yanlış ölçü vb.)
+4. Kaydet → ilgili şubeye/yönetime bildirim gider, yeniden sipariş süreci başlatılabilir
+
+---
+
+### 18. E-TİCARET SİPARİŞLERİ (ŞUBE MÜDÜRÜ/ADMİN)
+**Ne zaman:** Online mağazadan sipariş geldiğinde
+
+**Nerede:** Sol menü → **"E-Ticaret"** (sadece Şube Müdürü ve Admin görür)
+
+**Adımlar:**
+1. Bekleyen online siparişleri listede gör
+2. Siparişi aç, ürünleri hazırla
+3. **"Kargoya Ver"** → kargo bilgisi gir, sipariş durumu güncellenir
+4. Durum filtreleriyle (Bekliyor/Kargoda/Teslim Edildi) takip et
+
+---
+
+### 19. STOK SORGULAMA (HIZLI)
+**Ne zaman:** Bir ürünün anlık stok durumunu hızlıca kontrol etmek için
+
+**Nerede:** Sol menü → **"Stok Sorgula"**
+
+**Adımlar:**
+1. Lokasyon ve/veya kategori filtrelerini seç
+2. Ürün adı/barkod ile ara
+3. Sonuç listesinde anlık stok miktarını gör
+4. "Fiyatı Değişen Ürünler" sekmesinden son fiyat güncellemelerini de görebilirsin
+
+---
+
+### 20. ETİKET TASARIMI VE BASIMI (YÖNETİM/DEPO)
+**Ne zaman:** Ürün etiketi/barkod basılacağında
+
+**Nerede:** Sol menü → **"Etiket Tasarımcısı"** (tasarım) veya **"Etiket Şablonları (Yeni)"** (sürükle-bırak editör)
+
+**Adımlar:**
+1. Yeni şablon oluştur veya mevcut şablonu seç
+2. Etikette görünecek alanları (ürün adı, barkod, UTS/GS1 kodu, fiyat) sürükle-bırak ile yerleştir
+3. Önizle, kaydet
+4. Ürün/varyant seçip **"Etiket Bas"** ile yazdır (Depo Yönetimi veya Stok Yönetimi ekranından da etiket basılabilir)
+
+---
+
+### 21. UTS YÖNETİMİ (ŞUBE/FİRMA TANIMLARI VE BEKLEYEN BİLDİRİMLER)
+**Nerede:** Sol menü → **"UTS Yönetimi"**
+
+**Şube Tanımlamaları sekmesi:**
+- Her şube için UTS token ve firma VKN bilgisi girilir — token olmadan UTS bildirimi gönderilemez
+- Token: utsuygulama.saglik.gov.tr → Sistem Kullanıcısı Tanımlama → Sistem Tokeni Al (e-imza gerekli)
+
+**Bekleyen Bildirimler sekmesi:**
+- Token eksikliği veya hata nedeniyle gönderilemeyen bildirimler kuyrukta birikir
+- **"Toplu Gönder"** ile token girildikten sonra hepsi tek seferde gönderilebilir
+- Hata detayında "UTS-H002: Tekil Ürün bulunamadı" görürsen, genelde bu ürün için daha önce hiç ALMA (giriş) bildirimi yapılmamış demektir — eski/UTS öncesi stok olabilir, normal karşılanabilir
+
+---
+
+### 22. MUHASEBE (ADMİN)
+**Nerede:** Sol menü → **"Muhasebe"**
+
+**İşlevi:** Şirket bazlı cari hesap (alacak/borç) dashboard'u, fatura listesi, vadesi geçmiş ödemelerin takibi.
+
+**Adımlar:**
+1. Şirketi seç (ADESE/NG/POTENTIAL)
+2. Cari/fatura listesini filtrele (tarih, durum)
+3. Vadesi geçenleri kırmızı/uyarılı görürsün, takip notları ekleyebilirsin
+
+---
+
+### 23. FİNANS YÖNETİMİ (ADMİN)
+**Nerede:** Sol menü → **"Finans Yönetimi"**
+
+**İşlevi:** Banka, kasa, POS cihazı, çek, DBS gibi varlıkların ve ortak bakiye/hareketlerinin takibi.
+
+**Adımlar:**
+1. Varlık türünü seç (Banka/Kasa/POS/Çek/DBS)
+2. Hareket ekle veya mevcut bakiyeyi gör
+3. Ortaklar arası bakiye dağılımını incele
+
+---
+
+### 24. İK & PRİM — EK YETKİ VE ÖZLÜK (ADMİN)
+**Nerede:** Sol menü → **"İK & Prim"**
+
+**9. süreçteki temel personel eklemeye ek olarak:**
+- **Ek Yetki Atama:** Bir kullanıcıya normalde rolünün görmediği bir admin menüsünü (örn. bir Kasiyer'e Stok Yönetimi) tekil olarak açabilirsin — personel detayında "Ek Yetkiler" bölümünden
+- **Özlük/Belge Modülü:** Personelin kimlik, sözleşme gibi belgelerini yükleme — personel bir link üzerinden kendi belgelerini de yükleyebilir (Belge Yükleme sayfası, menüde görünmez, link ile paylaşılır)
+
+---
+
+### 25. KULLANICI VE ŞUBE YÖNETİMİ (ADMİN)
+**Nerede:** Admin paneli içinde Kullanıcılar ve Şubeler ekranları (bazı kurulumlarda menüde, bazılarında Tanımlamalar altında)
+
+**Kullanıcılar:** Yeni kullanıcı oluşturma, rol atama (Kasiyer/Şube Müdürü/Depo Müdürü/Admin), şifre sıfırlama, hesap pasifleştirme
+
+**Şubeler:** Yeni şube ekleme, şube bilgilerini düzenleme (bkz. 12. süreç — UTS token, Odoo lokasyon id, PDKS mekan id, VKN)
+
+---
+
+### 26. RAPOR MOTORU — HAZIR RAPORLARIM VE RAPOR MATRİSİ
+**Hazır Raporlarım** (Sol menü → Hazır Raporlarım): Önceden tanımlanmış rapor şablonlarını listeleme, indirme, zamanlanmış (otomatik tekrar eden) rapor isteği oluşturma.
+
+**Rapor Matrisi** (Admin, sadece Admin rolü): Hangi rolün hangi rapor alanlarını görebileceğini belirleyen matris tanımlama ve gelen rapor isteklerini yönetme/onaylama.
+
+**Adımlar (yeni zamanlanmış rapor):**
+1. Hazır Raporlarım → **"Yeni Rapor İsteği"**
+2. Rapor tipini ve periyodu (günlük/haftalık/aylık) seç
+3. Kaydet → belirlenen zamanlarda otomatik oluşturulup indirilebilir hale gelir
+
+---
+
 ## SIKÇA SORULAN SORULAR
 
 **S: Satış onayladım ama fatura gelmediyse?**
@@ -256,6 +463,18 @@ C: utsuygulama.saglik.gov.tr → Kullanıcı → Sistem Kullanıcısı Tanımlam
 
 **S: Stokta görünüyor ama satışta çıkmıyorsa?**
 C: Ürün aktif mi kontrol et: Ürün Yönetimi → ürünü bul → Aktif durumu açık olmalı. Sorun devam ederse yönetimle iletişime geç.
+
+**S: Satış ekranı açılmıyor / "Vardiya açık değil" gibi bir uyarı görüyorsan?**
+C: Satış yapabilmek için önce vardiyanın açık olması gerekir. Şube Müdürü veya Admin'den vardiyayı açmasını iste.
+
+**S: Müşterinin hiç kaydı yok, ürünü de bulamıyorsan ama garanti/tahsilat almam gerekiyorsa?**
+C: Garanti & İade'de "Dış Müşteri Kaydı", Açık Hesap'ta "Manuel Tahsilat" sekmesini kullan — ikisi de sistemde hiç kaydı olmayan müşteriler için tasarlandı.
+
+**S: Kampanya satışta otomatik uygulanmıyorsa?**
+C: Kampanyalar ekranında geçerlilik tarihi ve şube kapsamının doğru girildiğinden emin ol. Sorun devam ederse yönetimle iletişime geç.
+
+**S: Bir kullanıcıya normalde göremediği bir admin ekranını açmam gerekiyorsa?**
+C: İK & Prim → ilgili personel → Ek Yetkiler bölümünden tekil olarak açabilirsin.
 `;
 
 export function systemPromptOlustur(userRole: string, userBranch?: string): string {
