@@ -972,7 +972,7 @@ export async function listStokKontrol(filtre: StokKontrolFiltre): Promise<StokKo
       'id', 'display_name', 'name', 'default_code', 'barcode', 'categ_id', 'lst_price', 'taxes_id',
       'product_tmpl_id', 'product_template_attribute_value_ids',
     ],
-    limit: 3000,
+    limit: 10000,
     order: 'display_name asc',
     ...ODOO_ALL_COMPANIES_KWARGS,
   })) ?? [];
@@ -995,7 +995,7 @@ export async function listStokKontrol(filtre: StokKontrolFiltre): Promise<StokKo
     ['location_id.usage', '=', 'internal'],
   ]], {
     fields: ['product_id', 'location_id', 'quantity', 'reserved_quantity'],
-    limit: 10000,
+    limit: 50000,
     ...ODOO_ALL_COMPANIES_KWARGS,
   })) ?? [];
 
