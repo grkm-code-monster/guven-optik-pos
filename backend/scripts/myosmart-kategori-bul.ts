@@ -11,6 +11,7 @@
  *
  * Çalıştırma: npm run myosmart-kategori-bul   (sunucuda, backend/ içinde)
  */
+import 'dotenv/config';
 import { execute } from '../src/modules/odoo/odoo.service';
 
 async function main() {
