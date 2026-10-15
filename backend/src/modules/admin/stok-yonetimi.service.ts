@@ -938,12 +938,41 @@ export async function listStokKontrol(filtre: StokKontrolFiltre): Promise<StokKo
   if (filtre.fiyatMin != null) productDomain.push(['lst_price', '>=', filtre.fiyatMin]);
   if (filtre.fiyatMax != null) productDomain.push(['lst_price', '<=', filtre.fiyatMax]);
 
+  // DÜZELTME (15.10.2026): "Şube" filtresi önceden sorguya HİÇ yansımıyordu —
+  // sadece 100 ürünlük sabit limitle çekilen (alfabetik) ilk sayfa üzerinde
+  // SONRADAN görüntüleniyordu. Bir kategoride (ör. "Alt Grup" çerçeveler)
+  // 100'den fazla farklı şablon varsa, seçilen şubede stoğu olan ama alfabetik
+  // sırada 100. satırdan sonra gelen ürünler listeye HİÇ girmiyordu (kullanıcı
+  // "hepsini göstermiyor" şikayeti). Şube seçiliyse artık önce o lokasyonda
+  // GERÇEKTEN (miktar>0) stoğu olan ürün id'leri Odoo'dan çekilip domaine
+  // eklenir — böylece sonuç kümesi zaten o şubeyle sınırlı olur ve 100'lük
+  // limit büyük kataloglarda alakasız ürünleri eleyip asıl aranan şubedeki
+  // ürünleri dışarıda bırakmaz.
+  if (filtre.lokasyon) {
+    const locId = LOKASYON_ID_MAP[filtre.lokasyon];
+    if (locId != null) {
+      const subeQuants = (await execute('stock.quant', 'search_read', [[
+        ['location_id', '=', locId],
+        ['quantity', '>', 0],
+      ]], {
+        fields: ['product_id'],
+        limit: 20000,
+        ...ODOO_ALL_COMPANIES_KWARGS,
+      })) ?? [];
+      const subeProductIds = [...new Set(
+        subeQuants.map((r: { product_id: unknown }) => m2oId(r.product_id)).filter((id: number | null): id is number => id != null),
+      )];
+      if (!subeProductIds.length) return [];
+      productDomain.push(['id', 'in', subeProductIds]);
+    }
+  }
+
   const products = (await execute('product.product', 'search_read', [productDomain], {
     fields: [
       'id', 'display_name', 'name', 'default_code', 'barcode', 'categ_id', 'lst_price', 'taxes_id',
       'product_tmpl_id', 'product_template_attribute_value_ids',
     ],
-    limit: 100,
+    limit: 3000,
     order: 'display_name asc',
     ...ODOO_ALL_COMPANIES_KWARGS,
   })) ?? [];
