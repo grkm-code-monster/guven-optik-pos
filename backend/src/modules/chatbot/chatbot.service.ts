@@ -1,11 +1,15 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { Role } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import { CHATBOT_CONFIG, systemPromptOlustur } from './chatbot-system-prompt';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+// NOT (15.10.2026): Daha önce Anthropic (Claude) API kullanılıyordu, ancak
+// ücretli (minimum $5 bakiye) olduğu için ücretsiz katmanı olan Google Gemini'ye
+// geçildi. Ayrı bir SDK paketi eklemek yerine (deploy sırasında "npm install
+// eksik kaldı" gibi ek bir hata kaynağı olmasın diye) doğrudan Gemini REST
+// API'sine fetch ile istek atıyoruz — bağımlılık yok, sadece GEMINI_API_KEY
+// ortam değişkeni gerekiyor. Key'i https://aistudio.google.com/apikey adresinden
+// ücretsiz (kredi kartı istemeden) almak mümkün.
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 export async function kullanimiKontrolEt(
   userId: string,
@@ -63,6 +67,14 @@ async function kullanimiArtir(userId: string) {
   });
 }
 
+interface GeminiPart {
+  text: string;
+}
+interface GeminiContent {
+  role: 'user' | 'model';
+  parts: GeminiPart[];
+}
+
 export async function mesajGonder(
   userId: string,
   userRole: string,
@@ -75,8 +87,9 @@ export async function mesajGonder(
   kalanHak?: number;
   hata?: string;
 }> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return { basarili: false, hata: 'Chatbot yapılandırması eksik (ANTHROPIC_API_KEY).' };
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return { basarili: false, hata: 'Chatbot yapılandırması eksik (GEMINI_API_KEY).' };
   }
 
   const kullanim = await kullanimiKontrolEt(userId, userRole as Role);
@@ -89,19 +102,52 @@ export async function mesajGonder(
   }
 
   try {
-    const mesajlar = [...gecmisMesajlar, { role: 'user' as const, content: mesaj }];
+    // Gemini'de roller "user" / "model" — Anthropic'teki "assistant" yerine
+    // "model" kullanılıyor.
+    const contents: GeminiContent[] = [
+      ...gecmisMesajlar.map((m) => ({
+        role: (m.role === 'assistant' ? 'model' : 'user') as 'user' | 'model',
+        parts: [{ text: m.content }],
+      })),
+      { role: 'user' as const, parts: [{ text: mesaj }] },
+    ];
 
-    const response = await anthropic.messages.create({
-      model: CHATBOT_CONFIG.model,
-      max_tokens: CHATBOT_CONFIG.maxTokens,
-      system: systemPromptOlustur(userRole, userBranch),
-      messages: mesajlar,
-    });
+    const res = await fetch(
+      `${GEMINI_API_URL}/${CHATBOT_CONFIG.model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: systemPromptOlustur(userRole, userBranch) }],
+          },
+          contents,
+          generationConfig: {
+            maxOutputTokens: CHATBOT_CONFIG.maxTokens,
+          },
+        }),
+      },
+    );
 
-    const yanit = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('');
+    const data: any = await res.json();
+
+    if (!res.ok) {
+      const gemHata = data?.error?.message ?? `Gemini API hatası (HTTP ${res.status})`;
+      return { basarili: false, hata: gemHata };
+    }
+
+    const yanit: string =
+      data?.candidates?.[0]?.content?.parts?.map((p: GeminiPart) => p.text).join('') ?? '';
+
+    if (!yanit) {
+      const bitisSebebi = data?.candidates?.[0]?.finishReason;
+      return {
+        basarili: false,
+        hata: bitisSebebi
+          ? `Gemini yanıt üretmedi (sebep: ${bitisSebebi})`
+          : 'Gemini boş yanıt döndü.',
+      };
+    }
 
     if (userRole !== Role.ADMIN) {
       await kullanimiArtir(userId);

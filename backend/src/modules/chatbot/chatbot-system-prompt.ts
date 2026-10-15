@@ -288,7 +288,9 @@ Bu kullanıcı ŞUBE MÜDÜRÜ (${userBranch ?? ''}). Şu konularda "Yönetimini
 }
 
 export const CHATBOT_CONFIG = {
-  model: 'claude-sonnet-4-6',
+  // Anthropic ücretli (min. $5 bakiye) olduğu için ücretsiz katmanı olan
+  // Google Gemini'ye geçildi (15.10.2026) — bkz. chatbot.service.ts.
+  model: 'gemini-2.0-flash',
   maxTokens: 1000,
   limitPerUser: 20,
   limitResetMonths: 12, // 1 yılda bir sıfırla
