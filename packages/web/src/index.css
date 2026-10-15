@@ -1,6 +1,14 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* Tailwind v4'te eski tailwind.config.js'teki "content" listesi, CSS'te
+   @config ile açıkça bağlanmadıkça dikkate ALINMIYOR — bunun yerine otomatik
+   kaynak taraması yapılıyor. Bu otomatik tarama bazı dosyalarda (ör.
+   ChatbotPanel.tsx'te SADECE orada kullanılan bottom-4/right-4/w-96/w-12 gibi
+   class'lar) beklenmedik şekilde eksik kalabiliyordu (15.10.2026 — "?" butonu
+   hiç görünmüyor şikayeti). @source ile src/ altındaki TÜM dosyaları açıkça
+   taramaya dahil ediyoruz. */
+@source "./**/*.{js,jsx,ts,tsx}";
 
 :root {
   --color-brand-red: #C8102E;
