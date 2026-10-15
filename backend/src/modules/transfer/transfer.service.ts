@@ -661,7 +661,15 @@ async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
     // listeyi FİLTRELİYOR, yani aranan SPH/CYL kombinasyonu ilk 50'de değilse hiç
     // görünmüyordu (stokta olsun olmasın fark etmeksizin). Terim yazılı bir aramada
     // (kullanıcı bir şey yazdı) 50 sınırı makul kalmaya devam ediyor.
-    const RESULT_LIMIT = katalogBuyukKategoriMi(options) ? 2000 : (hasTerm ? 50 : 2000);
+    // ACİL DÜZELTME (15.10.2026): 2000'lik sınır, zenginleştirme adımlarında
+    // (ptav + stok eşleme) Odoo XML-RPC üzerinden o kadar büyük istek/yanıt
+    // ürettiriyordu ki arama 150-370 SANİYE sürüyor, pratikte site çalışmaz
+    // hale geliyordu (backend loglarında "results=1523 ... 333707ms" gibi
+    // kayıtlar). 300'e düşürüldü — "1.56 Blue" gibi tek markanın 50 kotasını
+    // tek başına doldurup diğer markaları (Org Et 1.56 vb.) gizlemesini
+    // önlemeye yetecek kadar yüksek, ama enrichment'ı saniyeler içinde
+    // bitirecek kadar düşük.
+    const RESULT_LIMIT = katalogBuyukKategoriMi(options) ? 300 : (hasTerm ? 50 : 300);
     const baseDomain = [
         ['type', 'in', catalogProductTypes(options)],
         ['active', '=', true],
