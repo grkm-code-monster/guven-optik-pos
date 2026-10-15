@@ -49,6 +49,7 @@
     "alyson-sasso-ghost-arsivle": "ts-node --transpile-only scripts/alyson-sasso-ghost-arsivle.ts",
     "alyson-sasso-izole-temizle": "ts-node --transpile-only scripts/alyson-sasso-izole-temizle.ts",
     "uts-alma-verme-seri-karsilastir": "ts-node --transpile-only scripts/uts-alma-verme-seri-karsilastir.ts",
+    "myosmart-kategori-bul": "ts-node --transpile-only scripts/myosmart-kategori-bul.ts",
     "test-izole-fallback": "ts-node --transpile-only scripts/test-izole-fallback.ts",
     "test-sablon-temizle": "ts-node --transpile-only scripts/test-sablon-temizle.ts",
     "tr-arama-testi": "ts-node --transpile-only scripts/tr-arama-testi.ts",
