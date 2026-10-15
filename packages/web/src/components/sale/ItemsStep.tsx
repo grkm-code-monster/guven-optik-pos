@@ -327,6 +327,9 @@ export default function ItemsStep({
   const [kontaktOneriTaraf, setKontaktOneriTaraf] = useState<'r' | 'l'>('r')
   const [receteOneriSonuclari, setReceteOneriSonuclari] = useState<{ tam: TransferUrun[]; transpoze: TransferUrun[] }>({ tam: [], transpoze: [] })
   const [receteOneriYukleniyor, setReceteOneriYukleniyor] = useState(false)
+  // Reçeteye göre öneri artık VARSAYILAN KAPALI — kullanıcı isteğe bağlı açıyor.
+  // Varsayılan davranış normal/düz varyant aramasıdır.
+  const [receteOnerisiAcik, setReceteOnerisiAcik] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
   const [editingItem, setEditingItem] = useState<any | null>(null)
@@ -411,7 +414,7 @@ export default function ItemsStep({
   // listesi client-side filtreleniyordu — bu da alfabetik sırada geç gelen
   // markaların (örn. "Org 1.5") hiç görünmemesine sebep oluyordu.
   useEffect(() => {
-    if (!modalOpen || step !== 3) {
+    if (!modalOpen || step !== 3 || !receteOnerisiAcik) {
       setReceteOneriSonuclari({ tam: [], transpoze: [] })
       return
     }
@@ -463,7 +466,7 @@ export default function ItemsStep({
     return () => {
       iptal = true
     }
-  }, [modalOpen, step, pickedKategoriId, pickedKategoriIds, customerPrescription, oneriTaraf])
+  }, [modalOpen, step, pickedKategoriId, pickedKategoriIds, customerPrescription, oneriTaraf, receteOnerisiAcik])
 
   function resetModalState() {
     kameraKapat()
@@ -491,6 +494,7 @@ export default function ItemsStep({
     setSelectedTaxId(null)
     setError(null)
     setEditingItem(null)
+    setReceteOnerisiAcik(false)
     setPendingLinkedItemId(null)
     setFrameAkis(null)
     setPairPrompt(null)
@@ -1084,7 +1088,30 @@ export default function ItemsStep({
                 {(
                   (pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId)) ||
                   (pickedKategoriIds?.some((id) => STOK_CAM_KATEGORI_IDS.includes(id)) ?? false)
-                ) && customerPrescription ? (() => {
+                ) && customerPrescription && !receteOnerisiAcik ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => setReceteOnerisiAcik(true)}
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        padding: '8px 14px',
+                        borderRadius: 8,
+                        border: '1px solid #bfdbfe',
+                        background: '#eff6ff',
+                        color: '#1d4ed8',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ✦ Reçeteye göre öneri göster
+                    </button>
+                  </div>
+                ) : null}
+                {(
+                  (pickedKategoriId != null && STOK_CAM_KATEGORI_IDS.includes(pickedKategoriId)) ||
+                  (pickedKategoriIds?.some((id) => STOK_CAM_KATEGORI_IDS.includes(id)) ?? false)
+                ) && customerPrescription && receteOnerisiAcik ? (() => {
                   const rx = customerPrescription as any
                   const uzakVar = receteUzakVar(rx)
                   const yakinVar = receteYakinVar(rx)
@@ -1119,10 +1146,19 @@ export default function ItemsStep({
                   ]
                   return (
                     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        ✦ Reçeteye göre öneri
-                        {receteOneriYukleniyor && <span style={{ color: '#6b7280', fontSize: 11 }}>aranıyor…</span>}
-                        {!receteOneriYukleniyor && onerilen.length > 0 && <span style={{ background: '#dbeafe', color: '#1d4ed8', fontSize: 11, padding: '2px 8px', borderRadius: 999 }}>{onerilen.length} eşleşme</span>}
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          ✦ Reçeteye göre öneri
+                          {receteOneriYukleniyor && <span style={{ color: '#6b7280', fontSize: 11 }}>aranıyor…</span>}
+                          {!receteOneriYukleniyor && onerilen.length > 0 && <span style={{ background: '#dbeafe', color: '#1d4ed8', fontSize: 11, padding: '2px 8px', borderRadius: 999 }}>{onerilen.length} eşleşme</span>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setReceteOnerisiAcik(false)}
+                          style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          Gizle
+                        </button>
                       </div>
                       <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
                         {tabDefs.map((tab) => (
