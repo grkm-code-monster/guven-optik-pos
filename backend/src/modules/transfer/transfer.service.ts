@@ -528,6 +528,19 @@ const BAKIM_KATEGORI_ID = 63;
 /** Stok cam kategorileri — reçeteye göre öneri paneli, terim yazılmadan da (kategori
  *  seçilir seçilmez) kataloğu stoktan bağımsız taramalı (bkz. searchUrun minLen). */
 const STOK_CAM_KATEGORI_IDS = [35, 36, 37, 39, 40, 41];
+/** BAKIM/Stok Cam kategorileri çok büyük (400+ şablon) — bu kategorilerde arama
+ *  TERİMLE yapılsa bile (ör. reçete önerisinin "0000 -0150" gibi saf sayısal
+ *  terimi) 50'lik sınır yetersiz kalıyordu: "1.56 Blue" gibi TEK bir marka/şablon
+ *  kendi içindeki onlarca SPH/CYL varyantıyla 50 kotasının TAMAMINI doldurup
+ *  döngüyü erken kesiyor (bkz. collected.length >= RESULT_LIMIT break), alfabetik
+ *  sırada sonra gelen "Org Et 1.56" gibi başka markalar hiç işlenmeden kalıyordu
+ *  (15.10.2026 — "sadece Blue çıkıyor, Org Et hiç çıkmıyor" şikayeti). */
+function katalogBuyukKategoriMi(options) {
+    const tekId = resolveSearchKategoriId(options);
+    const idList = Array.isArray(options?.kategoriIds) ? options.kategoriIds : [];
+    const hepsi = tekId != null ? [...idList, tekId] : idList;
+    return hepsi.some((id) => id === BAKIM_KATEGORI_ID || STOK_CAM_KATEGORI_IDS.includes(id));
+}
 function catalogProductTypes(options) {
     const kategoriId = resolveSearchKategoriId(options);
     if (kategoriId === BAKIM_KATEGORI_ID) {
@@ -648,7 +661,7 @@ async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
     // listeyi FİLTRELİYOR, yani aranan SPH/CYL kombinasyonu ilk 50'de değilse hiç
     // görünmüyordu (stokta olsun olmasın fark etmeksizin). Terim yazılı bir aramada
     // (kullanıcı bir şey yazdı) 50 sınırı makul kalmaya devam ediyor.
-    const RESULT_LIMIT = hasTerm ? 50 : 2000;
+    const RESULT_LIMIT = katalogBuyukKategoriMi(options) ? 2000 : (hasTerm ? 50 : 2000);
     const baseDomain = [
         ['type', 'in', catalogProductTypes(options)],
         ['active', '=', true],
