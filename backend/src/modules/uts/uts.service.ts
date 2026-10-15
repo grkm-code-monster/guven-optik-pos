@@ -119,6 +119,22 @@ export async function ensureUtsDisFirmaSirketlerSeed(): Promise<{ olusturulan: n
   return { olusturulan };
 }
 
+/**
+ * UTS'nin bilinen ret kodlarını (MSJ[].KOD) personelin anlayacağı Türkçe bir
+ * açıklamaya çevirir (14.10.2026 — GVN2 "eski stok" teşhisi sırasında
+ * eklendi). Bilinmeyen kodlarda null döner, ham yanıt yine de ayrıca
+ * gösterilir — hiçbir bilgi kaybolmaz, sadece bilinen durumlar için ek bir
+ * açıklama satırı eklenir.
+ */
+export function aciklaUtsRetKodu(msj: Array<{ KOD?: string; MET?: string }> | undefined): string | null {
+  if (!msj?.length) return null;
+  const kodlar = msj.map((m) => m.KOD).filter(Boolean);
+  if (kodlar.includes('UTS-H002')) {
+    return 'Olası sebep: bu ürün için UTS\'de kayıtlı bir ALMA (mal kabul) bildirimi yok — eski/sisteme UTS takibi başlamadan önce girmiş stok olabilir. Yeni sisteme geçiş sürecinde bu normaldir; bu ürünü vermeden önce TİTCK\'in eski stok/ilk stok bildirimi sürecini uygulamanız gerekebilir.';
+  }
+  return null;
+}
+
 export async function gondermeBildiriminiYap(
   bildirim: {
     id: string;
@@ -182,10 +198,11 @@ export async function gondermeBildiriminiYap(
   // 200'se) artık koşulsuz "GONDERILDI" YAZMIYORUZ — SNC yoksa durum HATA
   // olarak işaretlenip gerçek gövde hataDetay'a kaydediliyor, böylece
   // ekranda "başarılı" görünüp UTS'ye hiç ulaşmamış bir bildirim kalmıyor.
-  const first = sonuclar[0] as { SNC?: string } | undefined;
+  const first = sonuclar[0] as { SNC?: string; MSJ?: Array<{ KOD?: string; MET?: string }> } | undefined;
   const snc = first?.SNC || null;
   if (!snc) {
-    const hataDetay = `UTS SNC üretmedi (olası ret) — ham yanıt: ${JSON.stringify(sonuclar[0] ?? null)}`;
+    const aciklama = aciklaUtsRetKodu(first?.MSJ);
+    const hataDetay = `${aciklama ? aciklama + ' — ' : ''}UTS SNC üretmedi (olası ret) — ham yanıt: ${JSON.stringify(sonuclar[0] ?? null)}`;
     await prisma.utsBildirim.update({
       where: { id: bildirim.id },
       data: { durum: 'HATA', utsBildirimId: null, hataDetay },
