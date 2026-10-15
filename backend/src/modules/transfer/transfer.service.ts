@@ -690,19 +690,38 @@ async function searchUrunByNameCatalog(term, companyId, lokasyon, options) {
         }
     }
     const templates = allTemplates.slice(0, RESULT_LIMIT);
-    const variantBatches = await mapWithConcurrency(templates, ODOO_SEARCH_CONCURRENCY, async (tmpl) => {
-        return (await odooService.execute('product.product', 'search_read', [
-            [['product_tmpl_id', '=', tmpl.id], ['active', '=', true]],
+    // PERFORMANS DÜZELTMESİ (15.10.2026): önceden her şablon için AYRI bir Odoo
+    // çağrısı yapılıyordu (N+1 sorgu) — RESULT_LIMIT 50 iken bu zaten yavaştı,
+    // Stok Cam/Bakım kategorilerinde 2000'e çıkarılınca (bkz. katalogBuyukKategoriMi)
+    // binlerce sıralı/az-concurrency'li çağrı isteği dakikalarca sürüp "arama asla
+    // bitmiyor" şikayetine yol açtı. Artık şablon başına değil, ŞİRKET başına TEK
+    // sorgu atılıyor (product_tmpl_id IN [...]) — sonuç kümesi birebir aynı, ama
+    // sorgu sayısı şablon sayısından bağımsız, sadece şirket sayısı kadar.
+    const templatesByCid = new Map();
+    for (const tmpl of templates) {
+        const cid = tmpl._cid ?? companyId;
+        if (!templatesByCid.has(cid)) templatesByCid.set(cid, []);
+        templatesByCid.get(cid).push(tmpl);
+    }
+    const variantsByTmplId = new Map();
+    await mapWithConcurrency([...templatesByCid.entries()], ODOO_SEARCH_CONCURRENCY, async ([cid, tmplsForCid]) => {
+        const rows = (await odooService.execute('product.product', 'search_read', [
+            [['product_tmpl_id', 'in', tmplsForCid.map((t) => t.id)], ['active', '=', true]],
         ], {
-            fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids', 'tracking'],
+            fields: ['id', 'display_name', 'name', 'lst_price', 'list_price', 'product_template_attribute_value_ids', 'tracking', 'product_tmpl_id'],
             limit: RESULT_LIMIT,
             order: 'display_name asc',
-        }, tmpl._cid ?? companyId)) ?? [];
+        }, cid)) ?? [];
+        for (const v of rows) {
+            const tmplId = m2oId(v.product_tmpl_id);
+            if (tmplId == null) continue;
+            if (!variantsByTmplId.has(tmplId)) variantsByTmplId.set(tmplId, []);
+            variantsByTmplId.get(tmplId).push(v);
+        }
     });
     const collected = [];
-    for (let i = 0; i < templates.length; i++) {
-        const tmpl = templates[i];
-        for (const v of variantBatches[i] ?? []) {
+    for (const tmpl of templates) {
+        for (const v of variantsByTmplId.get(tmpl.id) ?? []) {
             collected.push({
                 ...v,
                 display_name: v.display_name ?? v.name ?? tmpl.name,
