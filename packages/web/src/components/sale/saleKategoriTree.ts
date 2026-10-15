@@ -63,6 +63,11 @@ const LENS_TREE: KategoriNode[] = [
         children: [
           { label: 'Miyopi Kontrol', kategoriId: 22 },
           { label: 'Myocare', kategoriId: 23 },
+          // Odoo'da "MİYOPİ" (id 21) altına sonradan açılmış, koddaki statik
+          // ağaçta hiç tanımlı olmayan kategori — "HOYA MYOSMART 1.59 BEYAZ
+          // UV" ürünü bu yüzden satışta bulunamıyordu (15.10.2026 şikayeti,
+          // myosmart-kategori-bul.ts scriptiyle id=80 olarak tespit edildi).
+          { label: 'MyoSmart', kategoriId: 80 },
         ],
       },
       {
