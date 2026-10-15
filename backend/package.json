@@ -47,6 +47,7 @@
     "alyson-sasso-eski-nitelik-temizle": "ts-node --transpile-only scripts/alyson-sasso-eski-nitelik-temizle.ts",
     "alyson-sasso-ghost-tespit": "ts-node --transpile-only scripts/alyson-sasso-ghost-tespit.ts",
     "alyson-sasso-ghost-arsivle": "ts-node --transpile-only scripts/alyson-sasso-ghost-arsivle.ts",
+    "alyson-sasso-izole-temizle": "ts-node --transpile-only scripts/alyson-sasso-izole-temizle.ts",
     "test-izole-fallback": "ts-node --transpile-only scripts/test-izole-fallback.ts",
     "test-sablon-temizle": "ts-node --transpile-only scripts/test-sablon-temizle.ts",
     "tr-arama-testi": "ts-node --transpile-only scripts/tr-arama-testi.ts",
