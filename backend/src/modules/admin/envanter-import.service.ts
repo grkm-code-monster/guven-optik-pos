@@ -640,8 +640,8 @@ export async function previewEnvanterImport(
             ...row,
             durum: 'HATA',
             mesaj: isModelRenkOlcuMuaf(row.kategori)
-              ? `Bu barkod excel içinde farklı bir ürünle tekrar ediyor (Excel satır ${onceki.satirNo}: "${onceki.urunAdi}")`
-              : `Bu barkod excel içinde farklı bir model/renk/ölçü ile tekrar ediyor (Excel satır ${onceki.satirNo}: "${onceki.model}/${onceki.renk}/${onceki.olcu}")`,
+              ? `Bu barkod excel içinde farklı bir ürünle tekrar ediyor (Excel satır ${onceki.satirNo}: "${onceki.urunAdi}") — barkodu uydurmayın, kutudaki gerçek barkoda bakıp ürün adı satırını düzeltin`
+              : `Bu barkod excel içinde farklı bir model/renk/ölçü ile tekrar ediyor (Excel satır ${onceki.satirNo}: "${onceki.model}/${onceki.renk}/${onceki.olcu}") — barkodu uydurmayın (kutudaki gerçek barkodla eşleşmez, kasada okutulamaz), kutudan/faturadan doğru model kodunu kontrol edip düzeltin`,
           });
           continue;
         }
