@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { searchTransferProducts, type TransferUrun } from '../../api/transfer.api'
-import { addItem, deleteItem, getSaleById, getUrunKdvOrani, hesaplaPersonelFiyati, updateItem } from '../../api/sales.api'
+import { addItem, deleteItem, getSaleById, hesaplaPersonelFiyati, updateItem } from '../../api/sales.api'
 import { apiClient } from '../../api/client'
 import { useAuthStore } from '../../store/auth.store'
 import BarkodKameraInput from '../BarkodKameraInput'
@@ -34,6 +34,36 @@ const typeCards: Array<{ type: ItemType; title: string; icon: string }> = [
 ]
 
 const lensTypeCard = { type: 'LENS' as const, title: 'Cam', icon: '👁' }
+
+// 16.10.2026 — KDV artık Odoo'daki ürün bazlı vergi kaydından DEĞİL,
+// mağazanın kendi kategori-bazlı varsayılan tablosundan geliyor (Odoo'da
+// ürün vergisi sehven yanlış girilebiliyor — bir cam %20 olarak kayıtlıyken
+// olması gereken %10'muş şikayeti üzerine). Bu sadece VARSAYILAN değeri
+// belirler; personel aşağıdaki dropdown'dan istediği zaman değiştirebilir.
+//   Optik Camlar, Optik Çerçeveler, Optik Lensler (renkli hariç): %10
+//   Renkli Lensler, Güneş Gözlüğü, Solüsyon/Bakım/Aksesuar: %20
+const RENKLI_KONTAKT_LENS_KATEGORI_ID = 50
+
+function kategoriKdvOrani(type: ItemType | null | undefined, kategoriId: number | null | undefined): number {
+  switch (type) {
+    case 'LENS':
+      return 10
+    case 'FRAME':
+      return 10
+    case 'CONTACT':
+      return kategoriId === RENKLI_KONTAKT_LENS_KATEGORI_ID ? 20 : 10
+    case 'SUN':
+      return 20
+    case 'SOLUTION':
+      return 20
+    case 'ACCESSORY':
+      return 20
+    case 'MAINTENANCE':
+      return 20
+    default:
+      return 20
+  }
+}
 
 type PickedProduct = {
   odooVariantId: string
@@ -335,9 +365,6 @@ export default function ItemsStep({
 
   const [taxes, setTaxes] = useState<Array<{ id: number; name: string; amount: number }>>([])
   const [selectedTaxId, setSelectedTaxId] = useState<number | null>(null)
-  // KDV artık Odoo'dan otomatik okunuyor (16.10.2026) — bkz. aşağıdaki useEffect.
-  const [kdvOtomatikYukleniyor, setKdvOtomatikYukleniyor] = useState(false)
-  const [kdvOtomatikHata, setKdvOtomatikHata] = useState<string | null>(null)
   const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount')
   const [discountInput, setDiscountInput] = useState('0')
   const [prescriptionType, setPrescriptionType] = useState<string>('')
@@ -824,49 +851,35 @@ export default function ItemsStep({
     setUnitPrice(String(item?.unitPrice ?? item?.product?.price ?? ''))
     setDiscountInput(String(item?.discount ?? '0'))
     setDiscountType('amount')
-    // KDV artık burada elle eşleştirilmiyor — aşağıdaki useEffect pickedProduct
-    // set edilince Odoo'dan otomatik okuyup selectedTaxId'yi günceller.
+    // KDV: önce bu kalemde zaten kayıtlı oran varsa o korunur (aşağıdaki
+    // useEffect), yoksa kategori varsayılanı uygulanır. Personel dropdown'dan
+    // değiştirebilir.
     setStep(4)
   }
 
-  // KDV artık personelin elle seçtiği bir alan DEĞİL (16.10.2026 — bir satışta
-  // sehven %20 girilmiş, olması gereken %10'muş hatası sonrası). Ürün Odoo'da
-  // hangi vergiye bağlıysa o oran burada OTOMATİK okunup salt-okunur
-  // gösterilir; personel artık bunu değiştiremez. Sonradan hatalı/eksik
-  // çıktığı fark edilirse düzeltme yolu "KDV Düzeltme" (admin-only, Satış
-  // Detay / Yönetim Paneli) ekranıdır, bu seçim kutusu değil.
+  // 16.10.2026 — KDV artık Odoo'dan OTOMATİK OKUNMUYOR (Odoo'daki ürün bazlı
+  // vergi kaydı sehven yanlış girilebiliyor — "bu cam %20 kayıtlı ama olması
+  // gereken %10" şikayeti). Bunun yerine mağazanın kendi kategori tablosundan
+  // (kategoriKdvOrani) bir VARSAYILAN seçiliyor; personel dropdown'dan
+  // istediği an değiştirebilir, kilitli değil. Zaten kayıtlı bir kalem
+  // düzenleniyorsa (editingItem) önce o kalemde kayıtlı oran korunur.
   useEffect(() => {
-    if (!modalOpen || step !== 4 || !pickedProduct?.odooVariantId || !taxes.length) return
-    let iptal = false
-    setKdvOtomatikYukleniyor(true)
-    setKdvOtomatikHata(null)
-    getUrunKdvOrani(pickedProduct.odooVariantId)
-      .then((oran) => {
-        if (iptal) return
-        const match = taxes.find((t) => Math.abs(t.amount - Number(oran)) < 0.1)
+    if (!modalOpen || step !== 4 || !taxes.length) return
+    if (editingItem) {
+      const existing = Number(editingItem?.taxRate ?? editingItem?.product?.taxRate)
+      if (Number.isFinite(existing) && existing > 0) {
+        const match = taxes.find((t) => Math.abs(t.amount - existing) < 0.1)
         if (match) {
           setSelectedTaxId(match.id)
-        } else {
-          setKdvOtomatikHata(`Odoo'da %${oran} KDV için tanımlı vergi kaydı bulunamadı — yöneticinize bildirin.`)
+          return
         }
-      })
-      .catch(() => {
-        if (iptal) return
-        // Odoo'ya erişilemedi — personelin eski hatalı davranışına (elle seçim)
-        // geri dönmek yerine güvenli varsayılan (%20) uygulanır, satış sonrası
-        // "KDV Düzeltme" ekranından elle doğrulanabilir.
-        const fallback = taxes.find((t) => Math.abs(t.amount - 20) < 0.1)
-        if (fallback) setSelectedTaxId(fallback.id)
-        setKdvOtomatikHata("KDV oranı Odoo'dan otomatik okunamadı, %20 varsayıldı — satış sonrası KDV Düzeltme ekranından kontrol edin.")
-      })
-      .finally(() => {
-        if (!iptal) setKdvOtomatikYukleniyor(false)
-      })
-    return () => {
-      iptal = true
+      }
     }
+    const oran = kategoriKdvOrani(pickedType?.type, pickedKategoriId)
+    const match = taxes.find((t) => Math.abs(t.amount - oran) < 0.1)
+    if (match) setSelectedTaxId(match.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modalOpen, step, pickedProduct?.odooVariantId, taxes])
+  }, [modalOpen, step, taxes, editingItem, pickedType, pickedKategoriId])
 
   return (
     <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px' }}>
@@ -1600,41 +1613,28 @@ export default function ItemsStep({
                         marginBottom: '6px',
                       }}
                     >
-                      KDV ORANI (Odoo'dan otomatik — değiştirilemez)
+                      KDV ORANI (kategori varsayılanı — değiştirilebilir)
                     </div>
-                    <div
-                      style={{
-                        ...inputStyle,
-                        display: 'flex',
-                        alignItems: 'center',
-                        backgroundColor: '#f9fafb',
-                        color: '#374151',
-                        fontWeight: 700,
-                        cursor: 'not-allowed',
-                      }}
+                    <select
+                      value={selectedTaxId ?? ''}
+                      onChange={(e) => setSelectedTaxId(e.target.value ? Number(e.target.value) : null)}
+                      style={{ ...inputStyle, fontWeight: 700 }}
                     >
-                      {kdvOtomatikYukleniyor
-                        ? 'Odoo\'dan okunuyor…'
-                        : selectedTaxId != null
-                          ? (taxes.find((t) => t.id === selectedTaxId)?.name ?? `%${taxes.find((t) => t.id === selectedTaxId)?.amount}`)
-                          : '—'}
-                    </div>
-                    {kdvOtomatikHata ? (
-                      <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, fontWeight: 600 }}>{kdvOtomatikHata}</div>
-                    ) : null}
+                      <option value="">Seçiniz</option>
+                      {taxes.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name ?? `%${t.amount}`}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </div>
                 <div style={{ marginTop: '12px', display: 'flex', gap: '10px' }}>
                   <button type="button" onClick={() => (editingItem ? close() : setStep(3))} style={{ ...ghostBtnStyle, flex: 1 }}>
                     Geri
                   </button>
-                  <button
-                    type="button"
-                    disabled={kdvOtomatikYukleniyor}
-                    onClick={() => void save()}
-                    style={{ ...primaryBtnStyle, flex: 1, padding: '12px 14px', opacity: kdvOtomatikYukleniyor ? 0.6 : 1, cursor: kdvOtomatikYukleniyor ? 'not-allowed' : 'pointer' }}
-                  >
-                    {kdvOtomatikYukleniyor ? 'KDV okunuyor…' : 'Kaydet'}
+                  <button type="button" onClick={() => void save()} style={{ ...primaryBtnStyle, flex: 1, padding: '12px 14px' }}>
+                    Kaydet
                   </button>
                 </div>
               </div>
