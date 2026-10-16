@@ -103,8 +103,19 @@ export default function SatisYonetimPage() {
   const [durumSaving, setDurumSaving] = useState(false)
 
   useEffect(() => {
-    adminApi.get('/admin/branches').then((r) => setBranches(r.data ?? [])).catch(() => setBranches([]))
-    adminApi.get('/admin/users').then((r) => setPersoneller(r.data ?? [])).catch(() => setPersoneller([]))
+    // NOT (16.10.2026): '/admin/branches' Odoo stock.location listesini
+    // {success,data:[{id,name,complete_name}]} şeklinde döner (başka bir
+    // amaç için var) — asıl DB şube kaydı (id/name/code) '/admin/branch-list'
+    // içinde ve o da {success,data:[...]} sarmalıyla gelir. İlk denemede
+    // yanlış endpoint + yanlış unwrap kullanılmıştı, bu da "satislar.map
+    // is not a function" ile sayfanın anında çökmesine (bembeyaz ekran)
+    // sebep oluyordu.
+    adminApi.get('/admin/branch-list', { params: { tumu: 1 } })
+      .then((r) => setBranches(Array.isArray(r.data?.data) ? r.data.data : []))
+      .catch(() => setBranches([]))
+    adminApi.get('/admin/users')
+      .then((r) => setPersoneller(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setPersoneller([]))
   }, [])
 
   const yukle = useCallback(async () => {
@@ -119,7 +130,7 @@ export default function SatisYonetimPage() {
       if (dateTo) params.dateTo = dateTo
       if (aramaMetin.trim()) params.q = aramaMetin.trim()
       const res = await adminApi.get('/sales', { params })
-      setSatislar(res.data ?? [])
+      setSatislar(Array.isArray(res.data) ? res.data : [])
     } catch (e: any) {
       setHata(e?.response?.data?.message ?? 'Satışlar yüklenemedi.')
       setSatislar([])
