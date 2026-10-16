@@ -85,6 +85,24 @@ function stokCamAramaTerimi(sph: number, cyl: number): string {
   return `${stokCamSayiFormatla(sph)} ${stokCamSayiFormatla(cyl)}`
 }
 
+/** SPH+CYL'nin TEK birleşik ve art arda ifade olarak (ör. "-0200 -0200") ürün
+ *  metninde BİREBİR geçip geçmediğini kontrol eder — backend'in ayrı-ayrı
+ *  token AND filtresi SPH==CYL durumunda yanlış pozitif üretiyordu (bkz. yukarı
+ *  yorum), bu fonksiyon o sorunu client-side'da kesin olarak kapatır. */
+function terimBirebirGeciyorMu(u: TransferUrun, terim: string): boolean {
+  const hay = `${u.ad ?? ''} ${u.varyant ?? ''}`
+  return hay.includes(terim)
+}
+
+/** "1.56 Blue -0200 -0200" gibi bir üründen, sondaki "SPH CYL" terimini
+ *  atarak marka/seri adını ("1.56 Blue") çıkarır — reçete öneri sonuçlarını
+ *  marka bazında gruplamak için kullanılır. */
+function stokCamMarkaCikar(u: TransferUrun, terim: string): string {
+  const ad = u.ad ?? ''
+  const sonEk = ` ${terim}`
+  return ad.endsWith(sonEk) ? ad.slice(0, -sonEk.length) : ad
+}
+
 type OneriTarafKey = 'uzak_r' | 'uzak_l' | 'yakin_r' | 'yakin_l'
 
 function receteTarafDolu(rx: any, numaraTipi: 'uzak' | 'yakin', taraf: 'r' | 'l'): boolean {
@@ -326,6 +344,10 @@ export default function ItemsStep({
   const [oneriTaraf, setOneriTaraf] = useState<OneriTarafKey>('uzak_r')
   const [kontaktOneriTaraf, setKontaktOneriTaraf] = useState<'r' | 'l'>('r')
   const [receteOneriSonuclari, setReceteOneriSonuclari] = useState<{ tam: TransferUrun[]; transpoze: TransferUrun[] }>({ tam: [], transpoze: [] })
+  // Render sırasında sonuçları markaya göre gruplamak için hangi arama
+  // teriminin ("-0200 -0200" gibi) tam/transpoze sonuçlarını ürettiğini
+  // saklıyoruz — stokCamMarkaCikar bu terimi ürün adından çıkarmak için kullanır.
+  const [receteOneriTerimler, setReceteOneriTerimler] = useState<{ tam: string; transpoze: string }>({ tam: '', transpoze: '' })
   const [receteOneriYukleniyor, setReceteOneriYukleniyor] = useState(false)
   // Reçeteye göre öneri artık VARSAYILAN KAPALI — kullanıcı isteğe bağlı açıyor.
   // Varsayılan davranış normal/düz varyant aramasıdır.
@@ -416,6 +438,7 @@ export default function ItemsStep({
   useEffect(() => {
     if (!modalOpen || step !== 3 || !receteOnerisiAcik) {
       setReceteOneriSonuclari({ tam: [], transpoze: [] })
+      setReceteOneriTerimler({ tam: '', transpoze: '' })
       return
     }
     const stokCamKategoriler = pickedKategoriIds?.length
@@ -425,6 +448,7 @@ export default function ItemsStep({
         : []
     if (!stokCamKategoriler.length || !customerPrescription) {
       setReceteOneriSonuclari({ tam: [], transpoze: [] })
+      setReceteOneriTerimler({ tam: '', transpoze: '' })
       return
     }
     const rx = customerPrescription as any
@@ -435,6 +459,7 @@ export default function ItemsStep({
     const aksRaw = parseInt(String(rx?.[`${prefix}_${taraf}_aks`] ?? '0'))
     if (isNaN(sphRaw) && isNaN(cylRaw)) {
       setReceteOneriSonuclari({ tam: [], transpoze: [] })
+      setReceteOneriTerimler({ tam: '', transpoze: '' })
       return
     }
     const sph = isNaN(sphRaw) ? 0 : sphRaw
@@ -452,13 +477,24 @@ export default function ItemsStep({
         ? Promise.resolve([])
         : searchTransferProducts({ q: transpozeTerim, yontem: 'ad', lokasyon, kategoriIds: stokCamKategoriler, katalog: true }).catch(() => []),
     ])
-      .then(([tamRows, transpozeRows]) => {
+      .then(([tamRowsHam, transpozeRowsHam]) => {
         if (iptal) return
+        // DÜZELTME (16.10.2026): backend'in token-bazlı AND filtresi SPH ve CYL'yi
+        // İKİ AYRI kelime gibi arıyor. SPH ve CYL aynı değerdeyse (ör. -2.00/-2.00
+        // → ikisi de "-0200") iki token birbirinin AYNISI olduğu için kontrol
+        // aslında "metinde en az bir kere -0200 geçsin" haline düşüyor — CYL'si
+        // -0200 olan ama SPH'si tamamen farklı onlarca varyant da "tam eşleşme"
+        // diye listeye giriyordu (301 sonuç şişmesi şikayeti). Burada SPH+CYL'yi
+        // TEK BİRLEŞİK ve ART ARDA bir ifade olarak ("-0200 -0200") aratıp sadece
+        // bunu BİREBİR içeren satırları bırakıyoruz.
+        const tamRows = tamRowsHam.filter((r) => terimBirebirGeciyorMu(r, tamTerim))
+        const transpozeRows = transpozeRowsHam.filter((r) => terimBirebirGeciyorMu(r, transpozeTerim))
         const tamIds = new Set(tamRows.map((r) => String(r.id)))
         setReceteOneriSonuclari({
           tam: tamRows,
           transpoze: transpozeRows.filter((r) => !tamIds.has(String(r.id))),
         })
+        setReceteOneriTerimler({ tam: tamTerim, transpoze: transpozeTerim })
       })
       .finally(() => {
         if (!iptal) setReceteOneriYukleniyor(false)
@@ -1140,10 +1176,23 @@ export default function ItemsStep({
                     )
                   }
                   const activeKey = tabDefs.some((t) => t.key === oneriTaraf) ? oneriTaraf : tabDefs[0].key
-                  const onerilen = [
-                    ...receteOneriSonuclari.tam.map((u) => ({ ...u, _eslesme: 'tam' as const })),
-                    ...receteOneriSonuclari.transpoze.map((u) => ({ ...u, _eslesme: 'transpoze' as const })),
+                  const onerilenHam = [
+                    ...receteOneriSonuclari.tam.map((u) => ({ ...u, _eslesme: 'tam' as const, _terim: receteOneriTerimler.tam })),
+                    ...receteOneriSonuclari.transpoze.map((u) => ({ ...u, _eslesme: 'transpoze' as const, _terim: receteOneriTerimler.transpoze })),
                   ]
+                  // Markaya göre grupla: "1.56 Blue -0200 -0200" ve "1.56 Blue -0400 0200"
+                  // gibi AYNI markanın farklı SPH/CYL varyantları artık exact-match
+                  // filtresinden (terimBirebirGeciyorMu) geçtiği için her markadan
+                  // SADECE gerçek reçeteye uyan TEK satırı gösteriyoruz — tam
+                  // eşleşme sırada önce geldiği için transpozeye tercih edilir.
+                  const markaGorulenler = new Set<string>()
+                  const onerilen: typeof onerilenHam = []
+                  for (const u of onerilenHam) {
+                    const marka = stokCamMarkaCikar(u, u._terim)
+                    if (markaGorulenler.has(marka)) continue
+                    markaGorulenler.add(marka)
+                    onerilen.push(u)
+                  }
                   return (
                     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
                       <div style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
