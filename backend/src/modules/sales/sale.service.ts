@@ -973,7 +973,21 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     const orderLines: Array<[0, 0, Record<string, unknown>]> = [];
     for (const item of saleItems.filter((it) => it.odooProductId)) {
       const odooProductId = parseInt(item.odooProductId!, 10);
-      const taxRate = await readProductSaleTaxRate(odooProductId, taxCompanyId);
+      // 16.10.2026 — ÖNEMLİ KÖK NEDEN DÜZELTMESİ: burada önceden HER ZAMAN
+      // Odoo'daki ürünün KENDİ vergi tanımı (readProductSaleTaxRate) okunup
+      // kullanılıyordu — personelin satış ekranında seçtiği/sistemin kategori
+      // varsayılanıyla doldurduğu SaleItem.taxRate tamamen YOK SAYILIYORDU.
+      // Bu yüzden ekranda %10 görünse bile, satış onaylanıp Odoo'ya
+      // gönderilirken Odoo'daki ürün kaydı %20'ye sabitse fatura %20 kesiliyordu
+      // (orijinal "KDV yi yanlış girmişiz" şikayetinin GERÇEK kök nedeni bu).
+      // Artık önce yerelde (kategori varsayılanı ya da elle seçilmiş) kayıtlı
+      // SaleItem.taxRate kullanılıyor; sadece o hiç yoksa/0 ise Odoo'daki ürün
+      // vergisine geri dönülüyor.
+      const localTaxRate = item.taxRate != null ? Number(item.taxRate) : null;
+      const taxRate =
+        localTaxRate != null && localTaxRate > 0
+          ? localTaxRate
+          : await readProductSaleTaxRate(odooProductId, taxCompanyId);
       const { taxId: odooTaxId, priceUnit } = await resolvePosLineTax({
         companyId: odooCompanyId,
         taxRate,
