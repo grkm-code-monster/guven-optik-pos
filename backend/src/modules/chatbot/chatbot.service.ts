@@ -132,8 +132,14 @@ export async function mesajGonder(
     const data: any = await res.json();
 
     if (!res.ok) {
-      const gemHata = data?.error?.message ?? `Gemini API hatası (HTTP ${res.status})`;
-      return { basarili: false, hata: gemHata };
+      // Gemini'nin ham hata mesajı İngilizce gelebiliyor — kullanıcıya her
+      // zaman Türkçe göstermek için kendi açıklamamızı önce yazıp ham detayı
+      // parantez içinde (teknik referans için) ekliyoruz.
+      const gemHataHam = data?.error?.message ?? `HTTP ${res.status}`;
+      return {
+        basarili: false,
+        hata: `Asistan şu an yanıt veremedi, lütfen birazdan tekrar deneyin. (${gemHataHam})`,
+      };
     }
 
     const yanit: string =
@@ -161,7 +167,12 @@ export async function mesajGonder(
       kalanHak: yeniKullanim.kalanHak,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { basarili: false, hata: message };
+    // Ağ/istisna hataları genelde İngilizce geliyor (ör. "fetch failed") —
+    // kullanıcıya her zaman Türkçe göstermek için sarmalıyoruz.
+    const hamMesaj = err instanceof Error ? err.message : String(err);
+    return {
+      basarili: false,
+      hata: `Asistana bağlanırken bir sorun oluştu, lütfen tekrar deneyin. (${hamMesaj})`,
+    };
   }
 }
