@@ -22,10 +22,14 @@ export const DIREKT_KATEGORI_ID: Partial<Record<ItemType, number>> = {
 /** Tek tıkta tüm alt kategorileri birlikte ara */
 export const MULTI_KATEGORI_IDS: Partial<Record<string, number[]>> = {
   'Progresif': [11, 12, 13, 14],
-  // Stok Cam: Beyaz (Standart/Plus/Prime) + Fotokromik (Standart/Plus/Prime) —
-  // reçete bazlı öneri aynı diyoptride BİRDEN FAZLA alt tipte (Org ET, Org,
-  // Fotokromik Füme vb.) eşleşme bulabilsin diye tek tıkta hepsi birlikte aranır.
-  'Stok Cam': [35, 36, 37, 39, 40, 41],
+  // NOT (16.10.2026): "Stok Cam" buradan ÇIKARILDI — bu kısayol "Stok Cam"
+  // tıklanınca Beyaz/Fotokromik (ve altındaki Standart/Plus/Prime) alt
+  // kategori seçimini tamamen atlayıp direkt 6 kategoriyi birden arama
+  // ekranına götürüyordu; personel artık belirli bir gruba (ör. "Fotokromik
+  // Plus") manuel gidemiyordu — "gruplar kayboldu" şikayeti. Reçeteye göre
+  // öneri özelliği buna bağlı DEĞİL (ItemsStep.tsx'teki STOK_CAM_KATEGORI_IDS
+  // sabit listesiyle, hangi tek leaf seçilirse seçilsin zaten çalışıyor),
+  // o yüzden bu kısayolu kaldırmak öneri özelliğini bozmaz.
 }
 
 export function hasKategoriTree(type: ItemType): boolean {
