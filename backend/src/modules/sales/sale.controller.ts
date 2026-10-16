@@ -188,6 +188,23 @@ router.post('/:id/confirm', async (req: Request, res: Response, next: NextFuncti
   }
 });
 
+// Satış akışında KDV artık personelin elle seçtiği bir alan değil — ürün
+// Odoo'da hangi vergiye bağlıysa frontend o oranı buradan okuyup salt-okunur
+// gösterir (16.10.2026, bkz. sale.service.ts getUrunKdvOrani açıklaması).
+router.get('/urun-kdv-orani', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const odooProductId = typeof req.query.odooProductId === 'string' ? req.query.odooProductId : '';
+    if (!odooProductId) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'odooProductId gerekli.' });
+    }
+    const kdvOrani = await saleService.getUrunKdvOrani(odooProductId);
+    return res.status(200).json({ kdvOrani });
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
 // Personel Fiyat Listesi: sadece Mağaza Müdürü ve üstü rolüyle giriş yapan kullanıcılar hesaplayabilir.
 router.post(
   '/personel-fiyat-hesapla',

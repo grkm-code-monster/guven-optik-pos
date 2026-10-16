@@ -141,6 +141,14 @@ export async function hesaplaPersonelFiyati(odooProductId: string): Promise<Pers
   return res.data
 }
 
+// Satış akışında KDV artık personelin elle seçtiği bir alan değil (16.10.2026
+// — "%20 yerine %10 girilmiş" hatası sonrası). Ürün Odoo'da hangi vergiye
+// bağlıysa o oran burada okunur ve ItemsStep.tsx'te salt-okunur gösterilir.
+export async function getUrunKdvOrani(odooProductId: string): Promise<number> {
+  const res = await apiClient.get('/sales/urun-kdv-orani', { params: { odooProductId } })
+  return res.data?.kdvOrani
+}
+
 export async function getSales(filters?: {
   status?: string
   customerId?: string

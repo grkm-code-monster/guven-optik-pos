@@ -717,6 +717,20 @@ export async function hesaplaPersonelFiyati(odooProductIdRaw: string) {
   };
 }
 
+// Satış akışında KDV oranı artık personelin ELLE seçtiği bir alan DEĞİL —
+// (16.10.2026, %20 yerine %10 girilmesi hatası sonrası) ürün Odoo'da
+// hangi vergiye bağlıysa o oran burada okunup frontend'e salt-okunur olarak
+// gösteriliyor. Personel artık bu oranı DEĞİŞTİREMİYOR; yanlış/eksik
+// olduğu sonradan fark edilirse düzeltme yolu duzenleSaleItemKdv'dir
+// (admin-only, bkz. yukarı).
+export async function getUrunKdvOrani(odooProductIdRaw: string): Promise<number> {
+  const odooProductId = Number(String(odooProductIdRaw).replace(/^odoo_/, ''));
+  if (!odooProductId) {
+    throw codeError('PRODUCT_ID_MISSING', 'Odoo ürün ID bulunamadı.');
+  }
+  return readProductSaleTaxRate(odooProductId);
+}
+
 export async function confirmSale(saleId: string, userId: string, role: Role, input: ConfirmSaleInputType) {
   let sale = await prisma.sale.findUnique({ where: { id: saleId } });
   if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');

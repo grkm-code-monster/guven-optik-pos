@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { searchTransferProducts, type TransferUrun } from '../../api/transfer.api'
-import { addItem, deleteItem, getSaleById, hesaplaPersonelFiyati, updateItem } from '../../api/sales.api'
+import { addItem, deleteItem, getSaleById, getUrunKdvOrani, hesaplaPersonelFiyati, updateItem } from '../../api/sales.api'
 import { apiClient } from '../../api/client'
 import { useAuthStore } from '../../store/auth.store'
 import BarkodKameraInput from '../BarkodKameraInput'
@@ -335,6 +335,9 @@ export default function ItemsStep({
 
   const [taxes, setTaxes] = useState<Array<{ id: number; name: string; amount: number }>>([])
   const [selectedTaxId, setSelectedTaxId] = useState<number | null>(null)
+  // KDV artık Odoo'dan otomatik okunuyor (16.10.2026) — bkz. aşağıdaki useEffect.
+  const [kdvOtomatikYukleniyor, setKdvOtomatikYukleniyor] = useState(false)
+  const [kdvOtomatikHata, setKdvOtomatikHata] = useState<string | null>(null)
   const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount')
   const [discountInput, setDiscountInput] = useState('0')
   const [prescriptionType, setPrescriptionType] = useState<string>('')
@@ -821,19 +824,49 @@ export default function ItemsStep({
     setUnitPrice(String(item?.unitPrice ?? item?.product?.price ?? ''))
     setDiscountInput(String(item?.discount ?? '0'))
     setDiscountType('amount')
-    const match = taxes.find((t) => Math.abs(t.amount - Number(item.product?.taxRate ?? 20)) < 0.1)
-    if (match) setSelectedTaxId(match.id)
+    // KDV artık burada elle eşleştirilmiyor — aşağıdaki useEffect pickedProduct
+    // set edilince Odoo'dan otomatik okuyup selectedTaxId'yi günceller.
     setStep(4)
   }
 
+  // KDV artık personelin elle seçtiği bir alan DEĞİL (16.10.2026 — bir satışta
+  // sehven %20 girilmiş, olması gereken %10'muş hatası sonrası). Ürün Odoo'da
+  // hangi vergiye bağlıysa o oran burada OTOMATİK okunup salt-okunur
+  // gösterilir; personel artık bunu değiştiremez. Sonradan hatalı/eksik
+  // çıktığı fark edilirse düzeltme yolu "KDV Düzeltme" (admin-only, Satış
+  // Detay / Yönetim Paneli) ekranıdır, bu seçim kutusu değil.
   useEffect(() => {
-    if (!modalOpen || step !== 4) return
-    if (selectedTaxId != null) return
-    if (!taxes.length) return
-    const baseRate = Number(editingItem?.product?.taxRate ?? 20)
-    const match = taxes.find((t) => Math.abs(t.amount - baseRate) < 0.1)
-    if (match) setSelectedTaxId(match.id)
-  }, [modalOpen, step, taxes, editingItem?.product?.taxRate, selectedTaxId])
+    if (!modalOpen || step !== 4 || !pickedProduct?.odooVariantId || !taxes.length) return
+    let iptal = false
+    setKdvOtomatikYukleniyor(true)
+    setKdvOtomatikHata(null)
+    getUrunKdvOrani(pickedProduct.odooVariantId)
+      .then((oran) => {
+        if (iptal) return
+        const match = taxes.find((t) => Math.abs(t.amount - Number(oran)) < 0.1)
+        if (match) {
+          setSelectedTaxId(match.id)
+        } else {
+          setKdvOtomatikHata(`Odoo'da %${oran} KDV için tanımlı vergi kaydı bulunamadı — yöneticinize bildirin.`)
+        }
+      })
+      .catch(() => {
+        if (iptal) return
+        // Odoo'ya erişilemedi — personelin eski hatalı davranışına (elle seçim)
+        // geri dönmek yerine güvenli varsayılan (%20) uygulanır, satış sonrası
+        // "KDV Düzeltme" ekranından elle doğrulanabilir.
+        const fallback = taxes.find((t) => Math.abs(t.amount - 20) < 0.1)
+        if (fallback) setSelectedTaxId(fallback.id)
+        setKdvOtomatikHata("KDV oranı Odoo'dan otomatik okunamadı, %20 varsayıldı — satış sonrası KDV Düzeltme ekranından kontrol edin.")
+      })
+      .finally(() => {
+        if (!iptal) setKdvOtomatikYukleniyor(false)
+      })
+    return () => {
+      iptal = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalOpen, step, pickedProduct?.odooVariantId, taxes])
 
   return (
     <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px' }}>
@@ -1567,28 +1600,41 @@ export default function ItemsStep({
                         marginBottom: '6px',
                       }}
                     >
-                      KDV ORANI
+                      KDV ORANI (Odoo'dan otomatik — değiştirilemez)
                     </div>
-                    <select
-                      value={selectedTaxId ?? ''}
-                      onChange={(e) => setSelectedTaxId(e.target.value ? Number(e.target.value) : null)}
-                      style={inputStyle}
+                    <div
+                      style={{
+                        ...inputStyle,
+                        display: 'flex',
+                        alignItems: 'center',
+                        backgroundColor: '#f9fafb',
+                        color: '#374151',
+                        fontWeight: 700,
+                        cursor: 'not-allowed',
+                      }}
                     >
-                      <option value="">Seçiniz</option>
-                      {taxes.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} ({t.amount}%)
-                        </option>
-                      ))}
-                    </select>
+                      {kdvOtomatikYukleniyor
+                        ? 'Odoo\'dan okunuyor…'
+                        : selectedTaxId != null
+                          ? (taxes.find((t) => t.id === selectedTaxId)?.name ?? `%${taxes.find((t) => t.id === selectedTaxId)?.amount}`)
+                          : '—'}
+                    </div>
+                    {kdvOtomatikHata ? (
+                      <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4, fontWeight: 600 }}>{kdvOtomatikHata}</div>
+                    ) : null}
                   </label>
                 </div>
                 <div style={{ marginTop: '12px', display: 'flex', gap: '10px' }}>
                   <button type="button" onClick={() => (editingItem ? close() : setStep(3))} style={{ ...ghostBtnStyle, flex: 1 }}>
                     Geri
                   </button>
-                  <button type="button" onClick={() => void save()} style={{ ...primaryBtnStyle, flex: 1, padding: '12px 14px' }}>
-                    Kaydet
+                  <button
+                    type="button"
+                    disabled={kdvOtomatikYukleniyor}
+                    onClick={() => void save()}
+                    style={{ ...primaryBtnStyle, flex: 1, padding: '12px 14px', opacity: kdvOtomatikYukleniyor ? 0.6 : 1, cursor: kdvOtomatikYukleniyor ? 'not-allowed' : 'pointer' }}
+                  >
+                    {kdvOtomatikYukleniyor ? 'KDV okunuyor…' : 'Kaydet'}
                   </button>
                 </div>
               </div>
