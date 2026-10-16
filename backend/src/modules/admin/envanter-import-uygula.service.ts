@@ -314,7 +314,15 @@ export async function uygulaEnvanterImport(input: {
       }
 
       const vKey = muaf ? row.barkod.trim() : varyantKey(row.model, row.renk, row.olcu);
-      let varyantId = varyantIdCache.get(vKey) ?? null;
+      const preview = onizlemeBySatirNo.get(row.satirNo);
+      // 16.10.2026 — önizleme barkod üzerinden KESİN bir varyant ID'si
+      // bulduysa (resolvedVariantId) onu kullan; isim/ptav ile tekrar arama
+      // YAPMA. Önceden burada findVariantProductId (model/renk/ölçü string
+      // eşleşmesi) tekrar çağrılıyordu — önizlemede "mevcut varyant" denip
+      // burada eşleşme bulunamayınca "Varyant ID çözülemedi" hatası ya da
+      // (muaf kategorilerde barkod üzerinden farklı bir yoldan) yanlış
+      // sonuç çıkabiliyordu (OTTO OPTİK ÇERÇEVE şikayeti).
+      let varyantId = preview?.resolvedVariantId ?? varyantIdCache.get(vKey) ?? null;
 
       if (row.odooVaryantId) {
         const resolved = await resolveVariantByOdooId(row.odooVaryantId, row.barkod);

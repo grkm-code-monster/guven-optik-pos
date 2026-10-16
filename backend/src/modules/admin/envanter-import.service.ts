@@ -30,6 +30,11 @@ export type ParsedEnvanterRow = {
 export type EnvanterSatirOnizleme = ParsedEnvanterRow & {
   durum: EnvanterSatirDurum;
   mesaj: string;
+  // Barkod üzerinden KESİN olarak tespit edilmiş Odoo product.product ID'si
+  // (16.10.2026 — restok tespiti artık şablon adı/model-renk-ölçü string
+  // eşleşmesine değil, doğrudan barkoda bakıyor). Doluysa uygulama adımı
+  // bu ID'yi kullanır, tekrar isim/ptav ile arama YAPMAZ.
+  resolvedVariantId?: number;
 };
 
 export type EnvanterVaryantGrup = {
@@ -314,22 +319,57 @@ function validateRow(row: ParsedEnvanterRow): string | null {
 
 async function loadOdooLookup(): Promise<{
   barcodeSet: Set<string>;
+  productByBarcode: Map<string, { id: number; tmplId: number }>;
   templatesByName: Map<string, Array<{ id: number; name: string; categName: string }>>;
+  templatesById: Map<number, { name: string; categName: string }>;
   attrIds: { model?: number; renk?: number; olcu?: number };
   attrValues: Map<string, number>;
   variantsByTmpl: Map<number, Set<string>>;
+  utsMap: Map<string, { lotId: number; lotName: string }>;
 }> {
   console.log(`[envanter-onizle] loadOdooLookup başladı ts=${new Date().toISOString()}`);
   const barcodeSet = new Set<string>();
+  // 16.10.2026 — restok tespiti artık ŞABLON ADI / MODEL-RENK-ÖLÇÜ string
+  // eşleşmesine DEĞİL, doğrudan BARKODA bakıyor (barkod Odoo'da product.product
+  // seviyesinde tekil ve ürünün gerçek kimliği). Önceden sadece "barkod var mı
+  // yok mu" bakılıp sonra isim/ptav eşleşmesi aranıyordu — isim arama limitleri
+  // (5000 şablon) veya model/renk/ölçü yazım farkları yüzünden eşleşme
+  // bulunamayınca ZATEN VAR OLAN bir ürün için "Barkod Odoo'da zaten kayıtlı"
+  // hatası ya da yanlışlıkla "Yeni Varyant" (mükerrer varyant denemesi)
+  // çıkıyordu (MUSTANG / OTTO ÇERÇEVE şikayetleri). Artık barkod → product.
+  // product eşlemesi dolays olarak alınıp hangi şablona ait olduğu KESİN
+  // belirleniyor.
+  const productByBarcode = new Map<string, { id: number; tmplId: number }>();
   const withBarcode = await execute(
     'product.product', 'search_read',
     [[['barcode', '!=', false]]],
-    { fields: ['barcode'], limit: 10000 },
-  ) as { barcode: string }[];
+    { fields: ['id', 'barcode', 'product_tmpl_id'], limit: 10000 },
+  ) as { id: number; barcode: string; product_tmpl_id: [number, string] | false }[];
   for (const p of withBarcode) {
-    if (p.barcode?.trim()) barcodeSet.add(p.barcode.trim());
+    const bc = p.barcode?.trim();
+    if (!bc) continue;
+    barcodeSet.add(bc);
+    if (Array.isArray(p.product_tmpl_id)) {
+      productByBarcode.set(bc, { id: p.id, tmplId: p.product_tmpl_id[0] });
+    }
   }
   console.log(`[envanter-onizle] loadOdooLookup: barkod seti tamam (${barcodeSet.size})`);
+
+  // UTS kodu tekilliği (16.10.2026) — "mükerrer UTS" durumu barkod farklı
+  // olsa bile ayrı bir hata olmalı (UTS tıbbi cihaz takibinde tekil olmak
+  // ZORUNDA, "aynı ürün" diye basitçe adet artırılamaz). stock.lot üzerindeki
+  // x_uts_kodu alanına göre GLOBAL bir harita çıkarıyoruz.
+  const utsMap = new Map<string, { lotId: number; lotName: string }>();
+  const lotsWithUts = await execute(
+    'stock.lot', 'search_read',
+    [[['x_uts_kodu', '!=', false]]],
+    { fields: ['id', 'name', 'x_uts_kodu'], limit: 20000, context: { active_test: false } },
+  ) as { id: number; name: string; x_uts_kodu: string | false }[];
+  for (const l of lotsWithUts) {
+    const uts = typeof l.x_uts_kodu === 'string' ? l.x_uts_kodu.trim() : '';
+    if (uts) utsMap.set(uts, { lotId: l.id, lotName: l.name });
+  }
+  console.log(`[envanter-onizle] loadOdooLookup: UTS seti tamam (${utsMap.size})`);
 
   const templates = await execute(
     'product.template', 'search_read',
@@ -339,15 +379,14 @@ async function loadOdooLookup(): Promise<{
   console.log(`[envanter-onizle] loadOdooLookup: şablonlar tamam (${templates.length})`);
 
   const templatesByName = new Map<string, Array<{ id: number; name: string; categName: string }>>();
+  const templatesById = new Map<number, { name: string; categName: string }>();
   for (const t of templates) {
     const key = t.name.trim().toUpperCase();
     const list = templatesByName.get(key) ?? [];
-    list.push({
-      id: t.id,
-      name: t.name,
-      categName: t.categ_id ? t.categ_id[1] : '',
-    });
+    const categName = t.categ_id ? t.categ_id[1] : '';
+    list.push({ id: t.id, name: t.name, categName });
     templatesByName.set(key, list);
+    templatesById.set(t.id, { name: t.name, categName });
   }
 
   const attrs = await execute(
@@ -393,7 +432,7 @@ async function loadOdooLookup(): Promise<{
   }
   console.log(`[envanter-onizle] loadOdooLookup TAMAMLANDI ts=${new Date().toISOString()}`);
 
-  return { barcodeSet, templatesByName, attrIds, attrValues, variantsByTmpl };
+  return { barcodeSet, productByBarcode, templatesByName, templatesById, attrIds, attrValues, variantsByTmpl, utsMap };
 }
 
 async function findTemplate(
@@ -570,6 +609,23 @@ export async function previewEnvanterImport(
     }
     excelBirimler.set(birimKey, row.satirNo);
 
+    // UTS kodu tekilliği (16.10.2026) — UTS tıbbi cihaz takibinde TEKİL olmak
+    // zorunda; barkod aynı ürüne ait olsa bile UTS başka bir lotta zaten
+    // kayıtlıysa bu ayrı ve gerçek bir hata (basitçe adet artırılamaz).
+    // odooLotId dolu satırlar zaten bilinçli "UTS düzeltme" akışı, onları
+    // bu kontrolden muaf tutuyoruz.
+    if (!row.odooLotId && row.utsKodu.trim()) {
+      const mevcutUts = lookup.utsMap.get(row.utsKodu.trim());
+      if (mevcutUts) {
+        satirlar.push({
+          ...row,
+          durum: 'HATA',
+          mesaj: `Mükerrer UTS kodu — Odoo'da zaten kayıtlı (lot #${mevcutUts.lotId}: ${mevcutUts.lotName})`,
+        });
+        continue;
+      }
+    }
+
     if (row.odooLotId) {
       const resolved = await resolveLotForUtsCorrection(row.odooLotId, row.odooVaryantId);
       if (!resolved.ok) {
@@ -613,52 +669,50 @@ export async function previewEnvanterImport(
       continue;
     }
 
-    if (lookup.barcodeSet.has(row.barkod.trim())) {
-      const tmpl = await findTemplate(lookup, row.urunAdi, row.kategori);
-      if (!tmpl) {
-        satirlar.push({
-          ...row,
-          durum: 'HATA',
-          mesaj: 'Barkod Odoo\'da zaten kayıtlı',
-        });
-        continue;
+    // 16.10.2026 — barkod Odoo'da product.product seviyesinde TEKİL ve
+    // ürünün gerçek kimliğidir. Önceden burada önce "şablon adı eşleşiyor
+    // mu" (findTemplate) sonra "model/renk/ölçü (ptav) eşleşiyor mu" diye
+    // bakılıyordu — isim arama limitleri veya yazım farkları eşleşmeyi
+    // bozunca ZATEN VAR OLAN bir ürün ya "Barkod Odoo'da zaten kayıtlı"
+    // hatasına (MUSTANG OPTİK ÇERÇEVE şikayeti) ya da yanlışlıkla "Yeni
+    // Varyant" olarak (OTTO OPTİK ÇERÇEVE şikayeti — zaten var olan varyant
+    // için tekrar oluşturma denemesi) düşüyordu. Artık doğrudan barkodun
+    // Odoo'da hangi şablona ait olduğu (productByBarcode) okunuyor; excel
+    // satırının ürün adıyla o şablonun GERÇEK adı karşılaştırılıp restok mu
+    // yoksa gerçek bir çakışma mı olduğuna karar veriliyor.
+    const mevcutUrun = lookup.productByBarcode.get(row.barkod.trim());
+    if (mevcutUrun) {
+      let mevcutSablonAdi = lookup.templatesById.get(mevcutUrun.tmplId)?.name;
+      if (!mevcutSablonAdi) {
+        // 5000'lik ön-yükleme listesine girmemiş olabilir — canlı oku.
+        const live = (await execute(
+          'product.template', 'read',
+          [[mevcutUrun.tmplId]],
+          { fields: ['name'], context: { active_test: false } },
+        )) as { id: number; name: string }[];
+        mevcutSablonAdi = live[0]?.name ?? `#${mevcutUrun.tmplId}`;
       }
 
-      const ptavKeyVal = await resolveVariantPtavKey(tmpl.id, row, lookup);
-      const mevcutKeys = lookup.variantsByTmpl.get(tmpl.id) ?? new Set<string>();
-      if (ptavKeyVal && mevcutKeys.has(ptavKeyVal)) {
+      const excelAdiNorm = row.urunAdi.trim().toUpperCase();
+      const odooAdiNorm = mevcutSablonAdi.trim().toUpperCase();
+      const ayniUrun = excelAdiNorm === odooAdiNorm
+        || excelAdiNorm.includes(odooAdiNorm)
+        || odooAdiNorm.includes(excelAdiNorm);
+
+      if (ayniUrun) {
         satirlar.push({
           ...row,
           durum: 'MEVCUT_VARYANT',
-          mesaj: `Mevcut varyant — restok (şablon #${tmpl.id})`,
+          mesaj: `Mevcut varyant — restok (barkod ile doğrulandı: "${mevcutSablonAdi}")`,
+          resolvedVariantId: mevcutUrun.id,
         });
         continue;
-      }
-
-      // Cam/Lens (Model/Renk/Ölçü'süz) kategorilerde ptav eşleşmesi hiç
-      // olmaz — bu yüzden aynı şablon altında barkodun doğrudan var olup
-      // olmadığına bakıp restok mu yoksa gerçekten başka bir ürüne mi ait
-      // olduğunu ayırt ediyoruz.
-      if (isModelRenkOlcuMuaf(row.kategori)) {
-        const ayniSablondaVarMi = await execute(
-          'product.product', 'search_read',
-          [[['product_tmpl_id', '=', tmpl.id], ['barcode', '=', row.barkod.trim()]]],
-          { fields: ['id'], limit: 1 },
-        ) as { id: number }[];
-        if (ayniSablondaVarMi.length) {
-          satirlar.push({
-            ...row,
-            durum: 'MEVCUT_VARYANT',
-            mesaj: `Mevcut varyant — restok (şablon #${tmpl.id})`,
-          });
-          continue;
-        }
       }
 
       satirlar.push({
         ...row,
         durum: 'HATA',
-        mesaj: 'Barkod Odoo\'da zaten kayıtlı',
+        mesaj: `Barkod başka bir ürüne kayıtlı — Odoo'da "${mevcutSablonAdi}" olarak kayıtlı, excel'de "${row.urunAdi}" yazıyor`,
       });
       continue;
     }
