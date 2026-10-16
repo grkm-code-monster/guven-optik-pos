@@ -152,6 +152,23 @@ function bilimselGosterimHatasi(value: string): boolean {
   return /[eE]\+/.test(value);
 }
 
+/** Türkçe karakter + büyük/küçük harf farkını yok sayan karşılaştırma için
+ *  (16.10.2026 — "VIVALDI" (excel'de ASCII I ile) ile Odoo'da "VİVALDİ"
+ *  (Türkçe noktalı İ ile) kayıtlı AYNI ürün, düz .toUpperCase() ile farklı
+ *  string sayılıp yanlışlıkla "başka ürüne kayıtlı" hatası veriyordu.
+ *  transfer.service.ts'teki turkishFoldBackend ile aynı mantık). */
+function turkceSadelestir(s: string): string {
+  return String(s ?? '')
+    .replace(/İ/g, 'i').replace(/I/g, 'ı').replace(/ı/g, 'i')
+    .replace(/Ğ/g, 'g').replace(/ğ/g, 'g')
+    .replace(/Ş/g, 's').replace(/ş/g, 's')
+    .replace(/Ç/g, 'c').replace(/ç/g, 'c')
+    .replace(/Ö/g, 'o').replace(/ö/g, 'o')
+    .replace(/Ü/g, 'u').replace(/ü/g, 'u')
+    .toLowerCase()
+    .trim();
+}
+
 function cellTextForCode(value: ExcelJS.CellValue): string {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value.toLocaleString('fullwide', { useGrouping: false });
@@ -631,10 +648,10 @@ export async function previewEnvanterImport(
         });
       } else {
         const ayniVaryant = isModelRenkOlcuMuaf(row.kategori)
-          ? onceki.urunAdi.trim().toUpperCase() === row.urunAdi.trim().toUpperCase()
-          : onceki.model.trim().toUpperCase() === row.model.trim().toUpperCase()
-            && onceki.renk.trim().toUpperCase() === row.renk.trim().toUpperCase()
-            && onceki.olcu.trim().toUpperCase() === row.olcu.trim().toUpperCase();
+          ? turkceSadelestir(onceki.urunAdi) === turkceSadelestir(row.urunAdi)
+          : turkceSadelestir(onceki.model) === turkceSadelestir(row.model)
+            && turkceSadelestir(onceki.renk) === turkceSadelestir(row.renk)
+            && turkceSadelestir(onceki.olcu) === turkceSadelestir(row.olcu);
         if (!ayniVaryant) {
           satirlar.push({
             ...row,
@@ -732,8 +749,8 @@ export async function previewEnvanterImport(
         mevcutSablonAdi = live[0]?.name ?? `#${mevcutUrun.tmplId}`;
       }
 
-      const excelAdiNorm = row.urunAdi.trim().toUpperCase();
-      const odooAdiNorm = mevcutSablonAdi.trim().toUpperCase();
+      const excelAdiNorm = turkceSadelestir(row.urunAdi);
+      const odooAdiNorm = turkceSadelestir(mevcutSablonAdi);
       const ayniUrun = excelAdiNorm === odooAdiNorm
         || excelAdiNorm.includes(odooAdiNorm)
         || odooAdiNorm.includes(excelAdiNorm);
