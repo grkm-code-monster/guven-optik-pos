@@ -584,6 +584,15 @@ export async function previewEnvanterImport(
 ): Promise<EnvanterOnizlemeSonuc> {
   const lookup = await loadOdooLookup();
   const excelBirimler = new Map<string, number>();
+  // 16.10.2026 — excel'in KENDİ İÇİNDE aynı barkodun farklı model/renk/ölçü
+  // (ya da muaf kategorilerde farklı ürün adı) ile tekrar etmesini yakalamak
+  // için. Gerçek bir örnekte görüldü: "OTTO OPTİK ÇERÇEVE" barkodu
+  // 08681715130217 bir satırda model 204OO, başka bir satırda 203OO olarak
+  // girilmiş — muhtemelen veri girişi hatası (kopyala-yapıştır). Barkod
+  // Odoo'da ürünün TEK kimliği olduğu için aynı barkodun iki farklı modele
+  // atanması, hangisi doğruysa o yanlış ürüne stok/UTS eklenmesine yol açar;
+  // bu yüzden içe aktarmadan ÖNCE kullanıcıya gösterilip düzelttirilmeli.
+  const barkodIlkGorulen = new Map<string, { model: string; renk: string; olcu: string; urunAdi: string; satirNo: number }>();
   const satirlar: EnvanterSatirOnizleme[] = [];
 
   let rowIdx = 0;
@@ -608,6 +617,36 @@ export async function previewEnvanterImport(
       continue;
     }
     excelBirimler.set(birimKey, row.satirNo);
+
+    if (!row.odooLotId) {
+      const barkodTrim = row.barkod.trim();
+      const onceki = barkodIlkGorulen.get(barkodTrim);
+      if (!onceki) {
+        barkodIlkGorulen.set(barkodTrim, {
+          model: row.model,
+          renk: row.renk,
+          olcu: row.olcu,
+          urunAdi: row.urunAdi,
+          satirNo: row.satirNo,
+        });
+      } else {
+        const ayniVaryant = isModelRenkOlcuMuaf(row.kategori)
+          ? onceki.urunAdi.trim().toUpperCase() === row.urunAdi.trim().toUpperCase()
+          : onceki.model.trim().toUpperCase() === row.model.trim().toUpperCase()
+            && onceki.renk.trim().toUpperCase() === row.renk.trim().toUpperCase()
+            && onceki.olcu.trim().toUpperCase() === row.olcu.trim().toUpperCase();
+        if (!ayniVaryant) {
+          satirlar.push({
+            ...row,
+            durum: 'HATA',
+            mesaj: isModelRenkOlcuMuaf(row.kategori)
+              ? `Bu barkod excel içinde farklı bir ürünle tekrar ediyor (Excel satır ${onceki.satirNo}: "${onceki.urunAdi}")`
+              : `Bu barkod excel içinde farklı bir model/renk/ölçü ile tekrar ediyor (Excel satır ${onceki.satirNo}: "${onceki.model}/${onceki.renk}/${onceki.olcu}")`,
+          });
+          continue;
+        }
+      }
+    }
 
     // UTS kodu tekilliği (16.10.2026) — UTS tıbbi cihaz takibinde TEKİL olmak
     // zorunda; barkod aynı ürüne ait olsa bile UTS başka bir lotta zaten
