@@ -157,7 +157,7 @@ function bilimselGosterimHatasi(value: string): boolean {
  *  (Türkçe noktalı İ ile) kayıtlı AYNI ürün, düz .toUpperCase() ile farklı
  *  string sayılıp yanlışlıkla "başka ürüne kayıtlı" hatası veriyordu.
  *  transfer.service.ts'teki turkishFoldBackend ile aynı mantık). */
-function turkceSadelestir(s: string): string {
+export function turkceSadelestir(s: string): string {
   return String(s ?? '')
     .replace(/İ/g, 'i').replace(/I/g, 'ı').replace(/ı/g, 'i')
     .replace(/Ğ/g, 'g').replace(/ğ/g, 'g')
@@ -338,6 +338,7 @@ async function loadOdooLookup(): Promise<{
   barcodeSet: Set<string>;
   productByBarcode: Map<string, { id: number; tmplId: number }>;
   templatesByName: Map<string, Array<{ id: number; name: string; categName: string }>>;
+  templatesByNameNoSpace: Map<string, Array<{ id: number; name: string; categName: string }>>;
   templatesById: Map<number, { name: string; categName: string }>;
   attrIds: { model?: number; renk?: number; olcu?: number };
   attrValues: Map<string, number>;
@@ -395,14 +396,26 @@ async function loadOdooLookup(): Promise<{
   ) as { id: number; name: string; categ_id: [number, string] | false }[];
   console.log(`[envanter-onizle] loadOdooLookup: şablonlar tamam (${templates.length})`);
 
+  // 16.10.2026 — anahtar artık turkceSadelestir ile normalize ediliyor
+  // ("VIVALDI" vs "VİVALDİ" gibi Türkçe İ/I farkları için), AYRICA boşluksuz
+  // ikinci bir harita (templatesByNameNoSpace) tutuluyor ("X BLACK" excel'de,
+  // Odoo'da "XBLACK" gibi aralık farkları için — gerçek örnekte görüldü,
+  // eşleşme bulunamayınca Odoo'da ZATEN VAR olan marka için MÜKERRER şablon
+  // açılıyordu).
   const templatesByName = new Map<string, Array<{ id: number; name: string; categName: string }>>();
+  const templatesByNameNoSpace = new Map<string, Array<{ id: number; name: string; categName: string }>>();
   const templatesById = new Map<number, { name: string; categName: string }>();
   for (const t of templates) {
-    const key = t.name.trim().toUpperCase();
-    const list = templatesByName.get(key) ?? [];
+    const key = turkceSadelestir(t.name);
+    const keyNoSpace = key.replace(/\s+/g, '');
     const categName = t.categ_id ? t.categ_id[1] : '';
-    list.push({ id: t.id, name: t.name, categName });
+    const entry = { id: t.id, name: t.name, categName };
+    const list = templatesByName.get(key) ?? [];
+    list.push(entry);
     templatesByName.set(key, list);
+    const listNoSpace = templatesByNameNoSpace.get(keyNoSpace) ?? [];
+    listNoSpace.push(entry);
+    templatesByNameNoSpace.set(keyNoSpace, listNoSpace);
     templatesById.set(t.id, { name: t.name, categName });
   }
 
@@ -449,7 +462,7 @@ async function loadOdooLookup(): Promise<{
   }
   console.log(`[envanter-onizle] loadOdooLookup TAMAMLANDI ts=${new Date().toISOString()}`);
 
-  return { barcodeSet, productByBarcode, templatesByName, templatesById, attrIds, attrValues, variantsByTmpl, utsMap };
+  return { barcodeSet, productByBarcode, templatesByName, templatesByNameNoSpace, templatesById, attrIds, attrValues, variantsByTmpl, utsMap };
 }
 
 async function findTemplate(
@@ -457,7 +470,20 @@ async function findTemplate(
   urunAdi: string,
   kategori: string,
 ): Promise<{ id: number; name: string } | null> {
-  let candidates = lookup.templatesByName.get(urunAdi.trim().toUpperCase()) ?? [];
+  // 16.10.2026 — "X BLACK OPTİK ÇERÇEVE" (excel) vs Odoo'da "XBLACK OPTİK
+  // ÇERÇEVE" (boşluk farkı) örneğinde olduğu gibi, salt .trim().toUpperCase()
+  // ile birebir string eşleşmesi aranması TÜRKÇE KARAKTER (İ/I, Ğ, Ş...) ya da
+  // BOŞLUK farklarında mevcut şablonu bulamıyor ve ZATEN VAR OLAN bir ürün
+  // için yanlışlıkla "Yeni Şablon" oluşturuluyordu. Artık önce Türkçe
+  // normalize edilmiş isim ile, bulunamazsa boşluksuz normalize isim ile
+  // aranıyor (barkod karşılaştırmasında kullanılan turkceSadelestir ile aynı
+  // mantık).
+  const normKey = turkceSadelestir(urunAdi);
+  const normKeyNoSpace = normKey.replace(/\s+/g, '');
+  let candidates = lookup.templatesByName.get(normKey) ?? [];
+  if (!candidates.length) {
+    candidates = lookup.templatesByNameNoSpace.get(normKeyNoSpace) ?? [];
+  }
 
   // ÖNEMLİ: loadOdooLookup, şablonları `limit: 5000` ile ÖN YÜKLÜYOR —
   // katalogda 5000'den fazla şablon varsa (bu mağazada öyle), bazı mevcut
@@ -466,14 +492,22 @@ async function findTemplate(
   // VAR OLAN bir ürün için MÜKERRER şablon açılıyordu (ör. "OSSE GÜNEŞ
   // GÖZLÜĞÜ"). Artık ön-yüklenen listede yoksa, canlı bir Odoo araması ile
   // de kontrol ediliyor — tıpkı gerçek uygulama (uygula) adımındaki
-  // findTemplateId'nin yaptığı gibi.
+  // findTemplateId'nin yaptığı gibi. Birebir eşitlik yerine ilk kelime ile
+  // GENİŞ (ilike) arama yapılıp sonuçlar Türkçe-normalize edilmiş isimle
+  // istemci tarafında filtreleniyor — böylece boşluk/Türkçe karakter farkları
+  // canlı aramada da gözden kaçmıyor.
   if (!candidates.length) {
+    const ilkKelime = urunAdi.trim().split(/\s+/)[0] || urunAdi.trim();
     const live = (await execute(
       'product.template', 'search_read',
-      [[['name', '=', urunAdi.trim()]]],
-      { fields: ['id', 'name', 'categ_id'], limit: 20, context: { active_test: false } },
+      [[['name', 'ilike', ilkKelime]]],
+      { fields: ['id', 'name', 'categ_id'], limit: 100, context: { active_test: false } },
     )) as { id: number; name: string; categ_id: [number, string] | false }[];
-    candidates = live.map((t) => ({ id: t.id, name: t.name, categName: t.categ_id ? t.categ_id[1] : '' }));
+    const eslesen = live.filter((t) => {
+      const tNorm = turkceSadelestir(t.name);
+      return tNorm === normKey || tNorm.replace(/\s+/g, '') === normKeyNoSpace;
+    });
+    candidates = eslesen.map((t) => ({ id: t.id, name: t.name, categName: t.categ_id ? t.categ_id[1] : '' }));
   }
 
   if (!candidates.length) return null;

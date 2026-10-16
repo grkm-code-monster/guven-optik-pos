@@ -5,6 +5,7 @@ import {
   resolveLotForUtsCorrection,
   resolveVariantByOdooId,
   isModelRenkOlcuMuaf,
+  turkceSadelestir,
   type ParsedEnvanterRow,
 } from './envanter-import.service';
 import {
@@ -128,15 +129,24 @@ async function findTemplateId(
   urunAdi: string,
   kategori: string,
 ): Promise<number | null> {
+  // 16.10.2026 — findTemplate() (önizleme) ile PARİTE: boşluk/Türkçe karakter
+  // farkları (ör. "X BLACK OPTİK ÇERÇEVE" vs "XBLACK OPTİK ÇERÇEVE") yüzünden
+  // birebir string eşitliği mevcut şablonu bulamıyor ve mükerrer şablon
+  // açılıyordu. Artık turkceSadelestir ile normalize edilmiş isim (ve
+  // boşluksuz hali) karşılaştırılıyor.
+  const ilkKelime = urunAdi.trim().split(/\s+/)[0] || urunAdi.trim();
   const templates = await execute(
     'product.template', 'search_read',
-    [[['name', 'ilike', urunAdi.trim()]]],
-    { fields: ['id', 'name', 'categ_id'], limit: 20, context: { active_test: false } },
+    [[['name', 'ilike', ilkKelime]]],
+    { fields: ['id', 'name', 'categ_id'], limit: 100, context: { active_test: false } },
   ) as { id: number; name: string; categ_id: [number, string] | false }[];
 
-  const exact = templates.filter(
-    (t) => t.name.trim().toUpperCase() === urunAdi.trim().toUpperCase(),
-  );
+  const normKey = turkceSadelestir(urunAdi);
+  const normKeyNoSpace = normKey.replace(/\s+/g, '');
+  const exact = templates.filter((t) => {
+    const tNorm = turkceSadelestir(t.name);
+    return tNorm === normKey || tNorm.replace(/\s+/g, '') === normKeyNoSpace;
+  });
   if (!exact.length) return null;
   if (exact.length === 1) return exact[0].id;
 
