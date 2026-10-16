@@ -3,7 +3,15 @@ import { useNavigate, useParams } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import { apiClient } from '../api/client'
-import { getSaleById, voidSale, getBranchStaff, reassignSaleUser, type BranchStaffMember } from '../api/sales.api'
+import {
+  getSaleById,
+  voidSale,
+  getBranchStaff,
+  reassignSaleUser,
+  duzenleSaleItemKdv,
+  duzenleSaleItemPrescription,
+  type BranchStaffMember,
+} from '../api/sales.api'
 import type { Sale } from '../api/types'
 import { getMountFrameItems, isLensMeasurementSaleItem } from '../utils/saleMeasurements'
 import { useAuthStore } from '../store/auth.store'
@@ -369,6 +377,20 @@ export default function SaleDetailPage() {
   const [yeniTemsilciId, setYeniTemsilciId] = useState('')
   const [temsilciSaving, setTemsilciSaving] = useState(false)
 
+  // Onaylanmış satışta sonradan keşfedilen KDV hatasını düzeltme (16.10.2026)
+  // — bkz. backend sale.service.ts duzenleSaleItemKdv. Sadece ADMIN'e açık.
+  const [kdvDuzeltItemId, setKdvDuzeltItemId] = useState<string | null>(null)
+  const [kdvDuzeltRate, setKdvDuzeltRate] = useState('')
+  const [kdvDuzeltSebep, setKdvDuzeltSebep] = useState('')
+  const [kdvDuzeltSaving, setKdvDuzeltSaving] = useState(false)
+
+  // Onaylanmış satışta sonradan keşfedilen reçete hatasını düzeltme
+  // (16.10.2026) — bkz. backend sale.service.ts duzenleSaleItemPrescription.
+  const [receteDuzeltItemId, setReceteDuzeltItemId] = useState<string | null>(null)
+  const [receteDuzeltValues, setReceteDuzeltValues] = useState<Record<string, string>>({})
+  const [receteDuzeltSebep, setReceteDuzeltSebep] = useState('')
+  const [receteDuzeltSaving, setReceteDuzeltSaving] = useState(false)
+
   const [payModalOpen, setPayModalOpen] = useState(false)
   const [payAmount, setPayAmount] = useState('')
   const [payType, setPayType] = useState<'CASH' | 'CARD' | 'HAVALE'>('CASH')
@@ -683,6 +705,9 @@ export default function SaleDetailPage() {
 
   const myRole = useAuthStore((s) => s.user?.role)
   const canReassignTemsilci = myRole === 'STORE_MANAGER' || myRole === 'REGIONAL_MANAGER' || myRole === 'ADMIN'
+  // KDV/reçete düzeltme — onaylanmış satışta geçmişe dönük hata düzeltme
+  // olduğu için (muhasebe/reçete riski) bilerek sadece ADMIN'e açık.
+  const canAdminDuzenle = myRole === 'ADMIN'
 
   useEffect(() => {
     if (!temsilciOpen || !sale?.branchId) return
@@ -705,6 +730,88 @@ export default function SaleDetailPage() {
       setError(e?.response?.data?.message ?? 'Satış temsilcisi güncellenemedi')
     } finally {
       setTemsilciSaving(false)
+    }
+  }
+
+  async function submitKdvDuzelt(itemId: string) {
+    if (!sale?.id) return
+    const oran = parseFloat(kdvDuzeltRate.replace(',', '.'))
+    if (isNaN(oran) || oran < 0 || oran > 100) {
+      setError('Geçerli bir KDV oranı girin (0-100).')
+      return
+    }
+    if (kdvDuzeltSebep.trim().length < 5) {
+      setError('Düzeltme sebebini en az 5 karakter yazın.')
+      return
+    }
+    setKdvDuzeltSaving(true)
+    setError(null)
+    try {
+      await duzenleSaleItemKdv(sale.id, itemId, { taxRate: oran, sebep: kdvDuzeltSebep.trim() })
+      setKdvDuzeltItemId(null)
+      setKdvDuzeltRate('')
+      setKdvDuzeltSebep('')
+      setSuccess('KDV düzeltildi — yerel kayıt güncellendi (Odoo faturasına dokunulmadı).')
+      await load()
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'KDV düzeltilemedi')
+    } finally {
+      setKdvDuzeltSaving(false)
+    }
+  }
+
+  function openReceteDuzelt(it: any) {
+    const p = it.prescription ?? {}
+    setReceteDuzeltItemId(it.id)
+    setReceteDuzeltValues({
+      r_sph: p.r_sph != null ? String(p.r_sph) : '',
+      r_cyl: p.r_cyl != null ? String(p.r_cyl) : '',
+      r_aks: p.r_aks != null ? String(p.r_aks) : '',
+      r_add: p.r_add != null ? String(p.r_add) : '',
+      l_sph: p.l_sph != null ? String(p.l_sph) : '',
+      l_cyl: p.l_cyl != null ? String(p.l_cyl) : '',
+      l_aks: p.l_aks != null ? String(p.l_aks) : '',
+      l_add: p.l_add != null ? String(p.l_add) : '',
+    })
+    setReceteDuzeltSebep('')
+  }
+
+  async function submitReceteDuzelt() {
+    if (!sale?.id || !receteDuzeltItemId) return
+    if (receteDuzeltSebep.trim().length < 5) {
+      setError('Düzeltme sebebini en az 5 karakter yazın.')
+      return
+    }
+    const alanlar = ['r_sph', 'r_cyl', 'r_aks', 'r_add', 'l_sph', 'l_cyl', 'l_aks', 'l_add'] as const
+    const degisiklikler: Record<string, number | null> = {}
+    for (const alan of alanlar) {
+      const ham = (receteDuzeltValues[alan] ?? '').trim()
+      if (ham === '') {
+        degisiklikler[alan] = null
+        continue
+      }
+      const sayi = parseFloat(ham.replace(',', '.'))
+      if (isNaN(sayi)) {
+        setError(`${alan} için geçersiz sayı.`)
+        return
+      }
+      degisiklikler[alan] = alan.endsWith('_aks') ? Math.round(sayi) : sayi
+    }
+    setReceteDuzeltSaving(true)
+    setError(null)
+    try {
+      await duzenleSaleItemPrescription(sale.id, receteDuzeltItemId, {
+        sebep: receteDuzeltSebep.trim(),
+        degisiklikler,
+      })
+      setReceteDuzeltItemId(null)
+      setReceteDuzeltSebep('')
+      setSuccess('Reçete düzeltildi.')
+      await load()
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'Reçete düzeltilemedi')
+    } finally {
+      setReceteDuzeltSaving(false)
     }
   }
 
@@ -1441,6 +1548,152 @@ export default function SaleDetailPage() {
               </div>
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {canAdminDuzenle ? (
+        <div style={cardStyle}>
+          <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 4 }}>KDV Düzeltme</div>
+          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>
+            Yanlış girilmiş KDV oranını (örn. %20 yerine %10) düzeltir. Odoo'da kesinleşmiş
+            faturaya dokunulmaz — resmi düzeltme (iade faturası + yeni fatura) gerekiyorsa
+            bunu ayrıca muhasebeyle elle yapman gerekir.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {items.map((it: any) => (
+              <div key={it.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{it.name ?? it.odooProductName ?? it.product?.name ?? 'Ürün'}</div>
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>
+                      Mevcut KDV oranı: <strong>%{it.taxRate != null ? Number(it.taxRate) : '—'}</strong> · KDV tutarı: {money(it.taxAmount)}
+                    </div>
+                  </div>
+                  {kdvDuzeltItemId !== it.id ? (
+                    <button
+                      type="button"
+                      onClick={() => { setKdvDuzeltItemId(it.id); setKdvDuzeltRate(it.taxRate != null ? String(Number(it.taxRate)) : ''); setKdvDuzeltSebep('') }}
+                      style={{ border: '1px solid #e5e7eb', backgroundColor: '#f9fafb', borderRadius: 999, padding: '6px 14px', fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      Düzelt
+                    </button>
+                  ) : null}
+                </div>
+                {kdvDuzeltItemId === it.id ? (
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 700 }}>Doğru KDV oranı (%)</label>
+                      <input
+                        type="text"
+                        value={kdvDuzeltRate}
+                        onChange={(e) => setKdvDuzeltRate(e.target.value)}
+                        placeholder="örn. 10"
+                        style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 4 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 700 }}>Düzeltme sebebi</label>
+                      <input
+                        type="text"
+                        value={kdvDuzeltSebep}
+                        onChange={(e) => setKdvDuzeltSebep(e.target.value)}
+                        placeholder="örn. Sehven %20 girilmiş, ürün %10 KDV'li"
+                        style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 4 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button
+                        type="button"
+                        onClick={() => setKdvDuzeltItemId(null)}
+                        style={{ flex: 1, border: '1px solid #e5e7eb', backgroundColor: '#fff', borderRadius: 999, padding: '8px 12px', fontWeight: 800, cursor: 'pointer' }}
+                      >
+                        Vazgeç
+                      </button>
+                      <button
+                        type="button"
+                        disabled={kdvDuzeltSaving}
+                        onClick={() => void submitKdvDuzelt(it.id)}
+                        style={{ flex: 1, border: 'none', backgroundColor: primary, color: 'white', borderRadius: 999, padding: '8px 12px', fontWeight: 900, cursor: kdvDuzeltSaving ? 'not-allowed' : 'pointer', opacity: kdvDuzeltSaving ? 0.6 : 1 }}
+                      >
+                        {kdvDuzeltSaving ? 'Kaydediliyor...' : 'Kaydet'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {canAdminDuzenle && receteKalemleri.length > 0 ? (
+        <div style={cardStyle}>
+          <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 4 }}>Reçete Düzeltme</div>
+          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>
+            Satış onaylandıktan sonra fark edilen SPH/CYL/AKS/ADD hatasını düzeltir.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {receteKalemleri.map((it: any) => (
+              <div key={it.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{it.name}</div>
+                  {receteDuzeltItemId !== it.id ? (
+                    <button
+                      type="button"
+                      onClick={() => openReceteDuzelt(it)}
+                      style={{ border: '1px solid #e5e7eb', backgroundColor: '#f9fafb', borderRadius: 999, padding: '6px 14px', fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      Düzelt
+                    </button>
+                  ) : null}
+                </div>
+                {receteDuzeltItemId === it.id ? (
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                      {(['r_sph', 'r_cyl', 'r_aks', 'r_add', 'l_sph', 'l_cyl', 'l_aks', 'l_add'] as const).map((alan) => (
+                        <div key={alan}>
+                          <label style={{ fontSize: 10, color: '#6b7280', fontWeight: 700 }}>{alan.toUpperCase().replace('_', ' ')}</label>
+                          <input
+                            type="text"
+                            value={receteDuzeltValues[alan] ?? ''}
+                            onChange={(e) => setReceteDuzeltValues((prev) => ({ ...prev, [alan]: e.target.value }))}
+                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 4, fontSize: 13 }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 700 }}>Düzeltme sebebi</label>
+                      <input
+                        type="text"
+                        value={receteDuzeltSebep}
+                        onChange={(e) => setReceteDuzeltSebep(e.target.value)}
+                        placeholder="örn. Sol göz CYL hatalı girilmiş"
+                        style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 4 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button
+                        type="button"
+                        onClick={() => setReceteDuzeltItemId(null)}
+                        style={{ flex: 1, border: '1px solid #e5e7eb', backgroundColor: '#fff', borderRadius: 999, padding: '8px 12px', fontWeight: 800, cursor: 'pointer' }}
+                      >
+                        Vazgeç
+                      </button>
+                      <button
+                        type="button"
+                        disabled={receteDuzeltSaving}
+                        onClick={() => void submitReceteDuzelt()}
+                        style={{ flex: 1, border: 'none', backgroundColor: primary, color: 'white', borderRadius: 999, padding: '8px 12px', fontWeight: 900, cursor: receteDuzeltSaving ? 'not-allowed' : 'pointer', opacity: receteDuzeltSaving ? 0.6 : 1 }}
+                      >
+                        {receteDuzeltSaving ? 'Kaydediliyor...' : 'Kaydet'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
 

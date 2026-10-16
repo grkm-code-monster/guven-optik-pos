@@ -137,6 +137,39 @@ export const ReassignSaleUserInput = z.object({
 });
 export type ReassignSaleUserInputType = z.infer<typeof ReassignSaleUserInput>;
 
+// Onaylanmış/tamamlanmış satışlarda SONRADAN keşfedilen KDV hatasını düzeltmek
+// için (16.10.2026 — bir satışa %20 girilmiş, olması gereken %10'muş şikayeti).
+// NOT: Odoo'da fatura zaten kesinleşmiş (posted) olduğundan buradaki düzeltme
+// SADECE yerel veritabanı kaydını (SaleItem.taxRate/taxAmount, Sale.taxTotal)
+// düzeltir — Odoo'daki resmi faturaya dokunmaz. Muhasebesel resmi düzeltme
+// (iade faturası + yeni fatura) gerekiyorsa bu ayrıca ve elle yapılmalı.
+export const DuzenleSaleItemKdvInput = z.object({
+  taxRate: z.number().min(0).max(100),
+  sebep: z.string().min(5).max(300),
+});
+export type DuzenleSaleItemKdvInputType = z.infer<typeof DuzenleSaleItemKdvInput>;
+
+// Onaylanmış satışlarda sonradan keşfedilen reçete hatasını düzeltmek için.
+// Şimdilik satış sırasında gösterilen ana SPH/CYL/AKS/ADD alanlarını kapsar —
+// lens/kontakt lens'e özel ek alanlar (bc/dia/renk/marka) ileride istenirse
+// aynı pattern'le eklenebilir.
+export const DuzenleSaleItemPrescriptionInput = z.object({
+  sebep: z.string().min(5).max(300),
+  degisiklikler: z
+    .object({
+      r_sph: z.number().nullable().optional(),
+      r_cyl: z.number().nullable().optional(),
+      r_aks: z.number().int().nullable().optional(),
+      r_add: z.number().nullable().optional(),
+      l_sph: z.number().nullable().optional(),
+      l_cyl: z.number().nullable().optional(),
+      l_aks: z.number().int().nullable().optional(),
+      l_add: z.number().nullable().optional(),
+    })
+    .partial(),
+});
+export type DuzenleSaleItemPrescriptionInputType = z.infer<typeof DuzenleSaleItemPrescriptionInput>;
+
 export const UpdateDraftMetaInput = z.object({
   step: z.union([
     z.literal(1),

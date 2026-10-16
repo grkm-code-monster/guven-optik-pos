@@ -24,6 +24,8 @@ import type {
   AddSaleItemInputType,
   ConfirmSaleInputType,
   CreateSaleInputType,
+  DuzenleSaleItemKdvInputType,
+  DuzenleSaleItemPrescriptionInputType,
   ReassignSaleUserInputType,
   UpdateDraftMetaInputType,
   VoidSaleInputType,
@@ -1499,5 +1501,139 @@ export async function reassignSaleUser(
   });
 
   return updated;
+}
+
+// Onaylanmış/tamamlanmış (DRAFT dışı) bir satış kaleminde SONRADAN keşfedilen
+// KDV oranı hatasını düzeltir (16.10.2026). addSaleItem/updateSaleItem gibi
+// normal kalem güncelleme rotaları satış DRAFT'tan çıktıktan sonra tamamen
+// kapalı (bkz. SALE_NOT_EDITABLE) — bu fonksiyon KASITLI olarak o kısıtlamayı
+// atlar, ÇÜNKÜ Odoo'da fatura zaten kesinleşmiş (posted) durumda ve ona
+// dokunmak muhasebesel olarak mümkün değil (resmi düzeltme = iade faturası +
+// yeni fatura, elle yapılmalı). Burada SADECE yerel kayıt (raporlarda doğru
+// görünmesi için) düzeltilir; bilerek sadece ADMIN'e açık, her işlem
+// AuditLog'a yazılır.
+export async function duzenleSaleItemKdv(
+  saleId: string,
+  itemId: string,
+  actingUser: { userId: string; role: Role },
+  input: DuzenleSaleItemKdvInputType,
+) {
+  if (actingUser.role !== Role.ADMIN) {
+    throw codeError('INSUFFICIENT_PERMISSION', 'Bu işlem için yetkiniz yok.');
+  }
+
+  const item = await prisma.saleItem.findUnique({ where: { id: itemId } });
+  if (!item || item.saleId !== saleId) {
+    throw codeError('SALE_ITEM_NOT_FOUND', 'Kalem bulunamadı.');
+  }
+
+  const eskiTaxRate = item.taxRate != null ? Number(item.taxRate) : null;
+  const eskiTaxAmount = Number(item.taxAmount);
+
+  const { taxAmount: yeniTaxAmount } = calcInclusiveLineAmounts({
+    unitPrice: item.unitPrice,
+    qty: item.qty,
+    discount: item.discount,
+    taxRate: input.taxRate,
+  });
+
+  const sonuc = await prisma.$transaction(async (tx) => {
+    const guncelItem = await tx.saleItem.update({
+      where: { id: itemId },
+      data: { taxRate: input.taxRate, taxAmount: yeniTaxAmount },
+    });
+
+    const tumKalemler = await tx.saleItem.findMany({ where: { saleId } });
+    const yeniTaxTotal = tumKalemler.reduce(
+      (toplam, k) => toplam.plus(k.taxAmount),
+      new Prisma.Decimal(0),
+    );
+    const guncelSale = await tx.sale.update({
+      where: { id: saleId },
+      data: { taxTotal: yeniTaxTotal },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: actingUser.userId,
+        action: 'SALE_ITEM_KDV_DUZELT',
+        entity: 'SaleItem',
+        entityId: itemId,
+        payload: {
+          saleId,
+          eskiTaxRate,
+          eskiTaxAmount,
+          yeniTaxRate: input.taxRate,
+          yeniTaxAmount: yeniTaxAmount.toString(),
+          sebep: input.sebep,
+          not: 'Odoo faturasına dokunulmadı — sadece yerel kayıt düzeltildi.',
+        },
+      },
+    });
+
+    return { item: guncelItem, sale: guncelSale };
+  });
+
+  return sonuc;
+}
+
+// Onaylanmış satışlarda sonradan keşfedilen reçete hatasını (SPH/CYL/AKS/ADD)
+// düzeltir (16.10.2026). Aynı gerekçeyle sadece ADMIN'e açık ve AuditLog'a
+// yazılır — reçete kaydı Odoo'ya senkronize olmadığı için burada Odoo
+// tarafında bir kısıt yok, ama hatalı camın müşteriye verilmiş olabileceği
+// göz önünde bulundurularak dikkatli kullanılmalı.
+export async function duzenleSaleItemPrescription(
+  saleId: string,
+  itemId: string,
+  actingUser: { userId: string; role: Role },
+  input: DuzenleSaleItemPrescriptionInputType,
+) {
+  if (actingUser.role !== Role.ADMIN) {
+    throw codeError('INSUFFICIENT_PERMISSION', 'Bu işlem için yetkiniz yok.');
+  }
+
+  const item = await prisma.saleItem.findUnique({
+    where: { id: itemId },
+    include: { prescription: true },
+  });
+  if (!item || item.saleId !== saleId) {
+    throw codeError('SALE_ITEM_NOT_FOUND', 'Kalem bulunamadı.');
+  }
+  if (!item.prescription) {
+    throw codeError('PRESCRIPTION_NOT_FOUND', 'Bu kalemde reçete kaydı yok.');
+  }
+
+  const eskiDeger: Record<string, unknown> = {};
+  for (const alan of Object.keys(input.degisiklikler) as Array<keyof typeof input.degisiklikler>) {
+    const mevcut = (item.prescription as any)[alan];
+    eskiDeger[alan] = mevcut != null ? Number(mevcut) : null;
+  }
+
+  const sonuc = await prisma.$transaction(async (tx) => {
+    const guncelPrescription = await tx.prescription.update({
+      where: { saleItemId: itemId },
+      data: input.degisiklikler,
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: actingUser.userId,
+        action: 'SALE_ITEM_RECETE_DUZELT',
+        entity: 'Prescription',
+        entityId: guncelPrescription.id,
+        payload: {
+          saleId,
+          saleItemId: itemId,
+          eskiDeger,
+          yeniDeger: input.degisiklikler,
+          sebep: input.sebep,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    return guncelPrescription;
+  });
+
+  return sonuc;
 }
 

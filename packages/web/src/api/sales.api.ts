@@ -98,6 +98,42 @@ export async function reassignSaleUser(
   return res.data
 }
 
+// Onaylanmış satışta sonradan keşfedilen KDV hatasını düzeltme (16.10.2026) —
+// bkz. backend sale.service.ts duzenleSaleItemKdv. Sadece ADMIN. Odoo'daki
+// kesinleşmiş faturaya dokunmaz, sadece yerel SaleItem/Sale kaydını düzeltir.
+export async function duzenleSaleItemKdv(
+  saleId: string,
+  itemId: string,
+  input: { taxRate: number; sebep: string },
+): Promise<{ item: SaleItem; sale: Sale }> {
+  const res = await apiClient.patch(`/sales/${saleId}/kalemler/${itemId}/kdv-duzelt`, input)
+  return res.data
+}
+
+// Onaylanmış satışta sonradan keşfedilen reçete hatasını düzeltme
+// (16.10.2026) — bkz. backend sale.service.ts duzenleSaleItemPrescription.
+// Sadece ADMIN.
+export async function duzenleSaleItemPrescription(
+  saleId: string,
+  itemId: string,
+  input: {
+    sebep: string
+    degisiklikler: Partial<{
+      r_sph: number | null
+      r_cyl: number | null
+      r_aks: number | null
+      r_add: number | null
+      l_sph: number | null
+      l_cyl: number | null
+      l_aks: number | null
+      l_add: number | null
+    }>
+  },
+): Promise<any> {
+  const res = await apiClient.patch(`/sales/${saleId}/kalemler/${itemId}/recete-duzelt`, input)
+  return res.data
+}
+
 export type PersonelFiyatSonuc = { maliyet: number; kdvOrani: number; fiyat: number }
 
 export async function hesaplaPersonelFiyati(odooProductId: string): Promise<PersonelFiyatSonuc> {

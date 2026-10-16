@@ -7,6 +7,8 @@ import {
   AddSaleItemInput,
   ConfirmSaleInput,
   CreateSaleInput,
+  DuzenleSaleItemKdvInput,
+  DuzenleSaleItemPrescriptionInput,
   PersonelFiyatHesaplaInput,
   ReassignSaleUserInput,
   UpdateDraftMetaInput,
@@ -35,6 +37,7 @@ function handleSaleError(err: unknown, res: Response): boolean {
     PAYMENT_AMOUNT_MISMATCH: { status: 400, message: 'Ödeme tutarı satış toplamı ile eşleşmiyor.' },
     PRODUCT_BARCODE_EXISTS: { status: 409, message: 'Bu barkod zaten kayıtlı.' },
     SALE_ALREADY_VOID: { status: 409, message: 'Satış zaten iptal.' },
+    PRESCRIPTION_NOT_FOUND: { status: 404, message: 'Bu kalemde reçete kaydı yok.' },
     INSUFFICIENT_PERMISSION: { status: 403, message: 'Bu işlem için yetkiniz yok.' },
     FORBIDDEN_STATUS_TRANSITION: { status: 403, message: 'Bu durum geçişi için yetkiniz yok.' },
     ATOLYE_BRANCH_REQUIRED: { status: 400, message: 'Laboratuvara gönderim için atölye şubesi seçilmelidir.' },
@@ -241,6 +244,61 @@ router.post(
         parsed.data,
       );
       return res.status(200).json(sale);
+    } catch (err) {
+      if (handleSaleError(err, res)) return;
+      next(err);
+    }
+  },
+);
+
+// Onaylanmış satışta sonradan keşfedilen KDV hatasını düzeltme (16.10.2026) —
+// bkz. sale.service.ts duzenleSaleItemKdv üzerindeki açıklama. Odoo'daki
+// kesinleşmiş faturaya DOKUNMAZ, sadece yerel kaydı düzeltir.
+router.patch(
+  '/:id/kalemler/:itemId/kdv-duzelt',
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = DuzenleSaleItemKdvInput.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Geçersiz istek gövdesi.',
+        details: parsed.error.errors,
+      });
+      const sonuc = await saleService.duzenleSaleItemKdv(
+        req.params.id,
+        req.params.itemId,
+        { userId: req.user!.userId, role: req.user!.role },
+        parsed.data,
+      );
+      return res.status(200).json(sonuc);
+    } catch (err) {
+      if (handleSaleError(err, res)) return;
+      next(err);
+    }
+  },
+);
+
+// Onaylanmış satışta sonradan keşfedilen reçete hatasını düzeltme
+// (16.10.2026) — bkz. sale.service.ts duzenleSaleItemPrescription.
+router.patch(
+  '/:id/kalemler/:itemId/recete-duzelt',
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = DuzenleSaleItemPrescriptionInput.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Geçersiz istek gövdesi.',
+        details: parsed.error.errors,
+      });
+      const sonuc = await saleService.duzenleSaleItemPrescription(
+        req.params.id,
+        req.params.itemId,
+        { userId: req.user!.userId, role: req.user!.role },
+        parsed.data,
+      );
+      return res.status(200).json(sonuc);
     } catch (err) {
       if (handleSaleError(err, res)) return;
       next(err);
