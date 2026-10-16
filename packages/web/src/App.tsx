@@ -34,6 +34,7 @@ import EtiketTasarimciPage from './pages/admin/EtiketTasarimciPage'
 import EtiketSablonDuzenleyici from './pages/admin/EtiketSablonDuzenleyici'
 import DeployPage from './pages/admin/DeployPage'
 import UtsYonetimiPage from './pages/admin/UtsYonetimiPage'
+import SatisYonetimPage from './pages/admin/SatisYonetimPage'
 import BelgeYuklePage from './pages/BelgeYuklePage'
 import SatislarPage from './pages/SatislarPage'
 import MusterilerPage from './pages/MusterilerPage'
@@ -133,6 +134,7 @@ export default function App() {
           <Route path="urun-yapilandirma" element={<UrunYapilandirmaPage />} />
           <Route path="garanti" element={<GarantiYonetimPage />} />
           <Route path="uts" element={<UtsYonetimiPage />} />
+          <Route path="satis-yonetimi" element={<SatisYonetimPage />} />
           <Route path="muhasebe" element={<MuhasebePage />} />
           <Route path="ik" element={<IKPage />} />
           <Route path="finans" element={<FinansPage />} />

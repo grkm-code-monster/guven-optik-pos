@@ -1301,14 +1301,17 @@ export async function voidSale(saleId: string, userId: string, role: Role, input
   return updated;
 }
 
-export async function getSales(branchId: string, filters?: any) {
+export async function getSales(branchId: string | null, filters?: any) {
   const q = typeof filters?.q === 'string' ? filters.q.trim() : '';
   // Metin arama (müşteri adı/telefon/referans no) yapılıyorsa, satış hangi şubede
   // yapılmış olursa olsun bulunabilmeli — bu yüzden şube kapsaması kaldırılıyor
-  // (customerId filtresiyle aynı mantık).
-  const where: any = filters?.customerId || q ? {} : { branchId };
+  // (customerId filtresiyle aynı mantık). branchId=null (16.10.2026) ise ADMIN/
+  // REGIONAL_MANAGER TÜM şubeleri görmek istiyor demektir (bkz. sale.controller.ts
+  // GET '/' — "yönetim panelinde tüm mağazaların satışlarını görmek" ihtiyacı).
+  const where: any = filters?.customerId || q || branchId === null ? {} : { branchId };
   if (filters?.status) where.status = filters.status;
   if (filters?.customerId) where.customerId = filters.customerId;
+  if (filters?.satisUserId) where.userId = filters.satisUserId;
   if (filters?.dateFrom || filters?.dateTo) {
     where.createdAt = {};
     if (filters.dateFrom) where.createdAt.gte = new Date(filters.dateFrom);
@@ -1329,12 +1332,25 @@ export async function getSales(branchId: string, filters?: any) {
       customer: { select: { name: true, phone: true } },
       items: { select: { status: true } },
       _count: { select: { items: true } },
+      user: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'desc' },
     // Arama (q) yapılırken sonuç sayısı sınırlanmaz — eşleşen TÜM satışlar döner.
     // Arama yokken (düz liste) performans için son 100 kayıtla sınırlı kalır.
     ...(q ? {} : { take: 100 }),
   });
+
+  // Sale modelinde Branch'e Prisma ilişkisi tanımlı değil (sadece branchId
+  // scalar) — şube adını listede göstermek için (16.10.2026, yönetim paneli
+  // tüm şubeler görünümü) ayrıca tekil branchId'leri toplu çekiyoruz.
+  const branchIds = Array.from(new Set(sales.map((s) => s.branchId)));
+  const branches = branchIds.length
+    ? await prisma.branch.findMany({
+        where: { id: { in: branchIds } },
+        select: { id: true, name: true, code: true },
+      })
+    : [];
+  const branchMap = new Map(branches.map((b) => [b.id, b]));
 
   // Sürecin en gerisindeki kalem durumu satış listesine "süreç durumu" olarak yansır
   // (PENDING/ORDERED en öncelikli — henüz bitmemiş olanı gösterir).
@@ -1360,6 +1376,7 @@ export async function getSales(branchId: string, filters?: any) {
     itemsCount: s._count.items,
     totalAmount: s.netTotal,
     itemDurum: rollupItemStatus(s.items),
+    branch: branchMap.get(s.branchId) ?? null,
     items: undefined,
     _count: undefined,
   }));

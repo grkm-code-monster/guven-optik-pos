@@ -443,14 +443,26 @@ router.get('/delivery', async (req: Request, res: Response, next: NextFunction) 
   }
 });
 
+// (16.10.2026) ADMIN/REGIONAL_MANAGER yönetim panelinden TÜM şubelerin
+// satışlarını görüp müdahale edebilsin diye (bkz. kdv-duzelt/recete-duzelt
+// rotaları) branch kısıtlaması bu roller için kaldırıldı — query'de ?branchId=
+// verilirse o şubeye daraltılır, verilmezse tüm şubeler döner. Diğer roller
+// (STORE_MANAGER vb.) öncekiyle aynı şekilde SADECE kendi şubesini görür,
+// ?branchId query'si onlar için dikkate alınmaz.
+const CROSS_BRANCH_SALE_ROLES: Role[] = [Role.ADMIN, Role.REGIONAL_MANAGER];
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const sales = await saleService.getSales(req.user!.branchId, {
+    const canCrossBranch = CROSS_BRANCH_SALE_ROLES.includes(req.user!.role);
+    const branchIdFilter = canCrossBranch
+      ? (typeof req.query.branchId === 'string' && req.query.branchId ? req.query.branchId : null)
+      : req.user!.branchId;
+    const sales = await saleService.getSales(branchIdFilter, {
       status: req.query.status,
       customerId: req.query.customerId,
       dateFrom: req.query.dateFrom,
       dateTo: req.query.dateTo,
       q: req.query.q,
+      satisUserId: canCrossBranch ? req.query.satisUserId : undefined,
     });
     return res.status(200).json(sales);
   } catch (err) {

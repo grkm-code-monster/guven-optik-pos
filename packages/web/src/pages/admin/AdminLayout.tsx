@@ -59,6 +59,12 @@ const MENU: MenuGroup[] = [
     ],
   },
   {
+    title: '🧾 SATIŞLAR',
+    items: [
+      { label: 'Satış Yönetimi (Tüm Şubeler)', icon: '🧾', to: '/admin/satis-yonetimi' },
+    ],
+  },
+  {
     title: '💰 MUHASEBE & FİNANS',
     items: [
       { label: 'Muhasebe', to: '/admin/muhasebe' },
