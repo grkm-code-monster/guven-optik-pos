@@ -8,7 +8,14 @@
 @import "tailwindcss";
 @source "./**/*.{js,jsx,ts,tsx}";
 
-:root {
+/* Tailwind v4'te özel renkler de (eski tailwind.config.js'deki
+   theme.extend.colors.brand) @config ile bağlanmadıkça tanınmıyor — bu yüzden
+   "bg-brand-red", "text-brand-red" gibi class'lar hiç CSS üretmiyordu
+   (16.10.2026 — Button bileşeni "Onaya Geç" butonunun küçük/bozuk
+   görünmesi şikayeti). Resmi v4 yöntemi olan @theme bloğuyla tanımlanınca
+   Tailwind bu renk için otomatik olarak TÜM varyantları (bg-/text-/
+   border-/hover: vb.) üretir. */
+@theme {
   --color-brand-red: #C8102E;
   --color-brand-red2: #a50d25;
   --color-brand-light: #fdf2f4;
