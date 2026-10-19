@@ -134,7 +134,22 @@ async function findTemplateId(
   // birebir string eşitliği mevcut şablonu bulamıyor ve mükerrer şablon
   // açılıyordu. Artık turkceSadelestir ile normalize edilmiş isim (ve
   // boşluksuz hali) karşılaştırılıyor.
-  const ilkKelime = urunAdi.trim().split(/\s+/)[0] || urunAdi.trim();
+  //
+  // 19.10.2026 — "DE VALENTINI OPTİK ÇERÇEVE" apply anında "Şablon
+  // bulunamadı" veriyordu, önizleme ise aynı ismi doğru buluyordu. Kök
+  // neden: arama terimi olarak İLK kelime kullanılıyordu ("DE"), ilike bu
+  // 2 harfi Odoo'daki YÜZLERCE şablonun isminde bir yerde eşleştiriyor ve
+  // search_read limit:100 olduğu için gerçek "DE VALENTINI" şablonu dönen
+  // ilk 100 sonucun dışında kalıp kayboluyordu. Önizleme bunu es geçiyordu
+  // çünkü önce loadOdooLookup'ın 5000 şablonluk toplu ön-yüklemesine
+  // bakıyor (orada şablon mevcut), apply ise doğrudan bu dar canlı aramaya
+  // güveniyordu. Artık arama terimi EN UZUN (en ayırt edici) kelime —
+  // kısa/yaygın kelimelerde (DE, LA, OP...) ilike sonuç kümesini
+  // boğmadan asıl markaya odaklanıyor.
+  const kelimeler = urunAdi.trim().split(/\s+/).filter(Boolean);
+  const ilkKelime = kelimeler.length
+    ? kelimeler.reduce((en, k) => (k.length > en.length ? k : en), kelimeler[0])
+    : urunAdi.trim();
   const templates = await execute(
     'product.template', 'search_read',
     [[['name', 'ilike', ilkKelime]]],

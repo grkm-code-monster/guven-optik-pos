@@ -497,7 +497,14 @@ async function findTemplate(
   // istemci tarafında filtreleniyor — böylece boşluk/Türkçe karakter farkları
   // canlı aramada da gözden kaçmıyor.
   if (!candidates.length) {
-    const ilkKelime = urunAdi.trim().split(/\s+/)[0] || urunAdi.trim();
+    // 19.10.2026 — findTemplateId() ile PARİTE: ilk kelime yerine en uzun
+    // (en ayırt edici) kelime kullanılıyor — "DE VALENTINI" gibi isimlerde
+    // kısa ilk kelime ("DE") ilike'ı çok geniş sonuç kümesine boğup
+    // limit:100'ün dışında kaldırabiliyordu, bkz. envanter-import-uygula.service.ts.
+    const kelimeler = urunAdi.trim().split(/\s+/).filter(Boolean);
+    const ilkKelime = kelimeler.length
+      ? kelimeler.reduce((en, k) => (k.length > en.length ? k : en), kelimeler[0])
+      : urunAdi.trim();
     const live = (await execute(
       'product.template', 'search_read',
       [[['name', 'ilike', ilkKelime]]],
