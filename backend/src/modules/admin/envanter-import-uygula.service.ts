@@ -145,28 +145,26 @@ async function findTemplateId(
   // bakıyor (orada şablon mevcut), apply ise doğrudan bu dar canlı aramaya
   // güveniyordu. İlk düzeltme "en uzun kelimeyi" seçiyordu — ama bu da
   // kısa marka adlarında (ZEISS, POLICE, PRADA, RAYBAN, POLO MOON) geri
-  // tepti: bu isimlerde en uzun kelime markanın kendisi değil, HER
-  // şablonda geçen ortak kategori kelimesi "ÇERÇEVE" (7 harf) oluyordu.
-  // "ÇERÇEVE" ile ilike arandığında Odoo'daki TÜM marka+ÇERÇEVE
-  // şablonları (binlerce) eşleşiyor, limit:100 dolup gerçek
-  // "ZEISS/POLICE/... OPTİK ÇERÇEVE" şablonu dışarıda kalıyordu —
-  // kullanıcı canlı programdan bu markaların ZATEN var olduğunu
-  // doğruladı. Artık kategori/jenerik kelimeler (ÇERÇEVE, OPTİK, GÖZLÜK,
-  // GÜNEŞ, GÖZLÜĞÜ, CAM, LENS) arama teriminden ÇIKARILIYOR ve kalan
-  // marka ifadesinin TAMAMI (tek kelime de olsa "ZEISS", iki kelime de
-  // olsa "DE VALENTINI"/"POLO MOON") ilike terimi olarak kullanılıyor —
-  // bu hem kısa hem çok kelimeli marka adlarında isabetli ve dar bir
-  // arama kümesi veriyor.
-  const JENERIK_KELIMELER = new Set([
-    'cerceve', 'optik', 'gozluk', 'gunes', 'gozlugu', 'cam', 'lens', 'gozlukcam',
-  ]);
+  // tepti: en uzun kelime markanın kendisi değil HER şablonda geçen
+  // "ÇERÇEVE" oluyordu ve yine limit:100'ü dolduruyordu. İkinci düzeltme
+  // (sadece marka kelimelerini, kategori kelimelerini çıkarıp) tek başına
+  // marka adını ("ZEISS") aramaya çalıştı — ama ZEISS'in Odoo'da 1300+
+  // CAM (lens) şablonu var; "ZEISS" ilike'ı bunların hepsini de
+  // eşleştirip limit:100'ü yine dolduruyor, gerçek "ZEISS OPTİK ÇERÇEVE"
+  // şablonu alfabetik sırada o 1300+ camın ortasında kalıp kaybolabiliyor.
+  // Artık İSİMDEKİ TÜM kelimeler (kategori kelimeleri dahil: ZEISS +
+  // OPTİK + ÇERÇEVE) ayrı ayrı ilike koşulu olarak VE (AND) ile
+  // aranıyor — Odoo'da domain'de ardışık koşullar varsayılan olarak AND
+  // birleşir. Bu, hem marka hem kategori kelimesini birlikte içeren
+  // (yani sadece gerçek "ZEISS OPTİK ÇERÇEVE" gibi) şablonlara daraltıyor,
+  // tek bir cam şablonu bile "ÇERÇEVE" kelimesini içermediği için elenir.
   const kelimeler = urunAdi.trim().split(/\s+/).filter(Boolean);
-  const anlamliKelimeler = kelimeler.filter((k) => !JENERIK_KELIMELER.has(turkceSadelestir(k)));
-  const aramaTerimi = (anlamliKelimeler.length ? anlamliKelimeler : kelimeler).join(' ').trim()
-    || urunAdi.trim();
+  const andKosullari = kelimeler.length
+    ? kelimeler.map((k) => ['name', 'ilike', k] as [string, string, string])
+    : [['name', 'ilike', urunAdi.trim()] as [string, string, string]];
   const templates = await execute(
     'product.template', 'search_read',
-    [[['name', 'ilike', aramaTerimi]]],
+    [andKosullari],
     { fields: ['id', 'name', 'categ_id'], limit: 100, context: { active_test: false } },
   ) as { id: number; name: string; categ_id: [number, string] | false }[];
 

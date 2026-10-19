@@ -501,23 +501,23 @@ async function findTemplate(
     // arama terimi yapıyordu ("DE VALENTINI" için doğruydu) ama kısa marka
     // adlarında (ZEISS, POLICE, PRADA, RAYBAN, POLO MOON) en uzun kelime
     // markanın kendisi değil HER şablonda geçen ortak kelime "ÇERÇEVE"
-    // oluyordu — bu da ilike'ı binlerce alakasız şablonla boğup
-    // limit:100'ün dışında kaldırıyor, gerçek şablon "bulunamadı"
-    // sanılıyordu (kullanıcı canlı programdan bu markaların zaten var
-    // olduğunu doğruladı). Artık kategori/jenerik kelimeler (ÇERÇEVE,
-    // OPTİK, GÖZLÜK, GÜNEŞ, GÖZLÜĞÜ, CAM, LENS) çıkarılıp kalan marka
-    // ifadesinin TAMAMI ilike terimi olarak kullanılıyor — bkz.
-    // envanter-import-uygula.service.ts'teki aynı düzeltme.
-    const JENERIK_KELIMELER = new Set([
-      'cerceve', 'optik', 'gozluk', 'gunes', 'gozlugu', 'cam', 'lens', 'gozlukcam',
-    ]);
+    // oluyordu. İkinci düzeltme (sadece marka kelimesini arama) da yetmedi:
+    // ZEISS'in Odoo'da 1300+ CAM (lens) şablonu var, "ZEISS" ilike'ı
+    // bunların hepsini eşleştirip limit:100'ü yine dolduruyor, gerçek
+    // "ZEISS OPTİK ÇERÇEVE" şablonu alfabetik sırada o camların arasında
+    // kalıp kaybolabiliyordu (kullanıcı canlı programdan doğruladı).
+    // Artık İSİMDEKİ TÜM kelimeler (kategori kelimeleri dahil: ZEISS +
+    // OPTİK + ÇERÇEVE) ayrı ilike koşulu olarak VE (AND) ile aranıyor —
+    // bu, hem marka hem kategori kelimesini birlikte içeren şablonlara
+    // daralıyor, tek bir cam şablonu bile "ÇERÇEVE" içermediği için elenir.
+    // bkz. envanter-import-uygula.service.ts'teki aynı düzeltme.
     const kelimeler = urunAdi.trim().split(/\s+/).filter(Boolean);
-    const anlamliKelimeler = kelimeler.filter((k) => !JENERIK_KELIMELER.has(turkceSadelestir(k)));
-    const aramaTerimi = (anlamliKelimeler.length ? anlamliKelimeler : kelimeler).join(' ').trim()
-      || urunAdi.trim();
+    const andKosullari = kelimeler.length
+      ? kelimeler.map((k) => ['name', 'ilike', k] as [string, string, string])
+      : [['name', 'ilike', urunAdi.trim()] as [string, string, string]];
     const live = (await execute(
       'product.template', 'search_read',
-      [[['name', 'ilike', aramaTerimi]]],
+      [andKosullari],
       { fields: ['id', 'name', 'categ_id'], limit: 100, context: { active_test: false } },
     )) as { id: number; name: string; categ_id: [number, string] | false }[];
     const eslesen = live.filter((t) => {
