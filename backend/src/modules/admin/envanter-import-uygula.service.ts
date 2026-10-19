@@ -143,16 +143,30 @@ async function findTemplateId(
   // ilk 100 sonucun dışında kalıp kayboluyordu. Önizleme bunu es geçiyordu
   // çünkü önce loadOdooLookup'ın 5000 şablonluk toplu ön-yüklemesine
   // bakıyor (orada şablon mevcut), apply ise doğrudan bu dar canlı aramaya
-  // güveniyordu. Artık arama terimi EN UZUN (en ayırt edici) kelime —
-  // kısa/yaygın kelimelerde (DE, LA, OP...) ilike sonuç kümesini
-  // boğmadan asıl markaya odaklanıyor.
+  // güveniyordu. İlk düzeltme "en uzun kelimeyi" seçiyordu — ama bu da
+  // kısa marka adlarında (ZEISS, POLICE, PRADA, RAYBAN, POLO MOON) geri
+  // tepti: bu isimlerde en uzun kelime markanın kendisi değil, HER
+  // şablonda geçen ortak kategori kelimesi "ÇERÇEVE" (7 harf) oluyordu.
+  // "ÇERÇEVE" ile ilike arandığında Odoo'daki TÜM marka+ÇERÇEVE
+  // şablonları (binlerce) eşleşiyor, limit:100 dolup gerçek
+  // "ZEISS/POLICE/... OPTİK ÇERÇEVE" şablonu dışarıda kalıyordu —
+  // kullanıcı canlı programdan bu markaların ZATEN var olduğunu
+  // doğruladı. Artık kategori/jenerik kelimeler (ÇERÇEVE, OPTİK, GÖZLÜK,
+  // GÜNEŞ, GÖZLÜĞÜ, CAM, LENS) arama teriminden ÇIKARILIYOR ve kalan
+  // marka ifadesinin TAMAMI (tek kelime de olsa "ZEISS", iki kelime de
+  // olsa "DE VALENTINI"/"POLO MOON") ilike terimi olarak kullanılıyor —
+  // bu hem kısa hem çok kelimeli marka adlarında isabetli ve dar bir
+  // arama kümesi veriyor.
+  const JENERIK_KELIMELER = new Set([
+    'cerceve', 'optik', 'gozluk', 'gunes', 'gozlugu', 'cam', 'lens', 'gozlukcam',
+  ]);
   const kelimeler = urunAdi.trim().split(/\s+/).filter(Boolean);
-  const ilkKelime = kelimeler.length
-    ? kelimeler.reduce((en, k) => (k.length > en.length ? k : en), kelimeler[0])
-    : urunAdi.trim();
+  const anlamliKelimeler = kelimeler.filter((k) => !JENERIK_KELIMELER.has(turkceSadelestir(k)));
+  const aramaTerimi = (anlamliKelimeler.length ? anlamliKelimeler : kelimeler).join(' ').trim()
+    || urunAdi.trim();
   const templates = await execute(
     'product.template', 'search_read',
-    [[['name', 'ilike', ilkKelime]]],
+    [[['name', 'ilike', aramaTerimi]]],
     { fields: ['id', 'name', 'categ_id'], limit: 100, context: { active_test: false } },
   ) as { id: number; name: string; categ_id: [number, string] | false }[];
 

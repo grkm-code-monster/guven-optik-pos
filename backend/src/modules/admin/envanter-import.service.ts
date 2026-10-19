@@ -497,17 +497,27 @@ async function findTemplate(
   // istemci tarafında filtreleniyor — böylece boşluk/Türkçe karakter farkları
   // canlı aramada da gözden kaçmıyor.
   if (!candidates.length) {
-    // 19.10.2026 — findTemplateId() ile PARİTE: ilk kelime yerine en uzun
-    // (en ayırt edici) kelime kullanılıyor — "DE VALENTINI" gibi isimlerde
-    // kısa ilk kelime ("DE") ilike'ı çok geniş sonuç kümesine boğup
-    // limit:100'ün dışında kaldırabiliyordu, bkz. envanter-import-uygula.service.ts.
+    // 19.10.2026 — findTemplateId() ile PARİTE. İlk sürüm "en uzun kelimeyi"
+    // arama terimi yapıyordu ("DE VALENTINI" için doğruydu) ama kısa marka
+    // adlarında (ZEISS, POLICE, PRADA, RAYBAN, POLO MOON) en uzun kelime
+    // markanın kendisi değil HER şablonda geçen ortak kelime "ÇERÇEVE"
+    // oluyordu — bu da ilike'ı binlerce alakasız şablonla boğup
+    // limit:100'ün dışında kaldırıyor, gerçek şablon "bulunamadı"
+    // sanılıyordu (kullanıcı canlı programdan bu markaların zaten var
+    // olduğunu doğruladı). Artık kategori/jenerik kelimeler (ÇERÇEVE,
+    // OPTİK, GÖZLÜK, GÜNEŞ, GÖZLÜĞÜ, CAM, LENS) çıkarılıp kalan marka
+    // ifadesinin TAMAMI ilike terimi olarak kullanılıyor — bkz.
+    // envanter-import-uygula.service.ts'teki aynı düzeltme.
+    const JENERIK_KELIMELER = new Set([
+      'cerceve', 'optik', 'gozluk', 'gunes', 'gozlugu', 'cam', 'lens', 'gozlukcam',
+    ]);
     const kelimeler = urunAdi.trim().split(/\s+/).filter(Boolean);
-    const ilkKelime = kelimeler.length
-      ? kelimeler.reduce((en, k) => (k.length > en.length ? k : en), kelimeler[0])
-      : urunAdi.trim();
+    const anlamliKelimeler = kelimeler.filter((k) => !JENERIK_KELIMELER.has(turkceSadelestir(k)));
+    const aramaTerimi = (anlamliKelimeler.length ? anlamliKelimeler : kelimeler).join(' ').trim()
+      || urunAdi.trim();
     const live = (await execute(
       'product.template', 'search_read',
-      [[['name', 'ilike', ilkKelime]]],
+      [[['name', 'ilike', aramaTerimi]]],
       { fields: ['id', 'name', 'categ_id'], limit: 100, context: { active_test: false } },
     )) as { id: number; name: string; categ_id: [number, string] | false }[];
     const eslesen = live.filter((t) => {
