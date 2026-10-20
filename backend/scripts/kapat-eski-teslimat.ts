@@ -83,11 +83,11 @@ async function main() {
 
   console.log('\nTeslimat tamamlanıyor (button_validate)...');
   // skip_backorder: eksik kalan miktar için "ek teslimat oluşturulsun mu?"
-  // sihirbazını atlar — biz tüm satırlara zaten lot atadık, ek teslimata
-  // gerek yok, direkt tamamlanmasını istiyoruz.
+  // sihirbazını atlar. skip_sms: bu geçmiş/tarihi teslimat için müşteriye
+  // SMS bildirimi sorulmasın (zaten gerçek teslimat çok önce yapılmıştı).
   const sonuc = await execute(
     'stock.picking', 'button_validate', [[picking]],
-    { context: { skip_backorder: true } },
+    { context: { skip_backorder: true, skip_sms: true } },
   );
   console.log('Sonuç:', JSON.stringify(sonuc));
 
