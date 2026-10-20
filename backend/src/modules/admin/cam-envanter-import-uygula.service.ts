@@ -245,6 +245,15 @@ export async function uygulaCamEnvanterImport(input: {
 
     // Ürünün KENDİ (temsilci) barkodunu — SADECE ilk kez, boşsa — ata. Bir
     // daha asla değiştirilmez; satırların gerçek barkodları lot.ref'e gider.
+    // AYRICA (20.10.2026) — ÖNCEDEN VAR OLAN şablonlar, bu yeni Cam/Lens
+    // akışından geçmeden (ör. Odoo'da elle veya başka bir yoldan) oluşmuş
+    // olabilir ve type="service"/"consu" (stoksuz) kalmış olabilir — bu
+    // durumda stok hareketi (stock.quant) Odoo tarafından reddediliyor
+    // ("Miktarlar hizmet ya da tüketilebilirlik için oluşturulamaz", canlı
+    // veride görüldü: şablon #3827). createEnvanterSablon YENİ şablonları
+    // zaten type:'product', tracking:'serial' ile oluşturuyor — burada
+    // MEVCUT şablonu da aynı, kanıtlanmış değerlere getiriyoruz (yalnızca
+    // yanlışsa yazıyoruz, her zaman yazmıyoruz).
     try {
       const mevcut = await execute(
         'product.product', 'read',
@@ -256,8 +265,20 @@ export async function uygulaCamEnvanterImport(input: {
         const temsilciBarkod = await generateNextTemsilciBarkod();
         await execute('product.product', 'write', [[varyantId], { barcode: temsilciBarkod }]);
       }
+
+      const tmplMevcut = await execute(
+        'product.template', 'read',
+        [[tmplId]],
+        { fields: ['type', 'tracking'] },
+      ) as { type: string; tracking: string }[];
+      const tmplDuzeltme: Record<string, unknown> = {};
+      if (tmplMevcut[0]?.type !== 'product') tmplDuzeltme.type = 'product';
+      if (tmplMevcut[0]?.tracking !== 'serial') tmplDuzeltme.tracking = 'serial';
+      if (Object.keys(tmplDuzeltme).length) {
+        await execute('product.template', 'write', [[tmplId], tmplDuzeltme]);
+      }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Temsilci barkod atanamadı';
+      const msg = e instanceof Error ? e.message : 'Temsilci barkod/ürün tipi düzeltilemedi';
       for (const row of grupSatirlari) {
         if (islenenSatirNolar.has(row.satirNo)) continue;
         sonuclar.push({ satirNo: row.satirNo, durum: 'BASARISIZ', mesaj: msg });
