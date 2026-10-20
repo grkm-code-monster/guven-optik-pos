@@ -85,25 +85,40 @@ async function main() {
   }
 
   // Onarım: önceki bir çalıştırmada zaten oluşturulmuş olup, picking'in
-  // şirketiyle uyuşmayan company_id'ye sahip lotları düzelt (Odoo varsayılan
-  // olarak lot'u script'i çalıştıran kullanıcının ana şirketine atamış
-  // olabilir, ama bu teslimat 'NG' gibi başka bir şirkete ait olabilir).
+  // şirketiyle uyuşmayan company_id'ye sahip lotları düzelt. Odoo bir lot
+  // OLUŞTUKTAN SONRA company_id'sinin değiştirilmesine izin vermiyor
+  // ("şirketini değiştirmek bu noktada yasaktır") — bu yüzden yanlış
+  // şirketteki lotu arşivleyip, doğru şirkette YENİ bir lot oluşturup
+  // move.line'ı ona yönlendiriyoruz.
   if (pickingCompanyId) {
     const guncelMoveLines = (await execute(
       'stock.move.line', 'search_read',
       [[['picking_id', '=', picking]]],
-      { fields: ['id', 'lot_id'], context: { active_test: false } },
-    )) as { id: number; lot_id: [number, string] | false }[];
+      { fields: ['id', 'product_id', 'lot_id'], context: { active_test: false } },
+    )) as { id: number; product_id: [number, string]; lot_id: [number, string] | false }[];
     const lotIds = guncelMoveLines.map((l) => l.lot_id && l.lot_id[0]).filter((x): x is number => !!x);
     if (lotIds.length) {
       const lots = (await execute(
         'stock.lot', 'read', [lotIds],
         { fields: ['id', 'name', 'company_id'], context: { active_test: false } },
       )) as { id: number; name: string; company_id: [number, string] | false }[];
-      const yanlisSirket = lots.filter((l) => !l.company_id || l.company_id[0] !== pickingCompanyId);
-      for (const l of yanlisSirket) {
-        await execute('stock.lot', 'write', [[l.id], { company_id: pickingCompanyId }]);
-        console.log(`  lot #${l.id} (${l.name}) şirketi düzeltildi -> #${pickingCompanyId}`);
+      const lotById = new Map(lots.map((l) => [l.id, l]));
+      for (const line of guncelMoveLines) {
+        if (!line.lot_id) continue;
+        const lot = lotById.get(line.lot_id[0]);
+        if (!lot) continue;
+        const dogruSirket = lot.company_id && lot.company_id[0] === pickingCompanyId;
+        if (dogruSirket) continue;
+
+        const yeniAd = `${lot.name}-V2`;
+        const yeniLotId = Number(await execute('stock.lot', 'create', [{
+          name: yeniAd,
+          product_id: line.product_id[0],
+          company_id: pickingCompanyId,
+        }]));
+        await execute('stock.move.line', 'write', [[line.id], { lot_id: yeniLotId }]);
+        await execute('stock.lot', 'write', [[lot.id], { active: false }]);
+        console.log(`  lot #${lot.id} (${lot.name}) yanlış şirketteydi -> arşivlendi; move.line #${line.id} yeni lot #${yeniLotId} (${yeniAd}) ile değiştirildi`);
       }
     }
   }
