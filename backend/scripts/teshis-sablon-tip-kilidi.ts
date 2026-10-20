@@ -57,15 +57,21 @@ async function main() {
     console.log(`  #${m.id} state=${m.state} qty=${m.product_qty} ${m.location_id ? m.location_id[1] : '?'} -> ${m.location_dest_id ? m.location_dest_id[1] : '?'} tarih=${m.create_date} picking=${m.picking_id ? m.picking_id[1] : '-'}`);
   }
 
+  const mlFields = (await execute(
+    'stock.move.line', 'fields_get', [], { attributes: ['string', 'type'] },
+  )) as Record<string, { string: string; type: string }>;
+  const mlFieldNames = Object.keys(mlFields).filter((k) => /qty|quantity|lot|picking|state|product_id/i.test(k));
+  console.log('\nSTOCK.MOVE.LINE alanları (qty/lot/picking/state ile ilgili):', JSON.stringify(mlFieldNames));
+
   const moveLines = (await execute(
     'stock.move.line', 'search_read',
     [[['product_id', 'in', varyantIds]]],
-    { fields: ['id', 'state', 'qty_done', 'reserved_uom_qty', 'picking_id'], limit: 200, context: { active_test: false } },
-  )) as Array<{ id: number; state: string; qty_done: number; reserved_uom_qty?: number; picking_id: [number, string] | false }>;
+    { fields: mlFieldNames, limit: 200, context: { active_test: false } },
+  )) as Array<Record<string, unknown>>;
   console.log(`\nSTOCK.MOVE.LINE toplam: ${moveLines.length}`);
-  const byStateLine: Record<string, number> = {};
-  for (const l of moveLines) byStateLine[l.state] = (byStateLine[l.state] || 0) + 1;
-  console.log('Durum dağılımı:', JSON.stringify(byStateLine));
+  for (const l of moveLines) {
+    console.log('  ', JSON.stringify(l));
+  }
 
   const quants = (await execute(
     'stock.quant', 'search_read',
