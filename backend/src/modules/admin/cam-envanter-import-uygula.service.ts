@@ -66,14 +66,37 @@ function resolveLotFieldsForImportRow(
  * Çerçeve/güneş gözlüğü akışındaki findTekVariantProductId'den FARKLI: o
  * barkoda göre arıyordu (bizde barkod ürün üzerinde sabit ve her satırda
  * değişmiyor), biz doğrudan şablonun TEK varyantını alıyoruz.
+ *
+ * ÖNEMLİ (20.10.2026) — context: { active_test: false } ZORUNLU: eski/stoğu
+ * biten cam ürünleri daha önce arşivlenmiş (active=False) olabiliyor; bu
+ * durumda varsayılan search_read onu GÖRMEZ ve "varyant bulunamadı" hatası
+ * verir (canlı veride görüldü — şablon #3827, zaten var olan ürün). Bulunan
+ * varyant (veya şablonun kendisi) arşivdeyse, restok yapıldığı için otomatik
+ * olarak tekrar aktif hale getiriliyor.
  */
 async function findCamVariantIdForTemplate(tmplId: number): Promise<number | null> {
   const variants = await execute(
     'product.product', 'search_read',
     [[['product_tmpl_id', '=', Number(tmplId)]]],
-    { fields: ['id'], limit: 2 },
-  ) as { id: number }[];
-  return variants.length ? variants[0].id : null;
+    { fields: ['id', 'active'], limit: 2, context: { active_test: false } },
+  ) as { id: number; active: boolean }[];
+  if (!variants.length) return null;
+
+  const variant = variants[0];
+  if (!variant.active) {
+    await execute('product.product', 'write', [[variant.id], { active: true }]);
+  }
+
+  const tmpl = await execute(
+    'product.template', 'read',
+    [[Number(tmplId)]],
+    { fields: ['active'], context: { active_test: false } },
+  ) as { active: boolean }[];
+  if (tmpl.length && !tmpl[0].active) {
+    await execute('product.template', 'write', [[Number(tmplId)], { active: true }]);
+  }
+
+  return variant.id;
 }
 
 /**
