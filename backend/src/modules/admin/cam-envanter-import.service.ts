@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import { execute } from '../odoo/odoo.service';
 import { turkceSadelestir } from './envanter-import.service';
-import { isGs1DataMatrix, parseGs1DataMatrix } from '../odoo/gs1-parser.util';
+import { isGs1DataMatrix, normalizeGs1Raw } from '../odoo/gs1-parser.util';
 import {
   CAM_ENVANTER_IMPORT_HEADERS,
   CAM_ENVANTER_ZORUNLU_ALANLAR,
@@ -107,17 +107,30 @@ function cellOptionalInt(value: ExcelJS.CellValue): number | undefined {
 /**
  * UTS Kodu hücresi TİTCK karekodundan okunan HAM GS1 verisiyse (örn.
  * "01086813120592322147420*11230616101"), Barkod sütunu boş bırakılmış
- * olsa bile gerçek ürün barkodunu (GTIN, (01) AI'sinin içindeki 14 hane)
- * otomatik çıkarır. Kullanıcı Barkod'u elle hesaplamak/yazmak ZORUNDA değil.
- * Mevcut gs1-parser.util.ts (transfer/UTS ekranlarında da kullanılan, test
- * edilmiş) fonksiyonları reuse ediliyor — yeni bir parse mantığı YAZILMADI.
+ * olsa bile gerçek ürün barkodunu (GTIN, (01) AI'sinden sonraki SABİT 14
+ * hane) otomatik çıkarır. Kullanıcı Barkod'u elle hesaplamak/yazmak
+ * ZORUNDA değil.
+ *
+ * ÖNEMLİ — bilinçli olarak gs1-parser.util.ts'teki TAM parseGs1DataMatrix()
+ * KULLANILMIYOR: o fonksiyon GTIN'den SONRAKİ lot/seri (AI 10/21) kısmını da
+ * ayrıştırmaya çalışıyor ve FNC1 ayracı olmayan ham verilerde (bu ekranda
+ * sıkça — UTS'nin kendisi zaten ayrı bir alanda saklanıyor, sadece GTIN'e
+ * ihtiyacımız var) seri numarasının içindeki rastgele "10"/"21" rakam
+ * dizileri AI sanılıp TÜM parse null dönebiliyor (canlı veride görüldü:
+ * "...211007271(..." içindeki "10" AI'si "11" AI'sinden sonra tekrar
+ * eşleşip fixed-length taşması oluşturdu). Barkod için sadece GTIN'in SABİT
+ * konumu (normalize edilmiş string'de (01) AI'sinden sonraki 14 hane) yeterli
+ * ve HER ZAMAN güvenilir — lot/seri ayrıştırmasının başarılı olup olmaması
+ * barkodu etkilememeli.
  */
 function deriveBarkodFromUts(utsKoduRaw: string): string | null {
   const trimmed = utsKoduRaw?.trim() ?? '';
   if (!trimmed) return null;
   if (!isGs1DataMatrix(trimmed)) return null;
-  const parsed = parseGs1DataMatrix(trimmed);
-  return parsed?.gtin14 ?? null;
+  const normalized = normalizeGs1Raw(trimmed);
+  // isGs1DataMatrix zaten /^01\d{14}/ ile doğruladı, bu yüzden slice güvenli.
+  const gtin14 = normalized.slice(2, 16);
+  return gtin14.length === 14 ? gtin14 : null;
 }
 
 const BILIMSEL_GOSTERIM_MESAJ =
