@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { execute } from '../odoo/odoo.service';
 import { turkceSadelestir } from './envanter-import.service';
+import { isGs1DataMatrix, parseGs1DataMatrix } from '../odoo/gs1-parser.util';
 import {
   CAM_ENVANTER_IMPORT_HEADERS,
   CAM_ENVANTER_ZORUNLU_ALANLAR,
@@ -103,6 +104,22 @@ function cellOptionalInt(value: ExcelJS.CellValue): number | undefined {
   return Math.floor(n);
 }
 
+/**
+ * UTS Kodu hücresi TİTCK karekodundan okunan HAM GS1 verisiyse (örn.
+ * "01086813120592322147420*11230616101"), Barkod sütunu boş bırakılmış
+ * olsa bile gerçek ürün barkodunu (GTIN, (01) AI'sinin içindeki 14 hane)
+ * otomatik çıkarır. Kullanıcı Barkod'u elle hesaplamak/yazmak ZORUNDA değil.
+ * Mevcut gs1-parser.util.ts (transfer/UTS ekranlarında da kullanılan, test
+ * edilmiş) fonksiyonları reuse ediliyor — yeni bir parse mantığı YAZILMADI.
+ */
+function deriveBarkodFromUts(utsKoduRaw: string): string | null {
+  const trimmed = utsKoduRaw?.trim() ?? '';
+  if (!trimmed) return null;
+  if (!isGs1DataMatrix(trimmed)) return null;
+  const parsed = parseGs1DataMatrix(trimmed);
+  return parsed?.gtin14 ?? null;
+}
+
 const BILIMSEL_GOSTERIM_MESAJ =
   'Bu değer bilimsel gösterime dönüşmüş (Excel hücre formatı sorunu), lütfen şablonu yeniden indirip Metin formatında girin.';
 
@@ -178,13 +195,20 @@ export async function parseCamEnvanterExcel(buffer: Buffer): Promise<ParsedCamEn
       : undefined;
     const lotNo = colIndex.has('Lot No') ? cellText(get('Lot No')) : '';
 
+    const utsKoduDeger = cellTextForCode(get('UTS Kodu'));
+    const barkodDeger = cellTextForCode(get('Barkod'));
+    // Barkod boşsa ve UTS Kodu GS1 ham verisiyse, barkodu otomatik türet —
+    // kullanıcı 23 satırlık bir tedarikçi listesinde Barkod'u elle yazmak
+    // zorunda kalmasın. bkz. deriveBarkodFromUts.
+    const barkodNihai = barkodDeger.trim() || deriveBarkodFromUts(utsKoduDeger) || barkodDeger;
+
     const parsed: ParsedCamEnvanterRow = {
       satirNo: r,
       kategori: cellText(get('Kategori')),
       urunSablonu: cellText(get('Ürün Şablonu')),
       tedarikciUrunAdi: colIndex.has('Tedarikçi Ürün Adı') ? cellText(get('Tedarikçi Ürün Adı')) : '',
-      barkod: cellTextForCode(get('Barkod')),
-      utsKodu: cellTextForCode(get('UTS Kodu')),
+      barkod: barkodNihai,
+      utsKodu: utsKoduDeger,
       adet: cellNumber(get('Adet')),
       satisFiyati: cellNumber(get('Satış Fiyatı')),
       maliyetFiyati: cellNumber(get('Maliyet Fiyatı')),
@@ -208,14 +232,21 @@ function validateRow(row: ParsedCamEnvanterRow): string | null {
     const val = row[
       alan === 'Kategori' ? 'kategori'
         : alan === 'Ürün Şablonu' ? 'urunSablonu'
-          : alan === 'Barkod' ? 'barkod'
-            : alan === 'Adet' ? 'adet'
-              : alan === 'Satış Fiyatı' ? 'satisFiyati'
-                : 'maliyetFiyati'
+          : alan === 'Adet' ? 'adet'
+            : alan === 'Satış Fiyatı' ? 'satisFiyati'
+              : 'maliyetFiyati'
     ];
     if (val === '' || val == null || (typeof val === 'number' && Number.isNaN(val))) {
       return `Zorunlu alan eksik: ${alan}`;
     }
+  }
+
+  // Barkod elle girilmemişse ve UTS Kodu'ndan otomatik türetilemediyse
+  // (parseCamEnvanterExcel bunu zaten denedi) — ikisi de yoksa hata.
+  if (!row.barkod?.trim()) {
+    return row.utsKodu?.trim()
+      ? 'Barkod boş ve UTS Kodu GS1 formatında değil — barkod otomatik türetilemedi, Barkod sütununu elle doldurun'
+      : 'Zorunlu alan eksik: Barkod (veya UTS Kodu)';
   }
 
   if (row.adet <= 0) return 'Adet 0\'dan büyük olmalı';

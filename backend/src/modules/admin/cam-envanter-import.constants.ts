@@ -43,14 +43,17 @@ export type CamEnvanterImportHeader = (typeof CAM_ENVANTER_IMPORT_HEADERS)[numbe
 // scripts/olustur-cam-tedarikci-urun-adi-alani.ts) — lot'un name/ref/
 // x_uts_kodu alanlarına HİÇ dokunmaz, sadece ek bilgi amaçlıdır.
 //
-// Not: Barkod burada da ZORUNLU — her satır kendi gerçek tedarikçi
-// barkoduyla kendi stock.lot'unu (lot.ref) oluşturur. Bu, ürünün KENDİ
-// product.product.barcode alanından TAMAMEN BAĞIMSIZDIR (o alan otomatik
-// atanır, bu dosyadaki Barkod sütunu hiç yazılmaz).
+// Not: Barkod burada ZORUNLU DEĞİL — UTS Kodu GS1 formatındaysa (TİTCK
+// karekodundan okunan ham veri) Barkod otomatik olarak UTS'nin içinden
+// (GTIN kısmı) çıkarılır, kullanıcı elle yazmak ZORUNDA değildir. Barkod
+// sadece UTS boşsa veya GS1 formatında değilse zorunlu hale gelir (bkz.
+// cam-envanter-import.service.ts validateRow + deriveBarkodFromUts).
+// Her satır kendi gerçek tedarikçi barkoduyla kendi stock.lot'unu (lot.ref)
+// oluşturur. Bu, ürünün KENDİ product.product.barcode alanından TAMAMEN
+// BAĞIMSIZDIR (o alan otomatik atanır, bu dosyadaki Barkod/UTS hiç yazılmaz).
 export const CAM_ENVANTER_ZORUNLU_ALANLAR: CamEnvanterImportHeader[] = [
   'Kategori',
   'Ürün Şablonu',
-  'Barkod',
   'Adet',
   'Satış Fiyatı',
   'Maliyet Fiyatı',
