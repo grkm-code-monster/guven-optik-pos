@@ -65,6 +65,7 @@ async function main() {
 
   const yeniTmplId = Number(await execute('product.template', 'copy', [[tmpl], {
     type: 'product',
+    detailed_type: 'product',
     tracking: 'serial',
     barcode: false,
   }]));

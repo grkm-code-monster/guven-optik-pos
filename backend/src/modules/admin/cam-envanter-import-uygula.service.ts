@@ -283,10 +283,14 @@ export async function uygulaCamEnvanterImport(input: {
       const tmplMevcut = await execute(
         'product.template', 'read',
         [[tmplId]],
-        { fields: ['type', 'tracking'] },
-      ) as { type: string; tracking: string }[];
+        { fields: ['type', 'detailed_type', 'tracking'] },
+      ) as { type: string; detailed_type: string; tracking: string }[];
       const tmplDuzeltme: Record<string, unknown> = {};
+      // type ve detailed_type Odoo'da iki paralel alan — biri diğeriyle
+      // tutarsız yazılırsa "Bu ürünün Türü, Ayrıntılı Tür ile eşleşmiyor"
+      // hatası verir, bu yüzden ikisi birlikte yazılmalı.
       if (tmplMevcut[0]?.type !== 'product') tmplDuzeltme.type = 'product';
+      if (tmplMevcut[0]?.detailed_type !== 'product') tmplDuzeltme.detailed_type = 'product';
       if (tmplMevcut[0]?.tracking !== 'serial') tmplDuzeltme.tracking = 'serial';
       if (Object.keys(tmplDuzeltme).length) {
         try {
