@@ -100,21 +100,35 @@ async function findCamVariantIdForTemplate(tmplId: number): Promise<number | nul
 }
 
 /**
- * Ürünün KENDİ (temsilci) barkodunu, Odoo'da 08680000001XXX serisinde en
- * yüksek kullanılan numaradan devam ederek üretir. Bu barkod SADECE raf
- * etiketi/okutma kolaylığı içindir — gerçek tedarikçi barkodları her satırın
- * KENDİ lot.ref alanına yazılır, bu temsilci barkoda hiç karışmaz.
+ * 08680000001XXX serisinden bir sonraki numarayı üretir. TEK bir ortak
+ * sayaç olarak çalışması için (20.10.2026 — Görkem'in talebi: UTS/barkodu
+ * hiç olmayan camlarda da bu seriden barkod atansın), hem ÜRÜNÜN temsilci
+ * barkodu (product.product.barcode) hem de UTS'siz satırların KENDİ lot
+ * barkodu (stock.lot.ref) olarak kullanılıyor — bu yüzden ikisi de taranıp
+ * en yüksek numaradan devam ediliyor, aksi halde iki farklı amaç aynı
+ * numarayı üretip çakışabilirdi.
  */
 async function generateNextTemsilciBarkod(): Promise<string> {
-  const existing = await execute(
-    'product.product', 'search_read',
-    [[['barcode', 'like', CAM_TEMSILCI_BARKOD_ONEKI]]],
-    { fields: ['barcode'], limit: 5000, context: { active_test: false } },
-  ) as { barcode: string | false }[];
+  const [urunler, lotlar] = await Promise.all([
+    execute(
+      'product.product', 'search_read',
+      [[['barcode', 'like', CAM_TEMSILCI_BARKOD_ONEKI]]],
+      { fields: ['barcode'], limit: 5000, context: { active_test: false } },
+    ) as Promise<{ barcode: string | false }[]>,
+    execute(
+      'stock.lot', 'search_read',
+      [[['ref', 'like', CAM_TEMSILCI_BARKOD_ONEKI]]],
+      { fields: ['ref'], limit: 5000, context: { active_test: false } },
+    ) as Promise<{ ref: string | false }[]>,
+  ]);
 
   let maxSuffix = 0;
-  for (const p of existing) {
-    const bc = typeof p.barcode === 'string' ? p.barcode.trim() : '';
+  const degerler = [
+    ...urunler.map((p) => p.barcode),
+    ...lotlar.map((l) => l.ref),
+  ];
+  for (const deger of degerler) {
+    const bc = typeof deger === 'string' ? deger.trim() : '';
     if (!bc.startsWith(CAM_TEMSILCI_BARKOD_ONEKI)) continue;
     const suffix = Number(bc.slice(CAM_TEMSILCI_BARKOD_ONEKI.length));
     if (Number.isFinite(suffix) && suffix > maxSuffix) maxSuffix = suffix;
@@ -310,15 +324,28 @@ export async function uygulaCamEnvanterImport(input: {
       let lotCreated = false;
 
       try {
-        const { lotNo, utsKodu } = resolveLotFieldsForImportRow(row, aktarimKimligi);
-        // getOrCreateStockLot: row.barkod → lot.ref (gerçek tedarikçi
-        // barkodu), utsKodu → lot.x_uts_kodu. Ürünün kendi barcode alanına
+        // 20.10.2026 — Görkem'in talebi: kutusunda/etiketinde hiç okunabilir
+        // kod olmayan camlarda UTS boş kalır (güneş gözlüğü akışındaki gibi),
+        // bu satırın KENDİ barkodu (lot.ref) ise temsilci barkod havuzundan
+        // (08680000001XXX) otomatik atanır — ürünün kendi representative
+        // barcode'una KARIŞMAZ, sadece bu LOT'un ref alanına gider.
+        const rowBarkod = row.barkodOtomatikMu
+          ? await generateNextTemsilciBarkod()
+          : row.barkod;
+
+        const { lotNo, utsKodu } = resolveLotFieldsForImportRow(
+          { ...row, barkod: rowBarkod },
+          aktarimKimligi,
+        );
+        // getOrCreateStockLot: rowBarkod → lot.ref (gerçek tedarikçi barkodu
+        // ya da otomatik atanan), utsKodu → lot.x_uts_kodu (otomatik atanan
+        // satırlarda bu undefined kalır). Ürünün kendi barcode alanına
         // KESİNLİKLE dokunmaz (stock-lot.service.ts, değişmeden kullanılıyor).
         const lotResult = await getOrCreateStockLot(
           lotNo,
           varyantId,
           companyId,
-          row.barkod,
+          rowBarkod,
           utsKodu,
         );
         lotId = lotResult.lotId;
@@ -358,7 +385,9 @@ export async function uygulaCamEnvanterImport(input: {
         sonuclar.push({
           satirNo: row.satirNo,
           durum: 'BASARILI',
-          mesaj: 'Stok ve lot oluşturuldu',
+          mesaj: row.barkodOtomatikMu
+            ? `Stok ve lot oluşturuldu (UTS yok, barkod otomatik atandı: ${rowBarkod})`
+            : 'Stok ve lot oluşturuldu',
           olusturulanLotId: lotId,
           olusturulanVaryantId: varyantId,
         });

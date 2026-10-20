@@ -16,6 +16,7 @@ export type ParsedCamEnvanterRow = {
   odooVaryantId?: number
   lotNo?: string
   odooLotId?: number
+  barkodOtomatikMu?: boolean
 }
 
 export type CamEnvanterSatirOnizleme = ParsedCamEnvanterRow & {
@@ -104,5 +105,6 @@ export function camSatirOnizlemedenParsed(s: CamEnvanterSatirOnizleme): ParsedCa
     ...(s.odooVaryantId ? { odooVaryantId: s.odooVaryantId } : {}),
     ...(s.lotNo ? { lotNo: s.lotNo } : {}),
     ...(s.odooLotId ? { odooLotId: s.odooLotId } : {}),
+    ...(s.barkodOtomatikMu ? { barkodOtomatikMu: true } : {}),
   }
 }

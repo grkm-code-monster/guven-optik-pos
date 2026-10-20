@@ -23,6 +23,13 @@ export type ParsedCamEnvanterRow = {
   odooVaryantId?: number;
   lotNo?: string;
   odooLotId?: number;
+  // 20.10.2026 — Görkem'in talebi: UTS'si/barkodu hiç olmayan (okunamayan,
+  // kutusunda kod bulunmayan) camlar için güneş gözlüğü akışındaki gibi
+  // UTS BOŞ bırakılır; bu satırın barkodu ise apply anında ürünün temsilci
+  // barkoduyla AYNI havuzdan (08680000001XXX serisi) otomatik atanır. Bu
+  // alan sadece Barkod VE UTS Kodu'nun İKİSİ DE tamamen boşsa true olur —
+  // UTS girilmiş ama ayrıştırılamıyorsa (bozuk veri) hâlâ hata verilir.
+  barkodOtomatikMu?: boolean;
 };
 
 export type CamEnvanterSatirOnizleme = ParsedCamEnvanterRow & {
@@ -214,6 +221,12 @@ export async function parseCamEnvanterExcel(buffer: Buffer): Promise<ParsedCamEn
     // kullanıcı 23 satırlık bir tedarikçi listesinde Barkod'u elle yazmak
     // zorunda kalmasın. bkz. deriveBarkodFromUts.
     const barkodNihai = barkodDeger.trim() || deriveBarkodFromUts(utsKoduDeger) || barkodDeger;
+    // 20.10.2026 — Barkod VE UTS Kodu'nun İKİSİ DE tamamen boşsa (kutuda/
+    // etikette hiç okunabilir kod yoksa), güneş gözlüğü akışındaki gibi UTS
+    // boş kalır; bu satırın barkodu apply anında ürünün temsilci barkod
+    // havuzundan (08680000001XXX) otomatik atanır (bkz. cam-envanter-import-
+    // uygula.service.ts). Hata değildir, bilinçli bir seçenektir.
+    const barkodOtomatikMu = !barkodNihai.trim() && !utsKoduDeger.trim();
 
     const parsed: ParsedCamEnvanterRow = {
       satirNo: r,
@@ -229,6 +242,7 @@ export async function parseCamEnvanterExcel(buffer: Buffer): Promise<ParsedCamEn
       ...(odooVaryantId ? { odooVaryantId } : {}),
       ...(lotNo ? { lotNo } : {}),
       ...(odooLotId ? { odooLotId } : {}),
+      ...(barkodOtomatikMu ? { barkodOtomatikMu: true } : {}),
     };
 
     const bos = !parsed.kategori && !parsed.urunSablonu && !parsed.barkod;
@@ -255,17 +269,19 @@ function validateRow(row: ParsedCamEnvanterRow): string | null {
   }
 
   // Barkod elle girilmemişse ve UTS Kodu'ndan otomatik türetilemediyse
-  // (parseCamEnvanterExcel bunu zaten denedi) — ikisi de yoksa hata.
-  if (!row.barkod?.trim()) {
-    return row.utsKodu?.trim()
-      ? 'Barkod boş ve UTS Kodu GS1 formatında değil — barkod otomatik türetilemedi, Barkod sütununu elle doldurun'
-      : 'Zorunlu alan eksik: Barkod (veya UTS Kodu)';
+  // (parseCamEnvanterExcel bunu zaten denedi) — ikisi de yoksa, kutuda/
+  // etikette hiç kod yoktur demektir; bu HATA değil, bilinçli bir durum —
+  // güneş gözlüğü akışındaki gibi UTS boş kalır, barkod apply anında
+  // otomatik (temsilci barkod havuzundan) atanır (bkz. barkodOtomatikMu).
+  // SADECE UTS girilmiş ama ayrıştırılamıyorsa (bozuk/yanlış veri) hata.
+  if (!row.barkod?.trim() && row.utsKodu?.trim()) {
+    return 'Barkod boş ve UTS Kodu GS1 formatında değil — barkod otomatik türetilemedi, Barkod sütununu elle doldurun';
   }
 
   if (row.adet <= 0) return 'Adet 0\'dan büyük olmalı';
   if (row.satisFiyati < 0) return 'Satış fiyatı geçersiz';
   if (row.maliyetFiyati < 0) return 'Maliyet fiyatı geçersiz';
-  if (bilimselGosterimHatasi(row.barkod)) {
+  if (row.barkod && bilimselGosterimHatasi(row.barkod)) {
     return `Barkod: ${BILIMSEL_GOSTERIM_MESAJ}`;
   }
   if (row.utsKodu && bilimselGosterimHatasi(row.utsKodu)) {
@@ -391,16 +407,21 @@ export async function previewCamEnvanterImport(
       continue;
     }
 
-    const birimKey = `${row.barkod.trim().toUpperCase()}::${(row.utsKodu || '').trim().toUpperCase()}`;
-    if (excelBirimler.has(birimKey)) {
-      satirlar.push({
-        ...row,
-        durum: 'HATA',
-        mesaj: `Mükerrer barkod+UTS (Excel satır ${excelBirimler.get(birimKey)})`,
-      });
-      continue;
+    // 20.10.2026 — barkodOtomatikMu satırları (ikisi de boş, apply anında
+    // otomatik atanacak) bu mükerrer kontrolünden MUAF: aksi halde 2+ tane
+    // "boş/boş" satırı birbiriyle "mükerrer" sayılıp yanlışlıkla hata verir.
+    if (!row.barkodOtomatikMu) {
+      const birimKey = `${row.barkod.trim().toUpperCase()}::${(row.utsKodu || '').trim().toUpperCase()}`;
+      if (excelBirimler.has(birimKey)) {
+        satirlar.push({
+          ...row,
+          durum: 'HATA',
+          mesaj: `Mükerrer barkod+UTS (Excel satır ${excelBirimler.get(birimKey)})`,
+        });
+        continue;
+      }
+      excelBirimler.set(birimKey, row.satirNo);
     }
-    excelBirimler.set(birimKey, row.satirNo);
 
     if (row.utsKodu.trim()) {
       const mevcutUts = lookup.utsMap.get(row.utsKodu.trim());
@@ -416,12 +437,16 @@ export async function previewCamEnvanterImport(
 
     urunGruplari.add(urunAnahtar(row.kategori, row.urunSablonu));
 
+    const otomatikNotu = row.barkodOtomatikMu
+      ? ' — UTS yok, bu satırın barkodu da otomatik (raf barkodu serisinden) atanacak'
+      : '';
+
     const tmpl = await findCamTemplate(lookup, row.urunSablonu, row.kategori);
     if (!tmpl) {
       satirlar.push({
         ...row,
         durum: 'YENI_URUN',
-        mesaj: 'Yeni ürün oluşturulacak (temsilci barkod otomatik atanacak) + ilk lot',
+        mesaj: `Yeni ürün oluşturulacak (temsilci barkod otomatik atanacak) + ilk lot${otomatikNotu}`,
       });
       continue;
     }
@@ -429,7 +454,7 @@ export async function previewCamEnvanterImport(
     satirlar.push({
       ...row,
       durum: 'YENI_LOT',
-      mesaj: `Mevcut ürüne yeni lot/birim eklenecek (şablon #${tmpl.id})`,
+      mesaj: `Mevcut ürüne yeni lot/birim eklenecek (şablon #${tmpl.id})${otomatikNotu}`,
       resolvedTemplateId: tmpl.id,
     });
   }

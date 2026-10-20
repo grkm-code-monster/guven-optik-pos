@@ -65,7 +65,9 @@ router.post('/uygula', async (req: Request, res: Response, next: NextFunction) =
 
     const parsed = satirlar as ParsedCamEnvanterRow[];
     for (const s of parsed) {
-      if (!s.satirNo || !s.barkod?.trim()) {
+      // barkodOtomatikMu satırlarında barkod bilinçli olarak boş — apply
+      // anında otomatik atanacak, bu yüzden bu satırlar kontrolden muaf.
+      if (!s.satirNo || (!s.barkod?.trim() && !s.barkodOtomatikMu)) {
         return res.status(400).json({ error: 'Her satırda satirNo ve barkod zorunlu' });
       }
     }
