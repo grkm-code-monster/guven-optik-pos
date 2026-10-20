@@ -6,6 +6,7 @@ export type ParsedCamEnvanterRow = {
   satirNo: number
   kategori: string
   urunSablonu: string
+  tedarikciUrunAdi: string
   barkod: string
   utsKodu: string
   adet: number
@@ -93,6 +94,7 @@ export function camSatirOnizlemedenParsed(s: CamEnvanterSatirOnizleme): ParsedCa
     satirNo: s.satirNo,
     kategori: s.kategori,
     urunSablonu: s.urunSablonu,
+    tedarikciUrunAdi: s.tedarikciUrunAdi,
     barkod: s.barkod,
     utsKodu: s.utsKodu,
     adet: s.adet,

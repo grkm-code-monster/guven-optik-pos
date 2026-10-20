@@ -20,6 +20,7 @@
 export const CAM_ENVANTER_IMPORT_HEADERS = [
   'Kategori',
   'Ürün Şablonu',
+  'Tedarikçi Ürün Adı',
   'Barkod',
   'UTS Kodu',
   'Adet',
@@ -33,6 +34,15 @@ export const CAM_ENVANTER_IMPORT_HEADERS = [
 
 export type CamEnvanterImportHeader = (typeof CAM_ENVANTER_IMPORT_HEADERS)[number];
 
+// Not: "Tedarikçi Ürün Adı" OPSİYONEL — tedarikçinin/firmanın ürüne kendi
+// kataloğunda verdiği ad (örn. Beta'dan "1,58 Multı-ar", Sude Optik'ten
+// "1,56 hmc", Akay'dan "1,56 et"); bizim ortak "Ürün Şablonu" adımız altında
+// (örn. "1.56 Org Et -0200-0200") toplanan farklı tedarikçi birimlerinin
+// HANGİSİ hangi firma/isimle geldiğini sonradan sorgulayabilmek için.
+// stock.lot.x_tedarikci_urun_adi alanına yazılır (bkz.
+// scripts/olustur-cam-tedarikci-urun-adi-alani.ts) — lot'un name/ref/
+// x_uts_kodu alanlarına HİÇ dokunmaz, sadece ek bilgi amaçlıdır.
+//
 // Not: Barkod burada da ZORUNLU — her satır kendi gerçek tedarikçi
 // barkoduyla kendi stock.lot'unu (lot.ref) oluşturur. Bu, ürünün KENDİ
 // product.product.barcode alanından TAMAMEN BAĞIMSIZDIR (o alan otomatik

@@ -266,6 +266,25 @@ export async function uygulaCamEnvanterImport(input: {
         lotId = lotResult.lotId;
         lotCreated = lotResult.created;
 
+        // Tedarikçi/firma ürün adı — SADECE ek bilgi amaçlı, lot'un name/ref/
+        // x_uts_kodu alanlarına hiç dokunmuyor (bkz. cam-envanter-import.constants.ts).
+        // Alan Odoo'da yoksa (kurulum scripti çalıştırılmamışsa) bu satırın
+        // geri kalanını BOZMAMASI için hata burada yutuluyor, sadece loglanıyor.
+        if (row.tedarikciUrunAdi?.trim()) {
+          try {
+            await execute(
+              'stock.lot', 'write',
+              [[lotId], { x_tedarikci_urun_adi: row.tedarikciUrunAdi.trim() }],
+              {},
+            );
+          } catch (e: unknown) {
+            console.error(
+              `[cam-envanter-import] x_tedarikci_urun_adi yazılamadı (lot #${lotId}):`,
+              e instanceof Error ? e.message : e,
+            );
+          }
+        }
+
         await applyStockAdjustmentForLot({
           productId: varyantId,
           locationCode: lokasyonKodu,

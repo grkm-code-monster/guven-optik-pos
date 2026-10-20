@@ -379,13 +379,14 @@ export default function CamEnvanteriImportTab() {
           )}
 
           <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 12, marginBottom: 20 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1150 }}>
               <thead>
                 <tr>
                   <th style={th}>Satır</th>
                   <th style={th}>Durum</th>
                   <th style={th}>Kategori</th>
                   <th style={th}>Ürün Şablonu</th>
+                  <th style={th}>Tedarikçi Ürün Adı</th>
                   <th style={th}>Barkod</th>
                   <th style={th}>UTS Kodu</th>
                   <th style={th}>Adet</th>
@@ -417,6 +418,7 @@ export default function CamEnvanteriImportTab() {
                       </td>
                       <td style={td}>{s.kategori}</td>
                       <td style={td}>{s.urunSablonu}</td>
+                      <td style={td}>{s.tedarikciUrunAdi || '—'}</td>
                       <td style={td}>{s.barkod || '—'}</td>
                       <td style={td}>{s.utsKodu || '—'}</td>
                       <td style={td}>{s.adet}</td>

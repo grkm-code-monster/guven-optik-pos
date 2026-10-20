@@ -12,6 +12,7 @@ export type ParsedCamEnvanterRow = {
   satirNo: number;
   kategori: string;
   urunSablonu: string;
+  tedarikciUrunAdi: string;
   barkod: string;
   utsKodu: string;
   adet: number;
@@ -58,6 +59,7 @@ function normalizeHeader(value: unknown): string {
 const HEADER_ALIASES: Record<CamEnvanterImportHeader, string[]> = {
   Kategori: ['kategori'],
   'Ürün Şablonu': ['urun sablonu', 'ürün şablonu', 'urun adi', 'ürün adı'],
+  'Tedarikçi Ürün Adı': ['tedarikci urun adi', 'tedarikçi ürün adı', 'firma urun adi', 'firma ürün adı'],
   Barkod: ['barkod'],
   'UTS Kodu': ['uts kodu', 'uts'],
   Adet: ['adet', 'miktar'],
@@ -180,6 +182,7 @@ export async function parseCamEnvanterExcel(buffer: Buffer): Promise<ParsedCamEn
       satirNo: r,
       kategori: cellText(get('Kategori')),
       urunSablonu: cellText(get('Ürün Şablonu')),
+      tedarikciUrunAdi: colIndex.has('Tedarikçi Ürün Adı') ? cellText(get('Tedarikçi Ürün Adı')) : '',
       barkod: cellTextForCode(get('Barkod')),
       utsKodu: cellTextForCode(get('UTS Kodu')),
       adet: cellNumber(get('Adet')),
