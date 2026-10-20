@@ -88,8 +88,9 @@ async function main() {
   // şirketiyle uyuşmayan company_id'ye sahip lotları düzelt. Odoo bir lot
   // OLUŞTUKTAN SONRA company_id'sinin değiştirilmesine izin vermiyor
   // ("şirketini değiştirmek bu noktada yasaktır") — bu yüzden yanlış
-  // şirketteki lotu arşivleyip, doğru şirkette YENİ bir lot oluşturup
-  // move.line'ı ona yönlendiriyoruz.
+  // şirketteki lotu (bu Odoo sürümünde stock.lot'ta 'active' alanı da
+  // olmadığından arşivleyemiyoruz, sadece adını "İPTAL" olarak işaretliyoruz)
+  // bırakıp, doğru şirkette YENİ bir lot oluşturup move.line'ı ona yönlendiriyoruz.
   if (pickingCompanyId) {
     const guncelMoveLines = (await execute(
       'stock.move.line', 'search_read',
@@ -117,8 +118,8 @@ async function main() {
           company_id: pickingCompanyId,
         }]));
         await execute('stock.move.line', 'write', [[line.id], { lot_id: yeniLotId }]);
-        await execute('stock.lot', 'write', [[lot.id], { active: false }]);
-        console.log(`  lot #${lot.id} (${lot.name}) yanlış şirketteydi -> arşivlendi; move.line #${line.id} yeni lot #${yeniLotId} (${yeniAd}) ile değiştirildi`);
+        await execute('stock.lot', 'write', [[lot.id], { name: `${lot.name}-IPTAL-YANLIS-SIRKET` }]);
+        console.log(`  lot #${lot.id} (${lot.name}) yanlış şirketteydi -> "İPTAL" olarak işaretlendi; move.line #${line.id} yeni lot #${yeniLotId} (${yeniAd}) ile değiştirildi`);
       }
     }
   }
