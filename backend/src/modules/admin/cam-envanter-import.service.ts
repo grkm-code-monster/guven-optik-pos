@@ -274,10 +274,12 @@ function validateRow(row: ParsedCamEnvanterRow): string | null {
   return null;
 }
 
+type CamTemplateCandidate = { id: number; name: string; categName: string; type: string };
+
 export type CamOdooLookup = {
   utsMap: Map<string, { lotId: number; lotName: string }>;
-  templatesByName: Map<string, Array<{ id: number; name: string; categName: string }>>;
-  templatesByNameNoSpace: Map<string, Array<{ id: number; name: string; categName: string }>>;
+  templatesByName: Map<string, CamTemplateCandidate[]>;
+  templatesByNameNoSpace: Map<string, CamTemplateCandidate[]>;
 };
 
 export async function loadCamOdooLookup(): Promise<CamOdooLookup> {
@@ -296,16 +298,16 @@ export async function loadCamOdooLookup(): Promise<CamOdooLookup> {
   const templates = await execute(
     'product.template', 'search_read',
     [[]],
-    { fields: ['id', 'name', 'categ_id'], limit: 5000, context: { active_test: false } },
-  ) as { id: number; name: string; categ_id: [number, string] | false }[];
+    { fields: ['id', 'name', 'categ_id', 'type'], limit: 5000, context: { active_test: false } },
+  ) as { id: number; name: string; categ_id: [number, string] | false; type: string }[];
 
-  const templatesByName = new Map<string, Array<{ id: number; name: string; categName: string }>>();
-  const templatesByNameNoSpace = new Map<string, Array<{ id: number; name: string; categName: string }>>();
+  const templatesByName = new Map<string, CamTemplateCandidate[]>();
+  const templatesByNameNoSpace = new Map<string, CamTemplateCandidate[]>();
   for (const t of templates) {
     const key = turkceSadelestir(t.name);
     const keyNoSpace = key.replace(/\s+/g, '');
     const categName = t.categ_id ? t.categ_id[1] : '';
-    const entry = { id: t.id, name: t.name, categName };
+    const entry: CamTemplateCandidate = { id: t.id, name: t.name, categName, type: t.type };
     const list = templatesByName.get(key) ?? [];
     list.push(entry);
     templatesByName.set(key, list);
@@ -338,17 +340,26 @@ export async function findCamTemplate(
     const live = (await execute(
       'product.template', 'search_read',
       [andKosullari],
-      { fields: ['id', 'name', 'categ_id'], limit: 100, context: { active_test: false } },
-    )) as { id: number; name: string; categ_id: [number, string] | false }[];
+      { fields: ['id', 'name', 'categ_id', 'type'], limit: 100, context: { active_test: false } },
+    )) as { id: number; name: string; categ_id: [number, string] | false; type: string }[];
     const eslesen = live.filter((t) => {
       const tNorm = turkceSadelestir(t.name);
       return tNorm === normKey || tNorm.replace(/\s+/g, '') === normKeyNoSpace;
     });
-    candidates = eslesen.map((t) => ({ id: t.id, name: t.name, categName: t.categ_id ? t.categ_id[1] : '' }));
+    candidates = eslesen.map((t) => ({ id: t.id, name: t.name, categName: t.categ_id ? t.categ_id[1] : '', type: t.type }));
   }
 
   if (!candidates.length) return null;
   if (candidates.length === 1) return candidates[0];
+
+  // 20.10.2026 — MÜKERRER isimli şablonlar varsa (canlı veride görüldü:
+  // "Org Et 1.56 0000 -0000" için #3827 VE #3808 — ikinci, stok tutamayan
+  // tipte kalmış eski/kullanılamaz bir kopya), rastgele/isim-sırasına bağlı
+  // seçim yapılmasın: ÖNCE stok tutabilen (type='product', storable) olanı
+  // tercih et. Bulunamazsa eski kategori-eşleşme mantığına düş.
+  const storableOnly = candidates.filter((c) => c.type === 'product');
+  if (storableOnly.length === 1) return storableOnly[0];
+  if (storableOnly.length > 1) candidates = storableOnly;
 
   const katUpper = kategori.trim().toUpperCase();
   const byCateg = candidates.find((c) =>
