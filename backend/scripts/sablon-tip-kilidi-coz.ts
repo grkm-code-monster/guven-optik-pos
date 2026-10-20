@@ -64,6 +64,11 @@ async function main() {
   }
 
   const yeniTmplId = Number(await execute('product.template', 'copy', [[tmpl], {
+    // Odoo copy() varsayılan olarak ada " (kopya)" ekliyor — bu, import
+    // akışının ad eşleşmesini bozar, bu yüzden adı açıkça orijinaliyle
+    // aynı tutuyoruz (eski şablon birazdan "[ESKİ-TİP-KİLİTLİ] ..." olarak
+    // yeniden adlandırılacağı için ad çakışması olmayacak).
+    name: tmplData[0].name,
     type: 'product',
     detailed_type: 'product',
     tracking: 'serial',
