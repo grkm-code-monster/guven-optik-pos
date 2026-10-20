@@ -36,8 +36,8 @@ async function main() {
   const pickingData = (await execute(
     'stock.picking', 'read',
     [[picking]],
-    { fields: ['id', 'name', 'state', 'partner_id'], context: { active_test: false } },
-  )) as { id: number; name: string; state: string; partner_id: [number, string] | false }[];
+    { fields: ['id', 'name', 'state', 'partner_id', 'company_id'], context: { active_test: false } },
+  )) as { id: number; name: string; state: string; partner_id: [number, string] | false; company_id: [number, string] | false }[];
   if (!pickingData.length) {
     console.log(`Picking #${picking} bulunamadı.`);
     return;
@@ -71,14 +71,41 @@ async function main() {
     return;
   }
 
+  const pickingCompanyId = pickingData[0].company_id ? pickingData[0].company_id[0] : false;
+
   for (const line of eksikLot) {
     const lotName = `ESKI-TESLIMAT-${pickingData[0].name}-${line.id}`;
     const lotId = Number(await execute('stock.lot', 'create', [{
       name: lotName,
       product_id: line.product_id[0],
+      ...(pickingCompanyId ? { company_id: pickingCompanyId } : {}),
     }]));
     await execute('stock.move.line', 'write', [[line.id], { lot_id: lotId }]);
     console.log(`  move.line #${line.id} -> yeni lot #${lotId} (${lotName}) atandı`);
+  }
+
+  // Onarım: önceki bir çalıştırmada zaten oluşturulmuş olup, picking'in
+  // şirketiyle uyuşmayan company_id'ye sahip lotları düzelt (Odoo varsayılan
+  // olarak lot'u script'i çalıştıran kullanıcının ana şirketine atamış
+  // olabilir, ama bu teslimat 'NG' gibi başka bir şirkete ait olabilir).
+  if (pickingCompanyId) {
+    const guncelMoveLines = (await execute(
+      'stock.move.line', 'search_read',
+      [[['picking_id', '=', picking]]],
+      { fields: ['id', 'lot_id'], context: { active_test: false } },
+    )) as { id: number; lot_id: [number, string] | false }[];
+    const lotIds = guncelMoveLines.map((l) => l.lot_id && l.lot_id[0]).filter((x): x is number => !!x);
+    if (lotIds.length) {
+      const lots = (await execute(
+        'stock.lot', 'read', [lotIds],
+        { fields: ['id', 'name', 'company_id'], context: { active_test: false } },
+      )) as { id: number; name: string; company_id: [number, string] | false }[];
+      const yanlisSirket = lots.filter((l) => !l.company_id || l.company_id[0] !== pickingCompanyId);
+      for (const l of yanlisSirket) {
+        await execute('stock.lot', 'write', [[l.id], { company_id: pickingCompanyId }]);
+        console.log(`  lot #${l.id} (${l.name}) şirketi düzeltildi -> #${pickingCompanyId}`);
+      }
+    }
   }
 
   console.log('\nTeslimat tamamlanıyor (button_validate)...');
