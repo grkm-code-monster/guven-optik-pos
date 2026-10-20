@@ -82,7 +82,13 @@ async function main() {
   }
 
   console.log('\nTeslimat tamamlanıyor (button_validate)...');
-  const sonuc = await execute('stock.picking', 'button_validate', [[picking]]);
+  // skip_backorder: eksik kalan miktar için "ek teslimat oluşturulsun mu?"
+  // sihirbazını atlar — biz tüm satırlara zaten lot atadık, ek teslimata
+  // gerek yok, direkt tamamlanmasını istiyoruz.
+  const sonuc = await execute(
+    'stock.picking', 'button_validate', [[picking]],
+    { context: { skip_backorder: true } },
+  );
   console.log('Sonuç:', JSON.stringify(sonuc));
 
   const after = (await execute(
