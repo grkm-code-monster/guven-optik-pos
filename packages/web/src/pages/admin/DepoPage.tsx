@@ -42,6 +42,7 @@ import {
   type OzelSiparisKarekodAday,
 } from '../../api/ozelSiparis.api'
 import ExcelEnvanterImportTab from '../../components/depo/ExcelEnvanterImportTab'
+import CamEnvanteriImportTab from '../../components/depo/CamEnvanteriImportTab'
 import { canSeeDepoTab, type AdminUserLite } from '../../constants/ekYetki'
 
 // ── Sabitler ─────────────────────────────────────────────────
@@ -68,6 +69,7 @@ const TABS = [
   { id: 'alim', label: '📥 Alım & İade' },
   { id: 'urun-giris', label: '🆕 Ürün Girişi' },
   { id: 'excel-envanter', label: '📊 Excel Envanter' },
+  { id: 'cam-envanter', label: '🔬 Cam/Lens Envanter' },
   { id: 'siparisler', label: '🛒 Siparişler' },
 ] as const
 
@@ -149,6 +151,7 @@ export default function DepoPage() {
       {activeTab === 'alim' && <AlimIadeTab />}
       {activeTab === 'urun-giris' && <UrunGirisTab />}
       {activeTab === 'excel-envanter' && <ExcelEnvanterImportTab />}
+      {activeTab === 'cam-envanter' && <CamEnvanteriImportTab />}
       {activeTab === 'siparisler' && <SiparislerTab />}
     </div>
   )

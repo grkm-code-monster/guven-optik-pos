@@ -120,6 +120,7 @@ export const DEPO_TAB_YETKI: Record<string, string> = {
   alim: EK_YETKI.DEPO_ALIM_IADE,
   'urun-giris': EK_YETKI.DEPO_URUN_GIRIS,
   'excel-envanter': EK_YETKI.DEPO_EXCEL_ENVANTER,
+  'cam-envanter': EK_YETKI.DEPO_EXCEL_ENVANTER,
   siparisler: EK_YETKI.DEPO_SIPARIS,
 }
 

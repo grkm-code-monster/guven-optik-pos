@@ -134,7 +134,10 @@ const ADMIN_ROUTE_RULES: RouteAccessRule[] = [
   },
   // ── Depo: Excel envanter ──
   {
-    test: (p) => prefix(p, '/envanter-import'),
+    // 20.10.2026 — Cam/Lens İçe Aktarma, mevcut Excel Envanter yetkisiyle
+    // (DEPO_EXCEL_ENVANTER) AYNI izni kullanır; ayrı bir yetki anahtarı
+    // tanımlamaya gerek yok, ikisi de aynı "Depo → Excel Envanter" özelliği.
+    test: (p) => prefix(p, '/envanter-import') || prefix(p, '/cam-envanter-import'),
     yetkiler: [EK_YETKI.DEPO_EXCEL_ENVANTER],
     roles: [Role.ADMIN],
   },
