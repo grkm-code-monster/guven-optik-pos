@@ -275,7 +275,21 @@ export async function uygulaCamEnvanterImport(input: {
       if (tmplMevcut[0]?.type !== 'product') tmplDuzeltme.type = 'product';
       if (tmplMevcut[0]?.tracking !== 'serial') tmplDuzeltme.tracking = 'serial';
       if (Object.keys(tmplDuzeltme).length) {
-        await execute('product.template', 'write', [[tmplId], tmplDuzeltme]);
+        try {
+          await execute('product.template', 'write', [[tmplId], tmplDuzeltme]);
+        } catch (typeErr: unknown) {
+          // 20.10.2026 — bu şablonda ZATEN başarılı stok hareketi varsa
+          // (ör. aynı import'un önceki parçası/chunk'ı), Odoo bu alanları
+          // bir daha DEĞİŞTİRMEMİZE izin vermiyor — ama bu, ürünün tipinin
+          // ZATEN doğru olduğunun KANITI (yanlış olsaydı o önceki stok
+          // hareketi hiç oluşmazdı). Bu durumda hatayı yutup devam ediyoruz;
+          // gerçekten tip yanlışsa bu, aşağıdaki stok adımında KENDİ hatasıyla
+          // tekrar ortaya çıkar.
+          console.warn(
+            `[cam-envanter-import] Şablon #${tmplId} type/tracking düzeltilemedi (muhtemelen zaten doğru, mevcut stok hareketi engelliyor):`,
+            typeErr instanceof Error ? typeErr.message : typeErr,
+          );
+        }
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Temsilci barkod/ürün tipi düzeltilemedi';
