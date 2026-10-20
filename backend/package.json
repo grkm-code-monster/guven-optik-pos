@@ -26,6 +26,7 @@
     "sablon-model-renk-olcu-sifirla": "ts-node --transpile-only scripts/sablon-model-renk-olcu-sifirla.ts",
     "sablon-alt-sablonlari-listele": "ts-node --transpile-only scripts/sablon-alt-sablonlari-listele.ts",
     "teshis-sablon-tip-kilidi": "ts-node --transpile-only scripts/teshis-sablon-tip-kilidi.ts",
+    "kapat-eski-teslimat": "ts-node --transpile-only scripts/kapat-eski-teslimat.ts",
     "olustur-cam-tedarikci-urun-adi-alani": "ts-node --transpile-only scripts/olustur-cam-tedarikci-urun-adi-alani.ts",
     "dinamik-nitelik-olustur": "ts-node --transpile-only scripts/dinamik-nitelik-olustur.ts",
     "sablon-alt-sablonlari-arsivle": "ts-node --transpile-only scripts/sablon-alt-sablonlari-arsivle.ts",

@@ -1,0 +1,99 @@
+/**
+ * Yarım kalmış (state='assigned', hiç tamamlanmamış) bir teslimatı, geçmişte
+ * ZATEN SATILMIŞ ama Odoo'da hiç doğrulanmamış (validate edilmemiş) ürünler
+ * için KAPATIR — Görkem'in kararı: bu ürün zaten müşteriye teslim edilmiş,
+ * sadece Odoo'da hiç tamamlanmamış. Her move.line'a yeni bir lot atanır
+ * (geçmişte tam olarak hangi lot/UTS olduğu artık bilinmediği için düz bir
+ * "ESKI-TESLIMAT-..." ismi kullanılır — garanti/iade akışı GRS-... formatlı
+ * lotları aradığı için bu YANILTICI bir gerçek-satış lotu GİBİ görünmez,
+ * kolayca ayırt edilir), sonra picking button_validate ile tamamlanır.
+ *
+ * ÖNEMLİ: Bu script CANLI YAZMA yapar. Varsayılan olarak sadece NE
+ * YAPILACAĞINI gösterir (dry-run). Gerçekten uygulamak için --confirm ekle.
+ *
+ * Kullanım:
+ *   cd backend
+ *   npm run kapat-eski-teslimat -- --picking=275            (önce dry-run)
+ *   npm run kapat-eski-teslimat -- --picking=275 --confirm  (gerçekten uygula)
+ */
+import 'dotenv/config';
+import { execute } from '../src/modules/odoo/odoo.service';
+
+function parseArgs() {
+  const pickingArg = process.argv.find((a) => a.startsWith('--picking='));
+  const picking = pickingArg ? Number(pickingArg.split('=')[1]) : null;
+  const confirm = process.argv.includes('--confirm');
+  return { picking, confirm };
+}
+
+async function main() {
+  const { picking, confirm } = parseArgs();
+  if (!picking) {
+    console.log('Kullanım: npm run kapat-eski-teslimat -- --picking=275 [--confirm]');
+    process.exit(1);
+  }
+
+  const pickingData = (await execute(
+    'stock.picking', 'read',
+    [[picking]],
+    { fields: ['id', 'name', 'state', 'partner_id'], context: { active_test: false } },
+  )) as { id: number; name: string; state: string; partner_id: [number, string] | false }[];
+  if (!pickingData.length) {
+    console.log(`Picking #${picking} bulunamadı.`);
+    return;
+  }
+  console.log('TESLİMAT:', JSON.stringify(pickingData[0]));
+
+  if (pickingData[0].state === 'done') {
+    console.log('Bu teslimat ZATEN tamamlanmış (done) — hiçbir şey yapılmadı.');
+    return;
+  }
+  if (pickingData[0].state === 'cancel') {
+    console.log('Bu teslimat ZATEN iptal edilmiş (cancel) — hiçbir şey yapılmadı.');
+    return;
+  }
+
+  const moveLines = (await execute(
+    'stock.move.line', 'search_read',
+    [[['picking_id', '=', picking]]],
+    { fields: ['id', 'product_id', 'quantity', 'lot_id'], context: { active_test: false } },
+  )) as { id: number; product_id: [number, string]; quantity: number; lot_id: [number, string] | false }[];
+
+  console.log(`\n${moveLines.length} satır bulundu:`);
+  const eksikLot = moveLines.filter((l) => !l.lot_id);
+  for (const l of moveLines) {
+    console.log(`  move.line #${l.id} ürün #${l.product_id[0]} (${l.product_id[1]}) miktar=${l.quantity} lot=${l.lot_id ? l.lot_id[1] : 'YOK — atanacak'}`);
+  }
+
+  if (!confirm) {
+    console.log('\n--- DRY-RUN --- Gerçekten uygulamak için sonuna --confirm ekleyip tekrar çalıştır.');
+    console.log(`Yapılacaklar: ${eksikLot.length} satıra yeni lot atanacak, sonra teslimat tamamlanacak (button_validate).`);
+    return;
+  }
+
+  for (const line of eksikLot) {
+    const lotName = `ESKI-TESLIMAT-${pickingData[0].name}-${line.id}`;
+    const lotId = Number(await execute('stock.lot', 'create', [{
+      name: lotName,
+      product_id: line.product_id[0],
+    }]));
+    await execute('stock.move.line', 'write', [[line.id], { lot_id: lotId }]);
+    console.log(`  move.line #${line.id} -> yeni lot #${lotId} (${lotName}) atandı`);
+  }
+
+  console.log('\nTeslimat tamamlanıyor (button_validate)...');
+  const sonuc = await execute('stock.picking', 'button_validate', [[picking]]);
+  console.log('Sonuç:', JSON.stringify(sonuc));
+
+  const after = (await execute(
+    'stock.picking', 'read',
+    [[picking]],
+    { fields: ['id', 'name', 'state'], context: { active_test: false } },
+  )) as { id: number; name: string; state: string }[];
+  console.log('\nTESLİMAT (güncel durum):', JSON.stringify(after[0]));
+}
+
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+});
