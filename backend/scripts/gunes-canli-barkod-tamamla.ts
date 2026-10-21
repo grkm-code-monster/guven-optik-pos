@@ -239,14 +239,47 @@ async function main() {
       { fields: ['ref'], limit: 5000, context: { active_test: false } },
     ) as Promise<Array<{ ref: string | false }>>,
   ]);
+  // "DELETE_86800000000123" gibi arsivlenmis/silinmis kayitlar da onekin
+  // SUBSTRING'i olarak eslesiyor (Odoo'nun 'like' operatoru substring arar)
+  // ama startsWith() bunlari atlar. indexOf kullanarak onek NEREDE olursa
+  // olsun (DELETE_ ile basliyorsa bile) sonrasindaki sira numarasini al —
+  // boylece arsivlenmis eski numaralar da "kullanilmis" sayilir, cakisma
+  // riskini sifira indirir.
   let maxSuffix = 0;
+  let maxSuffixKaynak = '';
   for (const deger of [...urunler.map((p) => p.barcode), ...lotlar.map((l) => l.ref)]) {
     const bc = typeof deger === 'string' ? deger.trim() : '';
-    if (!bc.startsWith(GUNES_PLACEHOLDER_ONEKI)) continue;
-    const suffix = Number(bc.slice(GUNES_PLACEHOLDER_ONEKI.length));
-    if (Number.isFinite(suffix) && suffix > maxSuffix) maxSuffix = suffix;
+    const idx = bc.indexOf(GUNES_PLACEHOLDER_ONEKI);
+    if (idx === -1) continue;
+    const kalan = bc.slice(idx + GUNES_PLACEHOLDER_ONEKI.length);
+    const m = kalan.match(/^(\d+)/);
+    if (!m) continue;
+    const suffix = Number(m[1]);
+    if (Number.isFinite(suffix) && suffix > maxSuffix) {
+      maxSuffix = suffix;
+      maxSuffixKaynak = bc;
+    }
   }
-  console.log(`\nPLACEHOLDER SERI (${GUNES_PLACEHOLDER_ONEKI}XX): su ana kadar en yuksek sira no = ${maxSuffix} (toplam ${urunler.length + lotlar.length} kayit tarandi)`);
+  console.log(`\nPLACEHOLDER SERI (${GUNES_PLACEHOLDER_ONEKI}XX, DELETE_ onekli arsivlenmisler dahil): su ana kadar en yuksek sira no = ${maxSuffix} (kaynak kayit: "${maxSuffixKaynak}", toplam ${urunler.length + lotlar.length} kayit tarandi)`);
+
+  // Ayni hesaplamayi daha once cekilen GENIS ("868" iceren, DELETE_ dahil
+  // hepsi) veri uzerinde de tekrarla — mutlak max icin capraz dogrulama.
+  let genisMaxSuffix = 0;
+  let genisMaxKaynak = '';
+  for (const bc of benzersizBarkodlar) {
+    const idx = bc.indexOf(GUNES_PLACEHOLDER_ONEKI);
+    if (idx === -1) continue;
+    const kalan = bc.slice(idx + GUNES_PLACEHOLDER_ONEKI.length);
+    const m = kalan.match(/^(\d+)/);
+    if (!m) continue;
+    const suffix = Number(m[1]);
+    if (Number.isFinite(suffix) && suffix > genisMaxSuffix) {
+      genisMaxSuffix = suffix;
+      genisMaxKaynak = bc;
+    }
+  }
+  console.log(`CAPRAZ DOGRULAMA (genis "868" taramasindan): en yuksek sira no = ${genisMaxSuffix} (kaynak: "${genisMaxKaynak}")`);
+  maxSuffix = Math.max(maxSuffix, genisMaxSuffix);
   console.log(`Sonraki onerilecek placeholder: ${GUNES_PLACEHOLDER_ONEKI}${String(maxSuffix + 1).padStart(2, '0')}`);
 
   console.log('\n=== HALA BULUNAMAYAN SATIRLARA ONERILECEK PLACEHOLDER BARKODLAR ===');
