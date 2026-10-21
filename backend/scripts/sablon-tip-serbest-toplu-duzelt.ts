@@ -1,8 +1,13 @@
 /**
- * teshis-cam-tip-kilidi-toplu.ts'in bulduğu "SERBEST" (üzerinde hiç stok
- * hareketi olmayan, dolayısıyla type alanı hâlâ değiştirilebilir) şablonları
- * TOPLU olarak type='product', detailed_type='product', tracking='serial'
- * yapar. KİLİTLİ olanlara DOKUNMAZ (onlar için sablon-tip-kilidi-coz.ts
+ * teshis-cam-tip-kilidi-toplu.ts'in bulduğu "SERBEST + cam/lens-benzeri"
+ * (üzerinde hiç stok hareketi olmayan VE adı cam/lens formatına uyan)
+ * şablonları TOPLU olarak type='product', detailed_type='product',
+ * tracking='serial' yapar.
+ *
+ * GÜVENLİK: SADECE type != 'product' olan VE adı cam/lens formatına uyan
+ * (bkz. cam-lens-isim-deseni.ts) şablonlara dokunur — "Göz Muayenesi",
+ * "Kargo" gibi GERÇEK hizmet kalemlerine ASLA dokunmaz, stok hareketi
+ * (kilitli) olanlara da dokunmaz (onlar için sablon-tip-kilidi-coz.ts
  * kullanılmalı, tek tek --tmpl=ID ile).
  *
  * Varsayılan: dry-run (sadece ne yapılacağını listeler).
@@ -15,6 +20,7 @@
  */
 import 'dotenv/config';
 import { execute } from '../src/modules/odoo/odoo.service';
+import { CAM_LENS_ISIM_DESENI } from './cam-lens-isim-deseni';
 
 type Tmpl = {
   id: number;
@@ -28,43 +34,61 @@ type Tmpl = {
 async function main() {
   const confirm = process.argv.includes('--confirm');
 
-  const templates = (await execute(
+  const bozuk = (await execute(
     'product.template', 'search_read',
-    [[]],
+    [[['type', '!=', 'product']]],
     {
       fields: ['id', 'name', 'type', 'detailed_type', 'tracking', 'categ_id'],
-      limit: 10000,
+      limit: 5000,
       context: { active_test: false },
     },
   )) as Tmpl[];
 
-  const bozuk = templates.filter((t) => {
-    if (t.type === 'product' && t.tracking === 'serial' && t.detailed_type === 'product') return false;
-    if (t.name.startsWith('[ESKİ-TİP-KİLİTLİ]')) return false;
-    return true;
-  });
+  const adaylar = bozuk.filter(
+    (t) => !t.name.startsWith('[ESKİ-TİP-KİLİTLİ]') && CAM_LENS_ISIM_DESENI.test(t.name),
+  );
 
-  if (!bozuk.length) {
-    console.log('Hiçbir sorunlu şablon yok.');
+  if (!adaylar.length) {
+    console.log('Cam/lens-benzeri isimli, type != product olan hiçbir şablon yok.');
     return;
   }
 
-  const serbest: Tmpl[] = [];
-  const kilitli: Tmpl[] = [];
-  for (const t of bozuk) {
-    const moveCount = await execute(
-      'stock.move', 'search_count',
-      [[['product_id.product_tmpl_id', '=', t.id]]],
-      { context: { active_test: false } },
-    ) as number;
-    if (moveCount > 0) kilitli.push(t);
-    else serbest.push(t);
+  console.log(`${adaylar.length} aday şablon bulundu (type != 'product', cam/lens-benzeri isim). Stok hareketi kontrol ediliyor...\n`);
+
+  const varyantlar = (await execute(
+    'product.product', 'search_read',
+    [[['product_tmpl_id', 'in', adaylar.map((t) => t.id)]]],
+    { fields: ['id', 'product_tmpl_id'], limit: 20000, context: { active_test: false } },
+  )) as { id: number; product_tmpl_id: [number, string] }[];
+  const varyantIdToTmplId = new Map<number, number>();
+  for (const v of varyantlar) varyantIdToTmplId.set(v.id, v.product_tmpl_id[0]);
+
+  const hareketliTmplIdSet = new Set<number>();
+  if (varyantlar.length) {
+    const moves = (await execute(
+      'stock.move', 'search_read',
+      [[['product_id', 'in', varyantlar.map((v) => v.id)]]],
+      { fields: ['product_id'], limit: 50000, context: { active_test: false } },
+    )) as { product_id: [number, string] }[];
+    for (const m of moves) {
+      const tmplId = varyantIdToTmplId.get(m.product_id[0]);
+      if (tmplId) hareketliTmplIdSet.add(tmplId);
+    }
   }
+
+  const serbest = adaylar.filter((t) => !hareketliTmplIdSet.has(t.id));
+  const kilitli = adaylar.filter((t) => hareketliTmplIdSet.has(t.id));
 
   console.log(`${serbest.length} şablon SERBEST (düzeltilecek), ${kilitli.length} şablon KİLİTLİ (atlanacak — sablon-tip-kilidi-coz.ts kullan).\n`);
 
   for (const t of serbest) {
     console.log(`#${t.id} "${t.name}" [${t.categ_id ? t.categ_id[1] : '-'}]  ${t.type}/${t.detailed_type}/${t.tracking} -> product/product/serial`);
+  }
+  if (kilitli.length) {
+    console.log('\nKİLİTLİ olup atlanacaklar:');
+    for (const t of kilitli) {
+      console.log(`  npm run sablon-tip-kilidi-coz -- --tmpl=${t.id} --confirm`);
+    }
   }
 
   if (!confirm) {

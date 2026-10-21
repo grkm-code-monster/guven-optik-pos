@@ -300,11 +300,25 @@ export async function uygulaCamEnvanterImport(input: {
           // (ör. aynı import'un önceki parçası/chunk'ı), Odoo bu alanları
           // bir daha DEĞİŞTİRMEMİZE izin vermiyor — ama bu, ürünün tipinin
           // ZATEN doğru olduğunun KANITI (yanlış olsaydı o önceki stok
-          // hareketi hiç oluşmazdı). Bu durumda hatayı yutup devam ediyoruz;
-          // gerçekten tip yanlışsa bu, aşağıdaki stok adımında KENDİ hatasıyla
-          // tekrar ortaya çıkar.
+          // hareketi hiç oluşmazdı). Bu durumda hatayı yutup devam ediyoruz.
+          //
+          // 21.10.2026 — AMA gerçekten type='product' DEĞİLSE (tmplDuzeltme.type
+          // yazılmak istendiyse), bu kanıt GEÇERSİZ — şablon GERÇEKTEN kilitli
+          // ve hâlâ yanlış tipte. Bu durumda aşağıdaki stok adımına hiç
+          // gitmeden, hemen açık ve eyleme geçirilebilir bir hata ver (tmplId +
+          // hazır düzeltme komutu) — jenerik "Miktarlar hizmet ya da
+          // tüketilebilirlik için oluşturulamaz" hatasını teşhis etmek için
+          // Odoo'yu tekrar kazmak gerekmesin.
+          if (tmplDuzeltme.type) {
+            throw new Error(
+              `Şablon #${tmplId} ("${ilk.urunSablonu}") kalıcı tip kilidi: bu şablon bu akıştan önce ` +
+              `oluşturulmuş ve type='product' değil, üzerinde de geçmiş stok hareketi var — Odoo tipin ` +
+              `değiştirilmesine izin vermiyor. Düzeltmek için sunucuda çalıştır: ` +
+              `npm run sablon-tip-kilidi-coz -- --tmpl=${tmplId} --confirm`,
+            );
+          }
           console.warn(
-            `[cam-envanter-import] Şablon #${tmplId} type/tracking düzeltilemedi (muhtemelen zaten doğru, mevcut stok hareketi engelliyor):`,
+            `[cam-envanter-import] Şablon #${tmplId} detailed_type/tracking düzeltilemedi (type zaten doğru, mevcut stok hareketi engelliyor):`,
             typeErr instanceof Error ? typeErr.message : typeErr,
           );
         }

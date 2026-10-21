@@ -1,21 +1,27 @@
 /**
- * Salt-okunur TOPLU teşhis: Cam/Lens içe aktarımında "Miktarlar hizmet ya da
- * tüketilebilirlik için oluşturulamaz" hatası veren TÜM şablonları tek
- * seferde bulur. Kök neden: bu şablonlar ÖNCEDEN (bu Cam/Lens akışından
- * geçmeden) type='service'/'consu' olarak oluşturulmuş VE üzerlerinde zaten
- * en az bir stok hareketi (stock.move) var — bu da Odoo'nun type alanını bir
- * daha DEĞİŞTİRMEMİZE izin vermemesi anlamına geliyor (bkz.
- * sablon-tip-kilidi-coz.ts). cam-envanter-import-uygula.service.ts'teki
- * otomatik düzeltme bu durumda write hatasını yutup "zaten doğru olmalı"
- * diye devam ediyor — ama GERÇEKTEN yanlışsa (ki buradaki vaka budur), hata
- * stok adımında tekrar ortaya çıkıyor.
+ * Salt-okunur TOPLU teşhis: "Miktarlar hizmet ya da tüketilebilirlik için
+ * oluşturulamaz" hatasına sebep olan TÜM şablonları tek seferde bulur.
  *
- * Bu script'in yaptığı: name'i "Ürün Şablonu" formatına uyan (en az bir
- * rakam ve tire içeren, cam/lens tarzı) VEYA kategori adında "cam"/"lens"
- * geçen TÜM product.template kayıtlarını çeker, type/detailed_type/tracking
- * yanlış olanları filtreler, ve her biri için üzerinde gerçekten stok
- * hareketi olup olmadığını (yani kilidin GERÇEKTEN var olup olmadığını)
- * kontrol eder.
+ * ÖNEMLİ (21.10.2026 düzeltmesi) — İLK SÜRÜM type/detailed_type/tracking
+ * ÜÇÜNÜN DE 'product'/'serial' olmasını zorunlu tutuyordu; bu, tracking'i
+ * bilinçli olarak 'lot' veya 'none' olan BAŞKA ürün ailelerini (çerçeve vb.)
+ * da "bozuk" sayıp binlerce yanlış-pozitif üretti (9566/10000!) ve her biri
+ * için tek tek stock.move sorgusu sunucuyu gereksiz yere yordu.
+ *
+ * GERÇEK hata sinyali SADECE type alanı — Odoo "Miktarlar hizmet ya da
+ * tüketilebilirlik için oluşturulamaz" hatasını SADECE type='service' veya
+ * type='consu' olduğunda verir (bkz. sablon-tip-kilidi-coz.ts). tracking
+ * alanı bu hatayla ilgisiz. Bu yüzden bu script ARTIK SADECE type != 'product'
+ * olan şablonları arıyor.
+ *
+ * GÜVENLİK: type != 'product' olan şablonların HEPSİ Cam/Lens'ten kalma
+ * bozuk kayıt DEĞİL — "Göz Muayenesi", "Kargo" gibi GERÇEK hizmet/masraf
+ * kalemleri de bilinçli olarak type='service' tutulmuş olabilir. Bu yüzden
+ * sonuçlar iki gruba ayrılıyor: "CAM/LENS BENZERİ İSİM" (ör. "1.56 Org Et
+ * -0200-0200" formatına uyan, yani bir dioptri/sıra kodu içeren) ve "DİĞER"
+ * (muhtemelen gerçek hizmet kalemleri — ELLE incelenmeli, toplu
+ * düzeltilmemeli). sablon-tip-serbest-toplu-duzelt.ts SADECE birinci gruba
+ * dokunur.
  *
  * Çıktıdaki her satır, sablon-tip-kilidi-coz.ts'e doğrudan beslenebilecek
  * bir --tmpl=ID.
@@ -26,6 +32,7 @@
  */
 import 'dotenv/config';
 import { execute } from '../src/modules/odoo/odoo.service';
+import { CAM_LENS_ISIM_DESENI } from './cam-lens-isim-deseni';
 
 type Tmpl = {
   id: number;
@@ -37,75 +44,78 @@ type Tmpl = {
 };
 
 async function main() {
-  const templates = (await execute(
+  // SADECE type != 'product' olanları çek (service/consu) — asıl hatanın
+  // tek gerçek sebebi bu. 'in' domain'i ile tek sorguda, 10000 kaydı tek
+  // tek taramak yerine.
+  const bozuk = (await execute(
     'product.template', 'search_read',
-    [[]],
+    [[['type', '!=', 'product']]],
     {
       fields: ['id', 'name', 'type', 'detailed_type', 'tracking', 'categ_id'],
-      limit: 10000,
+      limit: 5000,
       context: { active_test: false },
     },
   )) as Tmpl[];
 
-  console.log(`Toplam ${templates.length} şablon tarandı.`);
+  const filtreli = bozuk.filter((t) => !t.name.startsWith('[ESKİ-TİP-KİLİTLİ]'));
 
-  const bozuk = templates.filter((t) => {
-    if (t.type === 'product' && t.tracking === 'serial' && t.detailed_type === 'product') return false;
-    // zaten "[ESKİ-TİP-KİLİTLİ]" diye yeniden adlandırılmış olanları atla —
-    // bunlar bilinçli olarak böyle bırakıldı, zaten bir yenisi var.
-    if (t.name.startsWith('[ESKİ-TİP-KİLİTLİ]')) return false;
-    return true;
-  });
+  console.log(`type != 'product' olan ${bozuk.length} şablon bulundu (${filtreli.length} tanesi zaten "[ESKİ-TİP-KİLİTLİ]" işaretli değil).\n`);
 
-  console.log(`\n${bozuk.length} şablon type/detailed_type/tracking uyumsuz (product/serial değil).`);
-
-  if (!bozuk.length) {
+  if (!filtreli.length) {
     console.log('Hiçbir sorunlu şablon yok.');
     return;
   }
 
-  console.log('\nStok hareketi (kilit kanıtı) kontrol ediliyor...\n');
+  console.log('Stok hareketi (kilit kanıtı) kontrol ediliyor (tek sorguda)...\n');
 
-  const sonuclar: Array<{
-    id: number; name: string; categ: string; type: string; detailed_type: string;
-    tracking: string; moveCount: number; kilitli: boolean;
-  }> = [];
+  const tmplIds = filtreli.map((t) => t.id);
+  const varyantlar = (await execute(
+    'product.product', 'search_read',
+    [[['product_tmpl_id', 'in', tmplIds]]],
+    { fields: ['id', 'product_tmpl_id'], limit: 20000, context: { active_test: false } },
+  )) as { id: number; product_tmpl_id: [number, string] }[];
 
-  for (const t of bozuk) {
-    const moveCount = await execute(
-      'stock.move', 'search_count',
-      [[['product_id.product_tmpl_id', '=', t.id]]],
-      { context: { active_test: false } },
-    ) as number;
-    sonuclar.push({
-      id: t.id,
-      name: t.name,
-      categ: t.categ_id ? t.categ_id[1] : '(kategori yok)',
-      type: t.type,
-      detailed_type: t.detailed_type,
-      tracking: t.tracking,
-      moveCount,
-      kilitli: moveCount > 0,
-    });
+  const varyantIdToTmplId = new Map<number, number>();
+  for (const v of varyantlar) varyantIdToTmplId.set(v.id, v.product_tmpl_id[0]);
+
+  const hareketliTmplIdSet = new Set<number>();
+  if (varyantlar.length) {
+    const moveProductIds = (await execute(
+      'stock.move', 'search_read',
+      [[['product_id', 'in', varyantlar.map((v) => v.id)]]],
+      { fields: ['product_id'], limit: 50000, context: { active_test: false } },
+    )) as { product_id: [number, string] }[];
+    for (const m of moveProductIds) {
+      const tmplId = varyantIdToTmplId.get(m.product_id[0]);
+      if (tmplId) hareketliTmplIdSet.add(tmplId);
+    }
   }
 
-  const kilitli = sonuclar.filter((s) => s.kilitli);
-  const serbest = sonuclar.filter((s) => !s.kilitli);
+  const lensBenzeri = (t: Tmpl) => CAM_LENS_ISIM_DESENI.test(t.name);
 
-  console.log(`=== KİLİTLİ (stok hareketi var — type alanı Odoo'da artık değiştirilemez, kopya-şablon gerekir) ===`);
-  for (const s of kilitli) {
-    console.log(`  #${s.id}  "${s.name}"  [${s.categ}]  type=${s.type}/${s.detailed_type} tracking=${s.tracking}  (${s.moveCount} stok hareketi)`);
-  }
-  console.log(`\nToplam ${kilitli.length} şablon KİLİTLİ. Her biri için şunu çalıştır:`);
-  for (const s of kilitli) {
-    console.log(`  npm run sablon-tip-kilidi-coz -- --tmpl=${s.id} --confirm`);
+  const kilitli = filtreli.filter((t) => hareketliTmplIdSet.has(t.id));
+  const serbest = filtreli.filter((t) => !hareketliTmplIdSet.has(t.id));
+
+  const yazdir = (liste: Tmpl[], baslik: string) => {
+    console.log(`\n=== ${baslik} (${liste.length}) ===`);
+    for (const t of liste) {
+      console.log(`  #${t.id}  "${t.name}"  [${t.categ_id ? t.categ_id[1] : '-'}]  type=${t.type}/${t.detailed_type} tracking=${t.tracking}`);
+    }
+  };
+
+  yazdir(kilitli.filter(lensBenzeri), 'KİLİTLİ — CAM/LENS BENZERİ İSİM (stok hareketi var, kopya şablon gerekir)');
+  yazdir(kilitli.filter((t) => !lensBenzeri(t)), 'KİLİTLİ — DİĞER (muhtemelen GERÇEK hizmet kalemi — ELLE incele, dokunma)');
+  yazdir(serbest.filter(lensBenzeri), 'SERBEST — CAM/LENS BENZERİ İSİM (stok hareketi yok, direkt düzeltilebilir)');
+  yazdir(serbest.filter((t) => !lensBenzeri(t)), 'SERBEST — DİĞER (muhtemelen GERÇEK hizmet kalemi — ELLE incele, dokunma)');
+
+  const kilitliLens = kilitli.filter(lensBenzeri);
+  console.log(`\nKİLİTLİ + cam/lens-benzeri olanlar için şunu çalıştır:`);
+  for (const t of kilitliLens) {
+    console.log(`  npm run sablon-tip-kilidi-coz -- --tmpl=${t.id} --confirm`);
   }
 
-  console.log(`\n=== SERBEST (stok hareketi YOK — direkt write ile düzeltilebilir, kopya-şablon GEREKMEZ) ===`);
-  for (const s of serbest) {
-    console.log(`  #${s.id}  "${s.name}"  [${s.categ}]  type=${s.type}/${s.detailed_type} tracking=${s.tracking}`);
-  }
-  console.log(`\nToplam ${serbest.length} şablon SERBEST — bunlar için product.template.write ile direkt type='product', detailed_type='product', tracking='serial' yazılabilir (kopya şablon oluşturmaya gerek yok).`);
+  console.log(`\nSERBEST + cam/lens-benzeri olanlar: "npm run sablon-tip-serbest-toplu-duzelt -- --confirm" ile TEK KOMUTLA düzeltilebilir (bu script SADECE o grubu düzeltir).`);
+  console.log(`\n"DİĞER" gruplarına GİRMEYEN hiçbir otomatik script dokunmaz — bunlar muhtemelen gerçek hizmet/masraf kalemleri, elle kontrol edilmeli.`);
 }
 
 main().catch((err) => {
