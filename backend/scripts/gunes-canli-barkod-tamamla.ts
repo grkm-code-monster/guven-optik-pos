@@ -280,6 +280,24 @@ async function main() {
   }
   console.log(`CAPRAZ DOGRULAMA (genis "868" taramasindan): en yuksek sira no = ${genisMaxSuffix} (kaynak: "${genisMaxKaynak}")`);
   maxSuffix = Math.max(maxSuffix, genisMaxSuffix);
+
+  // Baska bir aday seri: "0868000000" ile baslayanlar (cam/lens'te kullanilan
+  // CAM_TEMSILCI_BARKOD_ONEKI = '08680000001' de bu aileden) — Gorkem'in
+  // hatirladigi "1200+" numara belki BU serilerden birinde.
+  for (const alternatifOnek of ['08680000000', '08680000001']) {
+    let altMax = 0;
+    let altKaynak = '';
+    for (const bc of benzersizBarkodlar) {
+      const idx = bc.indexOf(alternatifOnek);
+      if (idx === -1) continue;
+      const kalan = bc.slice(idx + alternatifOnek.length);
+      const m = kalan.match(/^(\d+)/);
+      if (!m) continue;
+      const suffix = Number(m[1]);
+      if (Number.isFinite(suffix) && suffix > altMax) { altMax = suffix; altKaynak = bc; }
+    }
+    console.log(`Alternatif seri "${alternatifOnek}XXX": en yuksek sira no = ${altMax} (kaynak: "${altKaynak}")`);
+  }
   console.log(`Sonraki onerilecek placeholder: ${GUNES_PLACEHOLDER_ONEKI}${String(maxSuffix + 1).padStart(2, '0')}`);
 
   console.log('\n=== HALA BULUNAMAYAN SATIRLARA ONERILECEK PLACEHOLDER BARKODLAR ===');
