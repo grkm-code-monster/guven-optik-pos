@@ -6,7 +6,10 @@ import {
   previewEnvanterImport,
   type ParsedEnvanterRow,
 } from './envanter-import.service';
-import { uygulaEnvanterImport } from './envanter-import-uygula.service';
+import {
+  uygulaEnvanterImport,
+  type EnvanterUygulaSatirSonuc,
+} from './envanter-import-uygula.service';
 import { tespitEskiHatalıKayitlar, odooBaglantiTeshis } from './envanter-import-diagnostik.service';
 import { onarEskiUtsKayitlari } from './envanter-import-onarim.service';
 
@@ -72,19 +75,41 @@ router.post('/uygula', async (req: Request, res: Response, next: NextFunction) =
     }
 
     const parsed = satirlar as ParsedEnvanterRow[];
+
+    // 21.10.2026 — cam-envanter-import.controller.ts'teki aynı düzeltme:
+    // ÖNCEDEN tek bir satır satirNo/barkod'u eksikse TÜM istek (chunk'ın
+    // TÜMÜ) 400 ile reddediliyordu — chunk'taki geçerli diğer satırlar da
+    // gereksiz yere "başarısız" sayılıyordu. Artık sadece gerçekten eksik
+    // olan satır(lar) BASARISIZ raporlanıyor, geçerli satırlar işleniyor.
+    const gecersizSonuclar: EnvanterUygulaSatirSonuc[] = [];
+    const gecerliSatirlar: ParsedEnvanterRow[] = [];
     for (const s of parsed) {
       if (!s.satirNo || !s.barkod?.trim()) {
-        return res.status(400).json({ error: 'Her satırda satirNo ve barkod zorunlu' });
+        gecersizSonuclar.push({
+          satirNo: s.satirNo ?? 0,
+          durum: 'BASARISIZ',
+          mesaj: 'satirNo ve barkod zorunlu',
+        });
+        continue;
       }
+      gecerliSatirlar.push(s);
     }
 
-    const sonuc = await uygulaEnvanterImport({
-      lokasyonKodu: String(lokasyonKodu),
-      satirlar: parsed,
-      aktarimKimligi: typeof aktarimKimligi === 'string' ? aktarimKimligi : undefined,
-    });
+    const sonuc = gecerliSatirlar.length
+      ? await uygulaEnvanterImport({
+          lokasyonKodu: String(lokasyonKodu),
+          satirlar: gecerliSatirlar,
+          aktarimKimligi: typeof aktarimKimligi === 'string' ? aktarimKimligi : undefined,
+        })
+      : { ozet: { basarili: 0, basarisiz: 0 }, satirlar: [] };
 
-    return res.json({ success: true, ...sonuc });
+    const birlesikSatirlar = [...gecersizSonuclar, ...sonuc.satirlar];
+    const birlesikOzet = {
+      basarili: sonuc.ozet.basarili,
+      basarisiz: sonuc.ozet.basarisiz + gecersizSonuclar.length,
+    };
+
+    return res.json({ success: true, ozet: birlesikOzet, satirlar: birlesikSatirlar });
   } catch (err) {
     next(err);
   }

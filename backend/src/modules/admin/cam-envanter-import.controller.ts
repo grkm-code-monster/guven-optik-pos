@@ -6,7 +6,10 @@ import {
   previewCamEnvanterImport,
   type ParsedCamEnvanterRow,
 } from './cam-envanter-import.service';
-import { uygulaCamEnvanterImport } from './cam-envanter-import-uygula.service';
+import {
+  uygulaCamEnvanterImport,
+  type CamEnvanterUygulaSatirSonuc,
+} from './cam-envanter-import-uygula.service';
 
 const router = Router();
 
@@ -64,21 +67,44 @@ router.post('/uygula', async (req: Request, res: Response, next: NextFunction) =
     }
 
     const parsed = satirlar as ParsedCamEnvanterRow[];
+
+    // 21.10.2026 — ÖNCEDEN: tek bir satır bu şartı karşılamazsa TÜM istek
+    // (chunk'ın TÜMÜ, ~15 satır) 400 ile reddediliyordu — chunk içindeki
+    // geçerli diğer satırlar da gereksiz yere "başarısız" sayılıyordu
+    // (frontend'de "Bu parça için istek yanıtı alınamadı" olarak görünüyor).
+    // Artık sadece GERÇEKTEN eksik olan satır(lar) BASARISIZ raporlanıyor,
+    // geçerli satırlar normal şekilde işleniyor.
+    const gecersizSonuclar: CamEnvanterUygulaSatirSonuc[] = [];
+    const gecerliSatirlar: ParsedCamEnvanterRow[] = [];
     for (const s of parsed) {
       // barkodOtomatikMu satırlarında barkod bilinçli olarak boş — apply
       // anında otomatik atanacak, bu yüzden bu satırlar kontrolden muaf.
       if (!s.satirNo || (!s.barkod?.trim() && !s.barkodOtomatikMu)) {
-        return res.status(400).json({ error: 'Her satırda satirNo ve barkod zorunlu' });
+        gecersizSonuclar.push({
+          satirNo: s.satirNo ?? 0,
+          durum: 'BASARISIZ',
+          mesaj: 'satirNo ve barkod zorunlu (barkod boş ve otomatik atama işaretli değil)',
+        });
+        continue;
       }
+      gecerliSatirlar.push(s);
     }
 
-    const sonuc = await uygulaCamEnvanterImport({
-      lokasyonKodu: String(lokasyonKodu),
-      satirlar: parsed,
-      aktarimKimligi: typeof aktarimKimligi === 'string' ? aktarimKimligi : undefined,
-    });
+    const sonuc = gecerliSatirlar.length
+      ? await uygulaCamEnvanterImport({
+          lokasyonKodu: String(lokasyonKodu),
+          satirlar: gecerliSatirlar,
+          aktarimKimligi: typeof aktarimKimligi === 'string' ? aktarimKimligi : undefined,
+        })
+      : { ozet: { basarili: 0, basarisiz: 0 }, satirlar: [] };
 
-    return res.json({ success: true, ...sonuc });
+    const birlesikSatirlar = [...gecersizSonuclar, ...sonuc.satirlar];
+    const birlesikOzet = {
+      basarili: sonuc.ozet.basarili,
+      basarisiz: sonuc.ozet.basarisiz + gecersizSonuclar.length,
+    };
+
+    return res.json({ success: true, ozet: birlesikOzet, satirlar: birlesikSatirlar });
   } catch (err) {
     next(err);
   }
