@@ -33,6 +33,7 @@
     "sablon-ad-duzelt": "ts-node --transpile-only scripts/sablon-ad-duzelt.ts",
     "varyanttan-sablon-bul": "ts-node --transpile-only scripts/varyanttan-sablon-bul.ts",
     "teshis-gunes-varyant-format": "ts-node --transpile-only scripts/teshis-gunes-varyant-format.ts",
+    "gunes-canli-barkod-tamamla": "ts-node --transpile-only scripts/gunes-canli-barkod-tamamla.ts",
     "olustur-cam-tedarikci-urun-adi-alani": "ts-node --transpile-only scripts/olustur-cam-tedarikci-urun-adi-alani.ts",
     "dinamik-nitelik-olustur": "ts-node --transpile-only scripts/dinamik-nitelik-olustur.ts",
     "sablon-alt-sablonlari-arsivle": "ts-node --transpile-only scripts/sablon-alt-sablonlari-arsivle.ts",
