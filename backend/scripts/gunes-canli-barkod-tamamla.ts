@@ -170,6 +170,10 @@ async function main() {
         }
       }
       const score = coreHit * 8 + digitHit * 6 + exactRenk * 5 + renkScore * 2 + modelScore * 1.5 + widthScore * 1;
+      // Renk (renk kodu) TUTMUYORSA bu aday asla "best" olamaz — barkod
+      // renge/SKU'ya ozeldir, model ayni olsa da farkli renkteki bir
+      // urunun barkodunu kullanmak YANLIS kayit/mukerrer riski yaratir.
+      if (!exactRenk) continue;
       if (score > bestScore) {
         second = best; secondScore = bestScore;
         best = c; bestScore = score;
