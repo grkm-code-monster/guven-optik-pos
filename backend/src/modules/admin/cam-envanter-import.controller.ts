@@ -77,8 +77,18 @@ router.post('/uygula', async (req: Request, res: Response, next: NextFunction) =
     const gecersizSonuclar: CamEnvanterUygulaSatirSonuc[] = [];
     const gecerliSatirlar: ParsedCamEnvanterRow[] = [];
     for (const s of parsed) {
-      // barkodOtomatikMu satırlarında barkod bilinçli olarak boş — apply
-      // anında otomatik atanacak, bu yüzden bu satırlar kontrolden muaf.
+      // 21.10.2026 — ÖNCEDEN: sadece s.barkodOtomatikMu bayrağına bakılıyordu.
+      // Önizleme adımında bu bayrak doğru hesaplanıyor ama frontend/HTTP
+      // turunda bazı satırlarda (gözlenen: barkod VE UTS ikisi de boş olan
+      // satırlar) bu bayrak uygula isteğine taşınmıyor — gerçek neden ne
+      // olursa olsun, barkod VE UTS'nin ikisi de boşsa parse zamanındaki
+      // AYNI kuralla (bkz. parseCamEnvanterExcel: barkodOtomatikMu hesabı)
+      // burada da otomatik atamaya izin veriyoruz; bayrağı burada da set
+      // ediyoruz ki uygulaCamEnvanterImport içindeki generateNextTemsilciBarkod
+      // yolu da doğru tetiklensin.
+      const otomatikUygun = !s.barkod?.trim() && !s.utsKodu?.trim();
+      if (otomatikUygun) s.barkodOtomatikMu = true;
+
       if (!s.satirNo || (!s.barkod?.trim() && !s.barkodOtomatikMu)) {
         gecersizSonuclar.push({
           satirNo: s.satirNo ?? 0,
