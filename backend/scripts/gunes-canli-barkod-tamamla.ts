@@ -198,6 +198,35 @@ async function main() {
   console.log(`HALA BULUNAMAYAN: ${bulunamayanlar.length}`);
 
   // ---- Placeholder seri max tespiti ----
+  // Gorkem'in hatirladigina gore seri 1200+'e kadar gitmis olabilir — daha
+  // dar onek ("868") ile GENIS bir arama yaparak farkli uzunluk/sifirlama
+  // varyasyonlarini da (0868..., 868XXXXXXXXXX gibi) yakalamaya calisiyoruz.
+  const GENIS_ONEK = '868';
+  const genisUrunler = (await execute(
+    'product.product', 'search_read',
+    [[['barcode', 'like', GENIS_ONEK]]],
+    { fields: ['barcode'], limit: 20000, context: { active_test: false } },
+  )) as Array<{ barcode: string | false }>;
+  const genisLotlar = (await execute(
+    'stock.lot', 'search_read',
+    [[['ref', 'like', GENIS_ONEK]]],
+    { fields: ['ref'], limit: 20000, context: { active_test: false } },
+  )) as Array<{ ref: string | false }>;
+  console.log(`\n(Genis tarama: "${GENIS_ONEK}" iceren ${genisUrunler.length} urun barkodu + ${genisLotlar.length} lot referansi bulundu)`);
+  const benzersizBarkodlar = new Set<string>();
+  for (const v of [...genisUrunler.map((p) => p.barcode), ...genisLotlar.map((l) => l.ref)]) {
+    if (typeof v === 'string' && v.trim()) benzersizBarkodlar.add(v.trim());
+  }
+  // En uzun/en cok tekrar eden onek kaliplarini goster (ilk 8 karaktere gore grupla)
+  const onekSayaclari: Record<string, number> = {};
+  for (const b of benzersizBarkodlar) {
+    const onek8 = b.slice(0, 8);
+    onekSayaclari[onek8] = (onekSayaclari[onek8] || 0) + 1;
+  }
+  console.log('Benzersiz barkod/ref sayisi (868 iceren):', benzersizBarkodlar.size);
+  console.log('Ilk-8-karakter onek dagilimi (en cok tekrar eden 15):');
+  Object.entries(onekSayaclari).sort((a, b) => b[1] - a[1]).slice(0, 15).forEach(([k, v]) => console.log(`  "${k}..." -> ${v} kayit`));
+
   const [urunler, lotlar] = await Promise.all([
     execute(
       'product.product', 'search_read',
