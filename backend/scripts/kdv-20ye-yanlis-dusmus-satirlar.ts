@@ -57,13 +57,18 @@ async function main() {
     },
     include: {
       customer: { select: { name: true } },
-      branch: { select: { code: true, name: true } },
       items: {
         include: { product: { select: { name: true, category: true, taxRate: true } } },
       },
     },
     orderBy: { createdAt: 'asc' },
   });
+
+  const branchIds = Array.from(new Set(sales.map((s) => s.branchId)));
+  const branches = branchIds.length
+    ? await prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, code: true } })
+    : [];
+  const branchCodeById = new Map(branches.map((b) => [b.id, b.code]));
 
   if (!sales.length) {
     console.log('\nBu tarihte hiç satış bulunamadı.');
@@ -83,7 +88,7 @@ async function main() {
     if (!supheliKalemler.length) continue;
 
     console.log('');
-    console.log(`Satış #${sale.id}  [${sale.branch?.code ?? '—'}]  ${sale.customer?.name ?? '—'}  (${sale.status})  ${sale.createdAt.toLocaleTimeString('tr-TR')}`);
+    console.log(`Satış #${sale.id}  [${branchCodeById.get(sale.branchId) ?? '—'}]  ${sale.customer?.name ?? '—'}  (${sale.status})  ${sale.createdAt.toLocaleTimeString('tr-TR')}`);
 
     for (const it of supheliKalemler) {
       const unitPrice = Number(it.unitPrice);
