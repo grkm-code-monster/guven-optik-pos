@@ -328,6 +328,7 @@ const paidSalesSelect = {
   taxTotal: true,
   discountTotal: true,
   sgkAmount: true,
+  prescriptionAmount: true,
   createdAt: true,
   userId: true,
   user: { select: { name: true } },
@@ -404,16 +405,37 @@ async function buildSalesDetail(
   }
 
   const sorted = [...paidSales].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-  return sorted.map((sale) => ({
+  return sorted.map((sale) => {
+    // 22.10.2026 düzeltmesi — ÖNCEDEN: "Sipariş Bedeli" (ve ondan türeyen
+    // "Vergi Hariç") doğrudan sale.netTotal'dı, yani SGK/Vakıf'ın karşıladığı
+    // tutarı da İÇERİYORDU (netTotal = grossTotal - discountTotal, ödeme
+    // tipinden bağımsız). Rapor ekranında zaten ayrı bir "SGK Bed." sütunu
+    // olduğu için bu, aynı tutarın iki yerde görünmesine yol açıyordu (SGK
+    // hem Sipariş Bedeli'nin içinde gizli hem de SGK Bed. sütununda açık).
+    // Kullanıcı netleştirdi: Sipariş Bedeli, SGK/Vakıf'ın karşıladığı kısmı
+    // İÇERMEMELİ — sadece müşteriden tahsil edilen (kart/nakit/taksit)
+    // kısmı yansıtmalı. "Vergi Hariç" de aynı mantıkla, toplam siparişin
+    // vergi-hariç oranı (netTotal-taxTotal)/netTotal, sadece müşteri payına
+    // uygulanarak hesaplanıyor — SGK/Vakıf'ın içindeki gizli KDV payı da
+    // böylece dışarıda bırakılmış oluyor. NOT: sale.netTotal'ın kendisine
+    // (ve confirmSale'deki ödeme-toplamı doğrulamasına) dokunulmadı, sadece
+    // bu rapor satırındaki GÖRÜNEN değerler düzeltildi.
+    const netTotalNum = Number(sale.netTotal);
+    const sgk = Number(sale.sgkAmount ?? 0);
+    const vakif = Number(sale.prescriptionAmount ?? 0);
+    const musteriPayi = Math.max(0, netTotalNum - sgk - vakif);
+    const taxTotalNum = Number(sale.taxTotal ?? 0);
+    const matrahOrani = netTotalNum > 0 ? (netTotalNum - taxTotalNum) / netTotalNum : 1;
+    const musteriPayiVergiHaric = musteriPayi * matrahOrani;
+
+    return {
     saleId: sale.id,
     createdAt: sale.createdAt.toISOString(),
     deliveryDate: sale.items[0]?.deliveryDate?.toISOString() ?? null,
     customerName: sale.customer?.name ?? '—',
     grossTotal: sale.grossTotal.toString(),
-    netTotal: sale.netTotal.toString(),
-    taxExcluded: sale.taxTotal
-      ? (Number(sale.netTotal) - Number(sale.taxTotal)).toFixed(2)
-      : sale.netTotal.toString(),
+    netTotal: musteriPayi.toFixed(2),
+    taxExcluded: musteriPayiVergiHaric.toFixed(2),
     discountPct: sale.grossTotal.greaterThan(0)
       ? ((Number(sale.discountTotal) / Number(sale.grossTotal)) * 100).toFixed(1)
       : '0',
@@ -438,7 +460,8 @@ async function buildSalesDetail(
       .reduce((s, p) => s + Number(p.grossAmount), 0)
       .toFixed(2),
     itemSummary: sale.items.map((i) => i.odooProductName ?? i.product?.name ?? '—').join(', '),
-  }));
+    };
+  });
 }
 
 function formatMasrafItemSummary(description: string): string {
