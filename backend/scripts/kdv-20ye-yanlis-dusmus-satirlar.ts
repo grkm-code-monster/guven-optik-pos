@@ -79,6 +79,18 @@ async function main() {
   let toplamEskiTax = 0;
   let toplamYeniTax = 0;
 
+  console.log('\n--- HAM DÖKÜM (bugünün TÜM kalemleri, filtre uygulanmadan) ---');
+  for (const sale of sales) {
+    for (const it of sale.items) {
+      console.log(
+        `  satış ${sale.id.slice(0, 8)} | ürün: ${it.product?.name ?? it.odooProductName ?? '—'} ` +
+          `| yerel kategori: ${it.product?.category ?? 'ÜRÜN YOK/NULL'} | odooProductId: ${it.odooProductId ?? '—'} ` +
+          `| taxRate: ${it.taxRate != null ? Number(it.taxRate) : 'null'} | taxAmount: ${Number(it.taxAmount).toFixed(2)}`,
+      );
+    }
+  }
+  console.log('--- HAM DÖKÜM SONU ---\n');
+
   for (const sale of sales) {
     const supheliKalemler = sale.items.filter((it) => {
       if (it.taxRate == null || Number(it.taxRate) !== 20) return false;
