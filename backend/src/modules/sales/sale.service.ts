@@ -131,7 +131,21 @@ export async function recalcSaleTotals(
   let discountTotal = new Prisma.Decimal(0);
 
   for (const item of items) {
+    // 22.10.2026 düzeltmesi — ÖNCEDEN: recalcSaleTotals, kalem eklenirken/
+    // düzenlenirken (addSaleItem/updateSaleItem) personelin ELLE seçtiği veya
+    // kategoriye göre doğru atanmış taxRate'i (örn. CAM/LENS %10) YOK SAYIYOR,
+    // her çağrıda resolveSaleItemTaxRate'i inputTaxRate GÖNDERMEDEN yeniden
+    // çalıştırıyordu. Bu da odooProductId yoksa (yerel stok camlar gibi) ve
+    // Product.taxRate DB'de hâlâ şema varsayılanı %20'deyse (kategoriye göre
+    // doğru oran sadece satış anında frontend'den geliyor, Product tablosunun
+    // kendisine yazılmıyor), doğru atanmış %10'un her satış kalemi
+    // değişikliğinde (miktar/iskonto değişince, confirmSale'de, vb.) sessizce
+    // %20'ye geri dönmesine yol açıyordu — KDV ve "Vergi Hariç" toplamları
+    // şişiyordu. Artık kalemin ZATEN SAHİP OLDUĞU (add/update sırasında doğru
+    // çözülmüş) taxRate'i inputTaxRate olarak tekrar veriyoruz; recalc sadece
+    // tutarları yeniden toplar, KDV oranını yeniden TAHMİN ETMEZ.
     const taxRateNum = await resolveSaleItemTaxRate({
+      inputTaxRate: item.taxRate != null ? Number(item.taxRate) : null,
       odooProductId: item.odooProductId,
       productTaxRate: item.product.taxRate,
     });
