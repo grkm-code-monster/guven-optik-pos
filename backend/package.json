@@ -14,6 +14,7 @@
     "check-location": "ts-node --transpile-only scripts/check-location.ts",
     "kdv-20ye-yanlis-dusmus-satirlar": "ts-node --transpile-only scripts/kdv-20ye-yanlis-dusmus-satirlar.ts",
     "gun-toplami-komisyon-teshis": "ts-node --transpile-only scripts/gun-toplami-komisyon-teshis.ts",
+    "gun-toplami-api-teshis": "ts-node --transpile-only scripts/gun-toplami-api-teshis.ts",
     "check-branches-query": "ts-node --transpile-only scripts/check-branches-query.ts",
     "check-gvnp-stock": "ts-node --transpile-only scripts/check-gvnp-stock.ts",
     "gvnp-envanter-import": "ts-node --transpile-only scripts/gvnp-envanter-import.ts",
