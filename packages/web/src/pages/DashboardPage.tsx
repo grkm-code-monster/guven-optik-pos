@@ -1948,7 +1948,12 @@ function MudurDashboard({ user }: { user: User }) {
           {!reportHasShift(report) ? <VardiyaKapaliBanner /> : null}
           <MetricCards
             items={[
-              { label: 'Günlük Ciro', value: formatMoney(report?.netCiro ?? report?.totalSales) },
+              // 22.10.2026 — "Günlük Ciro" "Aylık Ciro"ya çevrildi (kullanıcı isteği): her
+              // ayın 1'i sabah 08:00'de sıfırlanıp, sonraki her gün o ana kadarki ay
+              // toplamını kümülatif gösteriyor (bkz. backend report.service.ts
+              // computeAylikCiroToplami). report?.netCiro alanı aynı kalıyor, sadece
+              // içeriği artık günlük değil aylık kümülatif.
+              { label: 'Aylık Ciro', value: formatMoney(report?.netCiro ?? report?.totalSales) },
               { label: 'Kasa Nakit', value: formatMoney(report?.kasaNakit ?? report?.cashTotal) },
               { label: 'Toplam Kart', value: formatMoney(report?.toplamBanka ?? report?.cardNet) },
               { label: 'SGK Hakları', value: formatMoney(report?.toplamSgkHakki) },

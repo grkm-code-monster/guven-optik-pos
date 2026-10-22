@@ -605,6 +605,65 @@ async function computeRunningKasaBakiye(branchId: string, date: Date) {
   return { kasaNakit: kasaNakit.toString(), toplamSgkHakki: toplamSgkHakki.toString() };
 }
 
+// 22.10.2026 — "Günlük Ciro" kutusu "Aylık Ciro"ya çevrildi (kullanıcı isteği):
+// her ayın 1'i sabah 08:00'de sıfırlanır, sonraki her gün o ana kadarki AY
+// TOPLAMINI kümülatif gösterir (gün gün sıfırlanmaz, üst üste eklenir), ayın
+// son günü takvim ayının tam toplamını gösterir. Ayrı bir "günlük anlık görüntü"
+// tablosu TUTULMUYOR — her çağrıda ay başından (o günün sonuna kadar) olan
+// TÜM satışlar yeniden toplanıyor, bu yüzden kümülatif görünüm otomatik oluşuyor.
+//
+// Kullanılan tanım bilerek "Gün Toplamı" (Günlük Kasa'daki) ile AYNI — yani
+// Sipariş Bedeli'nden SGK/Vakıf'ın karşıladığı kısım ve KDV çıkarılmış, ayrıca
+// o günün KENDİ satışlarına ait banka komisyonu da düşülmüş (açık hesaptan
+// başka bir güne ait borcun o gün tahsil edilen kart komisyonu HARİÇ) — "Günlük
+// Ciro"nun eski tanımı (brüt, indirim düşülmeden) DEĞİL.
+async function computeAylikCiroToplami(branchId: string, date: Date): Promise<string> {
+  const ayBaslangici = new Date(date.getFullYear(), date.getMonth(), 1, 8, 0, 0, 0);
+  const { end: araligiBitisi } = dayRange(date);
+  if (araligiBitisi < ayBaslangici) {
+    // Ayın 1'inde saat 08:00'den önce bakılıyorsa (önceki ayın son vardiyası
+    // hâlâ açık olabilir) — henüz yeni ay başlamamış demektir, 0 göster.
+    return '0';
+  }
+
+  const sales = await prisma.sale.findMany({
+    where: { branchId, status: SaleStatus.PAID, createdAt: { gte: ayBaslangici, lte: araligiBitisi } },
+    select: {
+      id: true,
+      createdAt: true,
+      netTotal: true,
+      taxTotal: true,
+      sgkAmount: true,
+      prescriptionAmount: true,
+      payments: {
+        where: { paymentType: PaymentType.CARD },
+        select: { createdAt: true, commissionAmount: true },
+      },
+    },
+  });
+
+  let taxFreeToplam = new Prisma.Decimal(0);
+  let komisyonToplam = new Prisma.Decimal(0);
+
+  for (const sale of sales) {
+    const netTotalNum = Number(sale.netTotal);
+    const sgk = Number(sale.sgkAmount ?? 0);
+    const vakif = Number(sale.prescriptionAmount ?? 0);
+    const musteriPayi = Math.max(0, netTotalNum - sgk - vakif);
+    const taxTotalNum = Number(sale.taxTotal ?? 0);
+    const matrahOrani = netTotalNum > 0 ? (netTotalNum - taxTotalNum) / netTotalNum : 1;
+    taxFreeToplam = taxFreeToplam.plus(musteriPayi * matrahOrani);
+
+    for (const p of sale.payments) {
+      if (isSameCalendarDay(p.createdAt, sale.createdAt)) {
+        komisyonToplam = komisyonToplam.plus(p.commissionAmount ?? 0);
+      }
+    }
+  }
+
+  return taxFreeToplam.minus(komisyonToplam).toString();
+}
+
 export async function getDailyReport(branchId: string, date: Date) {
   const { start, end } = dayRange(date);
 
@@ -671,6 +730,7 @@ export async function getDailyReport(branchId: string, date: Date) {
       bankBreakdown: [],
       salesDetail: [],
       ...zeroExtras(),
+      netCiro: await computeAylikCiroToplami(branchId, date),
       toplamVakifOdemesi: d.vakif.toString(),
       ...runningKasaBakiye,
       kasaDuzeltme: {
@@ -917,6 +977,7 @@ export async function getDailyReport(branchId: string, date: Date) {
     }),
     labIncidents,
     ...derived,
+    netCiro: await computeAylikCiroToplami(branchId, date),
     ...runningKasaBakiye,
     kasaDuzeltme: {
       nakit: duzeltme.nakit.toString(),
