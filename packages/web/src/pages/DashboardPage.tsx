@@ -1954,6 +1954,14 @@ function MudurDashboard({ user }: { user: User }) {
               // computeAylikCiroToplami). report?.netCiro alanı aynı kalıyor, sadece
               // içeriği artık günlük değil aylık kümülatif.
               { label: 'Aylık Ciro', value: formatMoney(report?.netCiro ?? report?.totalSales) },
+              // 22.10.2026 — Kasa Nakit hariç (bilerek TÜM ZAMANLAR kümülatif kalıyor,
+              // kullanıcı kendi "Kasa Bakiye Düzeltme" ekranından ayarlıyor), aşağıdaki
+              // Toplam Kart / SGK Hakları / Vakıf Ödemesi / Satış Adedi / Ort. Sepet /
+              // Banka Kom. kutularının HEPSİ artık Aylık Ciro ile aynı mantıkta: ayın 1'i
+              // sabah 08:00'de sıfırlanıp ay sonuna kadar gün gün kümülatif (bkz. backend
+              // computeAylikOzet). Toplam Kart/Banka Kom. ödeme TARİHİNE göre topluyor,
+              // bu yüzden başka bir satışın bu ay içinde tahsil edilen açık hesap kart
+              // ödemesi de doğal olarak dahil oluyor.
               { label: 'Kasa Nakit', value: formatMoney(report?.kasaNakit ?? report?.cashTotal) },
               { label: 'Toplam Kart', value: formatMoney(report?.toplamBanka ?? report?.cardNet) },
               { label: 'SGK Hakları', value: formatMoney(report?.toplamSgkHakki) },
@@ -1961,6 +1969,7 @@ function MudurDashboard({ user }: { user: User }) {
               { label: 'Satış Adedi', value: String(report?.satisAdedi ?? report?.saleCount ?? 0) },
               { label: 'Ort. Sepet', value: formatMoney(report?.ortalamaSepet) },
               { label: 'Banka Kom.', value: formatMoney(report?.totalCommission) },
+              { label: 'KDV Toplamı', value: formatMoney(report?.aylikKdvToplami) },
             ]}
           />
           <div style={{ ...CARD_STYLE, marginTop: 16 }}>

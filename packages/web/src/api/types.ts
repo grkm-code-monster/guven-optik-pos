@@ -143,6 +143,8 @@ export interface DailyReport {
   toplamVakifOdemesi?: string
   ortalamaSepet?: string
   satisAdedi?: number
+  // 22.10.2026 — aylık (ayın 1'i 08:00'de sıfırlanan, kümülatif) KDV toplamı
+  aylikKdvToplami?: string
   kategoriBreakdown?: {
     GUNES_GOZLUGU: number
     CAM: number

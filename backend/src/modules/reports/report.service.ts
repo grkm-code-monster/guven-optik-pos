@@ -617,9 +617,14 @@ async function computeRunningKasaBakiye(branchId: string, date: Date) {
 // o günün KENDİ satışlarına ait banka komisyonu da düşülmüş (açık hesaptan
 // başka bir güne ait borcun o gün tahsil edilen kart komisyonu HARİÇ) — "Günlük
 // Ciro"nun eski tanımı (brüt, indirim düşülmeden) DEĞİL.
-async function computeAylikCiroToplami(branchId: string, date: Date): Promise<string> {
+function aylikAraligi(date: Date): { ayBaslangici: Date; araligiBitisi: Date } {
   const ayBaslangici = new Date(date.getFullYear(), date.getMonth(), 1, 8, 0, 0, 0);
   const { end: araligiBitisi } = dayRange(date);
+  return { ayBaslangici, araligiBitisi };
+}
+
+async function computeAylikCiroToplami(branchId: string, date: Date): Promise<string> {
+  const { ayBaslangici, araligiBitisi } = aylikAraligi(date);
   if (araligiBitisi < ayBaslangici) {
     // Ayın 1'inde saat 08:00'den önce bakılıyorsa (önceki ayın son vardiyası
     // hâlâ açık olabilir) — henüz yeni ay başlamamış demektir, 0 göster.
@@ -662,6 +667,74 @@ async function computeAylikCiroToplami(branchId: string, date: Date): Promise<st
   }
 
   return taxFreeToplam.minus(komisyonToplam).toString();
+}
+
+// 22.10.2026 — kullanıcı isteği: "Mağaza Özeti"ndeki Toplam Kart, SGK Hakları,
+// Vakıf Ödemesi, Satış Adedi, Ort. Sepet, Banka Kom. kutularının HEPSİ artık
+// Aylık Ciro ile aynı mantıkta — ayın 1'i sabah 08:00'de sıfırlanıp, ay
+// sonuna kadar gün gün kümülatif. Ayrıca yeni bir "KDV Toplamı" kutusu için
+// aylikKdvToplami de burada hesaplanıyor.
+//
+// Toplam Kart / Banka Kom.: payment.createdAt'e göre ay aralığında TÜM kart
+// ödemeleri toplanıyor (satışın kendi günü ne olursa olsun) — bu yüzden başka
+// bir satışın açık hesap borcunun bu ay içinde tahsil edilen kart ödemesi de
+// DOĞAL OLARAK dahil oluyor (Aylık Ciro'daki "sadece kendi günü" kısıtlaması
+// burada YOK, kullanıcı özellikle "açık hesap ödemeleri de olmalı" dedi).
+async function computeAylikOzet(branchId: string, date: Date) {
+  const { ayBaslangici, araligiBitisi } = aylikAraligi(date);
+  if (araligiBitisi < ayBaslangici) {
+    return {
+      toplamBanka: '0',
+      toplamSgkHakki: '0',
+      toplamVakifOdemesi: '0',
+      satisAdedi: 0,
+      ortalamaSepet: '0',
+      totalCommission: '0',
+      aylikKdvToplami: '0',
+    };
+  }
+
+  const salesAgg = await prisma.sale.aggregate({
+    where: { branchId, status: SaleStatus.PAID, createdAt: { gte: ayBaslangici, lte: araligiBitisi } },
+    _sum: { netTotal: true, taxTotal: true, sgkAmount: true, prescriptionAmount: true },
+    _count: { _all: true },
+  });
+
+  const cardAgg = await prisma.payment.aggregate({
+    where: {
+      paymentType: PaymentType.CARD,
+      sale: { branchId, status: SaleStatus.PAID },
+      createdAt: { gte: ayBaslangici, lte: araligiBitisi },
+    },
+    _sum: { netAmount: true, commissionAmount: true },
+  });
+  const transferAgg = await prisma.payment.aggregate({
+    where: {
+      paymentType: PaymentType.TRANSFER,
+      sale: { branchId, status: SaleStatus.PAID },
+      createdAt: { gte: ayBaslangici, lte: araligiBitisi },
+    },
+    _sum: { grossAmount: true },
+  });
+
+  const cardNet = cardAgg._sum.netAmount ?? new Prisma.Decimal(0);
+  const totalCommission = cardAgg._sum.commissionAmount ?? new Prisma.Decimal(0);
+  const transferTotal = transferAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const toplamBanka = cardNet.plus(transferTotal).minus(totalCommission);
+
+  const satisAdedi = salesAgg._count._all;
+  const netTotalSum = salesAgg._sum.netTotal ?? new Prisma.Decimal(0);
+  const ortalamaSepet = satisAdedi > 0 ? netTotalSum.div(satisAdedi) : new Prisma.Decimal(0);
+
+  return {
+    toplamBanka: toplamBanka.toString(),
+    toplamSgkHakki: (salesAgg._sum.sgkAmount ?? new Prisma.Decimal(0)).toString(),
+    toplamVakifOdemesi: (salesAgg._sum.prescriptionAmount ?? new Prisma.Decimal(0)).toString(),
+    satisAdedi,
+    ortalamaSepet: ortalamaSepet.toString(),
+    totalCommission: totalCommission.toString(),
+    aylikKdvToplami: (salesAgg._sum.taxTotal ?? new Prisma.Decimal(0)).toString(),
+  };
 }
 
 export async function getDailyReport(branchId: string, date: Date) {
@@ -716,7 +789,8 @@ export async function getDailyReport(branchId: string, date: Date) {
       cashTotal: d.nakit.toString(),
       cardGross: d.kartBrut.toString(),
       cardNet: d.kartBrut.minus(d.komisyon).toString(),
-      totalCommission: d.komisyon.toString(),
+      // totalCommission: aşağıdaki computeAylikOzet tarafından (aylık toplam
+      // olarak) set ediliyor, burada tekrar yazmaya gerek yok.
       transferTotal: '0',
       openAccountTotal: d.acikHesap.toString(),
       taxTotal: d.kdv.toString(),
@@ -731,8 +805,10 @@ export async function getDailyReport(branchId: string, date: Date) {
       salesDetail: [],
       ...zeroExtras(),
       netCiro: await computeAylikCiroToplami(branchId, date),
-      toplamVakifOdemesi: d.vakif.toString(),
+      // toplamVakifOdemesi: aşağıdaki computeAylikOzet tarafından (aylık
+      // toplam olarak) set ediliyor.
       ...runningKasaBakiye,
+      ...(await computeAylikOzet(branchId, date)),
       kasaDuzeltme: {
         nakit: d.nakit.toString(),
         kartBrut: d.kartBrut.toString(),
@@ -950,7 +1026,8 @@ export async function getDailyReport(branchId: string, date: Date) {
     cashTotal: cashTotalDuzeltilmis.toString(),
     cardGross: cardGrossDuzeltilmis.toString(),
     cardNet: cardNetDuzeltilmis.toString(),
-    totalCommission: totalCommissionDuzeltilmis.toString(),
+    // totalCommission: aşağıdaki computeAylikOzet tarafından (aylık toplam
+    // olarak) set ediliyor — bkz. 22.10.2026 düzeltmesi.
     transferTotal: transferTotal.toString(),
     openAccountTotal: openAccountTotalDuzeltilmis.toString(),
     taxTotal: taxTotalDuzeltilmis.toString(),
@@ -979,6 +1056,7 @@ export async function getDailyReport(branchId: string, date: Date) {
     ...derived,
     netCiro: await computeAylikCiroToplami(branchId, date),
     ...runningKasaBakiye,
+    ...(await computeAylikOzet(branchId, date)),
     kasaDuzeltme: {
       nakit: duzeltme.nakit.toString(),
       kartBrut: duzeltme.kartBrut.toString(),
