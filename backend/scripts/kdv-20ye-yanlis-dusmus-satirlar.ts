@@ -1,24 +1,35 @@
 /**
  * 22.10.2026 KDV hatası teşhisi — SALT OKUNUR, hiçbir kayıt DEĞİŞTİRMEZ.
  *
- * Kök neden (düzeltildi — bkz. sale.service.ts recalcSaleTotals): kalem
- * eklenirken/satış onaylanırken doğru resolve edilen KDV oranı, her
- * recalcSaleTotals çağrısında resolveSaleItemTaxRate'in inputTaxRate'siz
- * yeniden çalışmasıyla sessizce kaybolabiliyordu.
+ * Arka plan: 16.10.2026'da "bir cam %20 kayıtlıyken olması gereken %10'muş"
+ * şikayeti üzerine, satış ekranı artık KDV oranını Odoo'daki ürün vergisinden
+ * DEĞİL, mağazanın kendi kategori-bazlı varsayılan tablosundan atıyor
+ * (Optik Cam/Çerçeve/renksiz Kontakt Lens: %10, Güneş Gözlüğü/Solüsyon/
+ * Aksesuar/Bakım/renkli Kontakt Lens: %20) — bkz. packages/web/src/
+ * components/sale/ItemsStep.tsx kategoriKdvOrani(). Yani Odoo'nun kendisi
+ * BİLEREK güvenilmiyor, bazı ürünlerde Odoo'da hâlâ yanlış/eski KDV kayıtlı
+ * olabiliyor.
  *
- * İlk dökümde görüldü ki bu mağazada satış kalemlerinin NEREDEYSE TAMAMI
- * Odoo ürünlerine bağlı (odooProductId dolu, yerel Product sadece
- * "__ODOO_PLACEHOLDER__" / kategori=ACCESSORY) — yani resolveSaleItemTaxRate
- * yerel kategoriye değil, Odoo'daki ürünün KDV'sine bakıyor
- * (readProductSaleTaxRate). Bu yüzden "yerel kategori %10 mi" testi işe
- * yaramadı; bunun yerine HER kalem için Odoo'dan GERÇEK, GÜNCEL KDV oranı
- * canlı okunup kayıtlı taxRate ile karşılaştırılıyor. Fark varsa şüpheli
- * olarak işaretlenir.
+ * 22.10.2026'da bulunan asıl hata: recalcSaleTotals, kalem eklenirken bu
+ * kategori-varsayımıyla doğru atanan oranı (örn. %10), her yeniden
+ * hesaplamada (miktar/iskonto değişince, HATTA confirmSale'de satış
+ * onaylanırken bile) resolveSaleItemTaxRate'i inputTaxRate GÖNDERMEDEN
+ * tekrar çalıştırarak kaybediyor, ve bu ürünler Odoo'ya bağlı olduğu için
+ * (odooProductId dolu) Odoo'nun GÜVENİLMEYEN kendi oranına (çoğu zaman %20)
+ * geri dönüyordu. Düzeltildi (bkz. sale.service.ts recalcSaleTotals) —
+ * artık kalemin zaten sahip olduğu oran korunuyor.
  *
- * ÖNEMLİ: Bu script HİÇBİR ŞEYİ OTOMATİK DÜZELTMEZ, sadece Odoo'dan SALT
- * OKUNUR okuma yapar ve karşılaştırır. Düzeltme, admin panelindeki mevcut
- * "KDV Düzeltme" ekranından elle yapılır (her düzeltme AuditLog'a yazılır,
- * Odoo faturasına dokunulmaz).
+ * NOT: Odoo'nun kendisi de aynı (yanlış) %20'yi döndürdüğü için, "kayıtlı
+ * taxRate ile Odoo'daki güncel oranı karşılaştırma" yöntemi işe yaramadı —
+ * ikisi de yanlışta hemfikir. Bu yüzden script artık, bugün taxRate=%20
+ * olarak kayıtlı TÜM kalemlerin Odoo ürün adını çekip listeliyor; ürün adına
+ * bakarak (CAM/LENS/ÇERÇEVE reçeteli ürünse muhtemelen %10 olmalıydı, GÜNEŞ
+ * GÖZLÜĞÜ/AKSESUAR/SOLÜSYON/BAKIM ise muhtemelen gerçekten %20) sen karar
+ * vermen gerekiyor — otomatik düzeltme YOK.
+ *
+ * Düzeltme admin panelindeki mevcut "KDV Düzeltme" ekranından (Satış Detay
+ * sayfası, sadece ADMIN) elle yapılır; her düzeltme AuditLog'a yazılır,
+ * Odoo faturasına dokunulmaz.
  *
  * Kullanım:
  *   npm run kdv-20ye-yanlis-dusmus-satirlar -- 2026-10-22
@@ -27,10 +38,21 @@
 import 'dotenv/config';
 import { prisma } from '../src/database/prisma';
 import { SaleStatus } from '@prisma/client';
-import { ODOO_TAX_CHART_COMPANY_ID, readProductSaleTaxRate } from '../src/modules/odoo/odoo-tax.util';
+import { execute } from '../src/modules/odoo/odoo.service';
 
 function paraFmt(n: number): string {
   return n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const CAM_LENS_IPUCU = /\b(1[.,]\d{2}|HD|HMC|UC|CR-?39|POLİKARBON|POLIKARBON|ASFERİK|ASFERIK|FOTOKROMİK|FOTOKROMIK|MULTİFOKAL|MULTIFOKAL|PROGRESİF|PROGRESIF)\b/i;
+const CERCEVE_IPUCU = /ÇERÇEVE|CERCEVE|FRAME/i;
+const GUNES_IPUCU = /GÜNEŞ|GUNES|SUN/i;
+
+function tahmin(ad: string): string {
+  if (GUNES_IPUCU.test(ad)) return 'muhtemelen GÜNEŞ GÖZLÜĞÜ -> %20 DOĞRU OLABİLİR';
+  if (CAM_LENS_IPUCU.test(ad)) return 'muhtemelen CAM/LENS -> %10 OLMALIYDI, KONTROL ET';
+  if (CERCEVE_IPUCU.test(ad)) return 'muhtemelen ÇERÇEVE -> %10 OLMALIYDI, KONTROL ET';
+  return 'belirsiz — ürün adına bakıp elle karar ver';
 }
 
 async function main() {
@@ -41,7 +63,7 @@ async function main() {
   gunSonu.setDate(gunSonu.getDate() + 1);
 
   console.log('='.repeat(78));
-  console.log(`KDV uyuşmazlığı teşhisi (Odoo'daki GÜNCEL oranla karşılaştırma) — ${gun.toLocaleDateString('tr-TR')}`);
+  console.log(`%20 KDV'li kalemler (ürün adıyla) — ${gun.toLocaleDateString('tr-TR')}`);
   console.log('='.repeat(78));
 
   const sales = await prisma.sale.findMany({
@@ -51,9 +73,7 @@ async function main() {
     },
     include: {
       customer: { select: { name: true } },
-      items: {
-        include: { product: { select: { name: true, category: true, taxRate: true } } },
-      },
+      items: true,
     },
     orderBy: { createdAt: 'asc' },
   });
@@ -69,79 +89,60 @@ async function main() {
     return;
   }
 
-  // Aynı odooProductId'yi tekrar tekrar Odoo'ya sormamak için cache
-  const odooRateCache = new Map<number, number>();
-  async function odooRate(odooProductId: number): Promise<number> {
-    if (odooRateCache.has(odooProductId)) return odooRateCache.get(odooProductId)!;
-    const rate = await readProductSaleTaxRate(odooProductId, ODOO_TAX_CHART_COMPANY_ID);
-    odooRateCache.set(odooProductId, rate);
-    return rate;
+  // Odoo ürün adlarını toplu çek
+  const odooIds = Array.from(
+    new Set(
+      sales
+        .flatMap((s) => s.items)
+        .filter((it) => it.taxRate != null && Number(it.taxRate) === 20 && it.odooProductId)
+        .map((it) => parseInt(String(it.odooProductId), 10))
+        .filter((n) => Number.isFinite(n)),
+    ),
+  );
+  const nameById = new Map<number, string>();
+  if (odooIds.length) {
+    try {
+      const rows = (await execute('product.product', 'read', [odooIds], { fields: ['display_name'] })) as Array<{
+        id: number;
+        display_name: string;
+      }>;
+      for (const r of rows) nameById.set(r.id, r.display_name);
+    } catch (err) {
+      console.warn('Odoo\'dan ürün adları okunamadı:', err instanceof Error ? err.message : err);
+    }
   }
 
-  let supheliSayisi = 0;
-  let toplamEskiTax = 0;
-  let toplamYeniTax = 0;
+  let toplamKdv20 = 0;
+  let adet = 0;
 
   for (const sale of sales) {
-    const satirlar: string[] = [];
-
-    for (const it of sale.items) {
-      if (it.taxRate == null) continue;
-      const kayitliTaxRate = Number(it.taxRate);
-
-      let gercekOdooOrani: number | null = null;
-      if (it.odooProductId) {
-        const pid = parseInt(String(it.odooProductId), 10);
-        if (Number.isFinite(pid)) {
-          try {
-            gercekOdooOrani = await odooRate(pid);
-          } catch (err) {
-            console.warn(`  [UYARI] odooProductId=${pid} için Odoo KDV okunamadı: ${err instanceof Error ? err.message : err}`);
-          }
-        }
-      }
-
-      if (gercekOdooOrani == null || gercekOdooOrani === kayitliTaxRate) continue;
-
-      const unitPrice = Number(it.unitPrice);
-      const qty = it.qty;
-      const discount = Number(it.discount);
-      const lineTotal = unitPrice * qty - discount;
-      const eskiTax = Number(it.taxAmount);
-      const yeniTax = (lineTotal * gercekOdooOrani) / (100 + gercekOdooOrani);
-
-      supheliSayisi++;
-      toplamEskiTax += eskiTax;
-      toplamYeniTax += yeniTax;
-
-      satirlar.push(
-        `  - [${it.id}] ${it.product?.name ?? it.odooProductName ?? '—'} (odooProductId: ${it.odooProductId})\n` +
-          `      Satır toplamı (KDV dahil): ${paraFmt(lineTotal)} TL\n` +
-          `      Şu an kayıtlı: KDV %${kayitliTaxRate} -> KDV tutarı ${paraFmt(eskiTax)} TL, vergi hariç ${paraFmt(lineTotal - eskiTax)} TL\n` +
-          `      Odoo'da GÜNCEL oran: KDV %${gercekOdooOrani} -> KDV tutarı ${paraFmt(yeniTax)} TL, vergi hariç ${paraFmt(lineTotal - yeniTax)} TL  (fark: ${paraFmt(eskiTax - yeniTax)} TL)`,
-      );
-    }
-
-    if (!satirlar.length) continue;
+    const yirmilikler = sale.items.filter((it) => it.taxRate != null && Number(it.taxRate) === 20);
+    if (!yirmilikler.length) continue;
 
     console.log('');
     console.log(`Satış #${sale.id}  [${branchCodeById.get(sale.branchId) ?? '—'}]  ${sale.customer?.name ?? '—'}  (${sale.status})  ${sale.createdAt.toLocaleTimeString('tr-TR')}`);
-    for (const s of satirlar) console.log(s);
+
+    for (const it of yirmilikler) {
+      const pid = it.odooProductId ? parseInt(String(it.odooProductId), 10) : NaN;
+      const ad = (Number.isFinite(pid) ? nameById.get(pid) : null) ?? it.odooProductName ?? '(ürün adı okunamadı)';
+      const eskiTax = Number(it.taxAmount);
+      adet++;
+      toplamKdv20 += eskiTax;
+      console.log(`  - [${it.id}] odooProductId=${it.odooProductId ?? '—'}  "${ad}"  KDV tutarı: ${paraFmt(eskiTax)} TL`);
+      console.log(`      -> ${tahmin(ad)}`);
+    }
   }
 
   console.log('');
   console.log('='.repeat(78));
-  if (supheliSayisi === 0) {
-    console.log('Hiçbir kalemde kayıtlı KDV ile Odoo\'daki güncel KDV arasında fark bulunamadı.');
+  if (adet === 0) {
+    console.log('Bu tarihte hiç %20 KDV\'li kalem yok.');
   } else {
-    console.log(`Toplam ${supheliSayisi} kalemde kayıtlı KDV, Odoo'daki güncel orandan FARKLI.`);
-    console.log(`Şu an kayıtlı toplam KDV: ${paraFmt(toplamEskiTax)} TL`);
-    console.log(`Odoo'daki güncel orana göre olması gereken toplam KDV: ${paraFmt(toplamYeniTax)} TL`);
-    console.log(`Fark: ${paraFmt(toplamEskiTax - toplamYeniTax)} TL`);
-    console.log('');
-    console.log('NOT: "Odoo\'daki güncel oran" şu AN Odoo\'da o ürüne tanımlı vergi —');
-    console.log('satış anında da aynıydı mı garanti yok. Her satırı gözle kontrol edip');
-    console.log('admin panelindeki Satış Detay > "KDV Düzeltme" ekranından elle düzelt.');
+    console.log(`Toplam ${adet} kalem %20 KDV ile kayıtlı, toplam KDV tutarı: ${paraFmt(toplamKdv20)} TL.`);
+    console.log('Yukarıdaki tahminlere göre "CAM/LENS" veya "ÇERÇEVE" diye işaretlenenleri');
+    console.log('gözden geçir — gerçekten reçeteli optik ürünse admin panelindeki Satış');
+    console.log('Detay > "KDV Düzeltme" ekranından %10\'a düzelt. "GÜNEŞ GÖZLÜĞÜ" ve');
+    console.log('"belirsiz" diye işaretlenenlere dokunma/önce ürünü kontrol et.');
   }
 }
 
