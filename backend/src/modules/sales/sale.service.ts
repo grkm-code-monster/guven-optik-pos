@@ -24,6 +24,7 @@ import type {
   AddSaleItemInputType,
   ConfirmSaleInputType,
   CreateSaleInputType,
+  DuzenleSaleItemFiyatInputType,
   DuzenleSaleItemKdvInputType,
   DuzenleSaleItemPrescriptionInputType,
   ReassignSaleUserInputType,
@@ -1624,6 +1625,106 @@ export async function duzenleSaleItemKdv(
           eskiTaxAmount,
           yeniTaxRate: input.taxRate,
           yeniTaxAmount: yeniTaxAmount.toString(),
+          sebep: input.sebep,
+          not: 'Odoo faturasına dokunulmadı — sadece yerel kayıt düzeltildi.',
+        },
+      },
+    });
+
+    return { item: guncelItem, sale: guncelSale };
+  });
+
+  return sonuc;
+}
+
+// Onaylanmış/tamamlanmış bir satış kaleminde SONRADAN keşfedilen BRÜT TUTAR
+// (birim fiyat) hatasını düzeltir (22.10.2026) — duzenleSaleItemKdv'nin aynı
+// mantığı: Odoo'da fatura zaten kesinleşmiş (posted) olduğundan buradaki
+// düzeltme SADECE yerel kayıt (raporlarda doğru görünmesi için) içindir;
+// bilerek sadece ADMIN'e açık, her işlem AuditLog'a yazılır. KDV oranı
+// DEĞİŞTİRİLMEZ — kalemin zaten sahip olduğu taxRate korunur, sadece
+// unitPrice'a göre taxAmount/lineTotal yeniden hesaplanır (fiyat KDV dahil
+// mantığıyla çalıştığı için oran sabit kalınca KDV tutarı da yeni fiyata
+// göre orantılı değişir).
+export async function duzenleSaleItemFiyat(
+  saleId: string,
+  itemId: string,
+  actingUser: { userId: string; role: Role },
+  input: DuzenleSaleItemFiyatInputType,
+) {
+  if (actingUser.role !== Role.ADMIN) {
+    throw codeError('INSUFFICIENT_PERMISSION', 'Bu işlem için yetkiniz yok.');
+  }
+
+  const item = await prisma.saleItem.findUnique({
+    where: { id: itemId },
+    include: { product: { select: { taxRate: true } } },
+  });
+  if (!item || item.saleId !== saleId) {
+    throw codeError('SALE_ITEM_NOT_FOUND', 'Kalem bulunamadı.');
+  }
+
+  const eskiUnitPrice = Number(item.unitPrice);
+  const eskiTaxAmount = Number(item.taxAmount);
+  const eskiLineTotal = Number(item.lineTotal);
+
+  const taxRateNum = await resolveSaleItemTaxRate({
+    inputTaxRate: item.taxRate != null ? Number(item.taxRate) : null,
+    odooProductId: item.odooProductId,
+    productTaxRate: item.product.taxRate,
+  });
+  const taxRate = new Prisma.Decimal(taxRateNum);
+
+  const { taxAmount: yeniTaxAmount, lineTotal: yeniLineTotal } = calcInclusiveLineAmounts({
+    unitPrice: input.unitPrice,
+    qty: item.qty,
+    discount: item.discount,
+    taxRate,
+  });
+
+  const sonuc = await prisma.$transaction(async (tx) => {
+    const guncelItem = await tx.saleItem.update({
+      where: { id: itemId },
+      data: {
+        unitPrice: new Prisma.Decimal(input.unitPrice),
+        taxRate,
+        taxAmount: yeniTaxAmount,
+        lineTotal: yeniLineTotal,
+      },
+    });
+
+    const tumKalemler = await tx.saleItem.findMany({
+      where: { saleId, status: { not: ItemStatus.VOID } },
+    });
+    let grossTotal = new Prisma.Decimal(0);
+    let discountTotal = new Prisma.Decimal(0);
+    let taxTotal = new Prisma.Decimal(0);
+    for (const k of tumKalemler) {
+      grossTotal = grossTotal.plus(k.unitPrice.times(k.qty));
+      discountTotal = discountTotal.plus(k.discount);
+      taxTotal = taxTotal.plus(k.taxAmount);
+    }
+    const netTotal = grossTotal.minus(discountTotal);
+
+    const guncelSale = await tx.sale.update({
+      where: { id: saleId },
+      data: { grossTotal, discountTotal, netTotal, taxTotal },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: actingUser.userId,
+        action: 'SALE_ITEM_FIYAT_DUZELT',
+        entity: 'SaleItem',
+        entityId: itemId,
+        payload: {
+          saleId,
+          eskiUnitPrice,
+          yeniUnitPrice: input.unitPrice,
+          eskiTaxAmount,
+          yeniTaxAmount: yeniTaxAmount.toString(),
+          eskiLineTotal,
+          yeniLineTotal: yeniLineTotal.toString(),
           sebep: input.sebep,
           not: 'Odoo faturasına dokunulmadı — sadece yerel kayıt düzeltildi.',
         },

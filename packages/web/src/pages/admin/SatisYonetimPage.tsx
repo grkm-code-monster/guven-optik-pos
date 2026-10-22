@@ -95,6 +95,12 @@ export default function SatisYonetimPage() {
   const [kdvSebep, setKdvSebep] = useState('')
   const [kdvSaving, setKdvSaving] = useState(false)
 
+  // Brüt Tutar (birim fiyat) düzeltme — KDV Düzelt ile aynı mantık (22.10.2026)
+  const [fiyatItemId, setFiyatItemId] = useState<string | null>(null)
+  const [fiyatDeger, setFiyatDeger] = useState('')
+  const [fiyatSebep, setFiyatSebep] = useState('')
+  const [fiyatSaving, setFiyatSaving] = useState(false)
+
   const [receteItemId, setReceteItemId] = useState<string | null>(null)
   const [receteValues, setReceteValues] = useState<Record<string, string>>({})
   const [receteSebep, setReceteSebep] = useState('')
@@ -150,6 +156,7 @@ export default function SatisYonetimPage() {
     setDetayHata(null)
     setBasari(null)
     setKdvItemId(null)
+    setFiyatItemId(null)
     setReceteItemId(null)
     setDetayLoading(true)
     try {
@@ -200,6 +207,36 @@ export default function SatisYonetimPage() {
       setDetayHata(e?.response?.data?.message ?? 'KDV düzeltilemedi.')
     } finally {
       setKdvSaving(false)
+    }
+  }
+
+  async function submitFiyat(itemId: string) {
+    if (!selectedId) return
+    const tutar = parseFloat(fiyatDeger.replace(',', '.'))
+    if (isNaN(tutar) || tutar < 0) {
+      setDetayHata('Geçerli bir brüt tutar (birim fiyat) girin.')
+      return
+    }
+    if (fiyatSebep.trim().length < 5) {
+      setDetayHata('Düzeltme sebebini en az 5 karakter yazın.')
+      return
+    }
+    setFiyatSaving(true)
+    setDetayHata(null)
+    try {
+      await adminApi.patch(`/sales/${selectedId}/kalemler/${itemId}/fiyat-duzelt`, {
+        unitPrice: tutar,
+        sebep: fiyatSebep.trim(),
+      })
+      setFiyatItemId(null)
+      setFiyatDeger('')
+      setFiyatSebep('')
+      setBasari('Brüt tutar düzeltildi — yerel kayıt güncellendi (Odoo faturasına dokunulmadı).')
+      await reloadDetay()
+    } catch (e: any) {
+      setDetayHata(e?.response?.data?.message ?? 'Brüt tutar düzeltilemedi.')
+    } finally {
+      setFiyatSaving(false)
     }
   }
 
@@ -417,7 +454,7 @@ export default function SatisYonetimPage() {
                 ))}
               </div>
 
-              <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase' }}>Kalemler / KDV Düzeltme</div>
+              <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase' }}>Kalemler / KDV ve Brüt Tutar Düzeltme</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {detay.items.map((it) => (
                   <div key={it.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 10 }}>
@@ -425,15 +462,27 @@ export default function SatisYonetimPage() {
                     <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
                       KDV %{it.taxRate != null ? Number(it.taxRate) : '—'} · {money(it.taxAmount)} · Toplam {money(it.lineTotal)}
                     </div>
-                    {kdvItemId !== it.id ? (
-                      <button
-                        type="button"
-                        onClick={() => { setKdvItemId(it.id); setKdvRate(it.taxRate != null ? String(Number(it.taxRate)) : ''); setKdvSebep('') }}
-                        style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontWeight: 700 }}
-                      >
-                        KDV Düzelt
-                      </button>
-                    ) : (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {kdvItemId !== it.id && (
+                        <button
+                          type="button"
+                          onClick={() => { setKdvItemId(it.id); setKdvRate(it.taxRate != null ? String(Number(it.taxRate)) : ''); setKdvSebep('') }}
+                          style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontWeight: 700 }}
+                        >
+                          KDV Düzelt
+                        </button>
+                      )}
+                      {fiyatItemId !== it.id && (
+                        <button
+                          type="button"
+                          onClick={() => { setFiyatItemId(it.id); setFiyatDeger(it.unitPrice != null ? String(Number(it.unitPrice)) : ''); setFiyatSebep('') }}
+                          style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontWeight: 700 }}
+                        >
+                          Brüt Tutar Düzelt
+                        </button>
+                      )}
+                    </div>
+                    {kdvItemId === it.id && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
                         <input value={kdvRate} onChange={(e) => setKdvRate(e.target.value)} placeholder="Doğru KDV oranı (%)" style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12 }} />
                         <input value={kdvSebep} onChange={(e) => setKdvSebep(e.target.value)} placeholder="Düzeltme sebebi" style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12 }} />
@@ -441,6 +490,18 @@ export default function SatisYonetimPage() {
                           <button type="button" onClick={() => setKdvItemId(null)} style={{ flex: 1, fontSize: 11, padding: '6px 8px', borderRadius: 999, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer' }}>Vazgeç</button>
                           <button type="button" disabled={kdvSaving} onClick={() => void submitKdv(it.id)} style={{ flex: 1, fontSize: 11, padding: '6px 8px', borderRadius: 999, border: 'none', background: '#C8102E', color: 'white', fontWeight: 700, cursor: kdvSaving ? 'not-allowed' : 'pointer' }}>
                             {kdvSaving ? '...' : 'Kaydet'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {fiyatItemId === it.id && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                        <input value={fiyatDeger} onChange={(e) => setFiyatDeger(e.target.value)} placeholder="Doğru brüt tutar (birim fiyat, ₺)" style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12 }} />
+                        <input value={fiyatSebep} onChange={(e) => setFiyatSebep(e.target.value)} placeholder="Düzeltme sebebi" style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12 }} />
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button type="button" onClick={() => setFiyatItemId(null)} style={{ flex: 1, fontSize: 11, padding: '6px 8px', borderRadius: 999, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer' }}>Vazgeç</button>
+                          <button type="button" disabled={fiyatSaving} onClick={() => void submitFiyat(it.id)} style={{ flex: 1, fontSize: 11, padding: '6px 8px', borderRadius: 999, border: 'none', background: '#C8102E', color: 'white', fontWeight: 700, cursor: fiyatSaving ? 'not-allowed' : 'pointer' }}>
+                            {fiyatSaving ? '...' : 'Kaydet'}
                           </button>
                         </div>
                       </div>

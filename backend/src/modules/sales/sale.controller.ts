@@ -7,6 +7,7 @@ import {
   AddSaleItemInput,
   ConfirmSaleInput,
   CreateSaleInput,
+  DuzenleSaleItemFiyatInput,
   DuzenleSaleItemKdvInput,
   DuzenleSaleItemPrescriptionInput,
   PersonelFiyatHesaplaInput,
@@ -310,6 +311,35 @@ router.patch(
         details: parsed.error.errors,
       });
       const sonuc = await saleService.duzenleSaleItemPrescription(
+        req.params.id,
+        req.params.itemId,
+        { userId: req.user!.userId, role: req.user!.role },
+        parsed.data,
+      );
+      return res.status(200).json(sonuc);
+    } catch (err) {
+      if (handleSaleError(err, res)) return;
+      next(err);
+    }
+  },
+);
+
+// Onaylanmış satışta sonradan keşfedilen BRÜT TUTAR (birim fiyat) hatasını
+// düzeltme (22.10.2026) — bkz. sale.service.ts duzenleSaleItemFiyat. KDV
+// düzeltmesiyle aynı mantık: Odoo'daki kesinleşmiş faturaya DOKUNMAZ, sadece
+// yerel kaydı düzeltir.
+router.patch(
+  '/:id/kalemler/:itemId/fiyat-duzelt',
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = DuzenleSaleItemFiyatInput.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Geçersiz istek gövdesi.',
+        details: parsed.error.errors,
+      });
+      const sonuc = await saleService.duzenleSaleItemFiyat(
         req.params.id,
         req.params.itemId,
         { userId: req.user!.userId, role: req.user!.role },

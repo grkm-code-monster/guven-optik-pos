@@ -149,6 +149,19 @@ export const DuzenleSaleItemKdvInput = z.object({
 });
 export type DuzenleSaleItemKdvInputType = z.infer<typeof DuzenleSaleItemKdvInput>;
 
+// Onaylanmış/tamamlanmış satışlarda SONRADAN keşfedilen BRÜT TUTAR (birim
+// fiyat) hatasını düzeltmek için (22.10.2026 — "BURADA BRÜT TUTARLARI FALAN
+// DÜZELTECEĞİM BİR ALANDA OLMALI AYNI KDV MANTIĞI İLE" talebi). Tıpkı
+// DuzenleSaleItemKdvInput gibi: Odoo'da fatura zaten kesinleşmiş (posted)
+// olduğundan buradaki düzeltme SADECE yerel veritabanı kaydını (SaleItem.
+// unitPrice/taxAmount/lineTotal, Sale.grossTotal/netTotal/taxTotal) düzeltir
+// — Odoo'daki resmi faturaya dokunmaz.
+export const DuzenleSaleItemFiyatInput = z.object({
+  unitPrice: z.number().min(0),
+  sebep: z.string().min(5).max(300),
+});
+export type DuzenleSaleItemFiyatInputType = z.infer<typeof DuzenleSaleItemFiyatInput>;
+
 // Onaylanmış satışlarda sonradan keşfedilen reçete hatasını düzeltmek için.
 // Şimdilik satış sırasında gösterilen ana SPH/CYL/AKS/ADD alanlarını kapsar —
 // lens/kontakt lens'e özel ek alanlar (bc/dia/renk/marka) ileride istenirse
