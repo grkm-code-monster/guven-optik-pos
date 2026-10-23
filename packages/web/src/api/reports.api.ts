@@ -37,6 +37,7 @@ export type KasaDuzeltmeInput = {
   ciro?: string
   vakif?: string
   acikHesap?: string
+  sgk?: string
   aciklama?: string
 }
 
@@ -52,6 +53,7 @@ export type KasaDuzeltmeKaydi = {
   ciro: string
   vakif: string
   acikHesap: string
+  sgk?: string
   aciklama: string
   createdAt: string
 }

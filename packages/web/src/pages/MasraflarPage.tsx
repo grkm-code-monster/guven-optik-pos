@@ -77,15 +77,19 @@ const inputStyle: CSSProperties = {
 }
 
 const KASA_DUZELTME_ALANLARI: Array<{
-  key: 'nakit' | 'kartBrut' | 'kdv' | 'komisyon' | 'ciro' | 'vakif' | 'acikHesap'
+  key: 'nakit' | 'kartBrut' | 'kdv' | 'komisyon' | 'ciro' | 'vakif' | 'sgk' | 'acikHesap'
   label: string
 }> = [
   { key: 'nakit', label: 'Daha önce toplanmış nakit' },
   { key: 'kartBrut', label: 'Daha önce gelmiş slip (kart) toplamı' },
   { key: 'kdv', label: 'Daha önce gelmiş KDV toplamı' },
   { key: 'komisyon', label: 'Daha önce gelmiş komisyon toplamı' },
-  { key: 'ciro', label: 'Daha önce gelmiş ciro toplamı' },
+  // 23.10.2026: ciro = KDV ve komisyon DÜŞÜLMÜŞ ciro (Aylık Ciro kutusuyla aynı tanım).
+  // O aya tarihlenen kayıtlar artık aylık kutulara da (Aylık Ciro, Toplam Kart,
+  // Banka Kom., KDV, SGK, Vakıf) eklenir — bkz. backend getKasaDuzeltmeToplamForAy.
+  { key: 'ciro', label: 'Daha önce gelmiş ciro toplamı (KDV ve komisyon düşülmüş)' },
   { key: 'vakif', label: 'Daha önce gelmiş vakıf ödemesi toplamı' },
+  { key: 'sgk', label: 'Daha önce gelmiş SGK hakkı toplamı' },
   { key: 'acikHesap', label: 'Daha önce gelmiş açık hesap (veresiye) toplamı' },
 ]
 
@@ -276,6 +280,7 @@ function KasaDuzeltmePaneli() {
                       <th style={{ padding: '6px 8px' }}>Komisyon</th>
                       <th style={{ padding: '6px 8px' }}>Ciro</th>
                       <th style={{ padding: '6px 8px' }}>Vakıf</th>
+                      <th style={{ padding: '6px 8px' }}>SGK</th>
                       <th style={{ padding: '6px 8px' }}>Açık Hesap</th>
                       <th style={{ padding: '6px 8px' }}>Açıklama</th>
                       <th style={{ padding: '6px 8px' }}></th>
@@ -291,6 +296,7 @@ function KasaDuzeltmePaneli() {
                         <td style={{ padding: '6px 8px' }}>{k.komisyon}</td>
                         <td style={{ padding: '6px 8px' }}>{k.ciro}</td>
                         <td style={{ padding: '6px 8px' }}>{k.vakif}</td>
+                        <td style={{ padding: '6px 8px' }}>{k.sgk ?? '0'}</td>
                         <td style={{ padding: '6px 8px' }}>{k.acikHesap}</td>
                         <td style={{ padding: '6px 8px' }}>{k.aciklama}</td>
                         <td style={{ padding: '6px 8px' }}>

@@ -31,7 +31,7 @@ ChartJS.register(
 import { getDailyReport, getPersonalDailyReport, getRangeReport, getMonthlyPersonelBreakdown, downloadExcel, getGunlukDurumNotu, saveGunlukDurumNotu, sendGunlukDurumNotuEmail, type PersonelAylikRow } from '../api/reports.api'
 import { getCurrentShift } from '../api/shifts.api'
 import type { DailyReport, User } from '../api/types'
-import { downloadGunlukKasaPdf, generateGunlukKasaPdfBlob, formatKasaFormuBaslik, type GunlukKasaPdfGarantiRow, type GunlukKasaPdfAcikHesapRow } from '../utils/gunlukKasaPdf'
+import { downloadGunlukKasaPdf, generateGunlukKasaPdfBlob, formatKasaFormuBaslik, type GunlukKasaPdfGarantiRow, type GunlukKasaPdfAcikHesapRow, type GunlukKasaPdfMagazaOzeti } from '../utils/gunlukKasaPdf'
 
 type SalesDetailRow = NonNullable<DailyReport['salesDetail']>[number]
 
@@ -1025,6 +1025,26 @@ function GunlukKasaView({
     return k.messages?.length ? k.messages[k.messages.length - 1].message : k.problemDesc
   }
 
+  // 23.10.2026: PDF'e (indirme + e-posta) eklenen aylık Mağaza Özeti — rakamlar
+  // "Mağaza Özeti" sekmesindeki kutularla BİREBİR aynı report alanlarından geliyor.
+  // Sadece mağaza görünümünde (showRep) basılır; kişisel "Satışlarım" PDF'inde yok.
+  // Personel tablosu aylık (aylikTemsilciBreakdown) — ekrandaki günlük tablodan farklı.
+  const magazaOzetiPdf: GunlukKasaPdfMagazaOzeti | undefined = useMemo(() => {
+    if (!showRep || !report) return undefined
+    return {
+      aylikCiro: report.netCiro ?? report.totalSales,
+      kasaNakit: report.kasaNakit ?? report.cashTotal,
+      toplamKart: report.toplamBanka ?? report.cardNet,
+      sgkHaklari: report.toplamSgkHakki,
+      vakifOdemesi: report.toplamVakifOdemesi,
+      satisAdedi: Number(report.satisAdedi ?? report.saleCount ?? 0),
+      ortalamaSepet: report.ortalamaSepet,
+      bankaKomisyonu: report.totalCommission,
+      kdvToplami: report.aylikKdvToplami,
+      temsilciler: report.aylikTemsilciBreakdown ?? [],
+    }
+  }, [showRep, report])
+
   const garantiPdfRows: GunlukKasaPdfGarantiRow[] = useMemo(
     () =>
       garantiKayitlari.map((k) => ({
@@ -1107,6 +1127,7 @@ function GunlukKasaView({
         durumNotu: notDraft,
         garantiKayitlari: garantiPdfRows,
         acikHesapTahsilatlari: acikHesapPdfRows,
+        magazaOzeti: magazaOzetiPdf,
       })
       const result = await sendGunlukDurumNotuEmail(branchId, date, pdfBlob, pdfFilename, ekList)
       setGonderimZamani(result.gonderimZamani)
@@ -1130,6 +1151,7 @@ function GunlukKasaView({
       durumNotu: notDraft,
       garantiKayitlari: garantiPdfRows,
       acikHesapTahsilatlari: acikHesapPdfRows,
+      magazaOzeti: magazaOzetiPdf,
     })
   }
 

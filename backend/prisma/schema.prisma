@@ -690,6 +690,7 @@ model KasaDuzeltme {
   ciro      Decimal  @default(0) @db.Decimal(10, 2)
   vakif     Decimal  @default(0) @db.Decimal(10, 2)
   acikHesap Decimal  @default(0) @db.Decimal(10, 2) // 23.09.2026: eski sistemdeki açık hesap devri
+  sgk       Decimal  @default(0) @db.Decimal(10, 2) // 23.10.2026: aylık "SGK Hakları" kutusu için devir
   aciklama  String   @default("Sehven düzeltme")
   createdAt DateTime @default(now())
 

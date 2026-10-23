@@ -58,6 +58,24 @@ export type GunlukKasaPdfAcikHesapRow = {
   amount: string
 }
 
+// 23.10.2026 — Dashboard "Mağaza Özeti" sekmesindeki aylık kutular + aylık personel
+// performansı; Günlük Kasa PDF'inde ana tablonun hemen altına basılıyor. Değerler
+// backend getDailyReport'un (computeAylikCiroToplami / computeAylikOzet /
+// computeRunningKasaBakiye) zaten döndürdüğü alanlar — PDF hiçbir şeyi yeniden
+// hesaplamıyor, ekrandakiyle birebir aynı rakamlar.
+export type GunlukKasaPdfMagazaOzeti = {
+  aylikCiro: string | number | null | undefined
+  kasaNakit: string | number | null | undefined // tüm zamanlar kümülatif (aylık DEĞİL)
+  toplamKart: string | number | null | undefined
+  sgkHaklari: string | number | null | undefined
+  vakifOdemesi: string | number | null | undefined
+  satisAdedi: number
+  ortalamaSepet: string | number | null | undefined
+  bankaKomisyonu: string | number | null | undefined
+  kdvToplami: string | number | null | undefined
+  temsilciler: Array<{ repName: string; saleCount: number; ciro: string }>
+}
+
 export type GunlukKasaPdfParams = {
   branchName: string
   date: string
@@ -70,6 +88,8 @@ export type GunlukKasaPdfParams = {
   // Bu vardiyada tahsil edilmiş ama BAŞKA (eski) bir satışın açık hesap bakiyesine
   // ait ödemeler — bkz. GunlukKasaView.
   acikHesapTahsilatlari?: GunlukKasaPdfAcikHesapRow[]
+  // Verilmezse bölüm hiç basılmaz (ör. kişisel "Satışlarım" PDF'i).
+  magazaOzeti?: GunlukKasaPdfMagazaOzeti
 }
 
 function fmtPdfMoney(value: string | number | null | undefined): string {
@@ -159,6 +179,124 @@ function drawSummaryCards(
   })
 
   return y + kartYukseklik
+}
+
+const AY_ADLARI = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']
+
+function drawMagazaOzetiSection(
+  doc: jsPDF,
+  ozet: GunlukKasaPdfMagazaOzeti,
+  date: string,
+  startY: number,
+  marginX: number,
+): number {
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const kolonSayisi = 5
+  const kartAralik = 4
+  const kartYukseklik = 15
+  const kartGenislik = (pageWidth - marginX * 2 - kartAralik * (kolonSayisi - 1)) / kolonSayisi
+  // başlık (7) + 2 satır kart + dipnot — hepsi aynı sayfada kalsın
+  const gerekenYukseklik = 10 + 7 + kartYukseklik * 2 + kartAralik + 8
+  let y = startY + 10
+  if (y + gerekenYukseklik > pageHeight - 14) {
+    doc.addPage()
+    y = 20
+  }
+
+  const [yil, ay, gun] = date.slice(0, 10).split('-')
+  const ayAdi = AY_ADLARI[Number(ay) - 1] ?? ''
+  doc.setFont(PDF_FONT_FAMILY, 'bold')
+  doc.setFontSize(12)
+  doc.setTextColor(163, 45, 45)
+  doc.text(`Mağaza Özeti — ${ayAdi} ${yil}`, marginX, y)
+  doc.setFont(PDF_FONT_FAMILY, 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(107, 114, 128)
+  doc.text(`01.${ay}.${yil} – ${gun}.${ay}.${yil} kümülatif`, pageWidth - marginX, y, { align: 'right' })
+  y += 4
+
+  const kartlar = [
+    { baslik: 'AYLIK CİRO', deger: fmtPdfCurrency(ozet.aylikCiro) },
+    { baslik: 'KASA NAKİT *', deger: fmtPdfCurrency(ozet.kasaNakit) },
+    { baslik: 'TOPLAM KART', deger: fmtPdfCurrency(ozet.toplamKart) },
+    { baslik: 'SGK HAKLARI', deger: fmtPdfCurrency(ozet.sgkHaklari) },
+    { baslik: 'VAKIF ÖDEMESİ', deger: fmtPdfCurrency(ozet.vakifOdemesi) },
+    { baslik: 'SATIŞ ADEDİ', deger: String(ozet.satisAdedi ?? 0) },
+    { baslik: 'ORT. SEPET', deger: fmtPdfCurrency(ozet.ortalamaSepet) },
+    { baslik: 'BANKA KOM.', deger: fmtPdfCurrency(ozet.bankaKomisyonu) },
+    { baslik: 'KDV TOPLAMI', deger: fmtPdfCurrency(ozet.kdvToplami) },
+  ]
+
+  kartlar.forEach((kart, i) => {
+    const satir = Math.floor(i / kolonSayisi)
+    const kolon = i % kolonSayisi
+    const x = marginX + kolon * (kartGenislik + kartAralik)
+    const ky = y + satir * (kartYukseklik + kartAralik)
+
+    doc.setDrawColor(192, 57, 43)
+    doc.setLineWidth(0.4)
+    doc.setFillColor(255, 255, 255)
+    doc.roundedRect(x, ky, kartGenislik, kartYukseklik, 3, 3, 'FD')
+
+    doc.setFont(PDF_FONT_FAMILY, 'bold')
+    doc.setFontSize(7)
+    doc.setTextColor(163, 45, 45)
+    doc.text(kart.baslik, x + kartGenislik / 2, ky + 5.5, { align: 'center' })
+
+    doc.setFontSize(12)
+    doc.setTextColor(17, 24, 39)
+    doc.text(kart.deger, x + kartGenislik / 2, ky + 12, { align: 'center' })
+  })
+
+  y += kartYukseklik * 2 + kartAralik + 5
+  doc.setFont(PDF_FONT_FAMILY, 'normal')
+  doc.setFontSize(7.5)
+  doc.setTextColor(107, 114, 128)
+  doc.text('* Kasa Nakit: devreden toplam kasa bakiyesi (aylık değil). Diğer tüm kutular ayın 1\'i 08:00\'den bu güne kadar kümülatiftir.', marginX, y)
+  y += 3
+
+  // Personel performans (aylık) — Satış Adedi ile aynı aralık; adetlerin toplamı = Satış Adedi.
+  // Tablo sığıyorsa iki sayfaya bölünmesin: sığmıyorsa başlıkla birlikte yeni sayfaya geç.
+  const temsilciler = ozet.temsilciler ?? []
+  const tabloYuksekligi = 9 + (Math.max(temsilciler.length, 1) + 2) * 6
+  if (y + tabloYuksekligi > pageHeight - 14 && 20 + tabloYuksekligi <= pageHeight - 14) {
+    doc.addPage()
+    y = 13
+  }
+  y += 7
+  doc.setFont(PDF_FONT_FAMILY, 'bold')
+  doc.setFontSize(12)
+  doc.setTextColor(163, 45, 45)
+  doc.text(`Personel Performans — ${ayAdi} ${yil}`, marginX, y)
+  y += 2
+
+  const toplamAdet = temsilciler.reduce((t, r) => t + Number(r.saleCount), 0)
+  const toplamCiro = temsilciler.reduce((t, r) => t + Number(r.ciro), 0)
+  autoTable(doc, {
+    startY: y,
+    margin: { left: marginX, right: marginX, bottom: 14 },
+    tableWidth: 130,
+    theme: 'grid',
+    styles: { font: PDF_FONT_FAMILY, fontSize: 8, cellPadding: 1.4, valign: 'middle' },
+    headStyles: { font: PDF_FONT_FAMILY, fillColor: [163, 45, 45], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+    footStyles: { font: PDF_FONT_FAMILY, fillColor: [250, 250, 250], textColor: [17, 24, 39], fontStyle: 'bold', fontSize: 8 },
+    columnStyles: {
+      0: { cellWidth: 70 },
+      1: { halign: 'right', cellWidth: 20 },
+      2: { halign: 'right', cellWidth: 40 },
+    },
+    head: [['Temsilci', { content: 'Adet', styles: { halign: 'right' } }, { content: 'Ciro', styles: { halign: 'right' } }]],
+    body: temsilciler.length
+      ? temsilciler.map((r) => [r.repName, String(r.saleCount), fmtPdfMoney(r.ciro)])
+      : [['Bu ay henüz satış yok.', '', '']],
+    foot: temsilciler.length
+      ? [['Toplam', { content: String(toplamAdet), styles: { halign: 'right' } }, { content: fmtPdfMoney(toplamCiro), styles: { halign: 'right' } }]]
+      : undefined,
+    showFoot: temsilciler.length ? 'lastPage' : undefined,
+  })
+
+  return (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y
 }
 
 function drawDurumNotuSection(
@@ -295,7 +433,7 @@ function drawAcikHesapSection(
 }
 
 async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF> {
-  const { branchName, date, rows, summary, showRep, durumNotu = '', garantiKayitlari = [], acikHesapTahsilatlari = [] } = params
+  const { branchName, date, rows, summary, showRep, durumNotu = '', garantiKayitlari = [], acikHesapTahsilatlari = [], magazaOzeti } = params
   const doc = await createPdfDoc({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
@@ -427,7 +565,9 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
   })
 
   const tableEndY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? tableStartY
-  const acikHesapEndY = drawAcikHesapSection(doc, acikHesapTahsilatlari, tableEndY, marginX)
+  // 23.10.2026: aylık Mağaza Özeti + Personel Performans — ana tablonun hemen altında.
+  const ozetEndY = magazaOzeti ? drawMagazaOzetiSection(doc, magazaOzeti, date, tableEndY, marginX) : tableEndY
+  const acikHesapEndY = drawAcikHesapSection(doc, acikHesapTahsilatlari, ozetEndY, marginX)
   const garantiEndY = drawGarantiSection(doc, garantiKayitlari, acikHesapEndY, marginX)
   drawDurumNotuSection(doc, durumNotu, garantiEndY, marginX)
 

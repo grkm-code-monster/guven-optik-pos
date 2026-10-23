@@ -12,7 +12,7 @@ import { prisma } from '../../database/prisma';
 import { execute } from '../odoo/odoo.service';
 import { kategoriTespit, kategoriAltKirilimTespit } from '../../utils/kategoriTespit';
 import { getOrFetchTodayRate } from '../admin/doviz-kuru.service';
-import { getKasaDuzeltmeToplamForGun, getKasaDuzeltmeNakitTumZamanlar } from './kasa-duzeltme.service';
+import { getKasaDuzeltmeToplamForGun, getKasaDuzeltmeNakitTumZamanlar, getKasaDuzeltmeToplamForAy } from './kasa-duzeltme.service';
 import { buildManuelTahsilatRows } from '../openaccount/manuel-tahsilat.service';
 
 type DashboardKategori =
@@ -666,7 +666,11 @@ async function computeAylikCiroToplami(branchId: string, date: Date): Promise<st
     }
   }
 
-  return taxFreeToplam.minus(komisyonToplam).toString();
+  // 23.10.2026: o aya tarihlenmiş Kasa Bakiye Düzeltme kayıtlarının "ciro"su
+  // (KDV ve komisyon düşülmüş — Excel'deki "satış aylık genel toplam" ile aynı
+  // tanım) da eklenir; ör. sisteme geçişten önceki günlerin "Ay Açılış Devri".
+  const duzeltme = await getKasaDuzeltmeToplamForAy(branchId, date);
+  return taxFreeToplam.minus(komisyonToplam).plus(duzeltme.ciro).toString();
 }
 
 // 22.10.2026 — kullanıcı isteği: "Mağaza Özeti"ndeki Toplam Kart, SGK Hakları,
@@ -691,6 +695,7 @@ async function computeAylikOzet(branchId: string, date: Date) {
       ortalamaSepet: '0',
       totalCommission: '0',
       aylikKdvToplami: '0',
+      aylikTemsilciBreakdown: [] as Array<{ repName: string; saleCount: number; ciro: string }>,
     };
   }
 
@@ -717,8 +722,12 @@ async function computeAylikOzet(branchId: string, date: Date) {
     _sum: { grossAmount: true },
   });
 
-  const cardNet = cardAgg._sum.netAmount ?? new Prisma.Decimal(0);
-  const totalCommission = cardAgg._sum.commissionAmount ?? new Prisma.Decimal(0);
+  // 23.10.2026: o aya tarihlenmiş Kasa Bakiye Düzeltme kayıtları da aylık
+  // kutulara eklenir (Satış Adedi / Ort. Sepet HARİÇ — onlar sadece gerçek
+  // satışlardan). bkz. getKasaDuzeltmeToplamForAy.
+  const ayDuzeltme = await getKasaDuzeltmeToplamForAy(branchId, date);
+  const cardNet = (cardAgg._sum.netAmount ?? new Prisma.Decimal(0)).plus(ayDuzeltme.kartBrut).minus(ayDuzeltme.komisyon);
+  const totalCommission = (cardAgg._sum.commissionAmount ?? new Prisma.Decimal(0)).plus(ayDuzeltme.komisyon);
   const transferTotal = transferAgg._sum.grossAmount ?? new Prisma.Decimal(0);
   const toplamBanka = cardNet.plus(transferTotal).minus(totalCommission);
 
@@ -726,14 +735,40 @@ async function computeAylikOzet(branchId: string, date: Date) {
   const netTotalSum = salesAgg._sum.netTotal ?? new Prisma.Decimal(0);
   const ortalamaSepet = satisAdedi > 0 ? netTotalSum.div(satisAdedi) : new Prisma.Decimal(0);
 
+  // 23.10.2026 — Günlük Kasa PDF'indeki "Personel Performans (aylık)" tablosu için:
+  // Satış Adedi / Ort. Sepet ile BİREBİR aynı aralık ve filtre (ayın 1'i 08:00 ->
+  // istenen günün sonu, PAID), temsilci (satışı yapan kullanıcı) bazında adet ve
+  // ciro (netTotal toplamı). Böylece tablodaki adetlerin toplamı = Satış Adedi.
+  // NOT: mevcut getMonthlyPersonelBreakdown TAKVİM ayının tamamını aldığı için
+  // (geçmiş bir günün PDF'inde ay sonuna kadarki satışları da sayardı) kullanılmadı.
+  const temsilciGruplari = await prisma.sale.groupBy({
+    by: ['userId'],
+    where: { branchId, status: SaleStatus.PAID, createdAt: { gte: ayBaslangici, lte: araligiBitisi } },
+    _count: { _all: true },
+    _sum: { netTotal: true },
+  });
+  const temsilciKullanicilari = await prisma.user.findMany({
+    where: { id: { in: temsilciGruplari.map((g) => g.userId) } },
+    select: { id: true, name: true },
+  });
+  const temsilciAdi = new Map(temsilciKullanicilari.map((u) => [u.id, u.name]));
+  const aylikTemsilciBreakdown = temsilciGruplari
+    .map((g) => ({
+      repName: temsilciAdi.get(g.userId) ?? '—',
+      saleCount: g._count._all,
+      ciro: (g._sum.netTotal ?? new Prisma.Decimal(0)).toString(),
+    }))
+    .sort((a, b) => Number(b.ciro) - Number(a.ciro));
+
   return {
     toplamBanka: toplamBanka.toString(),
-    toplamSgkHakki: (salesAgg._sum.sgkAmount ?? new Prisma.Decimal(0)).toString(),
-    toplamVakifOdemesi: (salesAgg._sum.prescriptionAmount ?? new Prisma.Decimal(0)).toString(),
+    toplamSgkHakki: (salesAgg._sum.sgkAmount ?? new Prisma.Decimal(0)).plus(ayDuzeltme.sgk).toString(),
+    toplamVakifOdemesi: (salesAgg._sum.prescriptionAmount ?? new Prisma.Decimal(0)).plus(ayDuzeltme.vakif).toString(),
     satisAdedi,
     ortalamaSepet: ortalamaSepet.toString(),
     totalCommission: totalCommission.toString(),
-    aylikKdvToplami: (salesAgg._sum.taxTotal ?? new Prisma.Decimal(0)).toString(),
+    aylikKdvToplami: (salesAgg._sum.taxTotal ?? new Prisma.Decimal(0)).plus(ayDuzeltme.kdv).toString(),
+    aylikTemsilciBreakdown,
   };
 }
 

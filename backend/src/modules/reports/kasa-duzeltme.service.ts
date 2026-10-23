@@ -26,6 +26,7 @@ export const CreateKasaDuzeltmeInput = z.object({
   ciro: decimalString.optional().default('0'),
   vakif: decimalString.optional().default('0'),
   acikHesap: decimalString.optional().default('0'),
+  sgk: decimalString.optional().default('0'),
   aciklama: z.string().max(300).optional(),
   branchId: z.string().optional(), // sadece REGIONAL_MANAGER/ADMIN başka şube seçebilir
 });
@@ -69,6 +70,7 @@ export async function createKasaDuzeltme(
       ciro: new Prisma.Decimal(input.ciro ?? '0'),
       vakif: new Prisma.Decimal(input.vakif ?? '0'),
       acikHesap: new Prisma.Decimal(input.acikHesap ?? '0'),
+      sgk: new Prisma.Decimal(input.sgk ?? '0'),
       aciklama: input.aciklama?.trim() || 'Sehven düzeltme',
     },
   });
@@ -89,6 +91,7 @@ export async function createKasaDuzeltme(
         ciro: input.ciro,
         vakif: input.vakif,
         acikHesap: input.acikHesap,
+        sgk: input.sgk,
         aciklama: kayit.aciklama,
       },
     },
@@ -156,4 +159,45 @@ export async function getKasaDuzeltmeNakitTumZamanlar(branchId: string) {
     _sum: { nakit: true },
   });
   return agg._sum.nakit ?? new Prisma.Decimal(0);
+}
+
+function ymdLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 23.10.2026 — Aylık kutular (Aylık Ciro, Toplam Kart, Banka Kom., KDV, SGK,
+ * Vakıf) için: istenen günün AYINA ait (ayın 1'i -> istenen gün, iki uç dahil)
+ * tüm düzeltme kayıtlarının toplamı. Böylece "Ay Açılış Devri" gibi bir kayıt
+ * sadece kendi ayını etkiler; bir sonraki ayın 1'inde aylık kutular sıfırlanınca
+ * otomatik olarak devre dışı kalır. (Kasa Nakit bundan BAĞIMSIZ — o hâlâ tüm
+ * zamanlar, bkz. getKasaDuzeltmeNakitTumZamanlar.)
+ *
+ * `tarih` bir @db.Date alanı; saat dilimi kaymalarına karşı karşılaştırma DB'deki
+ * tarih (ISO'nun gün kısmı) ile YYYY-MM-DD metni üzerinden yapılıyor.
+ */
+export async function getKasaDuzeltmeToplamForAy(branchId: string, date: Date) {
+  const ayIlkGun = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
+  const gun = ymdLocal(date);
+  const pencereBas = new Date(date.getFullYear(), date.getMonth(), 1);
+  pencereBas.setDate(pencereBas.getDate() - 2);
+  const pencereSon = new Date(date);
+  pencereSon.setDate(pencereSon.getDate() + 2);
+
+  const kayitlar = await prisma.kasaDuzeltme.findMany({
+    where: { branchId, tarih: { gte: pencereBas, lte: pencereSon } },
+  });
+  const sifir = () => new Prisma.Decimal(0);
+  const t = { kartBrut: sifir(), kdv: sifir(), komisyon: sifir(), ciro: sifir(), vakif: sifir(), sgk: sifir() };
+  for (const k of kayitlar) {
+    const ymd = k.tarih.toISOString().slice(0, 10);
+    if (ymd < ayIlkGun || ymd > gun) continue;
+    t.kartBrut = t.kartBrut.plus(k.kartBrut);
+    t.kdv = t.kdv.plus(k.kdv);
+    t.komisyon = t.komisyon.plus(k.komisyon);
+    t.ciro = t.ciro.plus(k.ciro);
+    t.vakif = t.vakif.plus(k.vakif);
+    t.sgk = t.sgk.plus(k.sgk);
+  }
+  return t;
 }
