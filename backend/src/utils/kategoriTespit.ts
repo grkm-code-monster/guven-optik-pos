@@ -9,12 +9,16 @@ export const KATEGORI_MAP = [
 
 export type KategoriEtiket = (typeof KATEGORI_MAP)[number]['kategori'] | 'DİĞER'
 
+/**
+ * 27.10.2026 DÜZELTME: Eskiden tüm yol tek bir metin olarak KATEGORI_MAP
+ * sırasıyla aranıyordu; LENS anahtarı AKSESUAR'dan önce geldiği için
+ * "All / AKSESUAR / LENS APARATI" gibi bir aksesuar alt kategorisi raporlarda
+ * KONTAKT LENS sayılıyordu. Artık yol "/" ile segmentlere ayrılıp SOLDAN SAĞA
+ * taranıyor — ana grubu (ilk eşleşen segment) belirleyici oluyor. Tek
+ * segmentli metinlerde davranış eskisiyle birebir aynı.
+ */
 export function kategoriTespit(kategoriPath: string): KategoriEtiket {
-  const upper = kategoriPath.toUpperCase()
-  for (const k of KATEGORI_MAP) {
-    if (k.anahtar.some((a) => upper.includes(a))) return k.kategori
-  }
-  return 'DİĞER'
+  return kategoriAltKirilimTespit(kategoriPath).etiket
 }
 
 /**
