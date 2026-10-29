@@ -726,10 +726,22 @@ async function computeAylikOzet(branchId: string, date: Date) {
   // kutulara eklenir (Satış Adedi / Ort. Sepet HARİÇ — onlar sadece gerçek
   // satışlardan). bkz. getKasaDuzeltmeToplamForAy.
   const ayDuzeltme = await getKasaDuzeltmeToplamForAy(branchId, date);
-  const cardNet = (cardAgg._sum.netAmount ?? new Prisma.Decimal(0)).plus(ayDuzeltme.kartBrut).minus(ayDuzeltme.komisyon);
-  const totalCommission = (cardAgg._sum.commissionAmount ?? new Prisma.Decimal(0)).plus(ayDuzeltme.komisyon);
+  // 23.10.2026 DÜZELTME: payment.netAmount ZATEN (brüt - komisyon) — bkz.
+  // commission.service.ts calculateCommission. Önceden burada bir de
+  // totalCommission düşülüyordu, yani komisyon Toplam Kart'tan İKİ KEZ
+  // düşülüyordu. Artık: Toplam Kart = kart net (brüt - komisyon) + havale.
+  const cardNet = cardAgg._sum.netAmount ?? new Prisma.Decimal(0);
   const transferTotal = transferAgg._sum.grossAmount ?? new Prisma.Decimal(0);
-  const toplamBanka = cardNet.plus(transferTotal).minus(totalCommission);
+  // Düzeltme kaydı Toplam Kart'a SADECE kart brüt girilmişse yansır (brüt -
+  // komisyon). Kart brüt girilmeden sadece komisyon girildiyse (ör. Ekim açılış
+  // devrinde bankadan aylık kart toplamı alınamadığı için) o komisyon Banka
+  // Kom. kutusuna eklenir ama Toplam Kart'tan düşülmez — aksi halde hiç
+  // eklenmemiş kart tutarının komisyonu düşülmüş olurdu.
+  const kartDuzeltmeNet = ayDuzeltme.kartBrut.isZero()
+    ? new Prisma.Decimal(0)
+    : ayDuzeltme.kartBrut.minus(ayDuzeltme.komisyon);
+  const totalCommission = (cardAgg._sum.commissionAmount ?? new Prisma.Decimal(0)).plus(ayDuzeltme.komisyon);
+  const toplamBanka = cardNet.plus(transferTotal).plus(kartDuzeltmeNet);
 
   const satisAdedi = salesAgg._count._all;
   const netTotalSum = salesAgg._sum.netTotal ?? new Prisma.Decimal(0);
