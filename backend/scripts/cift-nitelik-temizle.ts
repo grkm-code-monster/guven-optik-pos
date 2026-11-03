@@ -71,7 +71,17 @@ async function main() {
     { fields: ['id', 'product_id', 'location_id', 'lot_id', 'quantity'] })) as any[] : [];
   const bekleyen = dropIds.length ? Number(await execute('stock.move', 'search_count',
     [[['product_id', 'in', dropIds], ['state', 'not in', ['done', 'cancel']]]], {})) : 0;
-  if (bekleyen) { console.log(`\nDURDU: arşivlenecek varyantlarda ${bekleyen} bekleyen stok hareketi (transfer/teslimat) var.`); return; }
+  if (bekleyen) {
+    const mv = (await execute('stock.move', 'search_read', [[['product_id', 'in', dropIds], ['state', 'not in', ['done', 'cancel']]]],
+      { fields: ['id', 'product_id', 'picking_id', 'state', 'location_id', 'location_dest_id', 'product_uom_qty', 'date', 'origin'] })) as any[];
+    console.log(`\nDURDU: arşivlenecek varyantlarda ${bekleyen} bekleyen stok hareketi (transfer/teslimat) var:`);
+    for (const m of mv) {
+      const c = ciftler.find((x) => x.drop.id === m.product_id[0])!;
+      console.log(`  hareket #${m.id} [${m.state}] ${m.product_id[1]} | kirli #${m.product_id[0]} → temiz ikizi #${c.keep.id} | ${m.product_uom_qty} adet ${m.location_id[1]} → ${m.location_dest_id[1]} | belge ${m.picking_id ? m.picking_id[1] + ' (#' + m.picking_id[0] + ')' : '-'} | ${m.origin || ''} | ${m.date}`);
+    }
+    console.log('Bu transfer önce tamamlanmalı/iptal edilmeli (ya da ürünü temiz ikize çevirmeliyiz). Hiçbir şey değişmedi.');
+    return;
+  }
   for (const q of quants) {
     if (q.quantity < 0) { console.log(`\nDURDU: eksi stok var (#${q.product_id[0]} ${q.location_id[1]} ${q.quantity}).`); return; }
     if (!lokKod(q.location_id[0])) { console.log(`\nDURDU: tanımsız lokasyon ${q.location_id[1]}.`); return; }
