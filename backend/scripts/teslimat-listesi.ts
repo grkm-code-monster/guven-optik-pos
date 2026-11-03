@@ -16,8 +16,9 @@ async function main() {
   const so = new Map(sos.map((s) => [s.id, s]));
   const posIdOf = (s: any) => String(s?.note || '').match(/POS Satış ID:\s*([0-9a-f-]{36})/i)?.[1] ?? null;
   const posIds = sos.map(posIdOf).filter(Boolean) as string[];
-  const sales = await prisma.sale.findMany({ where: { id: { in: posIds } }, select: { id: true, status: true, createdAt: true, netTotal: true, branch: { select: { code: true } }, items: { select: { odooProductId: true, lotNo: true, qty: true } } } as any }) as any[];
+  const sales = await prisma.sale.findMany({ where: { id: { in: posIds } }, select: { id: true, status: true, createdAt: true, netTotal: true, branchId: true, items: { select: { odooProductId: true, lotNo: true, qty: true } } } as any }) as any[];
   const sale = new Map(sales.map((s) => [s.id, s]));
+  const subeKod = new Map((await prisma.branch.findMany({ select: { id: true, code: true } })).map((b) => [b.id, b.code]));
   const moves = (await execute('stock.move', 'read', [ps.flatMap((p) => p.move_ids)], { fields: ['id', 'picking_id', 'product_id', 'product_uom_qty', 'quantity', 'state', 'move_line_ids', 'location_id'] })) as any[];
   const mls = (await execute('stock.move.line', 'read', [moves.flatMap((m) => m.move_line_ids)], { fields: ['id', 'move_id', 'lot_id', 'quantity'] })) as any[];
   const pids = Array.from(new Set(moves.map((m) => m.product_id[0])));
@@ -35,7 +36,7 @@ async function main() {
     const qElse = quants.filter((x) => x.product_id[0] === m.product_id[0] && x.location_id[0] !== m.location_id[0] && x.quantity > 0);
     const inv = Number(await execute('stock.move', 'search_count', [[['product_id', '=', m.product_id[0]], ['is_inventory', '=', true], ['state', '=', 'done'], ['date', '>', s.date_order],
       '|', ['location_dest_id', '=', m.location_id[0]], ['location_id', '=', m.location_id[0]]]], {}));
-    console.log([p.id, p.name, p.state, p.company_id[1], p.location_id[1], s?.name, s?.date_order, p.partner_id?.[1], s?.amount_total, s?.invoice_status, pos ? 'EVET' : 'HAYIR', pos?.status, pos?.branch?.code,
+    console.log([p.id, p.name, p.state, p.company_id[1], p.location_id[1], s?.name, s?.date_order, p.partner_id?.[1], s?.amount_total, s?.invoice_status, pos ? 'EVET' : 'HAYIR', pos?.status, subeKod.get(pos?.branchId),
       m.product_id[0], m.product_id[1], pr?.categ_id?.[1], pr?.type, pr?.tracking, pr?.active ? '' : 'ARŞİV', m.product_uom_qty, m.quantity, lots, posLot,
       qHere.reduce((a, x) => a + x.quantity, 0), qHere.reduce((a, x) => a + x.quantity - x.reserved_quantity, 0),
       qElse.map((x) => `${x.location_id[1]}:${x.quantity}`).join(' '), inv ? 'EVET' : ''].map(q).join(';'));
