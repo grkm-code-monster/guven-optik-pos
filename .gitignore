@@ -8,3 +8,6 @@ dist/
 .tmp-*.mjs
 logs/*.log
 logs/*.json
+
+# Odoo gizli ayarlari (sunucuda olusturulur)
+odoo/odoo.conf

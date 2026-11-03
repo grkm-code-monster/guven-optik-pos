@@ -1,29 +1,37 @@
-version: '3.8'
+# 03.11.2026 güvenlik düzeltmesi:
+# - Portlar SADECE sunucunun içinden erişilebilir (127.0.0.1 / ::1). Dışarıya açık değil.
+# - Şifre dosyada YAZMAZ: aynı klasördeki .env dosyasından (ODOO_DB_PASSWORD) okunur; .env git'e girmez.
+# - Odoo ayarı ./odoo.conf (git'e girmez): list_db = False, dbfilter = ^guvenoptik$, güçlü admin_passwd.
 services:
   odoo-db:
     image: postgres:15
+    restart: unless-stopped
     environment:
       POSTGRES_DB: odoo
       POSTGRES_USER: odoo
-      POSTGRES_PASSWORD: odoo123
+      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD:?odoo/.env icinde ODOO_DB_PASSWORD tanimli olmali}
     volumes:
       - odoo-db-data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
+      - "[::1]:5433:5432"
 
   odoo:
     image: odoo:17.0
+    restart: unless-stopped
     depends_on:
       - odoo-db
     ports:
-      - "8069:8069"
+      - "127.0.0.1:8069:8069"
+      - "[::1]:8069:8069"
     environment:
       HOST: odoo-db
       USER: odoo
-      PASSWORD: odoo123
+      PASSWORD: ${ODOO_DB_PASSWORD:?odoo/.env icinde ODOO_DB_PASSWORD tanimli olmali}
     volumes:
       - odoo-data:/var/lib/odoo
       - ./addons:/mnt/extra-addons
+      - ./odoo.conf:/etc/odoo/odoo.conf:ro
 
 volumes:
   odoo-db-data:
