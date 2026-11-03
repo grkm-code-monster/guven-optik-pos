@@ -45,7 +45,7 @@ async function main() {
     const el = eskiLines.filter((l) => l.product_tmpl_id[0] === t);
     const yl = yeniLines.filter((l) => l.product_tmpl_id[0] === t);
     const vs = (await execute('product.product', 'search_read', [[['product_tmpl_id', '=', t]]],
-      { fields: ['id', 'barcode', 'product_template_attribute_value_ids', 'qty_available', 'active'] })) as any[];
+      { fields: ['id', 'barcode', 'product_template_attribute_value_ids', 'qty_available', 'active', 'product_tmpl_id'] })) as any[];
     const ptavIds = Array.from(new Set(vs.flatMap((v) => v.product_template_attribute_value_ids)));
     const ptav = new Map<number, { attr: number; val: string }>();
     if (ptavIds.length) for (const p of (await execute('product.template.attribute.value', 'read', [ptavIds],
