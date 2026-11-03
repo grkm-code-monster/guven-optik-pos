@@ -1080,9 +1080,15 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
     await execute('sale.order', 'action_confirm', [[odooOrderId]], {}, odooCompanyId);
 
     const stockLocationId = branch?.odooLocationId ?? resolveBranchStockLocationId(branchCode);
-    const pickingResult = await validateSalePickingsFromBranch(odooOrderId, stockLocationId, odooCompanyId);
+    // 03.11.2026 — satılan lot/UTS Odoo'ya gönderilir; stok yoksa bile düşülür (eksiye) ve uyarı verilir.
+    const satilanLotlar = saleItems
+      .filter((it) => it.odooProductId)
+      .map((it) => ({ productId: parseInt(it.odooProductId!, 10), lotNo: it.lotNo ?? null, qty: it.qty }));
+    const pickingResult = await validateSalePickingsFromBranch(odooOrderId, stockLocationId, odooCompanyId, satilanLotlar);
     if (!pickingResult.ok) {
       deliveryWarning = `Stok teslimatı tamamlanamadı: ${pickingResult.errors.join('; ')}`;
+    } else if (pickingResult.stoksuz.length) {
+      deliveryWarning = `Stok düşüldü ama şubede kayıtlı stok yoktu (eksiye düştü): ${pickingResult.stoksuz.join('; ')}`;
     }
 
     try {
