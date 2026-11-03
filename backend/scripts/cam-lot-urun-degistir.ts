@@ -18,7 +18,7 @@
  * Kullanım:
  *   npx ts-node --transpile-only scripts/cam-lot-urun-degistir.ts \
  *     --uts=01086802860157942118811511220624101 --hedef="Org Et 1.56 0325 -0100" \
- *     [--tedarikci="CLEX CLEAR VISION 1,56 HMC +3.25-1.00 SUDE OPTİK"] [--confirm]
+ *     [--hedef-id=<aynı adlı birden fazla ürün varsa>] [--tedarikci="CLEX CLEAR VISION 1,56 HMC +3.25-1.00 SUDE OPTİK"] [--confirm]
  */
 import 'dotenv/config';
 import { execute } from '../src/modules/odoo/odoo.service';
@@ -57,11 +57,17 @@ async function main() {
   if (!lokasyonKodu) throw new Error(`Lokasyon kodu bulunamadı: ${q.location_id[1]}`);
   if (getCompanyIdFromLokasyon(lokasyonKodu) !== companyId) throw new Error('Lot şirketi ile lokasyon şirketi farklı');
 
+  const hedefId = Number(arg('hedef-id') ?? 0);
   const hedefler = (await execute('product.product', 'search_read', [[['name', '=', hedef]]], {
-    fields: ['id', 'display_name', 'tracking', 'list_price', 'standard_price', 'categ_id'],
+    fields: ['id', 'display_name', 'tracking', 'type', 'list_price', 'standard_price', 'categ_id', 'product_tmpl_id', 'qty_available', 'barcode'],
   }, companyId)) as any[];
-  if (hedefler.length !== 1) throw new Error(`"${hedef}" adıyla ${hedefler.length} ürün bulundu (1 olmalı)`);
-  const hedefUrun = hedefler[0];
+  if (hedefler.length !== 1 && !hedefId) {
+    console.log(`"${hedef}" adıyla ${hedefler.length} ürün var:`);
+    for (const h of hedefler) console.log(`  ürün #${h.id}  şablon #${h.product_tmpl_id?.[0]}  tip=${h.type}  takip=${h.tracking}  stok=${h.qty_available}  satış=${h.list_price}  barkod=${h.barcode || '-'}  ${h.categ_id?.[1]}`);
+    throw new Error('Doğru olanı --hedef-id=<ürün no> ile belirtin');
+  }
+  const hedefUrun = hedefId ? hedefler.find((h) => h.id === hedefId) : hedefler[0];
+  if (!hedefUrun) throw new Error(`--hedef-id=${hedefId} bu adla eşleşmiyor`);
   if (hedefUrun.id === eskiUrunId) throw new Error('Lot zaten hedef üründe');
   const eski = ((await execute('product.product', 'read', [[eskiUrunId]], {
     fields: ['id', 'display_name', 'tracking', 'list_price', 'standard_price'],
