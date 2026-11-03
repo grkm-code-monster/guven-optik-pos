@@ -20,8 +20,19 @@ async function main() {
     const ps = (await execute('stock.picking', 'search_read',
       [[['picking_type_code', '=', 'outgoing'], ['sale_id', '!=', false], ['state', 'not in', ['done', 'cancel']]]],
       { fields: ['id', 'name', 'state', 'origin', 'location_id', 'scheduled_date', 'company_id'], order: 'id' })) as any[];
-    console.log(`Bekleyen satış teslimatı: ${ps.length}`);
-    for (const p of ps) console.log(`  #${p.id} ${p.name} [${p.state}] ${p.origin} | ${p.location_id[1]} | ${p.company_id[1]} | ${p.scheduled_date}`);
+    const hepsi = (await execute('stock.picking', 'read_group',
+      [[['picking_type_code', '=', 'outgoing'], ['sale_id', '!=', false]], ['state'], ['state']], { lazy: false })) as any[];
+    console.log('TÜM satış teslimatları (durum → adet): ' + hepsi.map((g) => `${g.state}: ${g.__count}`).join(' | '));
+    const ozet = new Map<string, number>();
+    for (const p of ps) { const k = `${String(p.scheduled_date).slice(0, 7)} ${p.location_id[1]} [${p.state}]`; ozet.set(k, (ozet.get(k) ?? 0) + 1); }
+    console.log(`\nBekleyen satış teslimatı: ${ps.length}  (ay / şube / durum)`);
+    for (const [k, n] of [...ozet].sort()) console.log(`  ${k}: ${n}`);
+    // son done olan teslimat — sistem en son ne zaman düzgün teslim etmiş?
+    const sonDone = (await execute('stock.picking', 'search_read', [[['picking_type_code', '=', 'outgoing'], ['sale_id', '!=', false], ['state', '=', 'done']]],
+      { fields: ['name', 'date_done', 'location_id'], order: 'date_done desc', limit: 5 })) as any[];
+    console.log('\nEn son TAMAMLANAN satış teslimatları:');
+    for (const d of sonDone) console.log(`  ${d.name} ${d.date_done} ${d.location_id[1]}`);
+    if (process.argv.includes('--liste')) for (const p of ps) console.log(`  #${p.id} ${p.name} [${p.state}] ${p.origin} | ${p.location_id[1]} | ${p.company_id[1]} | ${p.scheduled_date}`);
     console.log('\nDetay için: --picking=<#no>');
     return;
   }
