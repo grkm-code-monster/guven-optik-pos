@@ -80,13 +80,16 @@ export async function createManuelTahsilat(
   });
 
   const id = randomUUID();
+  // 05.11.2026 — Postgres now() sunucu saat diliminde (TR) yerel saat yazıyordu; Prisma bunu UTC okuduğu için
+  // kayıtlar 3 saat ileri görünüyor, akşam girilen tahsilat ertesi günün raporuna düşüyordu. JS tarihi gönderiyoruz.
+  const simdi = new Date();
   const aciklama = input.aciklama?.trim() || null;
 
   await prisma.$executeRaw`
     INSERT INTO "ManuelTahsilat"
       ("id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt")
     VALUES
-      (${id}, ${branchId}, ${actingUser.userId}, ${customer.id}, ${customer.name}, ${tutar}, ${odemeTuru}, ${aciklama}, ${aktifVardiya?.id ?? null}, now())
+      (${id}, ${branchId}, ${actingUser.userId}, ${customer.id}, ${customer.name}, ${tutar}, ${odemeTuru}, ${aciklama}, ${aktifVardiya?.id ?? null}, ${simdi})
   `;
 
   let cashMovementUyari: string | undefined;
@@ -119,7 +122,7 @@ export async function createManuelTahsilat(
     odemeTuru,
     aciklama,
     shiftId: aktifVardiya?.id ?? null,
-    createdAt: new Date(),
+    createdAt: simdi,
   };
 
   return { kayit, cashMovementUyari };
