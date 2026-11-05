@@ -499,7 +499,7 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
 
   const body = rows.map((row) => {
     // 05.11.2026 — belirteç satırları: Brüt / Sipariş / İsk. / SGK boş; tahsilatta para Nakit
-    // veya Slip'te, ciro düzeltmede sadece Vergi Hariç'te (eksi).
+    // veya Slip'te; ciro düzeltmede Sipariş Bedeli (tamamı) ve Vergi Hariç (KDV'siz kısmı) eksi.
     if (isBelirtec(row)) {
       const kart = row.cardPayments[0]
       const ciro = row.tip === 'CIRO_DUZELTME'
@@ -509,7 +509,7 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
         row.tip === 'MASRAF' ? '—' : truncate(row.customerName, 24),
         (row.itemSummary || '—').replace(/^[🟡🟢🟣🔴]\s*/u, '').trim(),
         '—',
-        '—',
+        ciro ? fmtPdfMoney(row.netTotal) : '—',
         ciro ? fmtPdfMoney(row.taxExcluded) : '—',
         '—',
         Number(row.cashAmount) ? fmtPdfMoney(row.cashAmount) : '—',

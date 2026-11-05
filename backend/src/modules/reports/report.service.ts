@@ -588,9 +588,27 @@ async function buildAcikHesapTahsilatRows(
 }
 
 /**
+ * 05.11.2026 — CİRO DÜZELTME tutarı KDV DAHİL "Sipariş Bedeli"nden düşülür (kullanıcı kararı,
+ * 05.11 14:07). Vergi hariç ciroya, o satışın kendi matrah oranıyla ((net - KDV) / net)
+ * yansır; aradaki kısım KDV toplamından düşer.
+ */
+function ciroDuzeltmeAyir(
+  tutar: Prisma.Decimal,
+  sale: { netTotal: Prisma.Decimal; taxTotal: Prisma.Decimal | null },
+): { vergiHaric: Prisma.Decimal; kdv: Prisma.Decimal } {
+  const net = new Prisma.Decimal(sale.netTotal);
+  const kdvToplam = new Prisma.Decimal(sale.taxTotal ?? 0);
+  const vergiHaric = net.greaterThan(0)
+    ? tutar.mul(net.minus(kdvToplam)).div(net).toDecimalPlaces(2)
+    : tutar;
+  return { vergiHaric, kdv: tutar.minus(vergiHaric) };
+}
+
+/**
  * 05.11.2026 — Bu vardiyanın açık olduğu zaman aralığında girilmiş CİRO DÜZELTME kayıtları
- * (açık hesap borcundan sonradan verilen indirim). Kasa formunda mor belirteç satırı olur,
- * o günün vergi hariç cirosundan (ve Gün Toplamı'ndan) AYNEN düşülür; nakit/kart değildir.
+ * (açık hesap borcundan sonradan verilen indirim). Kasa formunda mor belirteç satırı olur:
+ * Sipariş Bedeli'nden tutarın tamamı, Vergi Hariç'ten (ve Gün Toplamı'ndan) KDV'siz kısmı
+ * düşülür; nakit/kart değildir.
  */
 async function buildCiroDuzeltmeRows(
   branchId: string,
@@ -611,6 +629,8 @@ async function buildCiroDuzeltmeRows(
           id: true,
           createdAt: true,
           userId: true,
+          netTotal: true,
+          taxTotal: true,
           customer: { select: { name: true } },
           user: { select: { name: true } },
         },
@@ -625,6 +645,7 @@ async function buildCiroDuzeltmeRows(
     saleDate: p.sale.createdAt.toISOString(),
     createdAt: p.createdAt.toISOString(),
     amount: p.grossAmount.toString(),
+    taxExcludedAmount: ciroDuzeltmeAyir(p.grossAmount, p.sale).vergiHaric.toString(),
     aciklama: p.aciklama ?? null,
     repUserId: p.sale.userId,
     repName: p.sale.user?.name ?? '—',
@@ -639,15 +660,20 @@ async function ciroDuzeltmeToplamlari(branchId: string, gte: Date, lte: Date) {
       createdAt: { gte, lte },
       sale: { branchId, status: SaleStatus.PAID },
     },
-    select: { grossAmount: true, sale: { select: { userId: true } } },
+    select: { grossAmount: true, sale: { select: { userId: true, netTotal: true, taxTotal: true } } },
   });
   let toplam = new Prisma.Decimal(0);
+  let vergiHaric = new Prisma.Decimal(0);
+  let kdv = new Prisma.Decimal(0);
   const temsilciBazinda = new Map<string, Prisma.Decimal>();
   for (const r of rows) {
     toplam = toplam.plus(r.grossAmount);
+    const ayr = ciroDuzeltmeAyir(r.grossAmount, r.sale);
+    vergiHaric = vergiHaric.plus(ayr.vergiHaric);
+    kdv = kdv.plus(ayr.kdv);
     temsilciBazinda.set(r.sale.userId, (temsilciBazinda.get(r.sale.userId) ?? new Prisma.Decimal(0)).plus(r.grossAmount));
   }
-  return { toplam, temsilciBazinda };
+  return { toplam, vergiHaric, kdv, temsilciBazinda };
 }
 
 // 05.11.2026 — Manuel (kağıt üstü) KART tahsilatlarının brüt ve komisyon toplamı (aylık kutular için).
@@ -783,9 +809,9 @@ async function computeAylikCiroToplami(branchId: string, date: Date): Promise<st
   // (KDV ve komisyon düşülmüş — Excel'deki "satış aylık genel toplam" ile aynı
   // tanım) da eklenir; ör. sisteme geçişten önceki günlerin "Ay Açılış Devri".
   const duzeltme = await getKasaDuzeltmeToplamForAy(branchId, date);
-  // 05.11.2026: o ay girilen CİRO DÜZELTME (sonradan verilen indirim) aynen düşülür.
+  // 05.11.2026: o ay girilen CİRO DÜZELTME'nin (sonradan verilen indirim) KDV'siz kısmı düşülür.
   const ciroDuzeltme = await ciroDuzeltmeToplamlari(branchId, ayBaslangici, araligiBitisi);
-  return taxFreeToplam.minus(komisyonToplam).plus(duzeltme.ciro).minus(ciroDuzeltme.toplam).toString();
+  return taxFreeToplam.minus(komisyonToplam).plus(duzeltme.ciro).minus(ciroDuzeltme.vergiHaric).toString();
 }
 
 // 22.10.2026 — kullanıcı isteği: "Mağaza Özeti"ndeki Toplam Kart, SGK Hakları,
@@ -903,7 +929,8 @@ async function computeAylikOzet(branchId: string, date: Date) {
     satisAdedi,
     ortalamaSepet: ortalamaSepet.toString(),
     totalCommission: totalCommission.toString(),
-    aylikKdvToplami: (salesAgg._sum.taxTotal ?? new Prisma.Decimal(0)).plus(ayDuzeltme.kdv).toString(),
+    // 05.11.2026: ciro düzeltmelerin KDV payı da düşülür
+    aylikKdvToplami: (salesAgg._sum.taxTotal ?? new Prisma.Decimal(0)).plus(ayDuzeltme.kdv).minus(ayCiroDuzeltme.kdv).toString(),
     aylikTemsilciBreakdown,
   };
 }

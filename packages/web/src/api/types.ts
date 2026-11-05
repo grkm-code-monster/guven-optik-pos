@@ -257,6 +257,8 @@ export interface DailyReport {
     saleDate: string
     createdAt: string
     amount: string
+    // KDV'siz kısmı (satışın matrah oranıyla); Sipariş Bedeli'nden amount, Vergi Hariç'ten bu düşülür
+    taxExcludedAmount?: string
     aciklama: string | null
     repName: string
   }>

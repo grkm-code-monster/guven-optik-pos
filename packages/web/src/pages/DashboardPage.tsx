@@ -210,7 +210,8 @@ function summarizeGunlukKasaRows(rows: SalesDetailRow[]) {
 // Brüt, Sipariş Bedeli, Vergi Hariç boştur → Brüt Ciro ve Gün Toplamı DEĞİŞMEZ. Kart
 // tahsilatının komisyonu Banka Kom.'da görünür ama Gün Toplamı'ndan düşülmez
 // (isOpenAccountCollection: true → cardCommissionSalesOnlyTotal dışında kalır).
-// Ciro düzeltme: nakit/kart değil; sadece Vergi Hariç sütununda EKSİ yazar → Gün Toplamı'ndan düşer.
+// Ciro düzeltme: nakit/kart değil; Sipariş Bedeli'nde tutarın tamamı, Vergi Hariç'te KDV'siz kısmı
+// EKSİ yazar → Gün Toplamı'ndan KDV'siz kısmı düşer (05.11.2026 kullanıcı kararı).
 type KasaBelirtecTip = 'ACIK_HESAP_TAHSILAT' | 'MANUEL_TAHSILAT' | 'CIRO_DUZELTME'
 
 function isBelirtecRow(row: SalesDetailRow): boolean {
@@ -284,7 +285,8 @@ function buildKasaBelirtecRows(report: DailyReport | null): SalesDetailRow[] {
   for (const k of report.ciroDuzeltmeleri ?? []) {
     rows.push({
       ...bos,
-      taxExcluded: (-Number(k.amount)).toFixed(2),
+      netTotal: (-Number(k.amount)).toFixed(2),
+      taxExcluded: (-Number(k.taxExcludedAmount ?? k.amount)).toFixed(2),
       cashAmount: '0',
       transferAmount: '0',
       cardPayments: [],
@@ -703,6 +705,8 @@ function renderGunlukKasaCell(
         return s.customerName
       case 'urunKalemleri':
         return s.itemSummary
+      case 'siparisBedeli':
+        return s.tip === 'CIRO_DUZELTME' ? formatMoney(s.netTotal) : dash
       case 'vergiHaric':
         return s.tip === 'CIRO_DUZELTME' ? formatMoney(s.taxExcluded) : dash
       case 'nakit':
@@ -776,7 +780,7 @@ function gunlukKasaCellStyle(key: GunlukKasaSutunKey, isMasraf: boolean, tip?: S
       ...(belirtec ? { color: belirtec.fg, fontWeight: 700 } : {}),
     }
   }
-  if (belirtec && key === 'vergiHaric' && tip === 'CIRO_DUZELTME') {
+  if (belirtec && (key === 'vergiHaric' || key === 'siparisBedeli') && tip === 'CIRO_DUZELTME') {
     return { ...GUNLUK_KASA_TD_STYLE, color: belirtec.fg, fontWeight: 700, whiteSpace: 'nowrap' }
   }
   if (key === 'nakit' && isMasraf) {
@@ -829,7 +833,7 @@ function GunlukKasaTable({
   // 05.11.2026 — yanlış girilmiş ciro düzeltmeyi sadece ADMIN siler (kayda geçer).
   async function ciroDuzeltmeSil(row: SalesDetailRow) {
     if (!row.kaynakId) return
-    const ok = window.confirm(`Bu ciro düzeltme kaydı silinsin mi?\n\n${row.itemSummary}\nTutar: ${formatMoney(-Number(row.taxExcluded))}\n\nMüşterinin borcu tekrar açılır.`)
+    const ok = window.confirm(`Bu ciro düzeltme kaydı silinsin mi?\n\n${row.itemSummary}\nTutar: ${formatMoney(-Number(row.netTotal))}\n\nMüşterinin borcu tekrar açılır.`)
     if (!ok) return
     try {
       await apiClient.delete(`/open-account/ciro-duzeltme/${row.kaynakId}`)

@@ -1085,8 +1085,8 @@ export default function AcikHesapPage() {
             </div>
             {paymentType === 'CIRO_DUZELTME' ? (
               <div style={ciroDuzeltmeBilgiStyle}>
-                Nakit / kart / kurum değildir. Girilen tutar müşterinin borcundan düşülür ve bugünün vergi hariç
-                cirosundan aynen düşer. Kasa formunda mor satır olarak görünür. Açıklama zorunlu.
+                Nakit / kart / kurum değildir. Girilen tutar müşterinin borcundan ve bugünün sipariş bedelinden düşülür
+                (vergi hariç ciroya KDV'si ayrılarak yansır). Kasa formunda mor satır olarak görünür. Açıklama zorunlu.
               </div>
             ) : null}
 
@@ -1300,8 +1300,8 @@ export default function AcikHesapPage() {
             </div>
             {bulkPaymentType === 'CIRO_DUZELTME' ? (
               <div style={ciroDuzeltmeBilgiStyle}>
-                Nakit / kart / kurum değildir. Dağıtılan tutarlar ilgili satışların borcundan düşülür ve bugünün
-                vergi hariç cirosundan aynen düşer. Açıklama zorunlu.
+                Nakit / kart / kurum değildir. Dağıtılan tutarlar ilgili satışların borcundan ve bugünün sipariş
+                bedelinden düşülür (vergi hariç ciroya KDV'si ayrılarak yansır). Açıklama zorunlu.
               </div>
             ) : null}
 
