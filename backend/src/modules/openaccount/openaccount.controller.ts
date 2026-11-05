@@ -1,10 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { authenticate } from '../../middleware/authenticate';
 import { prisma } from '../../database/prisma';
-import { PaymentType, SaleStatus, Prisma, CashMovementType, ShiftStatus } from '@prisma/client';
+import { PaymentType, SaleStatus, Prisma, CashMovementType, ShiftStatus, Role } from '@prisma/client';
+import { authorize } from '../../middleware/authorize';
 import { calculateCommission } from '../payments/commission.service';
 import { execute } from '../odoo/odoo.service';
 import { createManuelTahsilat, listManuelTahsilat } from './manuel-tahsilat.service';
+
+// 05.11.2026 — CİRO DÜZELTME: açık hesap borcundan sonradan verilen indirim. Nakit/kart/kurum
+// DEĞİL; müşterinin borcunu kapatır, o günün vergi hariç cirosundan aynen düşülür. Sadece
+// mağaza müdürü / bölge müdürü / admin girebilir; açıklama zorunlu. Odoo'ya ödeme olarak
+// gönderilmez (fatura kesildi, ona dokunulmaz — kullanıcı kararı).
+const CIRO_DUZELTME_ROLLERI: Role[] = [Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN];
 
 const router = Router();
 router.use(authenticate);
@@ -22,6 +29,7 @@ function normalizePaymentType(raw: string): PaymentType {
   if (t === 'CASH') return PaymentType.CASH;
   if (t === 'CARD') return PaymentType.CARD;
   if (t === 'BANK_TRANSFER' || t === 'HAVALE' || t === 'TRANSFER') return PaymentType.TRANSFER;
+  if (t === 'CIRO_DUZELTME') return PaymentType.CIRO_DUZELTME;
   return t as PaymentType;
 }
 
@@ -248,6 +256,7 @@ type PaymentInput = {
 async function applyOpenAccountPayment(
   userId: string,
   input: PaymentInput,
+  userRole?: Role,
 ): Promise<{ payment: Awaited<ReturnType<typeof prisma.payment.create>>; odooSyncError?: string }> {
   const { customerId, saleId, amount, paymentType, note, bankId, posDeviceId, installment } = input;
 
@@ -279,6 +288,24 @@ async function applyOpenAccountPayment(
   }
 
   const normalizedType = normalizePaymentType(paymentType);
+  if (
+    normalizedType !== PaymentType.CASH &&
+    normalizedType !== PaymentType.CARD &&
+    normalizedType !== PaymentType.TRANSFER &&
+    normalizedType !== PaymentType.CIRO_DUZELTME
+  ) {
+    throw new Error('Ödeme türü geçersiz');
+  }
+  const isCiroDuzeltme = normalizedType === PaymentType.CIRO_DUZELTME;
+  const temizNot = note?.trim() || null;
+  if (isCiroDuzeltme) {
+    if (!userRole || !CIRO_DUZELTME_ROLLERI.includes(userRole)) {
+      throw new Error('Ciro düzeltmeyi sadece mağaza müdürü veya admin girebilir (yetki yok)');
+    }
+    if (!temizNot || temizNot.length < 3) {
+      throw new Error('Ciro düzeltme için açıklama zorunlu (açıklama geçersiz)');
+    }
+  }
   const now = new Date();
   const grossStr = String(amt);
 
@@ -307,8 +334,24 @@ async function applyOpenAccountPayment(
       installment: normalizedType === PaymentType.CARD ? Number(installment) : null,
       commissionRate,
       commissionAmount,
+      aciklama: temizNot,
+      createdByUserId: userId,
     },
   });
+
+  if (isCiroDuzeltme) {
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'CIRO_DUZELTME_EKLE',
+        entity: 'Payment',
+        entityId: payment.id,
+        payload: { saleId: sale.id, customerId, tutar: amt, aciklama: temizNot },
+      },
+    });
+    // Odoo'ya gönderilmez, kasa hareketi oluşmaz.
+    return { payment };
+  }
 
   if (normalizedType === PaymentType.CASH) {
     // ÖNEMLİ (14.10.2026 — "sehven açık hesap" düzeltmesi): bu nakit SATIŞIN KENDİ
@@ -530,12 +573,12 @@ router.post('/payment', async (req: Request, res: Response) => {
       bankId,
       posDeviceId,
       installment,
-    });
+    }, req.user!.role);
 
     res.json({ success: true, data: payment, odooSyncError, odooSyncOk: !odooSyncError });
   } catch (err: any) {
     const msg = err?.message ?? 'Ödeme kaydedilemedi';
-    if (msg.includes('bulunamadı') || msg.includes('geçersiz') || msg.includes('fazla') || msg.includes('açık bakiye')) {
+    if (msg.includes('bulunamadı') || msg.includes('geçersiz') || msg.includes('fazla') || msg.includes('açık bakiye') || msg.includes('yetki') || msg.includes('zorunlu') || msg.includes('Komisyon')) {
       return res.status(400).json({ success: false, error: msg });
     }
     res.status(500).json({ success: false, error: msg });
@@ -564,6 +607,14 @@ router.post('/payment-toplu', async (req: Request, res: Response) => {
     const normalizedType = normalizePaymentType(paymentType);
     if (normalizedType === PaymentType.CARD && (!bankId || !posDeviceId || !installment)) {
       return res.status(400).json({ success: false, error: 'Kart ödemesi için banka, POS ve taksit zorunlu' });
+    }
+    if (normalizedType === PaymentType.CIRO_DUZELTME) {
+      if (!CIRO_DUZELTME_ROLLERI.includes(req.user!.role)) {
+        return res.status(403).json({ success: false, error: 'Ciro düzeltmeyi sadece mağaza müdürü veya admin girebilir' });
+      }
+      if (!String(note ?? '').trim() || String(note).trim().length < 3) {
+        return res.status(400).json({ success: false, error: 'Ciro düzeltme için açıklama zorunlu' });
+      }
     }
 
     let dagitimToplam = 0;
@@ -621,7 +672,7 @@ router.post('/payment-toplu', async (req: Request, res: Response) => {
           bankId,
           posDeviceId,
           installment,
-        });
+        }, req.user!.role);
         payments.push(result.payment);
         if (result.odooSyncError) {
           odooErrors.push({ saleId: row.saleId, error: result.odooSyncError });
@@ -652,20 +703,20 @@ router.post('/payment-toplu', async (req: Request, res: Response) => {
 // müşteriler için Açık Hesap sayfasındaki yeni sekmeden girilen serbest tahsilat.
 router.post('/manuel-tahsilat', async (req: Request, res: Response) => {
   try {
-    const { customerId, tutar, odemeTuru, aciklama } = req.body;
+    const { customerId, tutar, odemeTuru, aciklama, bankId, posDeviceId, installment } = req.body;
     if (!customerId || tutar == null || !odemeTuru) {
       return res.status(400).json({ success: false, error: 'Zorunlu alanlar eksik' });
     }
 
     const { kayit, cashMovementUyari } = await createManuelTahsilat(
       { userId: req.user!.userId, branchId: req.user!.branchId },
-      { customerId, tutar: Number(tutar), odemeTuru, aciklama },
+      { customerId, tutar: Number(tutar), odemeTuru, aciklama, bankId, posDeviceId, installment: installment != null ? Number(installment) : undefined },
     );
 
     res.json({ success: true, data: kayit, cashMovementUyari });
   } catch (err: any) {
     const msg = err?.message ?? 'Tahsilat kaydedilemedi';
-    if (err?.code && ['CUSTOMER_NOT_FOUND', 'INVALID_AMOUNT', 'INVALID_PAYMENT_TYPE', 'BRANCH_REQUIRED'].includes(err.code)) {
+    if (err?.code && ['CUSTOMER_NOT_FOUND', 'INVALID_AMOUNT', 'INVALID_PAYMENT_TYPE', 'BRANCH_REQUIRED', 'CARD_INFO_REQUIRED', 'COMMISSION_RATE_NOT_FOUND'].includes(err.code)) {
       return res.status(400).json({ success: false, error: msg });
     }
     res.status(500).json({ success: false, error: msg });
@@ -679,6 +730,40 @@ router.get('/manuel-tahsilat', async (req: Request, res: Response) => {
     res.json({ success: true, data: list });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 05.11.2026 — Yanlış girilmiş CİRO DÜZELTME kaydını sil (SADECE ADMIN). Satışa, stoka,
+// faturaya dokunmaz; sadece o düzeltme ödemesi kalkar ve müşterinin borcu geri açılır.
+// Silinen kaydın tam hali AuditLog'a yazılır.
+router.delete('/ciro-duzeltme/:paymentId', authorize(Role.ADMIN), async (req: Request, res: Response) => {
+  try {
+    const { paymentId } = req.params;
+    const p = await prisma.payment.findUnique({ where: { id: paymentId } });
+    if (!p || p.paymentType !== PaymentType.CIRO_DUZELTME) {
+      return res.status(404).json({ success: false, error: 'Ciro düzeltme kaydı bulunamadı' });
+    }
+    await prisma.$transaction([
+      prisma.auditLog.create({
+        data: {
+          userId: req.user!.userId,
+          action: 'CIRO_DUZELTME_SIL',
+          entity: 'Payment',
+          entityId: p.id,
+          payload: {
+            saleId: p.saleId,
+            tutar: p.grossAmount.toString(),
+            aciklama: p.aciklama,
+            createdAt: p.createdAt.toISOString(),
+            createdByUserId: p.createdByUserId,
+          },
+        },
+      }),
+      prisma.payment.delete({ where: { id: p.id } }),
+    ]);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message ?? 'Silinemedi' });
   }
 });
 

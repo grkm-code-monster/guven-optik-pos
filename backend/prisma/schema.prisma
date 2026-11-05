@@ -485,6 +485,8 @@ model Payment {
   commissionRate   Decimal?    @db.Decimal(5, 4) // örn: 0.0400
   commissionAmount Decimal?    @db.Decimal(10, 2)
   netAmount        Decimal     @db.Decimal(10, 2)
+  aciklama         String? // 05.11.2026: açık hesap ödemesinde girilen not (CIRO_DUZELTME'de zorunlu)
+  createdByUserId  String? // 05.11.2026: ödemeyi giren personel (açık hesap ödemeleri)
   createdAt        DateTime    @default(now())
   sale             Sale        @relation(fields: [saleId], references: [id])
 }
@@ -497,6 +499,7 @@ enum PaymentType {
   SGK
   VAKIF
   ETICARET
+  CIRO_DUZELTME // 05.11.2026: açık hesap borcundan sonradan verilen indirim (nakit/kart/kurum değil)
 }
 
 model Bank {
@@ -713,6 +716,12 @@ model ManuelTahsilat {
   tutar       Decimal   @db.Decimal(10, 2)
   odemeTuru   String // CASH | CARD | TRANSFER
   aciklama    String?
+  // 05.11.2026: kart tahsilatında komisyon hesabı için
+  bankId           String?
+  posDeviceId      String?
+  installment      Int?
+  commissionRate   Decimal? @db.Decimal(5, 4)
+  commissionAmount Decimal? @db.Decimal(10, 2)
   shiftId     String? // oluşturulduğu an açık olan vardiya (varsa)
   createdAt   DateTime  @default(now())
 

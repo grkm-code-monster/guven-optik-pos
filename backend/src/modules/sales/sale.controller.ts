@@ -374,6 +374,45 @@ router.get('/branch-staff', async (req: Request, res: Response, next: NextFuncti
   }
 });
 
+// 05.11.2026 — Satış temsilcisi seçici: TÜM şubelerin aktif personeli (şube adıyla).
+// Başka mağazadan gelip satış yapan personeli (patron dahil) seçebilmek için.
+router.get(
+  '/tum-personel',
+  authorize(Role.STORE_MANAGER, Role.REGIONAL_MANAGER, Role.ADMIN),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const users = await prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true, role: true, branch: { select: { id: true, code: true, name: true } } },
+        orderBy: [{ name: 'asc' }],
+      });
+      return res.status(200).json({
+        success: true,
+        data: users.map((u) => ({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          branchId: u.branch?.id ?? null,
+          branchCode: u.branch?.code ?? null,
+          branchName: u.branch?.name ?? null,
+        })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get('/:id/temsilci-gecmisi', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await saleService.getSaleTemsilciGecmisi(req.params.id);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
 router.get('/payment-banks', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const banks = await prisma.bank.findMany({

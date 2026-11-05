@@ -1,6 +1,25 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { apiClient } from '../api/client'
 import { searchCustomers, createCustomer } from '../api/customers.api'
+import { useAuthStore } from '../store/auth.store'
+
+// 05.11.2026 — CİRO DÜZELTME: açık hesap borcundan sonradan verilen indirim. Nakit/kart/kurum
+// değildir; müşterinin borcunu kapatır, girildiği günün vergi hariç cirosundan aynen düşülür.
+// Sadece mağaza müdürü / bölge müdürü / admin görür; açıklama zorunlu.
+type OdemeSecimi = 'CASH' | 'CARD' | 'HAVALE' | 'CIRO_DUZELTME'
+const CIRO_DUZELTME_ROLLERI = ['STORE_MANAGER', 'REGIONAL_MANAGER', 'ADMIN']
+const odemeEtiketi = (t: OdemeSecimi) =>
+  t === 'CASH' ? 'Nakit' : t === 'CARD' ? 'Kredi Kartı' : t === 'HAVALE' ? 'Havale' : 'Ciro Düzeltme (indirim)'
+const ciroDuzeltmeBilgiStyle: CSSProperties = {
+  marginTop: 10,
+  padding: 10,
+  borderRadius: 10,
+  backgroundColor: '#f5f3ff',
+  border: '1px solid #c4b5fd',
+  color: '#5b21b6',
+  fontSize: 12,
+  fontWeight: 700,
+}
 
 type SummaryRow = {
   customer: { id: string; name: string; phone: string }
@@ -63,6 +82,11 @@ type ManuelTahsilatRow = {
 
 export default function AcikHesapPage() {
   const [sekme, setSekme] = useState<'acik-hesap' | 'manuel-tahsilat'>('acik-hesap')
+  const benimRolum = useAuthStore((st) => st.user?.role)
+  const ciroDuzeltmeYetkisi = CIRO_DUZELTME_ROLLERI.includes(String(benimRolum ?? ''))
+  const odemeSecenekleri: OdemeSecimi[] = ciroDuzeltmeYetkisi
+    ? ['CASH', 'CARD', 'HAVALE', 'CIRO_DUZELTME']
+    : ['CASH', 'CARD', 'HAVALE']
 
   // --- Manuel Tahsilat sekmesi (14.10.2026): sistemde hiç satış kaydı olmayan,
   // borcu sadece kağıt üzerinde tutulan müşteriler için serbest tahsilat girişi.
@@ -78,6 +102,10 @@ export default function AcikHesapPage() {
   const [mtTutar, setMtTutar] = useState('')
   const [mtOdemeTuru, setMtOdemeTuru] = useState<'CASH' | 'CARD' | 'TRANSFER'>('CASH')
   const [mtAciklama, setMtAciklama] = useState('')
+  // 05.11.2026 — kart tahsilatında komisyon için banka / POS / taksit
+  const [mtBankId, setMtBankId] = useState('')
+  const [mtPosDeviceId, setMtPosDeviceId] = useState('')
+  const [mtInstallment, setMtInstallment] = useState(1)
   const [mtKaydediliyor, setMtKaydediliyor] = useState(false)
   const [mtHata, setMtHata] = useState<string | null>(null)
   const [mtBasari, setMtBasari] = useState<string | null>(null)
@@ -127,6 +155,9 @@ export default function AcikHesapPage() {
     setMtTutar('')
     setMtOdemeTuru('CASH')
     setMtAciklama('')
+    setMtBankId('')
+    setMtPosDeviceId('')
+    setMtInstallment(1)
     setMtHata(null)
     setMtBasari(null)
   }
@@ -165,6 +196,10 @@ export default function AcikHesapPage() {
       setMtHata('Tutar geçerli olmalı')
       return
     }
+    if (mtOdemeTuru === 'CARD' && !mtBankId) {
+      setMtHata('Kart tahsilatı için banka seçin (komisyon hesabı için)')
+      return
+    }
     setMtKaydediliyor(true)
     setMtHata(null)
     setMtBasari(null)
@@ -174,6 +209,9 @@ export default function AcikHesapPage() {
         tutar: n,
         odemeTuru: mtOdemeTuru,
         aciklama: mtAciklama.trim() || null,
+        ...(mtOdemeTuru === 'CARD'
+          ? { bankId: mtBankId, posDeviceId: mtPosDeviceId || null, installment: mtInstallment }
+          : {}),
       })
       const uyari = res.data?.cashMovementUyari
       setMtBasari(uyari ? `Tahsilat kaydedildi. ${uyari}` : 'Tahsilat kaydedildi ve kasa formuna işlendi.')
@@ -181,6 +219,9 @@ export default function AcikHesapPage() {
       setMtTutar('')
       setMtOdemeTuru('CASH')
       setMtAciklama('')
+      setMtBankId('')
+      setMtPosDeviceId('')
+      setMtInstallment(1)
       await mtListeYukle()
     } catch (e: any) {
       setMtHata(e?.response?.data?.error ?? 'Tahsilat kaydedilemedi')
@@ -207,7 +248,7 @@ export default function AcikHesapPage() {
   const [modalSale, setModalSale] = useState<SaleRow | null>(null)
 
   const [amount, setAmount] = useState('')
-  const [paymentType, setPaymentType] = useState<'CASH' | 'CARD' | 'HAVALE'>('CASH')
+  const [paymentType, setPaymentType] = useState<OdemeSecimi>('CASH')
   const [note, setNote] = useState('')
   const [havaleBankName, setHavaleBankName] = useState('')
 
@@ -224,7 +265,7 @@ export default function AcikHesapPage() {
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
   const [bulkToplam, setBulkToplam] = useState('')
   const [bulkDagitim, setBulkDagitim] = useState<Record<string, string>>({})
-  const [bulkPaymentType, setBulkPaymentType] = useState<'CASH' | 'CARD' | 'HAVALE'>('CASH')
+  const [bulkPaymentType, setBulkPaymentType] = useState<OdemeSecimi>('CASH')
   const [bulkNote, setBulkNote] = useState('')
   const [bulkHavaleBankName, setBulkHavaleBankName] = useState('')
   const [bulkBankId, setBulkBankId] = useState('')
@@ -296,7 +337,7 @@ export default function AcikHesapPage() {
   }, [selectedCustomerId])
 
   useEffect(() => {
-    if (paymentType !== 'CARD' && bulkPaymentType !== 'CARD') return
+    if (paymentType !== 'CARD' && bulkPaymentType !== 'CARD' && mtOdemeTuru !== 'CARD') return
     // Düzeltme (23.09.2026): '/admin/banks' sadece ADMIN rolüne (veya
     // TANIMLAMALAR ek yetkisine) açık — STORE_MANAGER gibi diğer roller bu
     // isteği alıp sessizce (.catch boş) reddediliyordu, bu yüzden Açık Hesap
@@ -318,7 +359,7 @@ export default function AcikHesapPage() {
         setPosDevicesByBankId(map)
       })
       .catch(() => {})
-  }, [paymentType, bulkPaymentType])
+  }, [paymentType, bulkPaymentType, mtOdemeTuru])
 
   async function loadFifoOneri(customerId: string, tutar: number) {
     setBulkLoadingFifo(true)
@@ -393,6 +434,10 @@ export default function AcikHesapPage() {
       setError('Banka ve POS seçin.')
       return
     }
+    if (bulkPaymentType === 'CIRO_DUZELTME' && bulkNote.trim().length < 3) {
+      setError('Ciro düzeltme için açıklama zorunlu (örn: Patron onayı — kapanış indirimi).')
+      return
+    }
 
     const dagitim = Object.entries(bulkDagitim)
       .map(([saleId, tutarStr]) => ({
@@ -434,7 +479,7 @@ export default function AcikHesapPage() {
           `Ödemeler kaydedildi; ${odooErrors.length} satışta Odoo hatası: ${odooErrors.map((e) => e.error).join('; ')}`,
         )
       } else {
-        setSuccess('Toplu ödeme kaydedildi.')
+        setSuccess(bulkPaymentType === 'CIRO_DUZELTME' ? 'Ciro düzeltme kaydedildi.' : 'Toplu ödeme kaydedildi.')
       }
       await loadSummary()
       await loadDetail(selectedCustomerId)
@@ -475,6 +520,10 @@ export default function AcikHesapPage() {
       setError('Banka ve POS seçin.')
       return
     }
+    if (paymentType === 'CIRO_DUZELTME' && note.trim().length < 3) {
+      setError('Ciro düzeltme için açıklama zorunlu (örn: Patron onayı — kapanış indirimi).')
+      return
+    }
 
     setSaving(true)
     setError(null)
@@ -504,7 +553,9 @@ export default function AcikHesapPage() {
       // kaydedildi" gösteriliyordu, kullanıcı Odoo'nun güncellenmediğini
       // fark edemiyordu.
       const odooSyncError = res.data?.odooSyncError
-      if (odooSyncError) {
+      if (paymentType === 'CIRO_DUZELTME') {
+        setSuccess('Ciro düzeltme kaydedildi — müşterinin borcundan düşüldü, bugünün kasa formunda mor satır olarak görünür.')
+      } else if (odooSyncError) {
         setError(
           `Ödeme yerel olarak kaydedildi, ANCAK Odoo'ya işlenemedi: ${odooSyncError}. `
           + 'Odoo\'daki açık hesap/fatura kaydını elle kontrol edin.',
@@ -664,6 +715,52 @@ export default function AcikHesapPage() {
                     </select>
                   </label>
                 </div>
+
+                {mtOdemeTuru === 'CARD' ? (
+                  <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    <label>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>BANKA *</div>
+                      <select
+                        value={mtBankId}
+                        onChange={(e) => {
+                          setMtBankId(e.target.value)
+                          setMtPosDeviceId('')
+                        }}
+                        style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10 }}
+                      >
+                        <option value="">Seçiniz</option>
+                        {banks.map((b) => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>POS</div>
+                      <select
+                        value={mtPosDeviceId}
+                        onChange={(e) => setMtPosDeviceId(e.target.value)}
+                        style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10 }}
+                      >
+                        <option value="">Seçiniz</option>
+                        {(mtBankId ? posDevicesByBankId.get(mtBankId) ?? [] : []).map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>TAKSİT *</div>
+                      <select
+                        value={mtInstallment}
+                        onChange={(e) => setMtInstallment(Number(e.target.value))}
+                        style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10 }}
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => (
+                          <option key={n} value={n}>{n === 1 ? 'Tek çekim' : n}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                ) : null}
 
                 <label style={{ display: 'block', marginTop: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>AÇIKLAMA (opsiyonel)</div>
@@ -974,18 +1071,24 @@ export default function AcikHesapPage() {
             </div>
 
             <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {(['CASH', 'CARD', 'HAVALE'] as const).map((t) => (
-                <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13 }}>
+              {odemeSecenekleri.map((t) => (
+                <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13, ...(t === 'CIRO_DUZELTME' ? { color: '#5b21b6' } : {}) }}>
                   <input
                     type="radio"
                     name="payType"
                     checked={paymentType === t}
                     onChange={() => setPaymentType(t)}
                   />
-                  {t === 'CASH' ? 'Nakit' : t === 'CARD' ? 'Kredi Kartı' : 'Havale'}
+                  {odemeEtiketi(t)}
                 </label>
               ))}
             </div>
+            {paymentType === 'CIRO_DUZELTME' ? (
+              <div style={ciroDuzeltmeBilgiStyle}>
+                Nakit / kart / kurum değildir. Girilen tutar müşterinin borcundan düşülür ve bugünün vergi hariç
+                cirosundan aynen düşer. Kasa formunda mor satır olarak görünür. Açıklama zorunlu.
+              </div>
+            ) : null}
 
             {paymentType === 'CARD' ? (
               <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
@@ -1075,7 +1178,9 @@ export default function AcikHesapPage() {
             ) : null}
 
             <label style={{ display: 'block', marginTop: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>NOT (opsiyonel)</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: paymentType === 'CIRO_DUZELTME' ? '#5b21b6' : '#6b7280', marginBottom: 6 }}>
+                {paymentType === 'CIRO_DUZELTME' ? 'AÇIKLAMA (zorunlu)' : 'NOT (opsiyonel)'}
+              </div>
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
@@ -1181,18 +1286,24 @@ export default function AcikHesapPage() {
             </div>
 
             <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {(['CASH', 'CARD', 'HAVALE'] as const).map((t) => (
-                <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13 }}>
+              {odemeSecenekleri.map((t) => (
+                <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13, ...(t === 'CIRO_DUZELTME' ? { color: '#5b21b6' } : {}) }}>
                   <input
                     type="radio"
                     name="bulkPayType"
                     checked={bulkPaymentType === t}
                     onChange={() => setBulkPaymentType(t)}
                   />
-                  {t === 'CASH' ? 'Nakit' : t === 'CARD' ? 'Kredi Kartı' : 'Havale'}
+                  {odemeEtiketi(t)}
                 </label>
               ))}
             </div>
+            {bulkPaymentType === 'CIRO_DUZELTME' ? (
+              <div style={ciroDuzeltmeBilgiStyle}>
+                Nakit / kart / kurum değildir. Dağıtılan tutarlar ilgili satışların borcundan düşülür ve bugünün
+                vergi hariç cirosundan aynen düşer. Açıklama zorunlu.
+              </div>
+            ) : null}
 
             <div
               style={{
@@ -1316,7 +1427,9 @@ export default function AcikHesapPage() {
             ) : null}
 
             <label style={{ display: 'block', marginTop: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginBottom: 6 }}>NOT (opsiyonel)</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: bulkPaymentType === 'CIRO_DUZELTME' ? '#5b21b6' : '#6b7280', marginBottom: 6 }}>
+                {bulkPaymentType === 'CIRO_DUZELTME' ? 'AÇIKLAMA (zorunlu)' : 'NOT (opsiyonel)'}
+              </div>
               <input
                 value={bulkNote}
                 onChange={(e) => setBulkNote(e.target.value)}

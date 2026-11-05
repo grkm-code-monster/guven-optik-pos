@@ -6,11 +6,13 @@ import { apiClient } from '../api/client'
 import {
   getSaleById,
   voidSale,
-  getBranchStaff,
+  getTumPersonel,
+  getTemsilciGecmisi,
+  type TumPersonelMember,
+  type TemsilciGecmisi,
   reassignSaleUser,
   duzenleSaleItemKdv,
   duzenleSaleItemPrescription,
-  type BranchStaffMember,
 } from '../api/sales.api'
 import type { Sale } from '../api/types'
 import { getMountFrameItems, isLensMeasurementSaleItem } from '../utils/saleMeasurements'
@@ -115,6 +117,7 @@ function paymentDotColor(type: string) {
     CARD: '#3b82f6',
     OPEN_ACCOUNT: '#f97316',
     TRANSFER: '#a855f7',
+    CIRO_DUZELTME: '#7c3aed',
   }
   return map[type] ?? '#9ca3af'
 }
@@ -157,6 +160,7 @@ function paymentTypeLabel(t: string) {
     SGK: 'SGK Hakkı',
     VAKIF: 'Vakıf Ödemesi',
     ETICARET: 'Kurum Ödemesi',
+    CIRO_DUZELTME: 'Ciro Düzeltme',
   }
   return map[t] ?? t
 }
@@ -373,7 +377,9 @@ export default function SaleDetailPage() {
   // unutup başka bir çalışan adına ya da yanlışlıkla kendi hesabıyla
   // bitiriyor. Mağaza müdürü buradan sonradan doğru temsilciyi atayabilsin.
   const [temsilciOpen, setTemsilciOpen] = useState(false)
-  const [temsilciStaff, setTemsilciStaff] = useState<BranchStaffMember[]>([])
+  // 05.11.2026: liste artık TÜM şubelerin personeli (başka mağazadan gelen personel / patron)
+  const [temsilciStaff, setTemsilciStaff] = useState<TumPersonelMember[]>([])
+  const [temsilciGecmisi, setTemsilciGecmisi] = useState<TemsilciGecmisi | null>(null)
   const [yeniTemsilciId, setYeniTemsilciId] = useState('')
   const [temsilciSaving, setTemsilciSaving] = useState(false)
 
@@ -710,11 +716,36 @@ export default function SaleDetailPage() {
   const canAdminDuzenle = myRole === 'ADMIN'
 
   useEffect(() => {
-    if (!temsilciOpen || !sale?.branchId) return
-    getBranchStaff(sale.branchId)
+    if (!temsilciOpen) return
+    getTumPersonel()
       .then(setTemsilciStaff)
       .catch(() => setTemsilciStaff([]))
-  }, [temsilciOpen, sale?.branchId])
+  }, [temsilciOpen])
+
+  useEffect(() => {
+    if (!canReassignTemsilci || !sale?.id) return
+    getTemsilciGecmisi(sale.id)
+      .then(setTemsilciGecmisi)
+      .catch(() => setTemsilciGecmisi(null))
+  }, [canReassignTemsilci, sale?.id, sale?.userId])
+
+  // Şubeye göre gruplu (satışın kendi şubesi en üstte)
+  const temsilciGruplari = useMemo(() => {
+    const gruplar = new Map<string, { baslik: string; uyeler: TumPersonelMember[] }>()
+    for (const u of temsilciStaff) {
+      const key = u.branchId ?? '—'
+      const baslik = u.branchCode ? `${u.branchCode}${u.branchName ? ` — ${u.branchName}` : ''}` : (u.branchName ?? 'Şubesiz')
+      if (!gruplar.has(key)) gruplar.set(key, { baslik, uyeler: [] })
+      gruplar.get(key)!.uyeler.push(u)
+    }
+    return Array.from(gruplar.entries())
+      .sort(([a, ga], [b, gb]) => {
+        if (a === sale?.branchId) return -1
+        if (b === sale?.branchId) return 1
+        return ga.baslik.localeCompare(gb.baslik, 'tr')
+      })
+      .map(([, g]) => g)
+  }, [temsilciStaff, sale?.branchId])
 
   async function submitTemsilciDegistir() {
     if (!sale?.id || !yeniTemsilciId) return
@@ -1465,6 +1496,16 @@ export default function SaleDetailPage() {
               <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
                 {sale?.user?.name ?? 'Bilinmiyor'}
               </div>
+              {temsilciGecmisi && temsilciGecmisi.gecmis.length > 0 ? (
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                  Kaydı giren: <strong>{temsilciGecmisi.kaydiGiren}</strong>
+                  {temsilciGecmisi.gecmis.map((g, i) => (
+                    <div key={i}>
+                      {new Date(g.tarih).toLocaleString('tr-TR')} · {g.eskiUserName} → {g.yeniUserName} · değiştiren: {g.degistiren}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
             {!temsilciOpen ? (
               <button
@@ -1489,7 +1530,8 @@ export default function SaleDetailPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontSize: 12, color: '#6b7280' }}>
                 Personel bu satışı unutmuş, başkası adına ya da yanlışlıkla kendi hesabıyla girmiş olabilir.
-                Doğru personeli seçin — prim/performans raporları buna göre otomatik düzelir.
+                Doğru personeli seçin — prim/performans raporları buna göre otomatik düzelir. Başka şubeden gelen
+                personel de seçilebilir; satışın cirosu bu şubede kalır.
               </div>
               <select
                 value={yeniTemsilciId}
@@ -1502,10 +1544,14 @@ export default function SaleDetailPage() {
                 }}
               >
                 <option value="">Personel seçin</option>
-                {temsilciStaff.map((u) => (
-                  <option key={u.id} value={u.id} disabled={u.id === sale?.userId}>
-                    {u.name}{u.id === sale?.userId ? ' (mevcut)' : ''}
-                  </option>
+                {temsilciGruplari.map((g) => (
+                  <optgroup key={g.baslik} label={g.baslik}>
+                    {g.uyeler.map((u) => (
+                      <option key={u.id} value={u.id} disabled={u.id === sale?.userId}>
+                        {u.name}{u.id === sale?.userId ? ' (mevcut)' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               <div style={{ display: 'flex', gap: 10 }}>

@@ -13,6 +13,7 @@
 import { randomUUID } from 'crypto';
 import { CashMovementType, Prisma, ShiftStatus } from '@prisma/client';
 import { prisma } from '../../database/prisma';
+import { calculateCommission } from '../payments/commission.service';
 
 function codeError(code: string, message: string) {
   const err = new Error(code) as Error & { code: string; message: string };
@@ -32,6 +33,12 @@ export type ManuelTahsilatRow = {
   aciklama: string | null;
   shiftId: string | null;
   createdAt: Date;
+  // 05.11.2026 — kart tahsilatı komisyon bilgisi (eski kayıtlarda boş)
+  bankId?: string | null;
+  posDeviceId?: string | null;
+  installment?: number | null;
+  commissionRate?: Prisma.Decimal | string | null;
+  commissionAmount?: Prisma.Decimal | string | null;
 };
 
 const ODEME_TURU_LABEL: Record<string, string> = {
@@ -45,7 +52,42 @@ export type CreateManuelTahsilatInput = {
   tutar: number;
   odemeTuru: 'CASH' | 'CARD' | 'TRANSFER';
   aciklama?: string | null;
+  // 05.11.2026 — kart ise zorunlu (komisyon hesabı için)
+  bankId?: string | null;
+  posDeviceId?: string | null;
+  installment?: number | null;
 };
+
+/**
+ * Kart tahsilatı için banka/POS/taksit doğrular ve komisyonu hesaplar.
+ * `tarih`: komisyon oranının geçerli olduğu gün (yeni kayıtta şimdi; eski kayıt
+ * düzeltmesinde tahsilatın kendi tarihi).
+ */
+export async function manuelTahsilatKomisyonHesapla(
+  tutar: number,
+  bankId: string | null | undefined,
+  posDeviceId: string | null | undefined,
+  installment: number | null | undefined,
+  tarih: Date,
+): Promise<{ bankId: string; posDeviceId: string | null; installment: number; commissionRate: string; commissionAmount: string }> {
+  if (!bankId || !installment || !Number.isInteger(Number(installment)) || Number(installment) < 1) {
+    throw codeError('CARD_INFO_REQUIRED', 'Kart tahsilatı için banka ve taksit zorunlu.');
+  }
+  const bank = await prisma.bank.findUnique({ where: { id: bankId }, select: { id: true } });
+  if (!bank) throw codeError('CARD_INFO_REQUIRED', 'Seçilen banka bulunamadı.');
+  if (posDeviceId) {
+    const pos = await prisma.posDevice.findUnique({ where: { id: posDeviceId }, select: { id: true, bankId: true } });
+    if (!pos || pos.bankId !== bankId) throw codeError('CARD_INFO_REQUIRED', 'Seçilen POS bu bankaya ait değil.');
+  }
+  const k = await calculateCommission(bankId, Number(installment), String(tutar), tarih);
+  return {
+    bankId,
+    posDeviceId: posDeviceId || null,
+    installment: Number(installment),
+    commissionRate: k.commissionRate,
+    commissionAmount: k.commissionAmount,
+  };
+}
 
 export async function createManuelTahsilat(
   actingUser: { userId: string; branchId: string | null },
@@ -74,6 +116,13 @@ export async function createManuelTahsilat(
     throw codeError('CUSTOMER_NOT_FOUND', 'Müşteri bulunamadı.');
   }
 
+  // 05.11.2026 — kart ise komisyon hesaplanır (banka/POS/taksit zorunlu)
+  const simdiKomisyon = new Date();
+  const kart =
+    odemeTuru === 'CARD'
+      ? await manuelTahsilatKomisyonHesapla(tutar, input.bankId, input.posDeviceId, input.installment, simdiKomisyon)
+      : null;
+
   const aktifVardiya = await prisma.shift.findFirst({
     where: { branchId, status: ShiftStatus.OPEN },
     orderBy: { openedAt: 'desc' },
@@ -87,9 +136,12 @@ export async function createManuelTahsilat(
 
   await prisma.$executeRaw`
     INSERT INTO "ManuelTahsilat"
-      ("id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt")
+      ("id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt",
+       "bankId", "posDeviceId", "installment", "commissionRate", "commissionAmount")
     VALUES
-      (${id}, ${branchId}, ${actingUser.userId}, ${customer.id}, ${customer.name}, ${tutar}, ${odemeTuru}, ${aciklama}, ${aktifVardiya?.id ?? null}, ${simdi})
+      (${id}, ${branchId}, ${actingUser.userId}, ${customer.id}, ${customer.name}, ${tutar}, ${odemeTuru}, ${aciklama}, ${aktifVardiya?.id ?? null}, ${simdi},
+       ${kart?.bankId ?? null}, ${kart?.posDeviceId ?? null}, ${kart?.installment ?? null},
+       ${kart ? new Prisma.Decimal(kart.commissionRate) : null}, ${kart ? new Prisma.Decimal(kart.commissionAmount) : null})
   `;
 
   let cashMovementUyari: string | undefined;
@@ -123,6 +175,11 @@ export async function createManuelTahsilat(
     aciklama,
     shiftId: aktifVardiya?.id ?? null,
     createdAt: simdi,
+    bankId: kart?.bankId ?? null,
+    posDeviceId: kart?.posDeviceId ?? null,
+    installment: kart?.installment ?? null,
+    commissionRate: kart?.commissionRate ?? null,
+    commissionAmount: kart?.commissionAmount ?? null,
   };
 
   return { kayit, cashMovementUyari };
@@ -146,27 +203,50 @@ export async function listManuelTahsilat(branchId: string, limit = 50): Promise<
 export async function buildManuelTahsilatRows(
   branchId: string,
   shift: { openedAt: Date; closedAt: Date | null },
-): Promise<Array<{ id: string; customerName: string; amount: string; paymentTypeLabel: string; aciklama: string | null; createdAt: string }>> {
+): Promise<Array<{
+  id: string;
+  customerName: string;
+  amount: string;
+  paymentType: string;
+  paymentTypeLabel: string;
+  aciklama: string | null;
+  createdAt: string;
+  bankName: string | null;
+  installment: number | null;
+  commissionAmount: string;
+}>> {
   const rows = shift.closedAt
     ? await prisma.$queryRaw<ManuelTahsilatRow[]>`
-        SELECT "id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt"
+        SELECT "id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt",
+               "bankId", "posDeviceId", "installment", "commissionRate", "commissionAmount"
         FROM "ManuelTahsilat"
         WHERE "branchId" = ${branchId} AND "createdAt" >= ${shift.openedAt} AND "createdAt" <= ${shift.closedAt}
         ORDER BY "createdAt" ASC
       `
     : await prisma.$queryRaw<ManuelTahsilatRow[]>`
-        SELECT "id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt"
+        SELECT "id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt",
+               "bankId", "posDeviceId", "installment", "commissionRate", "commissionAmount"
         FROM "ManuelTahsilat"
         WHERE "branchId" = ${branchId} AND "createdAt" >= ${shift.openedAt}
         ORDER BY "createdAt" ASC
       `;
 
+  const bankIds = Array.from(new Set(rows.map((r) => r.bankId).filter((x): x is string => Boolean(x))));
+  const banks = bankIds.length
+    ? await prisma.bank.findMany({ where: { id: { in: bankIds } }, select: { id: true, name: true } })
+    : [];
+  const bankName = new Map(banks.map((b) => [b.id, b.name]));
+
   return rows.map((r) => ({
     id: r.id,
     customerName: r.customerAdi,
     amount: r.tutar.toString(),
+    paymentType: r.odemeTuru,
     paymentTypeLabel: ODEME_TURU_LABEL[r.odemeTuru] ?? r.odemeTuru,
     aciklama: r.aciklama,
     createdAt: r.createdAt.toISOString(),
+    bankName: r.bankId ? (bankName.get(r.bankId) ?? '—') : null,
+    installment: r.installment ?? null,
+    commissionAmount: r.commissionAmount != null ? r.commissionAmount.toString() : '0',
   }));
 }

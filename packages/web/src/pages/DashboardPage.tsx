@@ -204,6 +204,102 @@ function summarizeGunlukKasaRows(rows: SalesDetailRow[]) {
   )
 }
 
+// 05.11.2026 — Kasa formu belirteç satırları (masraf satırı gibi): geçmiş açık hesap
+// tahsilatı (sarı), manuel/kağıt üstü tahsilat (yeşil), ciro düzeltme (mor).
+// Tahsilatlar: parası Nakit / Slip sütununa yazılır → Nakit Giriş ve Slip Toplamı'na girer;
+// Brüt, Sipariş Bedeli, Vergi Hariç boştur → Brüt Ciro ve Gün Toplamı DEĞİŞMEZ. Kart
+// tahsilatının komisyonu Banka Kom.'da görünür ama Gün Toplamı'ndan düşülmez
+// (isOpenAccountCollection: true → cardCommissionSalesOnlyTotal dışında kalır).
+// Ciro düzeltme: nakit/kart değil; sadece Vergi Hariç sütununda EKSİ yazar → Gün Toplamı'ndan düşer.
+type KasaBelirtecTip = 'ACIK_HESAP_TAHSILAT' | 'MANUEL_TAHSILAT' | 'CIRO_DUZELTME'
+
+function isBelirtecRow(row: SalesDetailRow): boolean {
+  return row.tip === 'MASRAF' || row.tip === 'ACIK_HESAP_TAHSILAT' || row.tip === 'MANUEL_TAHSILAT' || row.tip === 'CIRO_DUZELTME'
+}
+
+function isSatisRow(row: SalesDetailRow): boolean {
+  return !isBelirtecRow(row)
+}
+
+const BELIRTEC_RENK: Record<KasaBelirtecTip, { bg: string; fg: string }> = {
+  ACIK_HESAP_TAHSILAT: { bg: '#fffbeb', fg: '#92400e' },
+  MANUEL_TAHSILAT: { bg: '#f0fdf4', fg: '#166534' },
+  CIRO_DUZELTME: { bg: '#f5f3ff', fg: '#5b21b6' },
+}
+
+function tahsilatOdemeTuru(paymentType: string | undefined, label: string): 'CASH' | 'CARD' | 'TRANSFER' {
+  const t = String(paymentType ?? '').toUpperCase()
+  if (t === 'CASH' || t === 'CARD' || t === 'TRANSFER') return t
+  if (label === 'Nakit') return 'CASH'
+  if (label === 'Kart') return 'CARD'
+  return 'TRANSFER'
+}
+
+function buildKasaBelirtecRows(report: DailyReport | null): SalesDetailRow[] {
+  if (!report) return []
+  const rows: SalesDetailRow[] = []
+  const bos = { deliveryDate: null, grossTotal: '0', netTotal: '0', taxExcluded: '0', discountPct: '0', sgkAmount: '0' }
+  const para = (tur: 'CASH' | 'CARD' | 'TRANSFER', p: { amount: string; bankName?: string | null; installment?: number | null; commissionAmount?: string }) => ({
+    cashAmount: tur === 'CASH' ? p.amount : '0',
+    transferAmount: tur === 'TRANSFER' ? p.amount : '0',
+    cardPayments:
+      tur === 'CARD'
+        ? [{
+            bankName: p.bankName ?? '—',
+            installment: p.installment ?? 1,
+            grossAmount: p.amount,
+            commissionAmount: p.commissionAmount ?? '0',
+            isOpenAccountCollection: true,
+          }]
+        : [],
+  })
+  for (const k of report.acikHesapTahsilatlari ?? []) {
+    const tur = tahsilatOdemeTuru(k.paymentType, k.paymentTypeLabel)
+    rows.push({
+      ...bos,
+      ...para(tur, k),
+      tip: 'ACIK_HESAP_TAHSILAT',
+      kaynakId: k.paymentId,
+      saleId: `AH-${k.paymentId}`,
+      createdAt: k.collectedAt,
+      customerName: k.customerName,
+      repName: '—',
+      itemSummary: `🟡 AÇIK HESAP TAHSİLATI: ${k.customerName} (satış ${fmtDate(k.saleDate)})`,
+    })
+  }
+  for (const k of report.manuelTahsilatlar ?? []) {
+    const tur = tahsilatOdemeTuru(k.paymentType, k.paymentTypeLabel)
+    rows.push({
+      ...bos,
+      ...para(tur, k),
+      tip: 'MANUEL_TAHSILAT',
+      kaynakId: k.id,
+      saleId: `MT-${k.id}`,
+      createdAt: k.createdAt,
+      customerName: k.customerName,
+      repName: '—',
+      itemSummary: `🟢 MANUEL TAHSİLAT: ${k.customerName}${k.aciklama ? ` — ${k.aciklama}` : ''}`,
+    })
+  }
+  for (const k of report.ciroDuzeltmeleri ?? []) {
+    rows.push({
+      ...bos,
+      taxExcluded: (-Number(k.amount)).toFixed(2),
+      cashAmount: '0',
+      transferAmount: '0',
+      cardPayments: [],
+      tip: 'CIRO_DUZELTME',
+      kaynakId: k.paymentId,
+      saleId: `CD-${k.paymentId}`,
+      createdAt: k.createdAt,
+      customerName: k.customerName,
+      repName: k.repName,
+      itemSummary: `🟣 CİRO DÜZELTME: ${k.customerName} (satış ${fmtDate(k.saleDate)})${k.aciklama ? ` — ${k.aciklama}` : ''}`,
+    })
+  }
+  return rows
+}
+
 function reportHasShift(report: DailyReport | null): boolean {
   if (!report) return false
   return (report as DailyReport & { shiftId?: string | null }).shiftId != null
@@ -514,7 +610,10 @@ const GUNLUK_KASA_SUTUNLARI: GunlukKasaSutunDef[] = [
     // 23.09.2026: toplam satırında "Vergi Hariç" artık banka komisyonu da
     // düşülerek gösteriliyor (kullanıcı isteği) — tekil satırlardaki hücre
     // değeri (t.taxFree ile ilgisiz, satış bazlı) değişmedi, sadece TOPLAM.
-    totalRender: (t) => formatMoney(t.taxFree - t.commission),
+    // 05.11.2026: sadece günün SATIŞLARININ komisyonu düşülür — açık hesap / manuel
+    // tahsilat komisyonları ciroyu düşürmez (Gün Toplamı ile aynı). Ciro düzeltmeler
+    // zaten satırlarda eksi olarak t.taxFree içinde.
+    totalRender: (t) => formatMoney(t.taxFree - t.commissionSalesOnly),
   },
   {
     key: 'iskonto',
@@ -593,6 +692,37 @@ function renderGunlukKasaCell(
   ctx: { isMasraf: boolean; masrafAciklama: string; saleNo: number | null },
 ): React.ReactNode {
   const dash = '—'
+  // 05.11.2026 — tahsilat / ciro düzeltme belirteç satırları (bkz. buildKasaBelirtecRows)
+  if (s.tip === 'ACIK_HESAP_TAHSILAT' || s.tip === 'MANUEL_TAHSILAT' || s.tip === 'CIRO_DUZELTME') {
+    const tahsilat = s.tip !== 'CIRO_DUZELTME'
+    const kart = s.cardPayments[0]
+    switch (key) {
+      case 'alisverisTarihi':
+        return fmtDate(s.createdAt)
+      case 'musteri':
+        return s.customerName
+      case 'urunKalemleri':
+        return s.itemSummary
+      case 'vergiHaric':
+        return s.tip === 'CIRO_DUZELTME' ? formatMoney(s.taxExcluded) : dash
+      case 'nakit':
+        return tahsilat && Number(s.cashAmount) ? formatMoney(s.cashAmount) : dash
+      case 'taksit':
+        return tahsilat && kart ? kart.installment : dash
+      case 'oran':
+        return tahsilat && kart ? kart.bankName : dash
+      case 'slipTop':
+        return tahsilat && kart ? formatMoney(cardSlipTotal(s)) : dash
+      case 'bankaKom':
+        return tahsilat && kart ? formatMoney(cardCommissionTotal(s)) : dash
+      case 'musteriSaati':
+        return fmtTime(s.createdAt)
+      case 'temsilci':
+        return s.repName
+      default:
+        return dash
+    }
+  }
   switch (key) {
     case 'alisverisTarihi':
       return fmtDate(s.createdAt)
@@ -633,15 +763,21 @@ function renderGunlukKasaCell(
   }
 }
 
-function gunlukKasaCellStyle(key: GunlukKasaSutunKey, isMasraf: boolean): React.CSSProperties {
+function gunlukKasaCellStyle(key: GunlukKasaSutunKey, isMasraf: boolean, tip?: SalesDetailRow['tip']): React.CSSProperties {
+  const belirtec = tip === 'ACIK_HESAP_TAHSILAT' || tip === 'MANUEL_TAHSILAT' || tip === 'CIRO_DUZELTME' ? BELIRTEC_RENK[tip] : null
   if (key === 'urunKalemleri') {
+    // 05.11.2026: ürün notları (Niteliği / Açıklama) görünsün diye "…" ile kesilmiyor, alt satıra geçiyor.
     return {
       ...GUNLUK_KASA_TD_STYLE,
-      maxWidth: 180,
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
+      maxWidth: 280,
+      whiteSpace: 'normal',
+      wordBreak: 'break-word',
       ...(isMasraf ? { color: RED, fontWeight: 700 } : {}),
+      ...(belirtec ? { color: belirtec.fg, fontWeight: 700 } : {}),
     }
+  }
+  if (belirtec && key === 'vergiHaric' && tip === 'CIRO_DUZELTME') {
+    return { ...GUNLUK_KASA_TD_STYLE, color: belirtec.fg, fontWeight: 700, whiteSpace: 'nowrap' }
   }
   if (key === 'nakit' && isMasraf) {
     return { ...GUNLUK_KASA_TD_STYLE, color: RED, fontWeight: 700 }
@@ -687,7 +823,22 @@ function GunlukKasaTable({
   rows: SalesDetailRow[]
   showRep?: boolean
 }) {
+  const benimRolum = useAuthStore((st) => st.user?.role)
   const [sutunPanelAcik, setSutunPanelAcik] = useState(false)
+
+  // 05.11.2026 — yanlış girilmiş ciro düzeltmeyi sadece ADMIN siler (kayda geçer).
+  async function ciroDuzeltmeSil(row: SalesDetailRow) {
+    if (!row.kaynakId) return
+    const ok = window.confirm(`Bu ciro düzeltme kaydı silinsin mi?\n\n${row.itemSummary}\nTutar: ${formatMoney(-Number(row.taxExcluded))}\n\nMüşterinin borcu tekrar açılır.`)
+    if (!ok) return
+    try {
+      await apiClient.delete(`/open-account/ciro-duzeltme/${row.kaynakId}`)
+      window.location.reload()
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } } }
+      alert(err?.response?.data?.error ?? 'Ciro düzeltme silinemedi')
+    }
+  }
   const [sutunTercihi, setSutunTercihi] = useState<Record<GunlukKasaSutunKey, boolean>>(
     () => loadGunlukKasaSutunTercihi(),
   )
@@ -791,13 +942,26 @@ function GunlukKasaTable({
               let saleCounter = 0
               return rows.map((s) => {
                 const isMasraf = s.tip === 'MASRAF'
-                const saleNo = isMasraf ? null : ++saleCounter
+                const saleNo = isBelirtecRow(s) ? null : ++saleCounter
                 const masrafAciklama = isMasraf ? s.itemSummary.replace(/^MASRAF:\s*/, '') : ''
+                const belirtec =
+                  s.tip === 'ACIK_HESAP_TAHSILAT' || s.tip === 'MANUEL_TAHSILAT' || s.tip === 'CIRO_DUZELTME'
+                    ? BELIRTEC_RENK[s.tip]
+                    : null
                 return (
-                  <tr key={s.saleId} style={{ borderBottom: '0.5px solid #e5e7eb' }}>
+                  <tr key={s.saleId} style={{ borderBottom: '0.5px solid #e5e7eb', ...(belirtec ? { background: belirtec.bg } : {}) }}>
                     {activeCols.map((col) => (
-                      <td key={col.key} style={gunlukKasaCellStyle(col.key, isMasraf)}>
+                      <td key={col.key} style={gunlukKasaCellStyle(col.key, isMasraf, s.tip)}>
                         {renderGunlukKasaCell(col.key, s, { isMasraf, masrafAciklama, saleNo })}
+                        {col.key === 'urunKalemleri' && s.tip === 'CIRO_DUZELTME' && benimRolum === 'ADMIN' ? (
+                          <button
+                            type="button"
+                            onClick={() => void ciroDuzeltmeSil(s)}
+                            style={{ marginLeft: 8, fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #c4b5fd', background: 'white', color: '#5b21b6', cursor: 'pointer' }}
+                          >
+                            Sil
+                          </button>
+                        ) : null}
                       </td>
                     ))}
                   </tr>
@@ -987,10 +1151,15 @@ function GunlukKasaView({
   canSendEmail?: boolean
 }) {
   const filtered = useMemo(() => {
-    const rows = report?.salesDetail ?? []
+    // 05.11.2026: tahsilat ve ciro düzeltme belirteç satırları da tabloya eklenir (saat sırasıyla).
+    const rows = [...(report?.salesDetail ?? []), ...buildKasaBelirtecRows(report)].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    )
     if (!repFilter) return rows
     return rows.filter((s) => s.repName === repFilter)
-  }, [report?.salesDetail, repFilter])
+  }, [report, repFilter])
+
+  const satisAdedi = useMemo(() => filtered.filter(isSatisRow).length, [filtered])
 
   const summary = useMemo(() => summarizeGunlukKasaRows(filtered), [filtered])
 
@@ -1266,11 +1435,14 @@ function GunlukKasaView({
               { label: 'Nakit Giriş', value: formatMoney(summary.cash) },
               { label: 'Nakit Çıkış', value: formatMoney(report?.cashOut) },
               { label: 'Slip Toplamı', value: formatMoney(summary.slip) },
+              // 05.11.2026: günlük banka komisyonu (satış + tahsilat). Tahsilat komisyonu
+              // Gün Toplamı'ndan düşülmez, sadece burada görünür.
+              { label: 'Banka Kom.', value: formatMoney(summary.commission) },
               {
                 label: 'İskonto %',
                 value: summary.gross ? `${((summary.discount / summary.gross) * 100).toFixed(1)}%` : '—',
               },
-              { label: 'Satış Adedi', value: String(filtered.length) },
+              { label: 'Satış Adedi', value: String(satisAdedi) },
               ...(report?.labIncidents?.toplam
                 ? [{ label: '⚠️ Atölye Olayları', value: String(report.labIncidents.toplam) }]
                 : []),

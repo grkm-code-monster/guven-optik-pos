@@ -90,6 +90,32 @@ export async function getBranchStaff(branchId?: string): Promise<BranchStaffMemb
   return res.data?.data ?? []
 }
 
+// 05.11.2026 — temsilci seçici: TÜM şubelerin aktif personeli (şube bilgisiyle)
+export type TumPersonelMember = {
+  id: string
+  name: string
+  role: string
+  branchId: string | null
+  branchCode: string | null
+  branchName: string | null
+}
+
+export async function getTumPersonel(): Promise<TumPersonelMember[]> {
+  const res = await apiClient.get('/sales/tum-personel')
+  return res.data?.data ?? []
+}
+
+export type TemsilciGecmisi = {
+  kaydiGiren: string
+  temsilci: string
+  gecmis: Array<{ tarih: string; eskiUserName: string; yeniUserName: string; degistiren: string; not: string | null }>
+}
+
+export async function getTemsilciGecmisi(saleId: string): Promise<TemsilciGecmisi | null> {
+  const res = await apiClient.get(`/sales/${saleId}/temsilci-gecmisi`)
+  return res.data?.data ?? null
+}
+
 export async function reassignSaleUser(
   saleId: string,
   input: { yeniUserId: string; not?: string },

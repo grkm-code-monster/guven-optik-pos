@@ -174,7 +174,11 @@ export interface DailyReport {
   cardNet?: string
   totalDiscount?: string
   salesDetail?: Array<{
-    tip?: 'MASRAF' | 'SATIS'
+    // 05.11.2026: ACIK_HESAP_TAHSILAT / MANUEL_TAHSILAT / CIRO_DUZELTME satırları backend'den
+    // ayrı listeler olarak gelir, kasa tablosunda belirteç satırı olarak frontend'de eklenir.
+    tip?: 'MASRAF' | 'SATIS' | 'ACIK_HESAP_TAHSILAT' | 'MANUEL_TAHSILAT' | 'CIRO_DUZELTME'
+    // Belirteç satırlarında kaynak kaydın id'si (ör. ciro düzeltme silme için Payment.id)
+    kaynakId?: string
     saleId: string
     createdAt: string
     deliveryDate: string | null
@@ -223,8 +227,12 @@ export interface DailyReport {
     customerName: string
     saleDate: string
     collectedAt: string
+    paymentType?: string
     paymentTypeLabel: string
     amount: string
+    bankName?: string | null
+    installment?: number | null
+    commissionAmount?: string
   }>
   // Müşterinin sistemde satış kaydı HİÇ olmadığı (kağıt üstü eski borç) durumlar için
   // Açık Hesap sayfasının "Manuel Tahsilat" sekmesinden girilen serbest tahsilatlar.
@@ -232,9 +240,25 @@ export interface DailyReport {
     id: string
     customerName: string
     amount: string
+    paymentType?: string
     paymentTypeLabel: string
     aciklama: string | null
     createdAt: string
+    bankName?: string | null
+    installment?: number | null
+    commissionAmount?: string
+  }>
+  // 05.11.2026 — açık hesap borcundan sonradan verilen indirim (CİRO DÜZELTME); vergi hariç
+  // cirodan aynen düşülür, nakit/kart değildir.
+  ciroDuzeltmeleri?: Array<{
+    paymentId: string
+    saleId: string
+    customerName: string
+    saleDate: string
+    createdAt: string
+    amount: string
+    aciklama: string | null
+    repName: string
   }>
 }
 

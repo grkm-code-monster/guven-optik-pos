@@ -340,6 +340,8 @@ const paidSalesSelect = {
       odooProductName: true,
       unitPrice: true,
       deliveryDate: true,
+      maintenanceNature: true,
+      maintenanceDescription: true,
       product: { select: { category: true, name: true } },
     },
   },
@@ -355,6 +357,23 @@ const paidSalesSelect = {
     },
   },
 } as const;
+
+// 05.11.2026 — Kasa formu "Ürün Kalemleri": bakım/onarım kalemlerinde girilen Niteliği ve
+// Açıklama da yazılır (satış PDF'indeki gibi). Bilgi yoksa sadece ürün adı.
+export function kalemOzeti(i: {
+  odooProductName?: string | null;
+  product?: { name?: string | null } | null;
+  maintenanceNature?: string | null;
+  maintenanceDescription?: string | null;
+}): string {
+  const ad = i.odooProductName ?? i.product?.name ?? '—';
+  const nitelik = i.maintenanceNature?.trim();
+  const aciklama = i.maintenanceDescription?.trim();
+  const ek = [nitelik ? `Niteliği: ${nitelik}` : null, aciklama ? `Açıklama: ${aciklama}` : null]
+    .filter(Boolean)
+    .join(' · ');
+  return ek ? `${ad} (${ek})` : ad;
+}
 
 type PaidSaleForDetail = Prisma.SaleGetPayload<{ select: typeof paidSalesSelect }>;
 
@@ -459,7 +478,7 @@ async function buildSalesDetail(
       .filter((p) => p.paymentType === PaymentType.TRANSFER && vardiyaIcindeMi(p))
       .reduce((s, p) => s + Number(p.grossAmount), 0)
       .toFixed(2),
-    itemSummary: sale.items.map((i) => i.odooProductName ?? i.product?.name ?? '—').join(', '),
+    itemSummary: sale.items.map((i) => kalemOzeti(i)).join(', '),
     };
   });
 }
@@ -547,15 +566,101 @@ async function buildAcikHesapTahsilatRows(
     orderBy: { createdAt: 'asc' },
   });
   const PAYMENT_TYPE_LABEL: Record<string, string> = { CASH: 'Nakit', CARD: 'Kart', TRANSFER: 'Havale' };
+  const bankIds = Array.from(new Set(payments.map((p) => p.bankId).filter((x): x is string => Boolean(x))));
+  const banks = bankIds.length
+    ? await prisma.bank.findMany({ where: { id: { in: bankIds } }, select: { id: true, name: true } })
+    : [];
+  const bankName = new Map(banks.map((b) => [b.id, b.name]));
   return payments.map((p) => ({
     paymentId: p.id,
     saleId: p.sale.id,
     customerName: p.sale.customer?.name ?? '—',
     saleDate: p.sale.createdAt.toISOString(),
     collectedAt: p.createdAt.toISOString(),
+    paymentType: p.paymentType as string,
     paymentTypeLabel: PAYMENT_TYPE_LABEL[p.paymentType] ?? p.paymentType,
     amount: p.grossAmount.toString(),
+    // 05.11.2026 — kasa formunda belirteç satırı + komisyon için
+    bankName: p.bankId ? (bankName.get(p.bankId) ?? '—') : null,
+    installment: p.installment ?? null,
+    commissionAmount: (p.commissionAmount ?? new Prisma.Decimal(0)).toString(),
   }));
+}
+
+/**
+ * 05.11.2026 — Bu vardiyanın açık olduğu zaman aralığında girilmiş CİRO DÜZELTME kayıtları
+ * (açık hesap borcundan sonradan verilen indirim). Kasa formunda mor belirteç satırı olur,
+ * o günün vergi hariç cirosundan (ve Gün Toplamı'ndan) AYNEN düşülür; nakit/kart değildir.
+ */
+async function buildCiroDuzeltmeRows(
+  branchId: string,
+  shift: { openedAt: Date; closedAt: Date | null },
+) {
+  const payments = await prisma.payment.findMany({
+    where: {
+      paymentType: PaymentType.CIRO_DUZELTME,
+      createdAt: {
+        gte: shift.openedAt,
+        ...(shift.closedAt ? { lte: shift.closedAt } : {}),
+      },
+      sale: { branchId, status: SaleStatus.PAID },
+    },
+    include: {
+      sale: {
+        select: {
+          id: true,
+          createdAt: true,
+          userId: true,
+          customer: { select: { name: true } },
+          user: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  return payments.map((p) => ({
+    paymentId: p.id,
+    saleId: p.sale.id,
+    customerName: p.sale.customer?.name ?? '—',
+    saleDate: p.sale.createdAt.toISOString(),
+    createdAt: p.createdAt.toISOString(),
+    amount: p.grossAmount.toString(),
+    aciklama: p.aciklama ?? null,
+    repUserId: p.sale.userId,
+    repName: p.sale.user?.name ?? '—',
+  }));
+}
+
+// 05.11.2026 — Bir aralıktaki CİRO DÜZELTME toplamı (şube) ve temsilci (satışın userId'si) bazında.
+async function ciroDuzeltmeToplamlari(branchId: string, gte: Date, lte: Date) {
+  const rows = await prisma.payment.findMany({
+    where: {
+      paymentType: PaymentType.CIRO_DUZELTME,
+      createdAt: { gte, lte },
+      sale: { branchId, status: SaleStatus.PAID },
+    },
+    select: { grossAmount: true, sale: { select: { userId: true } } },
+  });
+  let toplam = new Prisma.Decimal(0);
+  const temsilciBazinda = new Map<string, Prisma.Decimal>();
+  for (const r of rows) {
+    toplam = toplam.plus(r.grossAmount);
+    temsilciBazinda.set(r.sale.userId, (temsilciBazinda.get(r.sale.userId) ?? new Prisma.Decimal(0)).plus(r.grossAmount));
+  }
+  return { toplam, temsilciBazinda };
+}
+
+// 05.11.2026 — Manuel (kağıt üstü) KART tahsilatlarının brüt ve komisyon toplamı (aylık kutular için).
+async function manuelKartToplamlari(branchId: string, gte: Date, lte: Date) {
+  const r = await prisma.$queryRaw<Array<{ brut: Prisma.Decimal | null; komisyon: Prisma.Decimal | null }>>`
+    SELECT COALESCE(SUM("tutar"), 0) AS brut, COALESCE(SUM("commissionAmount"), 0) AS komisyon
+    FROM "ManuelTahsilat"
+    WHERE "branchId" = ${branchId} AND "odemeTuru" = 'CARD' AND "createdAt" >= ${gte} AND "createdAt" <= ${lte}
+  `;
+  return {
+    brut: new Prisma.Decimal(r[0]?.brut?.toString() ?? 0),
+    komisyon: new Prisma.Decimal(r[0]?.komisyon?.toString() ?? 0),
+  };
 }
 
 /**
@@ -575,7 +680,7 @@ async function computeRunningKasaBakiye(branchId: string, date: Date) {
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
-  const [cashInAllAgg, cashOutAllAgg, sgkMonthAgg] = await Promise.all([
+  const [cashInAllAgg, cashOutAllAgg, sgkMonthAgg, manuelNakitAgg] = await Promise.all([
     prisma.payment.aggregate({
       where: {
         paymentType: PaymentType.CASH,
@@ -591,9 +696,17 @@ async function computeRunningKasaBakiye(branchId: string, date: Date) {
       where: { branchId, status: SaleStatus.PAID, createdAt: { gte: monthStart } },
       _sum: { sgkAmount: true },
     }),
+    // 05.11.2026: manuel (kağıt üstü) NAKİT tahsilatlar da kasaya giren paradır — Payment
+    // kaydı olmadığı için yukarıdaki toplamda yoktu; CashMovement'tan ekleniyor.
+    prisma.cashMovement.aggregate({
+      where: { branchId, type: CashMovementType.CASH_IN, description: { startsWith: 'MANUEL_TAHSILAT:' } },
+      _sum: { amount: true },
+    }),
   ]);
 
-  const cashInAll = cashInAllAgg._sum.grossAmount ?? new Prisma.Decimal(0);
+  const cashInAll = (cashInAllAgg._sum.grossAmount ?? new Prisma.Decimal(0)).plus(
+    manuelNakitAgg._sum.amount ?? new Prisma.Decimal(0),
+  );
   const cashOutAll = cashOutAllAgg._sum.amount ?? new Prisma.Decimal(0);
   // 23.09.2026: sisteme geçmeden önceki günlerin nakit birikimi, müdürün "Kasa
   // Bakiye Düzeltme" ekranından girdiği kayıtlarla (tarihten bağımsız, TÜM
@@ -670,7 +783,9 @@ async function computeAylikCiroToplami(branchId: string, date: Date): Promise<st
   // (KDV ve komisyon düşülmüş — Excel'deki "satış aylık genel toplam" ile aynı
   // tanım) da eklenir; ör. sisteme geçişten önceki günlerin "Ay Açılış Devri".
   const duzeltme = await getKasaDuzeltmeToplamForAy(branchId, date);
-  return taxFreeToplam.minus(komisyonToplam).plus(duzeltme.ciro).toString();
+  // 05.11.2026: o ay girilen CİRO DÜZELTME (sonradan verilen indirim) aynen düşülür.
+  const ciroDuzeltme = await ciroDuzeltmeToplamlari(branchId, ayBaslangici, araligiBitisi);
+  return taxFreeToplam.minus(komisyonToplam).plus(duzeltme.ciro).minus(ciroDuzeltme.toplam).toString();
 }
 
 // 22.10.2026 — kullanıcı isteği: "Mağaza Özeti"ndeki Toplam Kart, SGK Hakları,
@@ -740,8 +855,13 @@ async function computeAylikOzet(branchId: string, date: Date) {
   const kartDuzeltmeNet = ayDuzeltme.kartBrut.isZero()
     ? new Prisma.Decimal(0)
     : ayDuzeltme.kartBrut.minus(ayDuzeltme.komisyon);
-  const totalCommission = (cardAgg._sum.commissionAmount ?? new Prisma.Decimal(0)).plus(ayDuzeltme.komisyon);
-  const toplamBanka = cardNet.plus(transferTotal).plus(kartDuzeltmeNet);
+  // 05.11.2026: manuel (kağıt üstü) kart tahsilatları da bankaya giren paradır — net (brüt - komisyon)
+  // Toplam Kart'a, komisyonu Banka Kom.'a eklenir.
+  const manuelKart = await manuelKartToplamlari(branchId, ayBaslangici, araligiBitisi);
+  const totalCommission = (cardAgg._sum.commissionAmount ?? new Prisma.Decimal(0))
+    .plus(ayDuzeltme.komisyon)
+    .plus(manuelKart.komisyon);
+  const toplamBanka = cardNet.plus(transferTotal).plus(kartDuzeltmeNet).plus(manuelKart.brut.minus(manuelKart.komisyon));
 
   const satisAdedi = salesAgg._count._all;
   const netTotalSum = salesAgg._sum.netTotal ?? new Prisma.Decimal(0);
@@ -764,11 +884,15 @@ async function computeAylikOzet(branchId: string, date: Date) {
     select: { id: true, name: true },
   });
   const temsilciAdi = new Map(temsilciKullanicilari.map((u) => [u.id, u.name]));
+  // 05.11.2026: temsilcinin cirosundan, o ay onun satışlarına girilen CİRO DÜZELTME düşülür.
+  const ayCiroDuzeltme = await ciroDuzeltmeToplamlari(branchId, ayBaslangici, araligiBitisi);
   const aylikTemsilciBreakdown = temsilciGruplari
     .map((g) => ({
       repName: temsilciAdi.get(g.userId) ?? '—',
       saleCount: g._count._all,
-      ciro: (g._sum.netTotal ?? new Prisma.Decimal(0)).toString(),
+      ciro: (g._sum.netTotal ?? new Prisma.Decimal(0))
+        .minus(ayCiroDuzeltme.temsilciBazinda.get(g.userId) ?? 0)
+        .toString(),
     }))
     .sort((a, b) => Number(b.ciro) - Number(a.ciro));
 
@@ -927,7 +1051,12 @@ export async function getDailyReport(branchId: string, date: Date) {
     where: {
       shiftId: shift.id,
       type: CashMovementType.CASH_IN,
-      NOT: { description: { startsWith: 'SALE_CASH_PAYMENT:' } },
+      // 05.11.2026: açık hesap nakit tahsilatının kasa hareketi de hariç — o para zaten
+      // nakit Payment olarak cashTotal'da sayılıyor (aksi halde beklenen nakitte iki kez).
+      NOT: [
+        { description: { startsWith: 'SALE_CASH_PAYMENT:' } },
+        { description: { startsWith: 'OPEN_ACCOUNT_PAYMENT:' } },
+      ],
     },
     _sum: { amount: true },
   });
@@ -1036,6 +1165,18 @@ export async function getDailyReport(branchId: string, date: Date) {
     repMap.set(repKey, prev);
   }
 
+  // 05.11.2026: bu vardiyada girilen CİRO DÜZELTME'ler (sonradan verilen indirim) —
+  // kasa formunda mor satır; temsilcinin günlük cirosundan da düşülür.
+  const ciroDuzeltmeleri = await buildCiroDuzeltmeRows(branchId, {
+    openedAt: shift.openedAt,
+    closedAt: shift.closedAt,
+  });
+  for (const cd of ciroDuzeltmeleri) {
+    const prev = repMap.get(cd.repUserId) ?? { repName: cd.repName, saleCount: 0, ciro: new Prisma.Decimal(0) };
+    prev.ciro = prev.ciro.minus(cd.amount);
+    repMap.set(cd.repUserId, prev);
+  }
+
   const kampanyaBreakdown: Array<{ type: string; count: number }> = [];
   const personelMap = await buildPersonelHedefMap();
   const temsilciBreakdown = mapTemsilciBreakdown(repMap, personelMap);
@@ -1099,6 +1240,7 @@ export async function getDailyReport(branchId: string, date: Date) {
       openedAt: shift.openedAt,
       closedAt: shift.closedAt,
     }),
+    ciroDuzeltmeleri,
     labIncidents,
     ...derived,
     netCiro: await computeAylikCiroToplami(branchId, date),
@@ -1239,7 +1381,12 @@ export async function getPersonalDailyReport(
     where: {
       shiftId: shift.id,
       type: CashMovementType.CASH_IN,
-      NOT: { description: { startsWith: 'SALE_CASH_PAYMENT:' } },
+      // 05.11.2026: açık hesap nakit tahsilatının kasa hareketi de hariç — o para zaten
+      // nakit Payment olarak cashTotal'da sayılıyor (aksi halde beklenen nakitte iki kez).
+      NOT: [
+        { description: { startsWith: 'SALE_CASH_PAYMENT:' } },
+        { description: { startsWith: 'OPEN_ACCOUNT_PAYMENT:' } },
+      ],
     },
     _sum: { amount: true },
   });

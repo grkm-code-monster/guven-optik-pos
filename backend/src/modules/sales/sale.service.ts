@@ -1531,9 +1531,9 @@ export async function reassignSaleUser(
   });
   if (!yeniUser) throw codeError('USER_NOT_FOUND', 'Seçilen personel bulunamadı.');
   if (!yeniUser.isActive) throw codeError('USER_NOT_FOUND', 'Seçilen personel pasif durumda.');
-  if (yeniUser.branchId !== sale.branchId) {
-    throw codeError('USER_BRANCH_MISMATCH', 'Seçilen personel bu satışın şubesinde değil.');
-  }
+  // 05.11.2026: şube kısıtı KALDIRILDI (kullanıcı isteği) — başka mağazadan gelip satış yapan
+  // personel (patron dahil) temsilci olarak seçilebilir. Satışın cirosu yine satışın yapıldığı
+  // şubede kalır (sale.branchId değişmez); sadece prim/temsilci sahibi değişir.
 
   const eskiUserId = sale.userId;
   const eskiUserName = sale.user?.name ?? eskiUserId;
@@ -1559,6 +1559,7 @@ export async function reassignSaleUser(
           eskiUserName,
           yeniUserId: yeniUser.id,
           yeniUserName: yeniUser.name,
+          yeniUserBranchId: yeniUser.branchId,
           not: input.not ?? null,
         },
       },
@@ -1803,3 +1804,42 @@ export async function duzenleSaleItemPrescription(
   return sonuc;
 }
 
+
+
+/**
+ * 05.11.2026 — Satış temsilcisi değişiklik geçmişi. "Kaydı giren" = ilk değişiklikteki eski
+ * kullanıcı (hiç değişiklik yoksa satışın kendi userId'si). Ayrı bir alan tutulmuyor: tüm
+ * raporlar sale.userId'yi temsilci olarak okuduğu için onlara dokunulmadı.
+ */
+export async function getSaleTemsilciGecmisi(saleId: string) {
+  const sale = await prisma.sale.findUnique({
+    where: { id: saleId },
+    select: { id: true, userId: true, user: { select: { id: true, name: true } } },
+  });
+  if (!sale) throw codeError('SALE_NOT_FOUND', 'Satış bulunamadı.');
+  const loglar = await prisma.auditLog.findMany({
+    where: { entity: 'Sale', entityId: saleId, action: 'SALE_REASSIGN_USER' },
+    orderBy: { createdAt: 'asc' },
+  });
+  const degistirenIds = Array.from(new Set(loglar.map((l) => l.userId)));
+  const degistirenler = degistirenIds.length
+    ? await prisma.user.findMany({ where: { id: { in: degistirenIds } }, select: { id: true, name: true } })
+    : [];
+  const ad = new Map(degistirenler.map((u) => [u.id, u.name]));
+  const gecmis = loglar.map((l) => {
+    const p = (l.payload ?? {}) as Record<string, unknown>;
+    return {
+      tarih: l.createdAt.toISOString(),
+      eskiUserName: String(p.eskiUserName ?? '—'),
+      yeniUserName: String(p.yeniUserName ?? '—'),
+      degistiren: ad.get(l.userId) ?? '—',
+      not: (p.not as string | null) ?? null,
+    };
+  });
+  const ilk = loglar[0]?.payload as Record<string, unknown> | undefined;
+  return {
+    kaydiGiren: ilk ? String(ilk.eskiUserName ?? '—') : (sale.user?.name ?? '—'),
+    temsilci: sale.user?.name ?? '—',
+    gecmis,
+  };
+}

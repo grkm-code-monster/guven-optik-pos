@@ -3,6 +3,8 @@ import type jsPDF from 'jspdf'
 import { createPdfDoc, PDF_FONT_FAMILY } from './pdf-fonts'
 
 export type GunlukKasaPdfRow = {
+  // 05.11.2026: belirteç satırları — MASRAF / ACIK_HESAP_TAHSILAT / MANUEL_TAHSILAT / CIRO_DUZELTME
+  tip?: string
   saleId: string
   createdAt: string
   deliveryDate: string | null
@@ -111,6 +113,20 @@ function cardSlipTotal(row: GunlukKasaPdfRow): number {
   return row.cardPayments.reduce((sum, payment) => sum + Number(payment.grossAmount), 0)
 }
 
+const BELIRTEC_TIPLERI = new Set(['MASRAF', 'ACIK_HESAP_TAHSILAT', 'MANUEL_TAHSILAT', 'CIRO_DUZELTME'])
+
+function isBelirtec(row: GunlukKasaPdfRow): boolean {
+  return Boolean(row.tip && BELIRTEC_TIPLERI.has(row.tip))
+}
+
+// Satır arka planı (autoTable fillColor) — ekrandaki renklerle aynı
+const BELIRTEC_PDF_RENK: Record<string, [number, number, number]> = {
+  ACIK_HESAP_TAHSILAT: [255, 251, 235],
+  MANUEL_TAHSILAT: [240, 253, 244],
+  CIRO_DUZELTME: [245, 243, 255],
+  MASRAF: [254, 242, 242],
+}
+
 function truncate(text: string, max = 42): string {
   const t = text.trim()
   if (t.length <= max) return t
@@ -142,7 +158,7 @@ function drawSummaryCards(
 ): number {
   const kenarBosluk = 14
   const sayfaGenislik = doc.internal.pageSize.getWidth()
-  const kartSayisi = 6
+  const kartSayisi = 7
   const kartAralik = 4
   const kartYukseklik = 20
   const kartGenislik = (sayfaGenislik - kenarBosluk * 2 - kartAralik * (kartSayisi - 1)) / kartSayisi
@@ -159,6 +175,8 @@ function drawSummaryCards(
     { baslik: 'GÜN TOPLAMI', deger: fmtPdfCurrency(summary.taxFree - summary.commissionSalesOnly) },
     { baslik: 'NAKİT GİRİŞ', deger: fmtPdfCurrency(summary.cash) },
     { baslik: 'SLİP TOPLAMI', deger: fmtPdfCurrency(summary.slip) },
+    // 05.11.2026: günlük banka komisyonu (satış + tahsilat); tahsilat komisyonu Gün Toplamı'ndan düşülmez
+    { baslik: 'BANKA KOM.', deger: fmtPdfCurrency(summary.commission) },
     { baslik: 'İSKONTO %', deger: discountPct },
     { baslik: 'SATIŞ ADEDİ', deger: String(saleCount) },
   ]
@@ -174,7 +192,7 @@ function drawSummaryCards(
     doc.setFontSize(8)
     doc.text(kart.baslik, x + kartGenislik / 2, y + 7, { align: 'center' })
 
-    doc.setFontSize(16)
+    doc.setFontSize(14)
     doc.text(kart.deger, x + kartGenislik / 2, y + 16, { align: 'center' })
   })
 
@@ -456,7 +474,8 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
   doc.text(`${branchName} · ${fmtPdfDate(date)}`, marginX, 27)
   doc.text(`Oluşturulma: ${generatedAt}`, marginX, 32)
 
-  const tableStartY = drawSummaryCards(doc, summary, rows.length, 38) + 6
+  // 05.11.2026: Satış Adedi sadece gerçek satışlar (masraf/tahsilat/ciro düzeltme satırları hariç)
+  const tableStartY = drawSummaryCards(doc, summary, rows.filter((r) => !isBelirtec(r)).length, 38) + 6
 
   const headers = [
     'Alışveriş Tarihi',
@@ -478,7 +497,30 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
     ...(showRep ? ['Temsilci'] : []),
   ]
 
-  const body = rows.map((row) => [
+  const body = rows.map((row) => {
+    // 05.11.2026 — belirteç satırları: Brüt / Sipariş / İsk. / SGK boş; tahsilatta para Nakit
+    // veya Slip'te, ciro düzeltmede sadece Vergi Hariç'te (eksi).
+    if (isBelirtec(row)) {
+      const kart = row.cardPayments[0]
+      const ciro = row.tip === 'CIRO_DUZELTME'
+      return [
+        fmtPdfDate(row.createdAt),
+        '—',
+        row.tip === 'MASRAF' ? '—' : truncate(row.customerName, 24),
+        (row.itemSummary || '—').replace(/^[🟡🟢🟣🔴]\s*/u, '').trim(),
+        '—',
+        '—',
+        ciro ? fmtPdfMoney(row.taxExcluded) : '—',
+        '—',
+        Number(row.cashAmount) ? fmtPdfMoney(row.cashAmount) : '—',
+        kart && !ciro ? String(kart.installment) : '—',
+        kart && !ciro ? kart.bankName : '—',
+        kart && !ciro ? fmtPdfMoney(cardSlipTotal(row)) : '—',
+        '—',
+        ...(showRep ? [row.repName ?? '—'] : []),
+      ]
+    }
+    return [
     fmtPdfDate(row.createdAt),
     row.deliveryDate ? fmtPdfDate(row.deliveryDate) : '—',
     truncate(row.customerName, 24),
@@ -498,7 +540,8 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
     fmtPdfMoney(cardSlipTotal(row)),
     fmtPdfMoney(row.sgkAmount),
     ...(showRep ? [row.repName ?? '—'] : []),
-  ])
+  ]
+  })
 
   const totalRow = [
     'Toplam',
@@ -560,6 +603,15 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
     },
     head: [headers],
     body: body.length > 0 ? body : [['Kayıt yok.', ...Array(headers.length - 1).fill('')]],
+    didParseCell: (data) => {
+      if (data.section !== 'body') return
+      const r = rows[data.row.index]
+      const renk = r?.tip ? BELIRTEC_PDF_RENK[r.tip] : undefined
+      if (renk) {
+        data.cell.styles.fillColor = renk
+        if (data.column.index === 3) data.cell.styles.fontStyle = 'bold'
+      }
+    },
     foot: body.length > 0 ? [totalRow] : undefined,
     showFoot: body.length > 0 ? 'lastPage' : undefined,
   })
