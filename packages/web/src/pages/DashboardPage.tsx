@@ -265,7 +265,8 @@ function buildKasaBelirtecRows(report: DailyReport | null): SalesDetailRow[] {
       createdAt: k.collectedAt,
       customerName: k.customerName,
       repName: '—',
-      itemSummary: `🟡 AÇIK HESAP TAHSİLATI: ${k.customerName} (satış ${fmtDate(k.saleDate)})`,
+      // 06.11.2026: havale tutarı Nakit/Slip sütununa girmediği için açıklamada yazılır
+      itemSummary: `🟡 AÇIK HESAP TAHSİLATI: ${k.customerName} (satış ${fmtDate(k.saleDate)})${tur === 'TRANSFER' ? ` — Havale ${formatMoney(k.amount)}` : ''}`,
     })
   }
   for (const k of report.manuelTahsilatlar ?? []) {
@@ -279,7 +280,7 @@ function buildKasaBelirtecRows(report: DailyReport | null): SalesDetailRow[] {
       createdAt: k.createdAt,
       customerName: k.customerName,
       repName: '—',
-      itemSummary: `🟢 MANUEL TAHSİLAT: ${k.customerName}${k.aciklama ? ` — ${k.aciklama}` : ''}`,
+      itemSummary: `🟢 MANUEL TAHSİLAT: ${k.customerName}${k.aciklama ? ` — ${k.aciklama}` : ''}${tur === 'TRANSFER' ? ` — Havale ${formatMoney(k.amount)}` : ''}`,
     })
   }
   for (const k of report.ciroDuzeltmeleri ?? []) {

@@ -5,10 +5,10 @@
  * seçilerek/girilerek yapılan, herhangi bir Sale/Payment'a bağlı OLMAYAN
  * serbest tahsilat kaydı. Açık Hesap sayfasındaki yeni sekmeden girilir.
  *
- * ÖNEMLİ: Sandbox'ta `prisma generate` çalışamadığı için (binaries.prisma.sh'a
- * 403) üretilen Prisma Client'ta henüz `prisma.manuelTahsilat` erişimcisi yok.
- * Bu yüzden bu model için $queryRaw/$executeRaw kullanılıyor — bu, şema/migration
- * değişikliğinin canlıda çalışabilmesi için `prisma generate`'e bağımlı DEĞİL.
+ * 06.11.2026: Eskiden ham SQL ($queryRaw/$executeRaw) kullanılıyordu; veritabanı saat dilimi
+ * Europe/Istanbul olduğu için tarihler Türkiye saatiyle yazılıp 3 saat ileri görünüyordu.
+ * Canlıda `prisma generate` artık deploy'da çalıştığı için normal Prisma erişimcisine geçildi
+ * (diğer tablolar gibi UTC). Eski kayıtlar 20261106100000 migration'ı ile UTC'ye çevrildi.
  */
 import { randomUUID } from 'crypto';
 import { CashMovementType, Prisma, ShiftStatus } from '@prisma/client';
@@ -28,7 +28,7 @@ export type ManuelTahsilatRow = {
   userId: string;
   customerId: string;
   customerAdi: string;
-  tutar: string;
+  tutar: Prisma.Decimal | string;
   odemeTuru: string;
   aciklama: string | null;
   shiftId: string | null;
@@ -129,20 +129,31 @@ export async function createManuelTahsilat(
   });
 
   const id = randomUUID();
-  // 05.11.2026 — Postgres now() sunucu saat diliminde (TR) yerel saat yazıyordu; Prisma bunu UTC okuduğu için
-  // kayıtlar 3 saat ileri görünüyor, akşam girilen tahsilat ertesi günün raporuna düşüyordu. JS tarihi gönderiyoruz.
+  // 06.11.2026 — Ham SQL (INSERT ... now() ya da JS tarihi) veritabanı saat dilimi Europe/Istanbul
+  // olduğu için tarihi Türkiye saatiyle yazıyordu (diğer tablolar UTC) → kayıtlar 3 saat ileri
+  // görünüyordu. Artık diğer tablolar gibi Prisma'nın kendi create'i kullanılıyor (UTC).
   const simdi = new Date();
   const aciklama = input.aciklama?.trim() || null;
 
-  await prisma.$executeRaw`
-    INSERT INTO "ManuelTahsilat"
-      ("id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt",
-       "bankId", "posDeviceId", "installment", "commissionRate", "commissionAmount")
-    VALUES
-      (${id}, ${branchId}, ${actingUser.userId}, ${customer.id}, ${customer.name}, ${tutar}, ${odemeTuru}, ${aciklama}, ${aktifVardiya?.id ?? null}, ${simdi},
-       ${kart?.bankId ?? null}, ${kart?.posDeviceId ?? null}, ${kart?.installment ?? null},
-       ${kart ? new Prisma.Decimal(kart.commissionRate) : null}, ${kart ? new Prisma.Decimal(kart.commissionAmount) : null})
-  `;
+  await prisma.manuelTahsilat.create({
+    data: {
+      id,
+      branchId,
+      userId: actingUser.userId,
+      customerId: customer.id,
+      customerAdi: customer.name,
+      tutar: new Prisma.Decimal(tutar),
+      odemeTuru,
+      aciklama,
+      shiftId: aktifVardiya?.id ?? null,
+      createdAt: simdi,
+      bankId: kart?.bankId ?? null,
+      posDeviceId: kart?.posDeviceId ?? null,
+      installment: kart?.installment ?? null,
+      commissionRate: kart ? new Prisma.Decimal(kart.commissionRate) : null,
+      commissionAmount: kart ? new Prisma.Decimal(kart.commissionAmount) : null,
+    },
+  });
 
   let cashMovementUyari: string | undefined;
   if (odemeTuru === 'CASH') {
@@ -186,13 +197,11 @@ export async function createManuelTahsilat(
 }
 
 export async function listManuelTahsilat(branchId: string, limit = 50): Promise<Array<ManuelTahsilatRow & { odemeTuruLabel: string }>> {
-  const rows = await prisma.$queryRaw<ManuelTahsilatRow[]>`
-    SELECT "id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt"
-    FROM "ManuelTahsilat"
-    WHERE "branchId" = ${branchId}
-    ORDER BY "createdAt" DESC
-    LIMIT ${limit}
-  `;
+  const rows: ManuelTahsilatRow[] = await prisma.manuelTahsilat.findMany({
+    where: { branchId },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  });
   return rows.map((r) => ({ ...r, odemeTuruLabel: ODEME_TURU_LABEL[r.odemeTuru] ?? r.odemeTuru }));
 }
 
@@ -215,21 +224,13 @@ export async function buildManuelTahsilatRows(
   installment: number | null;
   commissionAmount: string;
 }>> {
-  const rows = shift.closedAt
-    ? await prisma.$queryRaw<ManuelTahsilatRow[]>`
-        SELECT "id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt",
-               "bankId", "posDeviceId", "installment", "commissionRate", "commissionAmount"
-        FROM "ManuelTahsilat"
-        WHERE "branchId" = ${branchId} AND "createdAt" >= ${shift.openedAt} AND "createdAt" <= ${shift.closedAt}
-        ORDER BY "createdAt" ASC
-      `
-    : await prisma.$queryRaw<ManuelTahsilatRow[]>`
-        SELECT "id", "branchId", "userId", "customerId", "customerAdi", "tutar", "odemeTuru", "aciklama", "shiftId", "createdAt",
-               "bankId", "posDeviceId", "installment", "commissionRate", "commissionAmount"
-        FROM "ManuelTahsilat"
-        WHERE "branchId" = ${branchId} AND "createdAt" >= ${shift.openedAt}
-        ORDER BY "createdAt" ASC
-      `;
+  const rows: ManuelTahsilatRow[] = await prisma.manuelTahsilat.findMany({
+    where: {
+      branchId,
+      createdAt: { gte: shift.openedAt, ...(shift.closedAt ? { lte: shift.closedAt } : {}) },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
 
   const bankIds = Array.from(new Set(rows.map((r) => r.bankId).filter((x): x is string => Boolean(x))));
   const banks = bankIds.length

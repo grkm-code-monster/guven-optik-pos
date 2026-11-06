@@ -11,6 +11,12 @@ const argv = process.argv.slice(2);
 const d = (b: string) => { const i = argv.indexOf(b); return i >= 0 ? argv[i + 1] : undefined; };
 const z = (x?: Date | null) => (x ? x.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '—');
 async function main() {
+  // 06.11.2026: BU SCRIPT ARTIK KULLANILMAZ. Manuel tahsilat saatleri 20261106100000_tahsilat_subesi_manuel_saat
+  // migration'ı ile TOPLU olarak UTC'ye çevrildi; bu scripti çalıştırmak saatleri ikinci kez 3 saat geri alır.
+  console.log('⚠️ Bu script devre dışı: saatler 06.11.2026 migration\'ı ile düzeltildi. Hiçbir şey yapılmadı.');
+  return;
+}
+async function eskiMain() {
   const once = d('--once'); if (!once) throw new Error('--once zorunlu (kod düzeltmesinin yüklendiği an, ör. 2026-11-05T22:30)');
   const haric = (d('--haric') ?? '').split(',').filter(Boolean);
   const UYGULA = argv.includes('--uygula');

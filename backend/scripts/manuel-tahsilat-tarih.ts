@@ -44,7 +44,8 @@ async function main() {
   if (vardiya.status !== 'OPEN' && !argv.includes('--kapali-vardiya')) { console.log(`\n⚠️ DURDU: ${tarih} vardiyası KAPANMIŞ — o günün raporuna eklenecek (onaylıyorsanız --kapali-vardiya).`); return; }
   if (!UYGULA) { console.log('\nKURU ÇALIŞMA — sorun yok. Uygulamak için --uygula ekleyin.'); return; }
   await prisma.$transaction([
-    prisma.$executeRaw`UPDATE "ManuelTahsilat" SET "createdAt" = ${yeni}, "shiftId" = ${vardiya.id} WHERE "id" = ${t.id}`,
+    // 06.11.2026: ham SQL tarihi TR saatiyle yazıyordu → Prisma'nın kendi update'i (UTC)
+    prisma.manuelTahsilat.update({ where: { id: t.id }, data: { createdAt: yeni, shiftId: vardiya.id } }),
     ...nakit.map((c) => prisma.cashMovement.update({ where: { id: c.id }, data: { createdAt: yeni, shiftId: vardiya.id } })),
   ]);
   console.log('✓ Tahsilat tarihi ve vardiyası güncellendi');

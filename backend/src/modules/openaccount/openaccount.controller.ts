@@ -257,6 +257,7 @@ async function applyOpenAccountPayment(
   userId: string,
   input: PaymentInput,
   userRole?: Role,
+  userBranchId?: string | null,
 ): Promise<{ payment: Awaited<ReturnType<typeof prisma.payment.create>>; odooSyncError?: string }> {
   const { customerId, saleId, amount, paymentType, note, bankId, posDeviceId, installment } = input;
 
@@ -336,8 +337,12 @@ async function applyOpenAccountPayment(
       commissionAmount,
       aciklama: temizNot,
       createdByUserId: userId,
+      // 06.11.2026: tahsilat parayı ALAN şubenin kasasına yazılır (ör. GVN1 satışının borcu
+      // GVN2'de ödendiyse GVN2). Ciro düzeltme satışın şubesinde kalır (null).
+      tahsilatBranchId: isCiroDuzeltme ? null : (userBranchId || sale.branchId),
     },
   });
+  const kasaSubesi = payment.tahsilatBranchId ?? sale.branchId;
 
   if (isCiroDuzeltme) {
     await prisma.auditLog.create({
@@ -361,17 +366,17 @@ async function applyOpenAccountPayment(
     // bir vardiyaya nakit giriş kaydı düşürüyor, o vardiyanın kasa formunu "sehven"
     // şişiriyor ve bugünün gerçek kasasını eksik gösteriyordu.
     const aktifVardiya = await prisma.shift.findFirst({
-      where: { branchId: sale.branchId, status: ShiftStatus.OPEN },
+      where: { branchId: kasaSubesi, status: ShiftStatus.OPEN },
       orderBy: { openedAt: 'desc' },
     });
     if (!aktifVardiya) {
       console.warn(
-        `[openaccount] Açık vardiya yok (branchId=${sale.branchId}) — nakit açık hesap tahsilatı satışın eski vardiyasına (${sale.shiftId}) işleniyor, kasa formunda yanlış günde görünebilir.`,
+        `[openaccount] Açık vardiya yok (branchId=${kasaSubesi}) — nakit açık hesap tahsilatı satışın eski vardiyasına (${sale.shiftId}) işleniyor, kasa formunda yanlış günde görünebilir.`,
       );
     }
     await prisma.cashMovement.create({
       data: {
-        branchId: sale.branchId,
+        branchId: aktifVardiya ? kasaSubesi : sale.branchId,
         shiftId: aktifVardiya?.id ?? sale.shiftId,
         userId,
         type: CashMovementType.CASH_IN,
@@ -573,7 +578,7 @@ router.post('/payment', async (req: Request, res: Response) => {
       bankId,
       posDeviceId,
       installment,
-    }, req.user!.role);
+    }, req.user!.role, req.user!.branchId);
 
     res.json({ success: true, data: payment, odooSyncError, odooSyncOk: !odooSyncError });
   } catch (err: any) {
@@ -672,7 +677,7 @@ router.post('/payment-toplu', async (req: Request, res: Response) => {
           bankId,
           posDeviceId,
           installment,
-        }, req.user!.role);
+        }, req.user!.role, req.user!.branchId);
         payments.push(result.payment);
         if (result.odooSyncError) {
           odooErrors.push({ saleId: row.saleId, error: result.odooSyncError });

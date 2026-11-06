@@ -558,7 +558,8 @@ async function buildAcikHesapTahsilatRows(
         gte: shift.openedAt,
         ...(shift.closedAt ? { lte: shift.closedAt } : {}),
       },
-      sale: { branchId, status: SaleStatus.PAID, shiftId: { not: shift.id } },
+      sale: { status: SaleStatus.PAID, shiftId: { not: shift.id } },
+      ...tahsilatSubesiFiltresi(branchId),
     },
     include: {
       sale: { select: { id: true, createdAt: true, customer: { select: { name: true } } } },
@@ -585,6 +586,15 @@ async function buildAcikHesapTahsilatRows(
     installment: p.installment ?? null,
     commissionAmount: (p.commissionAmount ?? new Prisma.Decimal(0)).toString(),
   }));
+}
+
+/**
+ * 06.11.2026 — Ödemenin hangi şubenin kasasına ait olduğu: açık hesap tahsilatında parayı ALAN
+ * şube (Payment.tahsilatBranchId), yoksa (satış anındaki ödemeler, eski kayıtlar, ciro düzeltme)
+ * satışın şubesi. Payment where'ine eklenir; içinde başka OR olmayan sorgularda kullanılmalı.
+ */
+function tahsilatSubesiFiltresi(branchId: string): Prisma.PaymentWhereInput {
+  return { OR: [{ tahsilatBranchId: branchId }, { tahsilatBranchId: null, sale: { branchId } }] };
 }
 
 /**
@@ -621,7 +631,8 @@ async function buildCiroDuzeltmeRows(
         gte: shift.openedAt,
         ...(shift.closedAt ? { lte: shift.closedAt } : {}),
       },
-      sale: { branchId, status: SaleStatus.PAID },
+      sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId),
     },
     include: {
       sale: {
@@ -658,7 +669,8 @@ async function ciroDuzeltmeToplamlari(branchId: string, gte: Date, lte: Date) {
     where: {
       paymentType: PaymentType.CIRO_DUZELTME,
       createdAt: { gte, lte },
-      sale: { branchId, status: SaleStatus.PAID },
+      sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId),
     },
     select: { grossAmount: true, sale: { select: { userId: true, netTotal: true, taxTotal: true } } },
   });
@@ -678,14 +690,13 @@ async function ciroDuzeltmeToplamlari(branchId: string, gte: Date, lte: Date) {
 
 // 05.11.2026 — Manuel (kağıt üstü) KART tahsilatlarının brüt ve komisyon toplamı (aylık kutular için).
 async function manuelKartToplamlari(branchId: string, gte: Date, lte: Date) {
-  const r = await prisma.$queryRaw<Array<{ brut: Prisma.Decimal | null; komisyon: Prisma.Decimal | null }>>`
-    SELECT COALESCE(SUM("tutar"), 0) AS brut, COALESCE(SUM("commissionAmount"), 0) AS komisyon
-    FROM "ManuelTahsilat"
-    WHERE "branchId" = ${branchId} AND "odemeTuru" = 'CARD' AND "createdAt" >= ${gte} AND "createdAt" <= ${lte}
-  `;
+  const r = await prisma.manuelTahsilat.aggregate({
+    where: { branchId, odemeTuru: 'CARD', createdAt: { gte, lte } },
+    _sum: { tutar: true, commissionAmount: true },
+  });
   return {
-    brut: new Prisma.Decimal(r[0]?.brut?.toString() ?? 0),
-    komisyon: new Prisma.Decimal(r[0]?.komisyon?.toString() ?? 0),
+    brut: new Prisma.Decimal(r._sum.tutar ?? 0),
+    komisyon: new Prisma.Decimal(r._sum.commissionAmount ?? 0),
   };
 }
 
@@ -710,7 +721,8 @@ async function computeRunningKasaBakiye(branchId: string, date: Date) {
     prisma.payment.aggregate({
       where: {
         paymentType: PaymentType.CASH,
-        sale: { branchId, status: SaleStatus.PAID },
+        sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId),
       },
       _sum: { grossAmount: true },
     }),
@@ -849,7 +861,8 @@ async function computeAylikOzet(branchId: string, date: Date) {
   const cardAgg = await prisma.payment.aggregate({
     where: {
       paymentType: PaymentType.CARD,
-      sale: { branchId, status: SaleStatus.PAID },
+      sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId),
       createdAt: { gte: ayBaslangici, lte: araligiBitisi },
     },
     _sum: { netAmount: true, commissionAmount: true },
@@ -857,7 +870,8 @@ async function computeAylikOzet(branchId: string, date: Date) {
   const transferAgg = await prisma.payment.aggregate({
     where: {
       paymentType: PaymentType.TRANSFER,
-      sale: { branchId, status: SaleStatus.PAID },
+      sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId),
       createdAt: { gte: ayBaslangici, lte: araligiBitisi },
     },
     _sum: { grossAmount: true },
@@ -1058,19 +1072,23 @@ export async function getDailyReport(branchId: string, date: Date) {
     ...(shift.closedAt ? { lte: shift.closedAt } : {}),
   };
   const cashAgg = await prisma.payment.aggregate({
-    where: { sale: { branchId, status: SaleStatus.PAID }, paymentType: PaymentType.CASH, createdAt: shiftZamanAraligi },
+    where: { sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId), paymentType: PaymentType.CASH, createdAt: shiftZamanAraligi },
     _sum: { grossAmount: true },
   });
   const cardAgg = await prisma.payment.aggregate({
-    where: { sale: { branchId, status: SaleStatus.PAID }, paymentType: PaymentType.CARD, createdAt: shiftZamanAraligi },
+    where: { sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId), paymentType: PaymentType.CARD, createdAt: shiftZamanAraligi },
     _sum: { grossAmount: true, netAmount: true, commissionAmount: true },
   });
   const transferAgg = await prisma.payment.aggregate({
-    where: { sale: { branchId, status: SaleStatus.PAID }, paymentType: PaymentType.TRANSFER, createdAt: shiftZamanAraligi },
+    where: { sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId), paymentType: PaymentType.TRANSFER, createdAt: shiftZamanAraligi },
     _sum: { grossAmount: true },
   });
   const openAccountAgg = await prisma.payment.aggregate({
-    where: { sale: { branchId, status: SaleStatus.PAID }, paymentType: PaymentType.OPEN_ACCOUNT, createdAt: shiftZamanAraligi },
+    where: { sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId), paymentType: PaymentType.OPEN_ACCOUNT, createdAt: shiftZamanAraligi },
     _sum: { grossAmount: true },
   });
 
@@ -1120,7 +1138,8 @@ export async function getDailyReport(branchId: string, date: Date) {
     where: {
       paymentType: PaymentType.CARD,
       bankId: { not: null },
-      sale: { branchId, status: SaleStatus.PAID },
+      sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId),
       createdAt: shiftZamanAraligi,
     },
     _sum: {

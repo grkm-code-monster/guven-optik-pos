@@ -27,14 +27,20 @@ async function main() {
     for (const v of vardiyalar) {
       const aralik = { gte: v.openedAt, ...(v.closedAt ? { lte: v.closedAt } : {}) };
       const acik = await prisma.payment.findMany({
-        where: { paymentType: { in: ['CASH', 'CARD', 'TRANSFER'] }, createdAt: aralik, sale: { branchId: sube.id, status: 'PAID', shiftId: { not: v.id } } },
+        where: {
+          paymentType: { in: ['CASH', 'CARD', 'TRANSFER'] },
+          createdAt: aralik,
+          sale: { status: 'PAID', shiftId: { not: v.id } },
+          // 06.11.2026: tahsilatı ALAN şube (yoksa satışın şubesi) — rapordaki kuralla aynı
+          OR: [{ tahsilatBranchId: sube.id }, { tahsilatBranchId: null, sale: { branchId: sube.id } }],
+        } as any,
         include: { sale: { select: { createdAt: true, customer: { select: { name: true } } } } },
         orderBy: { createdAt: 'asc' },
       });
-      const manuel = await prisma.$queryRaw<any[]>`
-        SELECT * FROM "ManuelTahsilat" WHERE "branchId" = ${sube.id} AND "createdAt" >= ${v.openedAt}
-        ORDER BY "createdAt" ASC`;
-      const manuelFiltre = manuel.filter((m) => !v.closedAt || new Date(m.createdAt) <= v.closedAt);
+      const manuelFiltre: any[] = await prisma.manuelTahsilat.findMany({
+        where: { branchId: sube.id, createdAt: aralik },
+        orderBy: { createdAt: 'asc' },
+      });
       const ciro = await prisma.payment.findMany({
         where: { paymentType: 'CIRO_DUZELTME' as any, createdAt: aralik, sale: { branchId: sube.id, status: 'PAID' } },
         include: { sale: { select: { createdAt: true, customer: { select: { name: true } } } } },

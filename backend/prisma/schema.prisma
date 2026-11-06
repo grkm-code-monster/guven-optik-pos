@@ -487,6 +487,7 @@ model Payment {
   netAmount        Decimal     @db.Decimal(10, 2)
   aciklama         String? // 05.11.2026: açık hesap ödemesinde girilen not (CIRO_DUZELTME'de zorunlu)
   createdByUserId  String? // 05.11.2026: ödemeyi giren personel (açık hesap ödemeleri)
+  tahsilatBranchId String? // 06.11.2026: açık hesap tahsilatının ALINDIĞI şube (kasası). Boşsa satışın şubesi.
   createdAt        DateTime    @default(now())
   sale             Sale        @relation(fields: [saleId], references: [id])
 }

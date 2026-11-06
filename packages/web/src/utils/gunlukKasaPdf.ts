@@ -113,6 +113,10 @@ function cardSlipTotal(row: GunlukKasaPdfRow): number {
   return row.cardPayments.reduce((sum, payment) => sum + Number(payment.grossAmount), 0)
 }
 
+function cardCommissionTotal(row: GunlukKasaPdfRow): number {
+  return row.cardPayments.reduce((sum, payment) => sum + Number(payment.commissionAmount ?? 0), 0)
+}
+
 const BELIRTEC_TIPLERI = new Set(['MASRAF', 'ACIK_HESAP_TAHSILAT', 'MANUEL_TAHSILAT', 'CIRO_DUZELTME'])
 
 function isBelirtec(row: GunlukKasaPdfRow): boolean {
@@ -490,6 +494,8 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
     'Taksit',
     'Oran',
     'Slip Top.',
+    // 06.11.2026: satır bazında banka komisyonu (Excel kasa formundaki "Komisyon Tutarı" gibi)
+    'Banka Kom.',
     // NOT: bu kolonun altında gerçekte SGK tutarı (row.sgkAmount) basılıyor — "Reçete Bed."
     // etiketi yanlıştı (raporda ayrı bir "reçete bedeli" alanı hiç hesaplanmıyor), SGK'ya
     // düzeltildi.
@@ -516,6 +522,7 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
         kart && !ciro ? String(kart.installment) : '—',
         kart && !ciro ? kart.bankName : '—',
         kart && !ciro ? fmtPdfMoney(cardSlipTotal(row)) : '—',
+        kart && !ciro ? fmtPdfMoney(cardCommissionTotal(row)) : '—',
         '—',
         ...(showRep ? [row.repName ?? '—'] : []),
       ]
@@ -538,6 +545,7 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
     row.cardPayments[0]?.installment != null ? String(row.cardPayments[0].installment) : '—',
     row.cardPayments[0]?.bankName ?? '—',
     fmtPdfMoney(cardSlipTotal(row)),
+    row.cardPayments.length ? fmtPdfMoney(cardCommissionTotal(row)) : '—',
     fmtPdfMoney(row.sgkAmount),
     ...(showRep ? [row.repName ?? '—'] : []),
   ]
@@ -556,6 +564,7 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
     '',
     '',
     fmtPdfMoney(summary.slip),
+    fmtPdfMoney(summary.commission),
     fmtPdfMoney(summary.sgk),
     ...(showRep ? [''] : []),
   ]
@@ -587,9 +596,9 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
     },
     columnStyles: {
       0: { cellWidth: 18 },
-      1: { cellWidth: 18 },
+      1: { cellWidth: 16 },
       2: { cellWidth: 24 },
-      3: { cellWidth: 50 },
+      3: { cellWidth: 46 },
       4: { halign: 'right', cellWidth: 16 },
       5: { halign: 'right', cellWidth: 16 },
       6: { halign: 'right', cellWidth: 16 },
@@ -597,9 +606,10 @@ async function buildGunlukKasaPdfDoc(params: GunlukKasaPdfParams): Promise<jsPDF
       8: { halign: 'right', cellWidth: 14 },
       9: { halign: 'center', cellWidth: 10 },
       10: { cellWidth: 16 },
-      11: { halign: 'right', cellWidth: 14 },
+      11: { halign: 'right', cellWidth: 16 },
       12: { halign: 'right', cellWidth: 14 },
-      ...(showRep ? { 13: { cellWidth: 20 } } : {}),
+      13: { halign: 'right', cellWidth: 14 },
+      ...(showRep ? { 14: { cellWidth: 20 } } : {}),
     },
     head: [headers],
     body: body.length > 0 ? body : [['Kayıt yok.', ...Array(headers.length - 1).fill('')]],
