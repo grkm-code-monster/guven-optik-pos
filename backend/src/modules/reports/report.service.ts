@@ -712,7 +712,10 @@ async function manuelKartToplamlari(branchId: string, gte: Date, lte: Date) {
  * fiziki kasa sayım mutabakatı bundan tamamen ayrı ve değişmeden kalır — bu sadece dashboard'daki
  * "Mağaza Özeti" kartları için kullanılan, kümülatif bir görünüm.
  */
-async function computeRunningKasaBakiye(branchId: string, date: Date) {
+async function computeRunningKasaBakiye(branchId: string, date: Date, bitis?: Date) {
+  // 06.11.2026: `bitis` verilirse Kasa Nakit O ANA KADARKİ bakiyedir (geçmiş bir günün kasa
+  // formunda o günün kapanış kasası görünsün — Excel'deki "KASA" gibi). Verilmezse tüm zamanlar.
+  const zamanFiltresi = bitis ? { createdAt: { lte: bitis } } : {};
   const monthStart = new Date(date);
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
@@ -723,11 +726,12 @@ async function computeRunningKasaBakiye(branchId: string, date: Date) {
         paymentType: PaymentType.CASH,
         sale: { status: SaleStatus.PAID },
       ...tahsilatSubesiFiltresi(branchId),
+        ...zamanFiltresi,
       },
       _sum: { grossAmount: true },
     }),
     prisma.cashMovement.aggregate({
-      where: { branchId, type: CashMovementType.CASH_OUT },
+      where: { branchId, type: CashMovementType.CASH_OUT, ...zamanFiltresi },
       _sum: { amount: true },
     }),
     prisma.sale.aggregate({
@@ -737,7 +741,7 @@ async function computeRunningKasaBakiye(branchId: string, date: Date) {
     // 05.11.2026: manuel (kağıt üstü) NAKİT tahsilatlar da kasaya giren paradır — Payment
     // kaydı olmadığı için yukarıdaki toplamda yoktu; CashMovement'tan ekleniyor.
     prisma.cashMovement.aggregate({
-      where: { branchId, type: CashMovementType.CASH_IN, description: { startsWith: 'MANUEL_TAHSILAT:' } },
+      where: { branchId, type: CashMovementType.CASH_IN, description: { startsWith: 'MANUEL_TAHSILAT:' }, ...zamanFiltresi },
       _sum: { amount: true },
     }),
   ]);
@@ -749,7 +753,7 @@ async function computeRunningKasaBakiye(branchId: string, date: Date) {
   // 23.09.2026: sisteme geçmeden önceki günlerin nakit birikimi, müdürün "Kasa
   // Bakiye Düzeltme" ekranından girdiği kayıtlarla (tarihten bağımsız, TÜM
   // ZAMANLAR) bu kümülatif bakiyeye kalıcı olarak eklenir.
-  const duzeltmeNakitTumZamanlar = await getKasaDuzeltmeNakitTumZamanlar(branchId);
+  const duzeltmeNakitTumZamanlar = await getKasaDuzeltmeNakitTumZamanlar(branchId, bitis);
   const kasaNakit = cashInAll.minus(cashOutAll).plus(duzeltmeNakitTumZamanlar);
   const toplamSgkHakki = sgkMonthAgg._sum.sgkAmount ?? new Prisma.Decimal(0);
 
@@ -982,7 +986,8 @@ export async function getDailyReport(branchId: string, date: Date) {
 
   if (!shift) {
     const labIncidents = await buildLabIncidentsSummary(branchId, start, end);
-    const runningKasaBakiye = await computeRunningKasaBakiye(branchId, date);
+    // 06.11.2026: o gün vardiya yoksa (ör. pazar) o günün sonundaki kasa; bugünse tüm zamanlar
+    const runningKasaBakiye = await computeRunningKasaBakiye(branchId, date, end < new Date() ? end : undefined);
     // 23.09.2026: vardiya hiç bulunamasa bile, o güne müdür tarafından girilmiş
     // bir "Kasa Bakiye Düzeltme" kaydı varsa (sisteme geçmeden önceki birikim)
     // bunu günün toplamlarına yansıt — aksi halde geçmiş güne ait düzeltme hiç
@@ -1245,7 +1250,8 @@ export async function getDailyReport(branchId: string, date: Date) {
   });
 
   const labIncidents = await buildLabIncidentsSummary(branchId, start, end);
-  const runningKasaBakiye = await computeRunningKasaBakiye(branchId, date);
+  // 06.11.2026: kapanmış vardiyada o vardiyanın kapanışındaki kasa; açık vardiyada şu anki kasa
+  const runningKasaBakiye = await computeRunningKasaBakiye(branchId, date, shift.closedAt ?? undefined);
 
   return {
     date,

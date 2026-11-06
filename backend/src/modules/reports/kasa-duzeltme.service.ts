@@ -153,9 +153,10 @@ export async function getKasaDuzeltmeToplamForGun(branchId: string, start: Date,
 }
 
 /** TÜM ZAMANLAR nakit düzeltme toplamı — kasaNakit'in kümülatif bakiyesine eklenir. */
-export async function getKasaDuzeltmeNakitTumZamanlar(branchId: string) {
+export async function getKasaDuzeltmeNakitTumZamanlar(branchId: string, bitis?: Date) {
   const agg = await prisma.kasaDuzeltme.aggregate({
-    where: { branchId },
+    // 06.11.2026: bitis verilirse o güne kadar (dahil) girilmiş düzeltmeler
+    where: { branchId, ...(bitis ? { tarih: { lte: bitis } } : {}) },
     _sum: { nakit: true },
   });
   return agg._sum.nakit ?? new Prisma.Decimal(0);
