@@ -908,6 +908,7 @@ async function computeAylikOzet(branchId: string, date: Date) {
       totalCommission: '0',
       aylikKdvToplami: '0',
       toplamTahsilat: '0',
+      aylikSiparisBedeli: '0',
       aylikTemsilciBreakdown: [] as Array<{ repName: string; saleCount: number; ciro: string }>,
     };
   }
@@ -1008,6 +1009,14 @@ async function computeAylikOzet(branchId: string, date: Date) {
     // aynı mantık; Excel kasa formu da reçete bedelinin KDV'sini saymıyor).
     aylikKdvToplami: (await musteriPayiKdvToplami(branchId, ayBaslangici, araligiBitisi)).plus(ayDuzeltme.kdv).minus(ayCiroDuzeltme.kdv).toString(),
     toplamTahsilat: (await toplamTahsilatHesapla(branchId, ayBaslangici, araligiBitisi)).toString(),
+    // 06.11.2026 — Aylık Sipariş Bedeli: o ayın satışlarında müşterinin ödeyeceği tutar (net − SGK − Vakıf),
+    // o ay girilen CİRO DÜZELTME'ler düşülmüş. Günlük kasa formundaki "Sipariş Bedeli" sütununun ay toplamı
+    // (Excel'deki "GENEL TOPLAM SİPARİŞ B." ile aynı tanım).
+    aylikSiparisBedeli: netTotalSum
+      .minus(salesAgg._sum.sgkAmount ?? 0)
+      .minus(salesAgg._sum.prescriptionAmount ?? 0)
+      .minus(ayCiroDuzeltme.toplam)
+      .toString(),
     aylikTemsilciBreakdown,
   };
 }

@@ -1216,6 +1216,7 @@ function GunlukKasaView({
       bankaKomisyonu: report.totalCommission,
       kdvToplami: report.aylikKdvToplami,
       toplamTahsilat: report.toplamTahsilat,
+      siparisBedeli: report.aylikSiparisBedeli,
       temsilciler: report.aylikTemsilciBreakdown ?? [],
     }
   }, [showRep, report])
@@ -2172,6 +2173,8 @@ function MudurDashboard({ user }: { user: User }) {
               { label: 'KDV Toplamı', value: formatMoney(report?.aylikKdvToplami) },
               // 06.11.2026: ay içinde alınan nakit+havale+kart (KDV ve kart komisyonu düşülmüş)
               { label: 'Toplam Tahsilat', value: formatMoney(report?.toplamTahsilat) },
+              // 06.11.2026: ayın satışlarında müşteri payı (net − SGK − Vakıf − ciro düzeltme)
+              { label: 'Aylık Sipariş Bedeli', value: formatMoney(report?.aylikSiparisBedeli) },
             ]}
           />
           <div style={{ ...CARD_STYLE, marginTop: 16 }}>

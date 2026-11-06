@@ -76,6 +76,7 @@ export type GunlukKasaPdfMagazaOzeti = {
   bankaKomisyonu: string | number | null | undefined
   kdvToplami: string | number | null | undefined
   toplamTahsilat?: string | number | null | undefined
+  siparisBedeli?: string | number | null | undefined
   temsilciler: Array<{ repName: string; saleCount: number; ciro: string }>
 }
 
@@ -215,7 +216,7 @@ function drawMagazaOzetiSection(
 ): number {
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
-  const kolonSayisi = 5
+  const kolonSayisi = 6 // 06.11.2026: 11 kutu → 6 sütun × 2 satır (yatay A4)
   const kartAralik = 4
   const kartYukseklik = 15
   const kartGenislik = (pageWidth - marginX * 2 - kartAralik * (kolonSayisi - 1)) / kolonSayisi
@@ -250,6 +251,7 @@ function drawMagazaOzetiSection(
     { baslik: 'BANKA KOM.', deger: fmtPdfCurrency(ozet.bankaKomisyonu) },
     { baslik: 'KDV TOPLAMI', deger: fmtPdfCurrency(ozet.kdvToplami) },
     { baslik: 'TOPLAM TAHSİLAT', deger: fmtPdfCurrency(ozet.toplamTahsilat) },
+    { baslik: 'AYLIK SİPARİŞ BEDELİ', deger: fmtPdfCurrency(ozet.siparisBedeli) },
   ]
 
   kartlar.forEach((kart, i) => {
