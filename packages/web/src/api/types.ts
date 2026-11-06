@@ -145,6 +145,8 @@ export interface DailyReport {
   satisAdedi?: number
   // 22.10.2026 — aylık (ayın 1'i 08:00'de sıfırlanan, kümülatif) KDV toplamı
   aylikKdvToplami?: string
+  // 06.11.2026 — aylık alınan nakit+havale+kart (KDV ve kart komisyonu düşülmüş)
+  toplamTahsilat?: string
   // 23.10.2026 — aylık (ayın 1'i 08:00 -> seçili günün sonu) temsilci bazında adet/ciro;
   // Günlük Kasa PDF'indeki "Personel Performans" tablosu için (bkz. computeAylikOzet).
   aylikTemsilciBreakdown?: Array<{ repName: string; saleCount: number; ciro: string }>

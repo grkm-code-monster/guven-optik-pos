@@ -75,6 +75,7 @@ export type GunlukKasaPdfMagazaOzeti = {
   ortalamaSepet: string | number | null | undefined
   bankaKomisyonu: string | number | null | undefined
   kdvToplami: string | number | null | undefined
+  toplamTahsilat?: string | number | null | undefined
   temsilciler: Array<{ repName: string; saleCount: number; ciro: string }>
 }
 
@@ -248,6 +249,7 @@ function drawMagazaOzetiSection(
     { baslik: 'ORT. SEPET', deger: fmtPdfCurrency(ozet.ortalamaSepet) },
     { baslik: 'BANKA KOM.', deger: fmtPdfCurrency(ozet.bankaKomisyonu) },
     { baslik: 'KDV TOPLAMI', deger: fmtPdfCurrency(ozet.kdvToplami) },
+    { baslik: 'TOPLAM TAHSİLAT', deger: fmtPdfCurrency(ozet.toplamTahsilat) },
   ]
 
   kartlar.forEach((kart, i) => {

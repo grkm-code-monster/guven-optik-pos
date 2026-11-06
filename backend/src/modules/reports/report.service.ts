@@ -717,6 +717,44 @@ async function manuelKartToplamlari(branchId: string, gte: Date, lte: Date) {
   };
 }
 
+// 06.11.2026 — "TOPLAM TAHSİLAT" (Mağaza Özeti): ay içinde ALINAN nakit + havale + kart
+// ödemeleri (satış hangi ayda olursa olsun: normal satış ödemesi, önceki aydan kalan açık hesap
+// ödemesi, manuel açık hesap tahsilatı). SGK/Vakıf/Ciro Düzeltme/e-ticaret ve Kasa Bakiye
+// Düzeltme HARİÇ. Tutar KDV düşülmüş, kartta ayrıca banka komisyonu düşülmüş haliyle
+// (Gün Toplamı mantığı: vergi hariç − komisyon). Ödemenin KDV'si satışın matrah oranıyla
+// ((net − KDV) / net) ayrılır. Manuel tahsilatın satışı olmadığı için kullanıcı kararıyla
+// (şimdilik) %10 ve %20'nin ortalaması olan %15 KDV düşülür.
+const MANUEL_TAHSILAT_KDV_ORANI = 0.15;
+async function toplamTahsilatHesapla(branchId: string, gte: Date, lte: Date) {
+  const odemeler = await prisma.payment.findMany({
+    where: {
+      paymentType: { in: [PaymentType.CASH, PaymentType.TRANSFER, PaymentType.CARD] },
+      sale: { status: SaleStatus.PAID },
+      ...tahsilatSubesiFiltresi(branchId),
+      createdAt: { gte, lte },
+    },
+    select: { paymentType: true, grossAmount: true, commissionAmount: true, sale: { select: { netTotal: true, taxTotal: true } } },
+  });
+  let toplam = new Prisma.Decimal(0);
+  for (const p of odemeler) {
+    const net = Number(p.sale.netTotal);
+    const oran = net > 0 ? (net - Number(p.sale.taxTotal ?? 0)) / net : 1;
+    let tutar = new Prisma.Decimal(Number(p.grossAmount) * oran).toDecimalPlaces(2);
+    if (p.paymentType === PaymentType.CARD) tutar = tutar.minus(p.commissionAmount ?? 0);
+    toplam = toplam.plus(tutar);
+  }
+  const manueller = await prisma.manuelTahsilat.findMany({
+    where: { branchId, odemeTuru: { in: ['CASH', 'TRANSFER', 'CARD'] }, createdAt: { gte, lte } },
+    select: { odemeTuru: true, tutar: true, commissionAmount: true },
+  });
+  for (const m of manueller) {
+    let tutar = new Prisma.Decimal(Number(m.tutar) / (1 + MANUEL_TAHSILAT_KDV_ORANI)).toDecimalPlaces(2);
+    if (m.odemeTuru === 'CARD') tutar = tutar.minus(m.commissionAmount ?? 0);
+    toplam = toplam.plus(tutar);
+  }
+  return toplam;
+}
+
 /**
  * "Kasa Nakit" ve "SGK Hakları" artık vardiya/gün bazlı sıfırlanmıyor — mağaza müdürünün
  * kasada fiilen birikmiş nakti ve aya ait SGK alacağını sürekli görebilmesi için:
@@ -869,6 +907,7 @@ async function computeAylikOzet(branchId: string, date: Date) {
       ortalamaSepet: '0',
       totalCommission: '0',
       aylikKdvToplami: '0',
+      toplamTahsilat: '0',
       aylikTemsilciBreakdown: [] as Array<{ repName: string; saleCount: number; ciro: string }>,
     };
   }
@@ -968,6 +1007,7 @@ async function computeAylikOzet(branchId: string, date: Date) {
     // 06.11.2026: SGK/Vakıf'ın karşıladığı kısmın KDV'si hariç (kasa formundaki "Vergi Hariç" ile
     // aynı mantık; Excel kasa formu da reçete bedelinin KDV'sini saymıyor).
     aylikKdvToplami: (await musteriPayiKdvToplami(branchId, ayBaslangici, araligiBitisi)).plus(ayDuzeltme.kdv).minus(ayCiroDuzeltme.kdv).toString(),
+    toplamTahsilat: (await toplamTahsilatHesapla(branchId, ayBaslangici, araligiBitisi)).toString(),
     aylikTemsilciBreakdown,
   };
 }
