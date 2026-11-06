@@ -663,6 +663,23 @@ async function buildCiroDuzeltmeRows(
   }));
 }
 
+// 06.11.2026 — Aylık KDV: her satışın KDV'sinin MÜŞTERİ PAYINA düşen kısmı (SGK/Vakıf payının KDV'si hariç).
+// Kasa formundaki satır "Vergi Hariç" hesabıyla birebir aynı: müşteriPayı × KDV / net.
+async function musteriPayiKdvToplami(branchId: string, gte: Date, lte: Date) {
+  const satislar = await prisma.sale.findMany({
+    where: { branchId, status: SaleStatus.PAID, createdAt: { gte, lte } },
+    select: { netTotal: true, taxTotal: true, sgkAmount: true, prescriptionAmount: true },
+  });
+  let toplam = new Prisma.Decimal(0);
+  for (const s of satislar) {
+    const net = Number(s.netTotal);
+    if (net <= 0) continue;
+    const musteriPayi = Math.max(0, net - Number(s.sgkAmount ?? 0) - Number(s.prescriptionAmount ?? 0));
+    toplam = toplam.plus(new Prisma.Decimal((musteriPayi * Number(s.taxTotal ?? 0)) / net).toDecimalPlaces(2));
+  }
+  return toplam;
+}
+
 // 05.11.2026 — Bir aralıktaki CİRO DÜZELTME toplamı (şube) ve temsilci (satışın userId'si) bazında.
 async function ciroDuzeltmeToplamlari(branchId: string, gte: Date, lte: Date) {
   const rows = await prisma.payment.findMany({
@@ -948,7 +965,9 @@ async function computeAylikOzet(branchId: string, date: Date) {
     ortalamaSepet: ortalamaSepet.toString(),
     totalCommission: totalCommission.toString(),
     // 05.11.2026: ciro düzeltmelerin KDV payı da düşülür
-    aylikKdvToplami: (salesAgg._sum.taxTotal ?? new Prisma.Decimal(0)).plus(ayDuzeltme.kdv).minus(ayCiroDuzeltme.kdv).toString(),
+    // 06.11.2026: SGK/Vakıf'ın karşıladığı kısmın KDV'si hariç (kasa formundaki "Vergi Hariç" ile
+    // aynı mantık; Excel kasa formu da reçete bedelinin KDV'sini saymıyor).
+    aylikKdvToplami: (await musteriPayiKdvToplami(branchId, ayBaslangici, araligiBitisi)).plus(ayDuzeltme.kdv).minus(ayCiroDuzeltme.kdv).toString(),
     aylikTemsilciBreakdown,
   };
 }
