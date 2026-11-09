@@ -151,7 +151,8 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `etiket-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.${dil === 'zpl' ? 'zpl' : 'prn'}`
+    // Mağazada yazıcıya .txt dosyası olarak gönderiliyor (eski programdaki gibi) — uzantı .txt
+    a.download = `etiket-${dil === 'zpl' ? 'zebra' : 'argox'}-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.txt`
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -305,7 +306,7 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
                 {kopyalandi ? '✓ Kopyalandı' : 'Ham Kodu Kopyala'}
               </button>
               <button type="button" onClick={hamKoduIndir} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e5e7eb', fontWeight: 700, cursor: 'pointer' }}>
-                Ham Kodu İndir ({dil === 'zpl' ? '.zpl' : '.prn'})
+                Ham Kodu İndir (.txt)
               </button>
               <button
                 type="button"
