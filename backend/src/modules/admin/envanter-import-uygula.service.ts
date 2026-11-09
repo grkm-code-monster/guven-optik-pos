@@ -186,6 +186,41 @@ async function findTemplateId(
   return (byCateg ?? exact[0]).id;
 }
 
+async function aktifVaryantIdleri(tmplId: number): Promise<number[]> {
+  try {
+    return (await execute('product.product', 'search', [[['product_tmpl_id', '=', tmplId], ['active', '=', true]]], { limit: 0 })) as number[];
+  } catch {
+    return [];
+  }
+}
+
+/** Önceden aktif olup Odoo'nun yeni varyant eklerken pasife aldığı varyantları geri aktif yapar. */
+async function pasifeDusenleriGeriAl(oncekiAktifler: number[]): Promise<void> {
+  if (!oncekiAktifler.length) return;
+  try {
+    const simdi = (await execute('product.product', 'read', [oncekiAktifler], { fields: ['id', 'active'], context: { active_test: false } })) as { id: number; active: boolean }[];
+    const dusen = simdi.filter((v) => !v.active).map((v) => v.id);
+    if (dusen.length) {
+      await execute('product.product', 'write', [dusen, { active: true }]);
+      console.log(`[envanter-import] Odoo'nun pasife aldığı ${dusen.length} varyant geri aktif yapıldı`);
+    }
+  } catch (e) {
+    console.error('[envanter-import] pasife düşen varyantlar geri alınamadı:', e instanceof Error ? e.message : e);
+  }
+}
+
+/** Stok girilen varyant pasifse aktif yapar (stoklu ürün satışta bulunabilsin). */
+async function varyantlariAktifEt(ids: number[]): Promise<void> {
+  if (!ids.length) return;
+  try {
+    const v = (await execute('product.product', 'read', [ids], { fields: ['id', 'active'], context: { active_test: false } })) as { id: number; active: boolean }[];
+    const pasif = v.filter((x) => !x.active).map((x) => x.id);
+    if (pasif.length) await execute('product.product', 'write', [pasif, { active: true }]);
+  } catch (e) {
+    console.error('[envanter-import] stoklu varyant aktif yapılamadı:', e instanceof Error ? e.message : e);
+  }
+}
+
 async function urunTakipTuru(varyantId: number, cache: Map<number, string>): Promise<string> {
   const c = cache.get(varyantId);
   if (c) return c;
@@ -306,6 +341,13 @@ export async function uygulaEnvanterImport(input: {
 
     const varyantIdCache = new Map<string, number>();
 
+    // 09.11.2026 — KORUMA: Şablonda "(Çoklu)" nitelik satırları varsa, yeni varyant eklenince Odoo
+    // şablonun 3 nitelikli (model/renk/ölçü) varyantlarını "eksik kombinasyon" sayıp PASİFE alıyor
+    // (stoklu ürünler satış ekranında bulunamaz hale geliyordu — panayır aktarımında 59 varyant).
+    // Yeni varyant eklemeden önce şablonun AKTİF varyantlarını not alıyor, sonra pasife düşenleri geri
+    // aktif yapıyoruz.
+    const oncekiAktifler = importSatirlari.length ? await aktifVaryantIdleri(tmplId) : [];
+
     if (importSatirlari.length) {
       try {
         const importSonuc = muaf
@@ -337,11 +379,15 @@ export async function uygulaEnvanterImport(input: {
           });
           islenenSatirNolar.add(row.satirNo);
         }
+        await pasifeDusenleriGeriAl(oncekiAktifler);
         continue;
       }
+      await pasifeDusenleriGeriAl(oncekiAktifler);
     }
 
     const fiyatGuncellenen = new Set<number>();
+    // Stok girilen varyant pasifse (ör. eski kayıt) satışta bulunabilsin diye grup sonunda aktif yapılır.
+    const stokGirilenVaryantlar = new Set<number>();
 
     for (const row of grupSatirlari) {
       if (islenenSatirNolar.has(row.satirNo)) continue;
@@ -437,6 +483,7 @@ export async function uygulaEnvanterImport(input: {
           tamamlananAdet += parca > 1 ? 1 : row.adet;
         }
 
+        stokGirilenVaryantlar.add(varyantId);
         if (!fiyatGuncellenen.has(varyantId)) {
           await guncelleVaryantFiyatlari(
             varyantId,
@@ -474,9 +521,11 @@ export async function uygulaEnvanterImport(input: {
           ...(lotId != null && !lotCreated ? { olusturulanLotId: lotId } : {}),
           olusturulanVaryantId: varyantId,
         });
+        if (tamamlananAdet > 0) stokGirilenVaryantlar.add(varyantId);
         islenenSatirNolar.add(row.satirNo);
       }
     }
+    await varyantlariAktifEt([...stokGirilenVaryantlar]);
   }
 
   sonuclar.sort((a, b) => a.satirNo - b.satirNo);
