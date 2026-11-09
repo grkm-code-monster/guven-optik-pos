@@ -96,8 +96,9 @@ export function modelVeRenk(raw: string): { model: string; renk: string; olcu: s
   }
   // 09.11.2026 — Stok Yönetimi varyant etiketi "MS254PG / C2 / 48" (etiketsiz, sırayla model / renk / ölçü)
   // gönderiyor; önceden sadece "MODEL: .. / RENK: .." biçimi okunduğu için model/renk etikette boş çıkıyordu.
-  if (s.includes('/')) {
-    const [model = '', renk = '', olcu = ''] = s.split('/').map((p) => p.trim()).map((p) => (p === '—' ? '' : p));
+  // Ayırıcı " / " (boşluklu) — model adında boşluksuz "/" olabilir (ör. POLAROID "PLD4078/S/XPG").
+  if (/\s\/\s/.test(s)) {
+    const [model = '', renk = '', olcu = ''] = s.split(/\s+\/\s+/).map((p) => p.trim()).map((p) => (p === '—' ? '' : p));
     return { model, renk, olcu };
   }
   return { model: '', renk: '', olcu: '' };

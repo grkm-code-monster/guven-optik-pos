@@ -29,8 +29,9 @@ export function modelVeRenk(raw: string): { model: string; renk: string } {
     }
   }
   // 09.11.2026 — Stok Yönetimi varyant etiketi "MS254PG / C2 / 48" (sırayla model / renk / ölçü) gönderiyor
-  if (s.includes('/')) {
-    const [model = '', renk = ''] = s.split('/').map((p) => p.trim()).map((p) => (p === '—' ? '' : p))
+  // Ayırıcı " / " (boşluklu) — model adında boşluksuz "/" olabilir (ör. "PLD4078/S/XPG")
+  if (/\s\/\s/.test(s)) {
+    const [model = '', renk = ''] = s.split(/\s+\/\s+/).map((p) => p.trim()).map((p) => (p === '—' ? '' : p))
     return { model, renk }
   }
   return { model: '', renk: '' }
