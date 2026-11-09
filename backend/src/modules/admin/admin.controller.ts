@@ -5131,10 +5131,35 @@ router.put('/personel-guncelle/:id', async (req, res, next) => {
 
     const updateData = { ...data };
     delete updateData.id;
+    const onceki = await prisma.personel.findUnique({ where: { id }, select: { subeId: true, userId: true } });
     const personel =
       Object.keys(updateData).length > 0
         ? await prisma.personel.update({ where: { id }, data: updateData })
         : await prisma.personel.findUnique({ where: { id } });
+
+    // 09.11.2026 — İK'da şube değişince bağlı POS kullanıcısının şubesi de değişir. Satışın şubesi
+    // giriş yapan kullanıcının şubesinden geliyor; önceden sadece İK kaydı değişiyordu ve personelin
+    // satışları eski şubeye yazılmaya devam ediyordu (Sude Parıldar: İK GVN2, kullanıcı GVN1).
+    const yeniSube = typeof updateData.subeId === 'string' ? updateData.subeId.trim() : '';
+    const bagliKullanici = onceki?.userId ?? null;
+    if (yeniSube && yeniSube !== onceki?.subeId && bagliKullanici) {
+      const sube = await prisma.branch.findFirst({ where: { code: { equals: yeniSube, mode: 'insensitive' } } });
+      if (sube) {
+        const kullanici = await prisma.user.findUnique({ where: { id: bagliKullanici }, select: { branchId: true } });
+        if (kullanici && kullanici.branchId !== sube.id) {
+          await prisma.user.update({ where: { id: bagliKullanici }, data: { branchId: sube.id } });
+          await prisma.auditLog.create({
+            data: {
+              userId: req.user?.userId ?? bagliKullanici,
+              action: 'KULLANICI_SUBE_DEGISTIR',
+              entity: 'User',
+              entityId: bagliKullanici,
+              payload: { eskiBranchId: kullanici.branchId, yeni: sube.code, kaynak: 'personel-guncelle' },
+            },
+          });
+        }
+      }
+    }
 
     return res.json({ success: true, data: personel });
   } catch (err) {
