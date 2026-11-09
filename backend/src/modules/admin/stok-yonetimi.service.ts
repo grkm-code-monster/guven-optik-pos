@@ -773,10 +773,12 @@ export type VaryantLotBilgisi = {
   utsKodu: string | null;
   lotNo: string | null;
   lotId: number | null;
+  /** 09.11.2026 — lokasyon verildiyse o lokasyondaki TÜM seri/lotlar (her gözlüğe kendi seri no'lu etiket) */
+  lotlar?: { lotId: number; lotNo: string; utsKodu: string | null; adet: number }[];
 };
 
 /** Varyant (product.product) için en güncel lot/UTS — stok girişi yoksa boş alanlar */
-export async function getVaryantLotBilgisi(productId: number): Promise<VaryantLotBilgisi> {
+export async function getVaryantLotBilgisi(productId: number, lokasyonId?: number | null): Promise<VaryantLotBilgisi> {
   const bos: VaryantLotBilgisi = {
     productId,
     kategoriId: null,
@@ -802,16 +804,44 @@ export async function getVaryantLotBilgisi(productId: number): Promise<VaryantLo
     }
   }
 
+  // 09.11.2026 — Lokasyon seçiliyse seri no O LOKASYONDAKİ stoktan alınır; önceden herhangi bir
+  // mağazadaki son lot geliyordu (panayır etiketine GVNP sayım lotu basıldı).
+  const lokasyonFiltresi: unknown[] = lokasyonId ? [['location_id', 'child_of', lokasyonId]] : [];
   const quants = (await execute('stock.quant', 'search_read', [[
     ['product_id', '=', productId],
     ['lot_id', '!=', false],
     ['quantity', '>', 0],
     ['location_id.usage', '=', 'internal'],
+    ...lokasyonFiltresi,
   ]], {
-    fields: ['lot_id'],
+    fields: ['lot_id', 'quantity'],
     order: 'write_date desc, id desc',
-    limit: 1,
+    limit: lokasyonId ? 500 : 1,
   })) ?? [];
+
+  let lotlar: VaryantLotBilgisi['lotlar'];
+  if (lokasyonId && quants.length) {
+    const adetler = new Map<number, { lotNo: string; adet: number }>();
+    for (const q of quants as Array<{ lot_id?: unknown; quantity?: number }>) {
+      const id = m2oId(q.lot_id);
+      if (!id) continue;
+      const o = adetler.get(id) ?? { lotNo: m2oName(q.lot_id) || '', adet: 0 };
+      o.adet += Number(q.quantity ?? 0);
+      adetler.set(id, o);
+    }
+    const utsMap = new Map<number, string | null>();
+    try {
+      const lotKayitlari = (await execute('stock.lot', 'read', [[...adetler.keys()]], { fields: ['name', 'x_uts_kodu'] })) ?? [];
+      for (const l of lotKayitlari as Array<{ id: number; x_uts_kodu?: unknown }>) {
+        utsMap.set(l.id, l.x_uts_kodu ? String(l.x_uts_kodu).trim() || null : null);
+      }
+    } catch {
+      // x_uts_kodu alanı yoksa UTS'siz devam
+    }
+    lotlar = [...adetler.entries()]
+      .map(([lotId, o]) => ({ lotId, lotNo: o.lotNo, utsKodu: utsMap.get(lotId) ?? null, adet: Math.max(1, Math.round(o.adet)) }))
+      .sort((a, b) => a.lotNo.localeCompare(b.lotNo, 'tr'));
+  }
 
   if (!quants.length) {
     return { ...bos, kategoriId };
@@ -845,6 +875,7 @@ export async function getVaryantLotBilgisi(productId: number): Promise<VaryantLo
     utsKodu,
     lotNo,
     lotId,
+    ...(lotlar ? { lotlar } : {}),
   };
 }
 

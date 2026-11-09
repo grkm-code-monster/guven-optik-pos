@@ -56,8 +56,19 @@ async function calculateExpectedCash(
   openCash: Prisma.Decimal,
 ) {
   const shiftId = shift.id;
+  // 09.11.2026 — Satışın/açık hesabın nakit ödemesi hem Payment (aşağıda) hem de kasa hareketi
+  // (SALE_CASH_PAYMENT / OPEN_ACCOUNT_PAYMENT) olarak kaydediliyor; burada ikisi birden sayıldığı için
+  // vardiya kapanışında beklenen nakit FAZLA çıkıyordu. Günlük kasa raporundaki (report.service) gibi
+  // bu hareketler hariç tutulur; manuel tahsilat ve diğer nakit girişleri sayılmaya devam eder.
   const cashInAgg = await prisma.cashMovement.aggregate({
-    where: { shiftId, type: CashMovementType.CASH_IN },
+    where: {
+      shiftId,
+      type: CashMovementType.CASH_IN,
+      NOT: [
+        { description: { startsWith: 'SALE_CASH_PAYMENT:' } },
+        { description: { startsWith: 'OPEN_ACCOUNT_PAYMENT:' } },
+      ],
+    },
     _sum: { amount: true },
   });
   const cashOutAgg = await prisma.cashMovement.aggregate({
@@ -83,7 +94,12 @@ async function calculateExpectedCash(
   const cashPayments = await prisma.payment.findMany({
     where: {
       paymentType: PaymentType.CASH,
-      sale: { branchId: shift.branchId, status: SaleStatus.PAID },
+      sale: { status: SaleStatus.PAID },
+      // Tahsilat başka şubede alındıysa o şubenin kasasına sayılır (rapordaki tahsilat şubesi kuralı)
+      OR: [
+        { tahsilatBranchId: shift.branchId },
+        { tahsilatBranchId: null, sale: { branchId: shift.branchId } },
+      ],
       createdAt: {
         gte: shift.openedAt,
         ...(shift.closedAt ? { lte: shift.closedAt } : {}),

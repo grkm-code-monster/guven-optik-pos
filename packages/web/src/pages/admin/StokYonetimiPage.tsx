@@ -377,7 +377,7 @@ export default function StokYonetimiPage() {
     await Promise.all(
       kaynaklar.map(async (k) => {
         try {
-          lotMap.set(k.key, await getVaryantLotBilgisi(k.odooId));
+          lotMap.set(k.key, await getVaryantLotBilgisi(k.odooId, lokasyon || undefined));
         } catch {
           lotMap.set(k.key, {
             productId: k.odooId,
@@ -390,9 +390,28 @@ export default function StokYonetimiPage() {
       }),
     );
 
-    return kaynaklar.map((k) => {
+    // 09.11.2026 — Lokasyon seçiliyse her seri no (lot) için AYRI etiket: her gözlüğün etiketinde kendi
+    // seri numarası olur. Önceden tek (herhangi bir mağazadaki son) lot, stok adedi kadar basılıyordu.
+    return kaynaklar.flatMap((k) => {
       const bilgi = lotMap.get(k.key);
-      return {
+      if (lokasyon && bilgi?.lotlar?.length) {
+        return bilgi.lotlar.map((l) => ({
+          key: `${k.key}#${l.lotId}`,
+          urunAdi: k.urunAdi ?? tmpl.urunAdi,
+          seriNo: l.lotNo || '-',
+          fiyat: k.satisFiyati,
+          barkod: k.barkod || null,
+          secili: true,
+          categAdi: tmpl.kategori,
+          renkVaryant: k.nitelikEtiketi,
+          utsKodu: l.utsKodu ?? bilgi.utsKodu ?? null,
+          utsKodlu: Boolean(l.utsKodu ?? bilgi.utsKodu),
+          lotNo: l.lotNo || undefined,
+          kategoriId: bilgi.kategoriId ?? k.kategoriId ?? null,
+          adet: l.adet,
+        }));
+      }
+      return [{
         key: k.key,
         urunAdi: k.urunAdi ?? tmpl.urunAdi,
         seriNo: bilgi?.lotNo || '-',
@@ -406,7 +425,7 @@ export default function StokYonetimiPage() {
         lotNo: bilgi?.lotNo ?? undefined,
         kategoriId: bilgi?.kategoriId ?? k.kategoriId ?? null,
         adet: k.stok && k.stok > 0 ? Math.round(k.stok) : 1,
-      };
+      }];
     });
   }
 
@@ -688,7 +707,7 @@ export default function StokYonetimiPage() {
       let lotBilgi: Awaited<ReturnType<typeof getVaryantLotBilgisi>> | null = null
       if (variantProductId) {
         try {
-          lotBilgi = await getVaryantLotBilgisi(variantProductId)
+          lotBilgi = await getVaryantLotBilgisi(variantProductId, etiketLokasyon || undefined)
         } catch {
           lotBilgi = null
         }

@@ -13,7 +13,7 @@ import {
   OdooCategoryMatchError,
   resolveOrCreateCategoryId,
 } from '../odoo/odoo-category.util';
-import { getAnaDepoLocationId, getCompanyIdFromLokasyon, LOKASYON_ID_MAP } from '../odoo/odooLocations';
+import { getAnaDepoLocationId, getCompanyIdFromLokasyon, getLokasyonId, LOKASYON_ID_MAP } from '../odoo/odooLocations';
 import { ODOO_OPTIK_CAM_CATEGORY_IDS } from '../sales/sale-item-lab.util';
 import { getOrCreateFaturasizCari } from '../odoo/faturasiz-cari.util';
 import * as pdksService from '../pdks/pdks.service';
@@ -6968,7 +6968,9 @@ router.get('/varyant-lot-bilgisi/:productId', async (req: Request, res: Response
     if (!Number.isFinite(productId) || productId <= 0) {
       return res.status(400).json({ error: 'Geçersiz productId' });
     }
-    const data = await stokYonetimi.getVaryantLotBilgisi(productId);
+    // 09.11.2026 — ?lokasyon=GUVENP2 verilirse seri no o lokasyondan; tüm lotlar da döner
+    const lokasyonId = req.query.lokasyon ? await getLokasyonId(String(req.query.lokasyon)) : null;
+    const data = await stokYonetimi.getVaryantLotBilgisi(productId, lokasyonId);
     return res.json({ data });
   } catch (err) {
     next(err);

@@ -20,6 +20,7 @@ import { createBildirimler } from '../bildirim/bildirim.service';
 import { calculateCommission } from '../payments/commission.service';
 import { tetikleSatisEFatura } from '../efatura/uyumsoft-efatura.service';
 import { generateSatisReferansNo } from '../shared/referans-no.util';
+import { ensureOpenShift } from '../shifts/shift.service';
 import type {
   AddSaleItemInputType,
   ConfirmSaleInputType,
@@ -755,6 +756,20 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
   sale = await prisma.sale.findUniqueOrThrow({ where: { id: saleId } });
 
   const now = new Date();
+
+  // 09.11.2026 — Önceki günden kalan taslak bugün tamamlanıyorsa satış BUGÜNE ve bugünün açık
+  // vardiyasına yazılır. Önceden taslağın açıldığı güne/vardiyaya (kapanmış kasaya) yazılıyordu:
+  // günlük kasa raporunda satış yanlış güne düşüyor, nakit ödeme kapanmış vardiyaya giriyordu
+  // (Habip Bekar: taslak 07.11, satış 09.11).
+  const taslakVardiya = await prisma.shift.findUnique({ where: { id: sale.shiftId }, select: { status: true } });
+  if (!taslakVardiya || taslakVardiya.status !== ShiftStatus.OPEN) {
+    const acikVardiya = await ensureOpenShift(userId, sale.branchId);
+    sale = await prisma.sale.update({
+      where: { id: saleId },
+      data: { shiftId: acikVardiya.id, createdAt: now },
+    });
+  }
+
   const paymentsToCreate: Array<{
     saleId: string;
     paymentType: PaymentType;

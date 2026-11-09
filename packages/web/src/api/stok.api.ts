@@ -59,10 +59,14 @@ export type VaryantLotBilgisi = {
   utsKodu: string | null
   lotNo: string | null
   lotId: number | null
+  /** lokasyon verildiyse o lokasyondaki tüm seri/lotlar */
+  lotlar?: { lotId: number; lotNo: string; utsKodu: string | null; adet: number }[]
 }
 
-export async function getVaryantLotBilgisi(productId: number) {
-  const res = await adminApi.get(`/admin/varyant-lot-bilgisi/${productId}`)
+export async function getVaryantLotBilgisi(productId: number, lokasyon?: string) {
+  const res = await adminApi.get(`/admin/varyant-lot-bilgisi/${productId}`, {
+    params: lokasyon ? { lokasyon } : undefined,
+  })
   return (res.data?.data ?? null) as VaryantLotBilgisi
 }
 
