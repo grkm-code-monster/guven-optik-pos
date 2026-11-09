@@ -4,6 +4,7 @@ import { renderEtiketBatchToDataUrls, type EtiketSablonRender } from './etiket-c
 import { yazdirEtiketGorselleri } from './etiket-gorsel-yazdir'
 import { etiketleriPdfOlustur } from './etiket-pdf-yazdir'
 import EtiketSablonSecici from './EtiketSablonSecici'
+import type { EtiketDil } from '../../api/etiket.api'
 import {
   etiketUrunToRenderVeri,
   getPilotEtiketSablon,
@@ -66,6 +67,22 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
   const [yazdiriliyor, setYazdiriliyor] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [kopyalandi, setKopyalandi] = useState(false)
+  // 09.11.2026 — Yazıcı dili: Argox (PPLA) ya da Zebra (ZPL, ör. ZD220). Seçim bu bilgisayarda hatırlanır.
+  const [dil, setDil] = useState<EtiketDil>(() => {
+    try {
+      return localStorage.getItem('etiketYaziciDili') === 'zpl' ? 'zpl' : 'ppla'
+    } catch {
+      return 'ppla'
+    }
+  })
+  function dilSec(yeni: EtiketDil) {
+    setDil(yeni)
+    try {
+      localStorage.setItem('etiketYaziciDili', yeni)
+    } catch {
+      // tarayıcı depolaması kapalıysa sadece bu oturumda geçerli
+    }
+  }
 
   const ilkSecili = useMemo(
     () => secimler.find((u) => u.secili) ?? secimler[0],
@@ -107,7 +124,7 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
         return Array.from({ length: adet }, () => ({ ...veri }))
       })
       const [zplKod, sablon] = await Promise.all([
-        uretEtiketZplTercihli(sablonId, items, ilkSecili?.categAdi, source),
+        uretEtiketZplTercihli(sablonId, items, ilkSecili?.categAdi, source, dil),
         getPilotEtiketSablon(sablonId, ilkSecili?.categAdi),
       ])
       setZpl(zplKod)
@@ -126,6 +143,19 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
     await navigator.clipboard.writeText(zpl)
     setKopyalandi(true)
     setTimeout(() => setKopyalandi(false), 2000)
+  }
+
+  function hamKoduIndir() {
+    if (!zpl) return
+    const blob = new Blob([zpl], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `etiket-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.${dil === 'zpl' ? 'zpl' : 'prn'}`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
   }
 
   async function yazdir() {
@@ -178,8 +208,28 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
         </div>
 
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
-          Ürünleri seçin, şablon belirleyin ve etiket üretin. Her ürün için basılacak adedi ayrı ayrı girebilirsiniz. Yazdır, etiketi görsel olarak Argox sürücüsüne gönderir.
+          Ürünleri seçin, şablon belirleyin ve etiket üretin. Her ürün için basılacak adedi ayrı ayrı girebilirsiniz. Yazdır, etiketi görsel olarak yazıcı sürücüsüne gönderir.
         </div>
+
+        {!zpl ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13 }}>
+            <span style={{ fontWeight: 700 }}>Yazıcı:</span>
+            {([['ppla', 'Argox (PPLA)'], ['zpl', 'Zebra (ZPL) — ör. ZD220']] as const).map(([k, ad]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => dilSec(k)}
+                style={{
+                  padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 12,
+                  border: dil === k ? '2px solid #059669' : '1px solid #e5e7eb',
+                  backgroundColor: dil === k ? '#ecfdf5' : 'white', color: dil === k ? '#065f46' : '#374151',
+                }}
+              >
+                {ad}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
           {secimler.map((u) => (
@@ -247,12 +297,15 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
               {sablonId === 'depo-kutu'
                 ? 'Yazdır butonu, etiketleri A4 sayfaya kesim çizgili grid halinde dizilmiş bir PDF olarak indirir — normal yazıcıdan (lazer/mürekkep püskürtmeli) bastırıp makasla kesin.'
                 : gorselYazdirma
-                ? 'PPLA ham komutu (yedek/kopya). Yazdır butonu etiketi PNG görseli olarak gönderir — macOS yazıcı ayarlarında özel kağıt boyutu ve Label Sensor: Gap seçili olmalı.'
+                ? `${dil === 'zpl' ? 'Zebra ZPL' : 'Argox PPLA'} ham komutu (yedek/kopya). Yazdır butonu etiketi PNG görseli olarak gönderir — macOS yazıcı ayarlarında özel kağıt boyutu ve Label Sensor: Gap seçili olmalı.`
                 : 'Ham komut metni (eski şablon). Görsel yazdırma bu şablon için henüz yok.'}
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <button type="button" onClick={() => void kopyala()} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e5e7eb', fontWeight: 700, cursor: 'pointer' }}>
                 {kopyalandi ? '✓ Kopyalandı' : 'Ham Kodu Kopyala'}
+              </button>
+              <button type="button" onClick={hamKoduIndir} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e5e7eb', fontWeight: 700, cursor: 'pointer' }}>
+                Ham Kodu İndir ({dil === 'zpl' ? '.zpl' : '.prn'})
               </button>
               <button
                 type="button"

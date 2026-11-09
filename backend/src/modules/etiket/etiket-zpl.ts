@@ -268,13 +268,16 @@ export function generateZplFromSablon(
   yukseklikMm: number,
   veri: EtiketVeri,
 ): string {
-  void genislikMm;
-  void yukseklikMm;
   const lines = elemanlar
     .filter((e) => e.type !== 'kulakcik')
     .map((e) => elementToZpl(e, veri))
     .filter(Boolean);
-  return `^XA\n${lines.join('\n')}\n^XZ`;
+  // 09.11.2026 — Zebra (ZD220 vb.) için: ^CI28 = UTF-8 (Türkçe harfler Ğ/Ü/İ/Ş düzgün basılsın),
+  // ^PW/^LL = etiket genişliği/yüksekliği (203 dpi → 8 nokta/mm).
+  const boyut: string[] = ['^CI28'];
+  if (Number(genislikMm) > 0) boyut.push(`^PW${mmToDots(Number(genislikMm))}`);
+  if (Number(yukseklikMm) > 0) boyut.push(`^LL${mmToDots(Number(yukseklikMm))}`);
+  return `^XA\n${boyut.join('\n')}\n${lines.join('\n')}\n^XZ`;
 }
 
 export function generateZplBatchFromSablon(
