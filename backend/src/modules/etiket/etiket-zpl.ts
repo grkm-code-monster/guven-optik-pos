@@ -17,7 +17,8 @@ export type ElementType =
   | 'renkKodu'
   | 'nitelik'
   | 'fiyatDegisimTarihi'
-  | 'gs1Referans';
+  | 'gs1Referans'
+  | 'olcu';
 
 export type CanvasElement = {
   id: string;
@@ -84,12 +85,22 @@ export function nitelikKisa(raw: string): string {
   return s.replace(/\s*\/\s*/g, ' ').replace(/MODEL:\s*|RENK:\s*|(?:OLCU|ÖLÇÜ):\s*/gi, '').trim();
 }
 
-export function modelVeRenk(raw: string): { model: string; renk: string } {
+export function modelVeRenk(raw: string): { model: string; renk: string; olcu: string } {
   const s = (raw ?? '').trim();
-  return {
-    model: s.match(/MODEL:\s*([^/|]+)/i)?.[1]?.trim() ?? '',
-    renk: s.match(/RENK:\s*([^/|]+)/i)?.[1]?.trim() ?? '',
-  };
+  if (/MODEL:|RENK:|OLCU:|ÖLÇÜ:/i.test(s)) {
+    return {
+      model: s.match(/MODEL:\s*([^/|]+)/i)?.[1]?.trim() ?? '',
+      renk: s.match(/RENK:\s*([^/|]+)/i)?.[1]?.trim() ?? '',
+      olcu: s.match(/(?:OLCU|ÖLÇÜ):\s*([^/|]+)/i)?.[1]?.trim() ?? '',
+    };
+  }
+  // 09.11.2026 — Stok Yönetimi varyant etiketi "MS254PG / C2 / 48" (etiketsiz, sırayla model / renk / ölçü)
+  // gönderiyor; önceden sadece "MODEL: .. / RENK: .." biçimi okunduğu için model/renk etikette boş çıkıyordu.
+  if (s.includes('/')) {
+    const [model = '', renk = '', olcu = ''] = s.split('/').map((p) => p.trim()).map((p) => (p === '—' ? '' : p));
+    return { model, renk, olcu };
+  }
+  return { model: '', renk: '', olcu: '' };
 }
 
 /**
@@ -198,6 +209,8 @@ export function resolveElementText(el: CanvasElement, veri: EtiketVeri): string 
       return modelVeRenk(String(veri.renkVaryant ?? '').trim() || String(veri.icReferans ?? '')).model;
     case 'renkKodu':
       return modelVeRenk(String(veri.renkVaryant ?? '').trim() || String(veri.icReferans ?? '')).renk;
+    case 'olcu':
+      return modelVeRenk(String(veri.renkVaryant ?? '').trim() || String(veri.icReferans ?? '')).olcu;
     case 'nitelik':
       return nitelikKisa(String(veri.renkVaryant ?? '').trim() || String(veri.icReferans ?? ''));
     case 'fiyatDegisimTarihi':
@@ -316,7 +329,8 @@ export const ZEBRA_GUNES_KATLANIR: CanvasElement[] = [
   { id: 'barkodNo', type: 'barkodMetin', x: 320, y: 35, fontSize: 11 },
   { id: 'urunAdi', type: 'urunAdi', x: 320, y: 50, fontSize: 15, width: 305 },
   { id: 'model', type: 'model', x: 320, y: 68, fontSize: 14, width: 150 },
-  { id: 'renkKodu', type: 'renkKodu', x: 480, y: 68, fontSize: 14, width: 145 },
+  { id: 'renkKodu', type: 'renkKodu', x: 475, y: 68, fontSize: 14, width: 85 },
+  { id: 'olcu', type: 'olcu', x: 565, y: 68, fontSize: 14, width: 60 },
   { id: 'fiyat', type: 'fiyat', x: 320, y: 86, fontSize: 28, width: 305 },
   { id: 'fiyatTarihi', type: 'fiyatDegisimTarihi', x: 320, y: 120, fontSize: 11, width: 305 },
   { id: 'kdv', type: 'kdvDahildir', x: 320, y: 135, fontSize: 11 },

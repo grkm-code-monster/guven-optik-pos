@@ -22,10 +22,18 @@ export function nitelikKisa(raw: string): string {
 /** MODEL / RENK alanlarını ayrı ayrı çıkar */
 export function modelVeRenk(raw: string): { model: string; renk: string } {
   const s = (raw ?? '').trim()
-  return {
-    model: s.match(/MODEL:\s*([^/|]+)/i)?.[1]?.trim() ?? '',
-    renk: s.match(/RENK:\s*([^/|]+)/i)?.[1]?.trim() ?? '',
+  if (/MODEL:|RENK:|OLCU:|ÖLÇÜ:/i.test(s)) {
+    return {
+      model: s.match(/MODEL:\s*([^/|]+)/i)?.[1]?.trim() ?? '',
+      renk: s.match(/RENK:\s*([^/|]+)/i)?.[1]?.trim() ?? '',
+    }
   }
+  // 09.11.2026 — Stok Yönetimi varyant etiketi "MS254PG / C2 / 48" (sırayla model / renk / ölçü) gönderiyor
+  if (s.includes('/')) {
+    const [model = '', renk = ''] = s.split('/').map((p) => p.trim()).map((p) => (p === '—' ? '' : p))
+    return { model, renk }
+  }
+  return { model: '', renk: '' }
 }
 
 /** SKT → GS1 (17) YYAAGG */
