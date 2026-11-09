@@ -72,7 +72,6 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
   const [kopyalandi, setKopyalandi] = useState(false)
   // 09.11.2026 — Yazıcı dili: Argox (PPLA) ya da Zebra (ZPL, ör. ZD220). Seçim bu bilgisayarda hatırlanır.
   const [dil, setDil] = useState<EtiketDil>(kayitliYaziciDili)
-  }
 
   const ilkSecili = useMemo(
     () => secimler.find((u) => u.secili) ?? secimler[0],
