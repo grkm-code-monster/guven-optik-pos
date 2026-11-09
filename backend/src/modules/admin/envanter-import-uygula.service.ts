@@ -7,6 +7,7 @@ import {
   isModelRenkOlcuMuaf,
   turkceSadelestir,
   type ParsedEnvanterRow,
+  sablonAdayiSec,
 } from './envanter-import.service';
 import {
   createEnvanterSablon,
@@ -177,13 +178,11 @@ async function findTemplateId(
   if (!exact.length) return null;
   if (exact.length === 1) return exact[0].id;
 
-  const katUpper = kategori.trim().toUpperCase();
-  const byCateg = exact.find((t) => {
-    const categName = t.categ_id ? t.categ_id[1] : '';
-    return categName.toUpperCase().includes(katUpper)
-      || katUpper.includes(categName.toUpperCase());
-  });
-  return (byCateg ?? exact[0]).id;
+  // 09.11.2026 — önizleme ile aynı seçim: kategori birebir → içeren → en çok aktif varyantlı şablon.
+  return sablonAdayiSec(
+    exact.map((t) => ({ id: t.id, categName: t.categ_id ? t.categ_id[1] : '' })),
+    kategori,
+  );
 }
 
 async function aktifVaryantIdleri(tmplId: number): Promise<number[]> {

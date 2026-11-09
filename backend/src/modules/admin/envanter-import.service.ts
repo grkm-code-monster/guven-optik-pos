@@ -530,12 +530,54 @@ async function findTemplate(
   if (!candidates.length) return null;
   if (candidates.length === 1) return candidates[0];
 
-  const katUpper = kategori.trim().toUpperCase();
-  const byCateg = candidates.find((c) =>
-    c.categName.toUpperCase().includes(katUpper)
-    || katUpper.includes(c.categName.toUpperCase()),
+  const secilen = await sablonAdayiSec(
+    candidates.map((c) => ({ id: c.id, categName: c.categName })),
+    kategori,
   );
-  return byCateg ?? candidates[0];
+  return candidates.find((c) => c.id === secilen) ?? candidates[0];
+}
+
+/**
+ * 09.11.2026 — Aynı isimde BİRDEN FAZLA şablon varsa (ör. "OSSE GÜNEŞ GÖZLÜĞÜ" 4 tane, "SWING" 3 tane)
+ * hangisinin seçileceği önceden arama sırasına kalıyordu; önizleme ile uygulama farklı şablonu
+ * seçebiliyor, yeni varyant eski/boş bir kopyaya açılabiliyordu. Artık: önce kategorisi BİREBİR aynı
+ * olanlar, yoksa kategori adını içerenler; aralarından AKTİF VARYANTI EN ÇOK olan şablon seçilir
+ * (eşitlikte ilk sıradaki). Önizleme (findTemplate) ve uygulama (findTemplateId) aynı fonksiyonu kullanır.
+ */
+export async function sablonAdayiSec(
+  adaylar: { id: number; categName: string }[],
+  kategori: string,
+): Promise<number> {
+  if (adaylar.length === 1) return adaylar[0].id;
+  const katUpper = kategori.trim().toUpperCase();
+  const esit = adaylar.filter((c) => c.categName.trim().toUpperCase() === katUpper);
+  const icerir = adaylar.filter((c) =>
+    c.categName.toUpperCase().includes(katUpper) || katUpper.includes(c.categName.toUpperCase()),
+  );
+  const havuz = esit.length ? esit : icerir.length ? icerir : adaylar;
+  if (havuz.length === 1) return havuz[0].id;
+  let enIyi = havuz[0].id;
+  let enCok = -1;
+  for (const c of havuz) {
+    const n = await aktifVaryantSayisi(c.id);
+    if (n > enCok) { enCok = n; enIyi = c.id; }
+  }
+  return enIyi;
+}
+
+// Önizlemede her satır için tekrar sorgulamamak için kısa ömürlü önbellek (2 dk).
+const aktifVaryantSayisiCache = new Map<number, { n: number; t: number }>();
+async function aktifVaryantSayisi(tmplId: number): Promise<number> {
+  const c = aktifVaryantSayisiCache.get(tmplId);
+  if (c && Date.now() - c.t < 120_000) return c.n;
+  let n = 0;
+  try {
+    n = Number(await execute('product.product', 'search_count', [[['product_tmpl_id', '=', tmplId], ['active', '=', true]]]));
+  } catch {
+    n = 0;
+  }
+  aktifVaryantSayisiCache.set(tmplId, { n, t: Date.now() });
+  return n;
 }
 
 async function resolveVariantPtavKey(
