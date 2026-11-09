@@ -91,6 +91,7 @@ router.post('/zpl', async (req: Request, res: Response) => {
       let elemanlar: CanvasElement[] = body.sablon?.elemanlar ?? [];
       let genislik = Number(body.sablon?.etiketGenislik ?? 100);
       let yukseklik = Number(body.sablon?.etiketYukseklik ?? 50);
+      let slug: string | null = null;
 
       if (body.sablonId) {
         const kayit = await sablonService.getSablon(String(body.sablonId));
@@ -98,6 +99,7 @@ router.post('/zpl', async (req: Request, res: Response) => {
         elemanlar = kayit.elemanlar as CanvasElement[];
         genislik = kayit.etiketGenislik;
         yukseklik = kayit.etiketYukseklik;
+        slug = kayit.slug ?? null;
       }
 
       const rawVeriler = Array.isArray(body.etiketler) ? body.etiketler : [body.veri ?? {}];
@@ -117,7 +119,7 @@ router.post('/zpl', async (req: Request, res: Response) => {
       const zpl =
         dil === 'ppla'
           ? generatePplaBatchFromSablon(elemanlar, genislik, yukseklik, veriler)
-          : generateZplBatchFromSablon(elemanlar, genislik, yukseklik, veriler);
+          : generateZplBatchFromSablon(elemanlar, genislik, yukseklik, veriler, slug);
       return res.json({ zpl, count: veriler.length });
     }
 

@@ -222,7 +222,39 @@ export function clipToWidth(text: string, fontSize: number, widthDots?: number):
   return text.slice(0, maxKarakter);
 }
 
-function elementToZpl(el: CanvasElement, veri: EtiketVeri): string {
+/** ^FH (hex) alanı için: '_' → _5F, GS1 grup ayırıcı (0x1D) → _1D */
+function zplHexAlan(text: string): string {
+  return String(text ?? '')
+    .replace(/_/g, '_5F')
+    .replace(/\^/g, '_5E')
+    .replace(/~/g, '_7E')
+    .replace(/\x1d/g, '_1D');
+}
+
+/** Data Matrix ECC200 kare sembol boyutu (modül) — veri uzunluğuna göre yaklaşık (ASCII kodlama). */
+function dataMatrixBoyut(data: string): number {
+  let cw = 0;
+  for (let i = 0; i < data.length; i++) {
+    if (/\d/.test(data[i]) && i + 1 < data.length && /\d/.test(data[i + 1])) { cw++; i++; } else cw++;
+  }
+  const tablo: [number, number][] = [[10, 3], [12, 5], [14, 8], [16, 12], [18, 18], [20, 22], [22, 30], [24, 36], [26, 44], [32, 62], [36, 86], [40, 114], [44, 144], [48, 174], [52, 204], [64, 280]];
+  return (tablo.find(([, kap]) => kap >= cw) ?? tablo[tablo.length - 1])[0];
+}
+
+type ZplSecenek = { barkodMetinVar?: boolean };
+
+/** Seri/lot satırı sığmazsa BAŞINDAN kısaltır — numaranın ayırt edici sonu (ör. -022) kaybolmasın. */
+function sondanSigdir(text: string, fontSize: number, widthDots?: number): string {
+  const kirpik = clipToWidth(text, fontSize, widthDots);
+  if (kirpik.length >= text.length) return text;
+  const m = /^(\(\d+\) )(.*)$/.exec(text);
+  const on = m ? m[1] : '';
+  const govde = m ? m[2] : text;
+  const kalan = Math.max(1, kirpik.length - on.length - 1);
+  return `${on}…${govde.slice(-kalan)}`;
+}
+
+function elementToZpl(el: CanvasElement, veri: EtiketVeri, secenek: ZplSecenek = {}): string {
   if (el.type === 'kulakcik') return '';
 
   const x = Math.round(el.x);
@@ -231,13 +263,20 @@ function elementToZpl(el: CanvasElement, veri: EtiketVeri): string {
   if (el.type === 'barcode128') {
     const val = escapeZpl(resolveElementText(el, veri) ?? 'REF001');
     const h = Math.round(el.height ?? 100);
-    return `^FO${x},${y}^BCN,${h},Y,N,N^FD${val}^FS`;
+    // 09.11.2026 — Zebra varsayılan çubuk kalınlığı (^BY2) dar şablon alanına sığmıyordu → dar alanda ^BY1.
+    // Barkod numarası şablonda ayrı yazılıyorsa (barkodMetin) çubuğun altına ikinci kez yazılmaz.
+    const modul = el.width && el.width < 220 ? 1 : 2;
+    const yorum = secenek.barkodMetinVar ? 'N' : 'Y';
+    return `^FO${x},${y}^BY${modul},2,${h}^BCN,${h},${yorum},N,N^FD${val}^FS`;
   }
 
   if (el.type === 'gs1datamatrix') {
-    const gs1 = escapeZpl(buildGs1Data(veri));
-    const mod = Math.max(2, Math.min(10, Math.round((el.width ?? 115) / 12)));
-    return `^FO${x},${y}^BQN,2,${mod}^FDMA,${gs1}^FS`;
+    // 09.11.2026 — Argox (PPLA) ile aynı: Data Matrix (önceden QR basılıyordu ve şablon alanından çok büyük çıkıyordu).
+    // Modül boyutu, sembol şablondaki kutuya (width/height) sığacak şekilde hesaplanır.
+    const gs1 = buildGs1Data(veri);
+    const kutu = Math.round(Math.min(el.width ?? 94, el.height ?? el.width ?? 94));
+    const mod = Math.max(2, Math.min(10, Math.floor(kutu / dataMatrixBoyut(gs1))));
+    return `^FO${x},${y}^BXN,${mod},200^FH^FD${zplHexAlan(gs1)}^FS`;
   }
 
   if (el.type === 'kutu') {
@@ -251,7 +290,7 @@ function elementToZpl(el: CanvasElement, veri: EtiketVeri): string {
     const font = Math.round(el.fontSize ?? 8);
     const gap = Math.round(el.lineGap ?? font + 2);
     return satirlar
-      .map((line, i) => `^FO${x},${y + i * gap}^A0N,${font},${font}^FD${escapeZpl(line)}^FS`)
+      .map((line, i) => `^FO${x},${y + i * gap}^A0N,${font},${font}^FD${escapeZpl(sondanSigdir(line, font, el.width))}^FS`)
       .join('\n');
   }
 
@@ -262,15 +301,37 @@ function elementToZpl(el: CanvasElement, veri: EtiketVeri): string {
   return `^FO${x},${y}^A0N,${font},${font}^FD${escapeZpl(text)}^FS`;
 }
 
+/**
+ * 09.11.2026 — Zebra (ZD220) + güneş gözlüğü katlanır etiket (102x20 mm) için yerleşim.
+ * Şablon koordinatları Argox'a göre; Zebra'da aynı koordinatlar etiketin ön yüzünün kenarına ve katlama
+ * çizgisinin üstüne denk geliyordu (yazı başı kesik, karekod katlamada). Eski programın Zebra'da sorunsuz
+ * basılan yerleşimi esas alındı: ön yüz x≈320–630, karekod katlamanın öbür tarafında x≈650.
+ */
+export const ZEBRA_GUNES_KATLANIR: CanvasElement[] = [
+  { id: 'barkod', type: 'barcode128', x: 320, y: 8, width: 150, height: 24 },
+  { id: 'barkodNo', type: 'barkodMetin', x: 320, y: 36, fontSize: 11 },
+  { id: 'urunAdi', type: 'urunAdi', x: 320, y: 50, fontSize: 15, width: 305 },
+  { id: 'model', type: 'model', x: 320, y: 68, fontSize: 14, width: 150 },
+  { id: 'renkKodu', type: 'renkKodu', x: 480, y: 68, fontSize: 14, width: 145 },
+  { id: 'fiyat', type: 'fiyat', x: 320, y: 86, fontSize: 28, width: 305 },
+  { id: 'fiyatTarihi', type: 'fiyatDegisimTarihi', x: 320, y: 120, fontSize: 11, width: 305 },
+  { id: 'kdv', type: 'kdvDahildir', x: 320, y: 135, fontSize: 11 },
+  { id: 'karekod', type: 'gs1datamatrix', x: 650, y: 12, width: 100, height: 100 },
+  { id: 'gs1Referans', type: 'gs1Referans', x: 645, y: 122, fontSize: 9, lineGap: 13, mode: 'oto', width: 168 },
+];
+
 export function generateZplFromSablon(
   elemanlar: CanvasElement[],
   genislikMm: number,
   yukseklikMm: number,
   veri: EtiketVeri,
+  slug?: string | null,
 ): string {
-  const lines = elemanlar
+  const kullanilan = slug === 'gunes-gozlugu-katlanir' ? ZEBRA_GUNES_KATLANIR : elemanlar;
+  const secenek: ZplSecenek = { barkodMetinVar: kullanilan.some((e) => e.type === 'barkodMetin') };
+  const lines = kullanilan
     .filter((e) => e.type !== 'kulakcik')
-    .map((e) => elementToZpl(e, veri))
+    .map((e) => elementToZpl(e, veri, secenek))
     .filter(Boolean);
   // 09.11.2026 — Zebra (ZD220 vb.) için: ^CI28 = UTF-8 (Türkçe harfler Ğ/Ü/İ/Ş düzgün basılsın),
   // ^PW/^LL = etiket genişliği/yüksekliği (203 dpi → 8 nokta/mm).
@@ -285,8 +346,9 @@ export function generateZplBatchFromSablon(
   genislikMm: number,
   yukseklikMm: number,
   veriler: EtiketVeri[],
+  slug?: string | null,
 ): string {
   return veriler
-    .map((v) => generateZplFromSablon(elemanlar, genislikMm, yukseklikMm, v))
+    .map((v) => generateZplFromSablon(elemanlar, genislikMm, yukseklikMm, v, slug))
     .join('\n');
 }
