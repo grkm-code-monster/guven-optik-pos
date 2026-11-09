@@ -265,9 +265,13 @@ function elementToZpl(el: CanvasElement, veri: EtiketVeri, secenek: ZplSecenek =
     const h = Math.round(el.height ?? 100);
     // 09.11.2026 — Zebra varsayılan çubuk kalınlığı (^BY2) dar şablon alanına sığmıyordu → dar alanda ^BY1.
     // Barkod numarası şablonda ayrı yazılıyorsa (barkodMetin) çubuğun altına ikinci kez yazılmaz.
-    const modul = el.width && el.width < 220 ? 1 : 2;
+    // Otomatik mod (A): rakamlar çift çift (subset C) kodlanır → barkod yarı genişlikte. Çubuk kalınlığı
+    // (^BY) kutuya sığan en kalın değer; 1 nokta (0,125 mm) termal baskıda okunmaz, en az 2 tercih edilir.
+    const ham = String(resolveElementText(el, veri) ?? '');
+    const tahminiModul = /^\d+$/.test(ham) ? 35 + 11 * Math.ceil(ham.length / 2) + 11 : 35 + 11 * ham.length;
+    const modul = Math.max(1, Math.min(3, Math.floor((el.width ?? 300) / tahminiModul)));
     const yorum = secenek.barkodMetinVar ? 'N' : 'Y';
-    return `^FO${x},${y}^BY${modul},2,${h}^BCN,${h},${yorum},N,N^FD${val}^FS`;
+    return `^FO${x},${y}^BY${modul},2,${h}^BCN,${h},${yorum},N,N,A^FD${val}^FS`;
   }
 
   if (el.type === 'gs1datamatrix') {
@@ -308,8 +312,8 @@ function elementToZpl(el: CanvasElement, veri: EtiketVeri, secenek: ZplSecenek =
  * basılan yerleşimi esas alındı: ön yüz x≈320–630, karekod katlamanın öbür tarafında x≈650.
  */
 export const ZEBRA_GUNES_KATLANIR: CanvasElement[] = [
-  { id: 'barkod', type: 'barcode128', x: 320, y: 8, width: 150, height: 24 },
-  { id: 'barkodNo', type: 'barkodMetin', x: 320, y: 36, fontSize: 11 },
+  { id: 'barkod', type: 'barcode128', x: 320, y: 6, width: 300, height: 26 },
+  { id: 'barkodNo', type: 'barkodMetin', x: 320, y: 35, fontSize: 11 },
   { id: 'urunAdi', type: 'urunAdi', x: 320, y: 50, fontSize: 15, width: 305 },
   { id: 'model', type: 'model', x: 320, y: 68, fontSize: 14, width: 150 },
   { id: 'renkKodu', type: 'renkKodu', x: 480, y: 68, fontSize: 14, width: 145 },
