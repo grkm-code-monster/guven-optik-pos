@@ -186,6 +186,15 @@ async function findTemplateId(
   return (byCateg ?? exact[0]).id;
 }
 
+async function urunTakipTuru(varyantId: number, cache: Map<number, string>): Promise<string> {
+  const c = cache.get(varyantId);
+  if (c) return c;
+  const r = (await execute('product.product', 'read', [[varyantId]], { fields: ['tracking'], context: { active_test: false } })) as { tracking?: string }[];
+  const t = String(r?.[0]?.tracking ?? 'none');
+  cache.set(varyantId, t);
+  return t;
+}
+
 export async function uygulaEnvanterImport(input: {
   lokasyonKodu: string;
   satirlar: ParsedEnvanterRow[];
@@ -194,6 +203,7 @@ export async function uygulaEnvanterImport(input: {
   const lokasyonKodu = String(input.lokasyonKodu ?? '').trim().toUpperCase();
   const companyId = getCompanyIdFromLokasyon(lokasyonKodu) ?? undefined;
   const aktarimKimligi = String(input.aktarimKimligi ?? '').trim();
+  const takipCache = new Map<number, string>();
 
   const onizleme = await previewEnvanterImport(input.satirlar);
   const onizlemeBySatirNo = new Map(onizleme.satirlar.map((s) => [s.satirNo, s]));
@@ -395,25 +405,37 @@ export async function uygulaEnvanterImport(input: {
 
       let lotId: number | null = null;
       let lotCreated = false;
+      let tamamlananAdet = 0;
 
       try {
         const { lotNo, utsKodu } = resolveLotFieldsForImportRow(row, aktarimKimligi);
-        const lotResult = await getOrCreateStockLot(
-          lotNo,
-          varyantId,
-          companyId,
-          row.barkod,
-          utsKodu,
-        );
-        lotId = lotResult.lotId;
-        lotCreated = lotResult.created;
+        // 09.11.2026 — SERİ takipli üründe (güneş gözlüğü/çerçeve) bir seri numarası (lot) yalnız 1 adet
+        // taşıyabilir; Adet > 1 tek lota yazılınca Odoo "Seri numarası kullanılmaktadır" diye reddediyordu
+        // (panayır envanteri: 108 satır). Artık seri takipli ve UTS'siz/lot ID'siz satırda Adet kadar
+        // ayrı lot açılıyor ("<lotNo>-1", "-2", ...) ve her birine 1 adet yazılıyor.
+        const takip = await urunTakipTuru(varyantId, takipCache);
+        const parca = takip === 'serial' && row.adet > 1 && !utsKodu && !row.odooLotId && !row.lotNo ? Math.floor(row.adet) : 1;
+        for (let k = 1; k <= parca; k++) {
+          lotId = null;
+          lotCreated = false;
+          const lotResult = await getOrCreateStockLot(
+            parca > 1 ? `${lotNo}-${k}` : lotNo,
+            varyantId,
+            companyId,
+            row.barkod,
+            utsKodu,
+          );
+          lotId = lotResult.lotId;
+          lotCreated = lotResult.created;
 
-        await applyStockAdjustmentForLot({
-          productId: varyantId,
-          locationCode: lokasyonKodu,
-          lotId,
-          qty: row.adet,
-        });
+          await applyStockAdjustmentForLot({
+            productId: varyantId,
+            locationCode: lokasyonKodu,
+            lotId,
+            qty: parca > 1 ? 1 : row.adet,
+          });
+          tamamlananAdet += parca > 1 ? 1 : row.adet;
+        }
 
         if (!fiyatGuncellenen.has(varyantId)) {
           await guncelleVaryantFiyatlari(
@@ -428,13 +450,14 @@ export async function uygulaEnvanterImport(input: {
         sonuclar.push({
           satirNo: row.satirNo,
           durum: 'BASARILI',
-          mesaj: 'Stok ve lot oluşturuldu',
-          olusturulanLotId: lotId,
+          mesaj: tamamlananAdet > 1 ? `Stok ve ${tamamlananAdet} seri no oluşturuldu` : 'Stok ve lot oluşturuldu',
+          olusturulanLotId: lotId ?? undefined,
           olusturulanVaryantId: varyantId,
         });
         islenenSatirNolar.add(row.satirNo);
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Satır işlenemedi';
+        const hata = e instanceof Error ? e.message : 'Satır işlenemedi';
+        const msg = tamamlananAdet > 0 ? `${hata} (bu satırın ${tamamlananAdet}/${row.adet} adedi stoğa girdi, kalanı girmedi)` : hata;
 
         if (lotId != null && lotCreated) {
           try {
