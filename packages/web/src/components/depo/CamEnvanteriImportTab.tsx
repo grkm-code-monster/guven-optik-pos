@@ -33,6 +33,7 @@ const LOKASYONLAR = [
   { id: 'GVN2', sirket: 'NG' },
   { id: 'GVN7', sirket: 'NG' },
   { id: 'GVN10', sirket: 'NG' },
+  { id: 'GUVENP2', sirket: 'NG' },
   { id: 'ANADEPO', sirket: 'NG' },
   { id: 'ETICARET', sirket: 'NG' },
   { id: 'GVN5', sirket: 'POTENTIAL' },

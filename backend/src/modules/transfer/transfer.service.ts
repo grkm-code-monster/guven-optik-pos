@@ -308,6 +308,7 @@ const OUTGOING_PICKING_TYPE = {
     GVN10: 7,
     ANADEPO: 7,
     ETICARET: 7,
+    GUVENP2: 7,
     // POTENTIAL warehouse (id:4) → picking type id:17
     GVN5: 17,
 };

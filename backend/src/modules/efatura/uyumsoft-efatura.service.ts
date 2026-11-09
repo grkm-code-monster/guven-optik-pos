@@ -74,7 +74,8 @@ const SIRKET_SUBE_MAP: Record<string, string[]> = {
   // e-fatura ve gün sonu belgeleri her zaman NG (Nejla Gümüşkesen) üzerinden gider,
   // hangi fiziksel şubenin stoğu kullanılırsa kullanılsın.
   // GVN7: yeni açılan mağaza, Odoo'da NG şirketine taşındı (test verisi vardı, önemsiz).
-  NG: ['GVN2', 'GVN10', 'ANADEPO', 'ETICARET', 'GVN7'],
+  // GUVENP2: GÜVEN NG PANAYIR (09.11.2026, geçici şube) — NG Uyumsoft hesabı, fatura adresi GVN2 ile aynı.
+  NG: ['GVN2', 'GVN10', 'ANADEPO', 'ETICARET', 'GVN7', 'GUVENP2'],
   POTENTIAL: ['GVN5'],
 };
 

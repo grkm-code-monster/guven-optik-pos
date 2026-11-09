@@ -13,6 +13,7 @@ export const LOKASYON_ID_MAP: Record<string, number> = {
   GVN7: 64,
   ETICARET: 65,
   GVNP: 66,
+  GUVENP2: 67, // 09.11.2026 GÜVEN NG PANAYIR (geçici şube) — NG/Stok/GUVENP2
 };
 
 /** Frontend lokasyon → şirket */
@@ -30,6 +31,7 @@ export const LOKASYON_SIRKET: Record<string, string> = {
   GVN7: 'NG',
   ETICARET: 'NG',
   GVNP: 'ADESE',
+  GUVENP2: 'NG',
 };
 
 export const LOKASYON_MAP: Record<string, string> = {
@@ -46,6 +48,7 @@ export const LOKASYON_MAP: Record<string, string> = {
   GVN7: 'GVN7',
   ETICARET: 'ETICARET',
   GVNP: 'GVNP',
+  GUVENP2: 'GUVENP2',
 };
 
 /** Şirket adı → Odoo res.company id */

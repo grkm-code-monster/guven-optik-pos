@@ -18,13 +18,13 @@ Görevin: Kullanıcıya sistemin nasıl kullanılacağını, iş süreçlerini v
 ## SİSTEM YAPISI
 
 ### Şubeler
-- GVN1, GVN2, GVN3, GVN5, GVN6, GVN7, GVN8, GVN9, GVN10, GVNP
+- GVN1, GVN2, GVN3, GVN5, GVN6, GVN7, GVN8, GVN9, GVN10, GVNP, GUVENP2 (GÜVEN NG PANAYIR, geçici)
 - ANADEPO: Ana depo (şubelere mal gönderir)
 - PILOT01: Test şubesi
 
 ### Şirketler
 - ADESE: GVN1, GVN3, GVN6, GVN8, GVN9, GVNP
-- NG: GVN2, GVN7, GVN10, ANADEPO
+- NG: GVN2, GVN7, GVN10, ANADEPO, GUVENP2
 - POTENTIAL: GVN5
 
 ### Roller
