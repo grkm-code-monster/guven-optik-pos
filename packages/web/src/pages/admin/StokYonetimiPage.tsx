@@ -20,7 +20,10 @@ import {
 } from '../../api/stok.api'
 import EtiketBasModal, { type EtiketModalUrun } from '../../components/etiket/EtiketBasModal'
 import EtiketSablonSecici from '../../components/etiket/EtiketSablonSecici'
-import { otomatikSablonSec, uretEtiketZplTercihli } from '../../components/etiket/etiket-sablon-helpers'
+import { kayitliYaziciDili, otomatikSablonSec, uretEtiketZplTercihli } from '../../components/etiket/etiket-sablon-helpers'
+import YaziciDiliSecici from '../../components/etiket/YaziciDiliSecici'
+import { hamEtiketKoduIndir } from '../../components/etiket/yazici-dili'
+import type { EtiketDil } from '../../api/etiket.api'
 import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
 import StokKontrolTab from './StokKontrolTab'
 
@@ -148,6 +151,7 @@ export default function StokYonetimiPage() {
   const [etiketLokasyon, setEtiketLokasyon] = useState('GVN1')
   const [etiketAdet, setEtiketAdet] = useState(1)
   const [etiketZpl, setEtiketZpl] = useState('')
+  const [etiketDil, setEtiketDil] = useState<EtiketDil>(kayitliYaziciDili)
   const [etiketYukleniyor, setEtiketYukleniyor] = useState(false)
   const [etiketSablonId, setEtiketSablonId] = useState<SablonId>('gunes-aksesuar')
 
@@ -730,7 +734,7 @@ export default function StokYonetimiPage() {
         utsKodu: lotBilgi?.utsKodu ?? null,
       }))
 
-      setEtiketZpl(await uretEtiketZplTercihli(etiketSablonId, items, etiketUrun.kategori))
+      setEtiketZpl(await uretEtiketZplTercihli(etiketSablonId, items, etiketUrun.kategori, 'admin', etiketDil))
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.message ?? 'ZPL üretilemedi' })
     } finally {
@@ -1300,6 +1304,8 @@ export default function StokYonetimiPage() {
               </label>
             </div>
 
+            {!etiketZpl ? <YaziciDiliSecici dil={etiketDil} onDegis={setEtiketDil} /> : null}
+
             {!etiketZpl ? (
               <div style={{ marginBottom: 16 }}>
                 <EtiketSablonSecici
@@ -1319,10 +1325,13 @@ export default function StokYonetimiPage() {
               <button type="button" onClick={() => setEtiketAcik(false)} style={btn}>Kapat</button>
               {!etiketZpl ? (
                 <button type="button" disabled={etiketYukleniyor} onClick={() => void etiketUret()} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
-                  {etiketYukleniyor ? 'Üretiliyor...' : 'ZPL Üret'}
+                  {etiketYukleniyor ? 'Üretiliyor...' : 'Etiket Kodu Üret'}
                 </button>
               ) : (
-                <button type="button" onClick={() => void navigator.clipboard.writeText(etiketZpl)} style={btnPrimary}>Kopyala</button>
+                <>
+                  <button type="button" onClick={() => hamEtiketKoduIndir(etiketZpl, etiketDil)} style={btn}>İndir (.txt)</button>
+                  <button type="button" onClick={() => void navigator.clipboard.writeText(etiketZpl)} style={btnPrimary}>Kopyala</button>
+                </>
               )}
             </div>
           </div>

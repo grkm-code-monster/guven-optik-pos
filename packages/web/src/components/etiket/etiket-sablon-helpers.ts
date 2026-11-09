@@ -148,13 +148,26 @@ export function uretCokluEtiketZpl(
     .join('\n')
 }
 
+/**
+ * 09.11.2026 — Bu bilgisayarda seçilen etiket yazıcısı dili (Etiket Bas penceresindeki
+ * "Yazıcı: Argox / Zebra" seçimi). Dil verilmeyen tüm etiket ekranları (Stok Yönetimi tek ürün,
+ * Depo vb.) bu seçimi kullanır; seçim yoksa Argox (PPLA).
+ */
+export function kayitliYaziciDili(): EtiketDil {
+  try {
+    return localStorage.getItem('etiketYaziciDili') === 'zpl' ? 'zpl' : 'ppla'
+  } catch {
+    return 'ppla'
+  }
+}
+
 /** Pilot motor varsa DB sablonu, yoksa eski sablon-registry yolu */
 export async function uretEtiketZplTercihli(
   sablonId: SablonId,
   items: EtiketUrunVeri[],
   categAdi?: string,
   source: 'pos' | 'admin' = 'admin',
-  dil: EtiketDil = 'ppla',
+  dil: EtiketDil = kayitliYaziciDili(),
 ): Promise<string> {
   const slug = pilotSlugForSablon(sablonId, categAdi)
   if (slug) {
