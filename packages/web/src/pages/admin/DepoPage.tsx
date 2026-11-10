@@ -2361,13 +2361,18 @@ function gelenFaturaAralikFromPreset(
   return { baslangic: gelenFaturaTarihIso(baslangic), bitis: gelenFaturaTarihIso(bitis) }
 }
 
+// 10.11.2026: Her yeni giriş için ayrı numara — seri no'lar bundan üretilir.
+// Eskiden sayfa açıkken numara hiç yenilenmiyordu; art arda girilen iki faturada
+// aynı ürün varsa aynı seri no çıkıyor, ikinci giriş Odoo'da yarım kalıyordu.
+function yeniGirisNo(): string {
+  const now = new Date()
+  return `GRS-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(Math.floor(Math.random()*9000)+1000)}`
+}
+
 function UrunGirisTab() {
   const [adim, setAdim] = useState<UrunGirisAdim>('giris-tipi')
   const [girisTipi, setGirisTipi] = useState<'FATURAYLA' | 'FATURA_SONRA' | 'IRSALIYELI' | 'FATURASIZ' | null>(null)
-  const [girisNo, setGirisNo] = useState(() => {
-    const now = new Date()
-    return `GRS-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(Math.floor(Math.random()*9000)+1000)}`
-  })
+  const [girisNo, setGirisNo] = useState(yeniGirisNo)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -2841,6 +2846,7 @@ function UrunGirisTab() {
   }
 
   function sihirbaziSifirla() {
+    setGirisNo(yeniGirisNo())
     setAdim('giris-tipi')
     uyumsoftStateSifirla()
     setCariAdi(''); setCariId(null); setCariArama('')
@@ -3053,6 +3059,7 @@ function UrunGirisTab() {
       const listeKayit = gelenFaturalar.find((f) => f.id === faturaId)
       const tedarikciVkn = form.tedarikciVkn ?? listeKayit?.tedarikciVkn ?? null
 
+      setGirisNo(yeniGirisNo())
       setGirisTipi('FATURAYLA')
       setGelenFaturaId(res.data?.bekleyenFaturaId ?? faturaId)
       setCariAdi(form.cariAdi)
@@ -3955,6 +3962,7 @@ function UrunGirisTab() {
       if (res.data?.success && stokOk) {
         setSuccess(true)
         deleteUrunGirisDraft(girisNo)
+        setGirisNo(yeniGirisNo())
         taslakListesiniYenile()
         setTaslakUyari(null)
         if (s.purchaseOrder) mesajlar.push(`✓ Satın alma siparişi: ${s.purchaseOrder.name}${s.purchaseOrder.satirSayisi ? ` (${s.purchaseOrder.satirSayisi} satır)` : ''}`)
@@ -4039,7 +4047,8 @@ function UrunGirisTab() {
         setError(errParts.length > 0 ? errParts.join('\n') : 'Kayıt başarısız')
       }
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? e?.message ?? 'Kayıt başarısız')
+      const d = e?.response?.data
+      setError([d?.error ?? e?.message ?? 'Kayıt başarısız', ...(Array.isArray(d?.hatalar) ? d.hatalar : [])].join('\n'))
     } finally {
       setSaving(false)
     }

@@ -3157,6 +3157,46 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
       });
     }
 
+    // 10.11.2026 — ÖN KONTROL: seri no'lar daha önce teslim alınmışsa (ör. aynı
+    // sihirbaz oturumunda iki fatura girilip aynı GRS numarası üretildiyse) Odoo'ya
+    // HİÇBİR şey yazmadan dur. Eskiden PO onaylanıp stok girişi yarım kalıyordu.
+    try {
+      const urunCache = new Map<string, number | null>();
+      const urunLotlari = new Map<number, Set<string>>();
+      for (const lot of lotList) {
+        const ad = String(lot?.lotNo ?? '').trim();
+        if (!ad) continue;
+        const anahtar = `${lot.bizimUrunOdooId ?? ''}|${lot.bizimUrunProductId ?? ''}`;
+        if (!urunCache.has(anahtar)) {
+          urunCache.set(anahtar, await resolveProductVariantId(lot.bizimUrunOdooId, lot.bizimUrunProductId, cid));
+        }
+        const pid = urunCache.get(anahtar);
+        if (!pid) continue;
+        if (!urunLotlari.has(pid)) urunLotlari.set(pid, new Set());
+        urunLotlari.get(pid)!.add(ad);
+      }
+      const cakisanlar: string[] = [];
+      for (const [pid, adlar] of urunLotlari) {
+        const domain: unknown[] = [['name', 'in', [...adlar]], ['product_id', '=', pid]];
+        if (cid) domain.push(['company_id', '=', cid]);
+        const mevcut = await execute('stock.lot', 'search_read', [domain], { fields: ['id', 'name'] }, cid);
+        for (const m of mevcut ?? []) {
+          const durum = await isLotAvailableForReceipt(m.id, cid);
+          if (!durum.available) cakisanlar.push(`${m.name}: ${durum.reason}`);
+        }
+      }
+      if (cakisanlar.length) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bu seri numaraları daha önce kullanılmış — Odoo\'ya hiçbir şey yazılmadı. '
+            + 'Sayfayı yenileyip (yeni giriş numarasıyla) tekrar deneyin.',
+          hatalar: cakisanlar.slice(0, 20),
+        });
+      }
+    } catch (onKontrolErr: any) {
+      console.warn('[urun-giris] seri no ön kontrol hatası:', odooErrText(onKontrolErr));
+    }
+
     const orphanWarnings = await reportOrphanReceipts(faturaNo ?? '', cid);
     if (orphanWarnings.length) {
       console.warn('[urun-giris] yetim/yarım kayıt uyarıları:', orphanWarnings);
