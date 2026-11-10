@@ -638,11 +638,13 @@ export async function belgeIcinUtsKayitlari(opts: { subeKodu: string; belgeNo: s
       orderBy: { gonderimZamani: 'asc' },
     });
     for (const b of kabul) {
+      const p = (b.payload ?? {}) as Record<string, unknown>;
+      const urunTanimi = typeof p.urunTanimi === 'string' ? p.urunTanimi : typeof p.MME === 'string' ? p.MME : undefined;
       for (const k of b.kalemler) {
         const key = anahtar(k.barkod, k.lotNo ?? undefined, k.seriNo ?? undefined);
         if (gorulen.has(key)) continue;
         gorulen.add(key);
-        kayitlar.push({ uno: k.barkod, lno: k.lotNo ?? undefined, sno: k.seriNo ?? undefined, kaynak: 'KABUL', utsBildirimId: b.id });
+        kayitlar.push({ uno: k.barkod, lno: k.lotNo ?? undefined, sno: k.seriNo ?? undefined, urunTanimi, kaynak: 'KABUL', utsBildirimId: b.id });
       }
     }
   }
@@ -849,6 +851,8 @@ export async function bekleyenAlmaTopluBildir(opts: {
         payloadExtra: {
           utsAlmaBid: satir.bid ?? null,
           kaynak: 'BEKLEYEN_ALMA',
+          // 10.11.2026 — ürün girişinde dioptri ile otomatik eşleştirme için UTS ürün tanımı saklanır
+          urunTanimi: (satir as { urunTanimi?: string }).urunTanimi ?? null,
         },
       });
       sonuclar.push({

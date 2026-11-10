@@ -3744,7 +3744,8 @@ function UrunGirisTab() {
       const sadeNo = (x: string) => x.replace(/\D/g, '').replace(/^0+/, '')
       const kalan = [...utsSatirlar]
       let uygulanan = 0
-      setLotlar((prev) => prev.map((lot) => {
+      // Not: hesap mevcut satırlar üzerinde senkron yapılır (sayılar mesajda doğru çıksın), sonra tek seferde yazılır
+      let yeniLotlar = lotlar.map((lot) => {
         if (lot.utsKodu.trim()) return lot
         const b = sadeNo(lot.barkod.trim() || lot.bizimUrunBarkod || '')
         if (!b) return lot
@@ -3753,12 +3754,44 @@ function UrunGirisTab() {
         const [k] = kalan.splice(idx, 1)
         uygulanan++
         return { ...lot, utsKodu: formatGs1FromUtsFields(k.uno, k.lno, k.sno), utsBildirimId: k.utsBildirimId ?? null }
-      }))
+      })
+      // 2. tur — cam: tedarikçi kodundaki dioptri (ör. ST.N.111-0075-075 → SPH -0.75 CYL -0.75) ile UTS ürün
+      // tanımındaki "SPH: -0075 CYL: -075" eşleşir. Aynı dioptri birden fazla ürün ailesinde varsa, aynı
+      // tedarikçi kod önekinin (ST.N.111) daha önce eşleştiği aile kullanılır; yine belirsizse elle seçime kalır.
+      const gucKayit = (t?: string) => {
+        const m = /SPH:\s*([+-]\d{4})\s*CYL:\s*([+-]\d{3})/.exec(t ?? '')
+        return m ? `${m[1]}${m[2]}` : null
+      }
+      const gucKod = (t?: string) => {
+        const m = /([+-]\d{4})([+-]\d{3})\s*$/.exec((t ?? '').trim())
+        return m ? `${m[1]}${m[2]}` : null
+      }
+      const aile = (t?: string) => (t ?? '').replace(/\s*SPH:.*$/, '').trim()
+      const onekAile = new Map<string, string>()
+      let gucleUygulanan = 0
+      yeniLotlar = yeniLotlar.map((lot) => {
+        if (lot.utsKodu.trim()) return lot
+        const p = gucKod(lot.tedarikciUrunAdi)
+        if (!p) return lot
+        const adaylar = kalan.filter((k) => gucKayit(k.urunTanimi) === p)
+        if (!adaylar.length) return lot
+        const onek = lot.tedarikciUrunAdi.trim().slice(0, -9)
+        const aileler = [...new Set(adaylar.map((k) => aile(k.urunTanimi)))]
+        let secilen: UtsCekKaydi | undefined
+        if (aileler.length === 1) secilen = adaylar[0]
+        else if (onekAile.has(onek)) secilen = adaylar.find((k) => aile(k.urunTanimi) === onekAile.get(onek))
+        if (!secilen) return lot
+        if (aileler.length === 1 && onek) onekAile.set(onek, aileler[0])
+        kalan.splice(kalan.indexOf(secilen), 1)
+        gucleUygulanan++
+        return { ...lot, utsKodu: formatGs1FromUtsFields(secilen.uno, secilen.lno, secilen.sno), utsBildirimId: secilen.utsBildirimId ?? null }
+      })
+      setLotlar(yeniLotlar)
       setUtsEslesmeyen(kalan)
       const kabulSayi = utsSatirlar.filter((k) => k.kaynak === 'KABUL').length
       setUtsCekMesaj({
         tip: 'ok',
-        text: `${subeAdi} — ${utsSatirlar.length} UTS kaydı (${kabulSayi} kabul edilmiş, ${utsSatirlar.length - kabulSayi} UTS'de bekleyen). ${uygulanan} satıra barkodla otomatik uygulandı.${kalan.length ? ` ${kalan.length} kayıt barkodla eşleşmedi — aşağıdan hangi satıra gideceğini seçin.` : ''}`,
+        text: `${subeAdi} — ${utsSatirlar.length} UTS kaydı (${kabulSayi} kabul edilmiş, ${utsSatirlar.length - kabulSayi} UTS'de bekleyen). ${uygulanan} satıra barkodla, ${gucleUygulanan} satıra dioptriyle otomatik uygulandı.${kalan.length ? ` ${kalan.length} kayıt eşleşmedi — aşağıdan hangi satıra gideceğini seçin.` : ''}`,
       })
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: string } }; message?: string }
