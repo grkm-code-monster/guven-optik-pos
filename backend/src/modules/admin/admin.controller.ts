@@ -47,6 +47,8 @@ import {
   sirketIdToReferansSube,
   sorgulaAlmaBekleyenler,
   sorgulaBelgeNoIleAlmaBekleyenler,
+  belgeIcinUtsKayitlari,
+  belgeUrunGirisiYapildiIsaretle,
   almakIstemiyorumOlarakIsaretle,
   bekleyenAlmaTopluBildir,
   listGonderilenUtsBildirimler,
@@ -1711,14 +1713,23 @@ router.get('/urun-ara', async (req: Request, res: Response) => {
     const q = String(req.query.q ?? '').trim();
     if (!q || q.length < 1) return res.json({ data: [] });
 
+    // 10.11.2026 — Türkçe büyük/küçük harf: "optik" yazınca "OPTİK" bulunmuyordu (İ/ı). Arama
+    // metninin Türkçe büyük ve küçük halleri de denenir.
+    const aramaBicimleri = [...new Set([q, q.toLocaleUpperCase('tr-TR'), q.toLocaleLowerCase('tr-TR')])];
+    const kosullar: any[] = [];
+    for (const v of aramaBicimleri) {
+      kosullar.push(
+        ['name', 'ilike', v],
+        ['attribute_line_ids.value_ids.name', 'ilike', v],
+        ['barcode', 'ilike', v],
+        ['default_code', 'ilike', v],
+      );
+    }
     const domain: any[] = [
       ['active', '=', true],
       ['type', 'in', ['product', 'consu']],
-      '|', '|', '|',
-      ['name', 'ilike', q],
-      ['attribute_line_ids.value_ids.name', 'ilike', q],
-      ['barcode', 'ilike', q],
-      ['default_code', 'ilike', q],
+      ...Array(kosullar.length - 1).fill('|'),
+      ...kosullar,
     ];
 
     const products = await execute(
@@ -3548,6 +3559,17 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
     const success = stokGirisiBasarili && (sonuclar.lotSayisi ?? 0) > 0;
 
     if (success) {
+      // 10.11.2026 — "Belge No ile UTS'den Çek" ile satırlara uygulanan kabul kayıtları
+      const utsBildirimIds: string[] = Array.isArray(req.body?.utsBildirimIds)
+        ? [...new Set((req.body.utsBildirimIds as unknown[]).map((x) => String(x ?? '').trim()).filter(Boolean))]
+        : [];
+      for (const id of utsBildirimIds) {
+        try {
+          await markUtsUrunGirisiTamamlandi({ barkod: '', utsBildirimId: id });
+        } catch (markErr) {
+          console.warn('[urun-giris] UTS bildirim işaretleme:', markErr);
+        }
+      }
       const utsBildirimId = String(req.body?.utsBildirimId ?? '').trim() || null;
       if (utsBildirimId) {
         try {
@@ -7302,6 +7324,18 @@ router.post('/uts/bekleyen-alma-toplu-bildir', async (req, res, next) => {
   }
 });
 
+router.post('/uts/belge-giris-yapildi', async (req, res, next) => {
+  try {
+    const subeKodu = String(req.body?.subeKodu ?? '').trim();
+    const belgeNo = String(req.body?.belgeNo ?? '').trim();
+    if (!subeKodu || !belgeNo) return res.status(400).json({ error: 'subeKodu ve belgeNo zorunlu' });
+    const adet = await belgeUrunGirisiYapildiIsaretle({ subeKodu, belgeNo });
+    return res.json({ success: true, adet });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/uts/belge-sorgula', async (req, res, next) => {
   try {
     const belgeNo = String(req.query.belgeNo ?? '').trim();
@@ -7311,6 +7345,29 @@ router.get('/uts/belge-sorgula', async (req, res, next) => {
       subeKodu = sirketIdToReferansSube(sirketId);
     }
     if (!subeKodu) subeKodu = 'GVN2';
+
+    // 10.11.2026 — Belge no ile: UTS bekleyenleri + programda kabul edilmiş (girişi bekleyen) kayıtlar;
+    // bulunamazsa başka şubeler ve bu şubede girişi bekleyen diğer belgeler.
+    if (belgeNo) {
+      const gkk = Number(req.query.gkk);
+      const sonuc = await belgeIcinUtsKayitlari({
+        subeKodu,
+        belgeNo,
+        gonderenKurumNo: Number.isFinite(gkk) && gkk > 0 ? gkk : undefined,
+      });
+      const sube = await prisma.branch.findFirst({ where: { code: subeKodu }, select: { name: true } });
+      return res.json({
+        success: true,
+        subeKodu,
+        subeAdi: sube?.name ?? subeKodu,
+        belgeNo,
+        sayi: sonuc.kayitlar.length,
+        data: sonuc.kayitlar,
+        baskaSubede: sonuc.baskaSubede,
+        digerKabuller: sonuc.digerKabuller,
+        utsHata: sonuc.utsHata,
+      });
+    }
 
     const utsSube = await resolveUtsSubeForSubeKodu(subeKodu);
     if (!utsSube?.token?.trim()) {

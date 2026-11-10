@@ -586,6 +586,127 @@ export async function sorgulaBelgeNoIleAlmaBekleyenler(opts: {
   return sorgulaAlmaBekleyenler({ ...opts, belgeNo });
 }
 
+export type BelgeUtsKaydi = {
+  uno: string;
+  lno?: string;
+  sno?: string;
+  urunTanimi?: string;
+  /** BEKLEYEN: UTS'de alma bekliyor · KABUL: programda alma yapılmış, ürün girişi bekliyor */
+  kaynak: 'BEKLEYEN' | 'KABUL';
+  utsBildirimId?: string;
+};
+
+/**
+ * 10.11.2026 — Ürün girişi "Belge No ile UTS'den Çek": önce UTS'de bekleyenler, sonra programda
+ * KABUL EDİLMİŞ (alma bildirimi yapılmış) ama ürün girişi yapılmamış kayıtlar. Önceden sadece UTS
+ * bekleyenlerine bakılıyordu; alma yapılınca kayıt o listeden çıktığı için "bulunamadı" deniyordu.
+ * Bulunamazsa: başka şubelerde (program kayıtları + diğer şubelerin UTS hesapları) aranır ve bu
+ * şubede girişi bekleyen diğer kabul edilmiş belgeler listelenir.
+ */
+export async function belgeIcinUtsKayitlari(opts: { subeKodu: string; belgeNo: string; gonderenKurumNo?: number }): Promise<{
+  kayitlar: BelgeUtsKaydi[];
+  baskaSubede: { subeKodu: string; adet: number; kaynak: 'BEKLEYEN' | 'KABUL' }[];
+  digerKabuller: { belgeNo: string; karsiAd: string; adet: number; tarih: string | null }[];
+  utsHata?: string;
+}> {
+  const belgeNo = opts.belgeNo.trim();
+  const branchId = await branchIdFromSubeKodu(opts.subeKodu);
+  const utsSube = await resolveUtsSubeForSubeKodu(opts.subeKodu);
+  const kayitlar: BelgeUtsKaydi[] = [];
+  const anahtar = (u: string, l?: string, sn?: string) => `${u.replace(/^0+/, '')}|${l ?? ''}|${sn ?? ''}`;
+  const gorulen = new Set<string>();
+  let utsHata: string | undefined;
+
+  if (utsSube?.token?.trim() && utsSube.aktif) {
+    try {
+      const bek = await sorgulaBelgeNoIleAlmaBekleyenler({ token: utsSube.token, ortam: utsSube.ortam, belgeNo, gonderenKurumNo: opts.gonderenKurumNo });
+      for (const r of bek) {
+        const k = anahtar(r.uno, r.lno, r.sno);
+        if (gorulen.has(k)) continue;
+        gorulen.add(k);
+        kayitlar.push({ uno: r.uno, lno: r.lno, sno: r.sno, urunTanimi: r.urunTanimi, kaynak: 'BEKLEYEN' });
+      }
+    } catch (err) {
+      utsHata = extractUtsHataDetay(err);
+    }
+  }
+
+  if (branchId) {
+    const kabul = await prisma.utsBildirim.findMany({
+      where: { tip: 'ALMA', durum: 'GONDERILDI', urunGirisiYapildiMi: false, branchId, belgeNo },
+      include: { kalemler: true },
+      orderBy: { gonderimZamani: 'asc' },
+    });
+    for (const b of kabul) {
+      for (const k of b.kalemler) {
+        const key = anahtar(k.barkod, k.lotNo ?? undefined, k.seriNo ?? undefined);
+        if (gorulen.has(key)) continue;
+        gorulen.add(key);
+        kayitlar.push({ uno: k.barkod, lno: k.lotNo ?? undefined, sno: k.seriNo ?? undefined, kaynak: 'KABUL', utsBildirimId: b.id });
+      }
+    }
+  }
+
+  const baskaSubede: { subeKodu: string; adet: number; kaynak: 'BEKLEYEN' | 'KABUL' }[] = [];
+  const digerKabuller: { belgeNo: string; karsiAd: string; adet: number; tarih: string | null }[] = [];
+  if (!kayitlar.length) {
+    const digerKabul = await prisma.utsBildirim.findMany({
+      where: { tip: 'ALMA', durum: 'GONDERILDI', urunGirisiYapildiMi: false, belgeNo, ...(branchId ? { NOT: { branchId } } : {}) },
+      include: { branch: { select: { code: true } }, kalemler: true },
+    });
+    const kabulSayac = new Map<string, number>();
+    for (const b of digerKabul) kabulSayac.set(b.branch.code, (kabulSayac.get(b.branch.code) ?? 0) + b.kalemler.length);
+    for (const [subeKodu, adet] of kabulSayac) baskaSubede.push({ subeKodu, adet, kaynak: 'KABUL' });
+
+    const digerSubeler = await prisma.utsSube.findMany({
+      where: { aktif: true, NOT: { token: null } },
+      include: { branch: { select: { code: true, id: true } } },
+    });
+    const sorgulananToken = new Set<string>([utsSube?.token ?? '']);
+    for (const ds of digerSubeler) {
+      const token = ds.token?.trim();
+      if (!token || sorgulananToken.has(token)) continue;
+      sorgulananToken.add(token);
+      try {
+        const l = await sorgulaBelgeNoIleAlmaBekleyenler({ token, ortam: ds.ortam, belgeNo });
+        if (l.length) baskaSubede.push({ subeKodu: ds.branch.code, adet: l.length, kaynak: 'BEKLEYEN' });
+      } catch {
+        // geçersiz/eski token — atla
+      }
+    }
+
+    if (branchId) {
+      const bekleyenBelgeler = await prisma.utsBildirim.findMany({
+        where: { tip: 'ALMA', durum: 'GONDERILDI', urunGirisiYapildiMi: false, branchId },
+        include: { kalemler: true },
+        orderBy: { gonderimZamani: 'desc' },
+        take: 500,
+      });
+      const grup = new Map<string, { belgeNo: string; karsiAd: string; adet: number; tarih: string | null }>();
+      for (const b of bekleyenBelgeler) {
+        const k = b.belgeNo ?? '(belgesiz)';
+        const g = grup.get(k) ?? { belgeNo: k, karsiAd: b.karsiAd ?? '', adet: 0, tarih: b.gonderimZamani ? b.gonderimZamani.toISOString() : null };
+        g.adet += b.kalemler.length;
+        grup.set(k, g);
+      }
+      digerKabuller.push(...grup.values());
+    }
+  }
+
+  return { kayitlar, baskaSubede, digerKabuller, ...(utsHata ? { utsHata } : {}) };
+}
+
+/** 10.11.2026 — Bir belgenin girişi yapılmamış KABUL kayıtlarını "ürün girişi yapıldı" işaretler (elle girilmişse). */
+export async function belgeUrunGirisiYapildiIsaretle(opts: { subeKodu: string; belgeNo: string }): Promise<number> {
+  const branchId = await branchIdFromSubeKodu(opts.subeKodu);
+  if (!branchId) return 0;
+  const r = await prisma.utsBildirim.updateMany({
+    where: { tip: 'ALMA', durum: 'GONDERILDI', urunGirisiYapildiMi: false, branchId, belgeNo: opts.belgeNo.trim() },
+    data: { urunGirisiYapildiMi: true, urunGirisiTarihi: new Date() },
+  });
+  return r.count;
+}
+
 /** TİTCK UTS — Bekleyen verme bildirimini "Almak İstemiyorum" olarak işaretler. */
 export async function almakIstemiyorumOlarakIsaretle(opts: {
   token: string;

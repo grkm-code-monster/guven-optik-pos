@@ -15,6 +15,7 @@ import {
   type UrunGirisDraftMeta,
   type UrunGirisDraftPayload,
 } from '../../utils/urunGirisDraft'
+import { formatGs1FromUtsFields } from '../../utils/parseGs1DataMatrix'
 import { consumeUtsUrunGirisBridge } from '../../utils/utsUrunGirisBridge'
 import { StockQueryPanel } from '../StokSorgulaPage'
 import YeniTransfer from '../../components/transfer/YeniTransfer'
@@ -1979,6 +1980,8 @@ type LotSatiri = {
   uretici: string
   barkod: string
   utsKodu: string
+  /** 10.11.2026 — UTS'den çekilen KABUL kaydı (ürün girişi kaydedilince "giriş yapıldı" işaretlenir) */
+  utsBildirimId?: string | null
   lotNo: string
   birimFiyat: string
   lokasyon: string
@@ -1987,6 +1990,15 @@ type LotSatiri = {
   lokasyonTip: 'sube' | 'depo' | 'dis-musteri'
   disMusteriId: number | null
   disMusteriAdi: string
+}
+
+type UtsCekKaydi = {
+  uno: string
+  lno?: string
+  sno?: string
+  urunTanimi?: string
+  kaynak?: 'BEKLEYEN' | 'KABUL'
+  utsBildirimId?: string
 }
 
 function lotUrunAnahtar(lot: LotSatiri): string {
@@ -2475,6 +2487,11 @@ function UrunGirisTab() {
   const [utsBridgeBanner, setUtsBridgeBanner] = useState<string | null>(null)
   const [utsCekLoading, setUtsCekLoading] = useState(false)
   const [utsCekMesaj, setUtsCekMesaj] = useState<{ tip: 'ok' | 'warn'; text: string } | null>(null)
+  // 10.11.2026 — barkodla eşleşmeyen UTS kayıtları (kullanıcı hangi satıra gideceğini seçer) ve
+  // bu şubede girişi bekleyen diğer kabul edilmiş belgeler
+  const [utsEslesmeyen, setUtsEslesmeyen] = useState<UtsCekKaydi[]>([])
+  const [utsDigerKabuller, setUtsDigerKabuller] = useState<{ belgeNo: string; karsiAd: string; adet: number; tarih: string | null }[]>([])
+  const [utsIsaretOnay, setUtsIsaretOnay] = useState<string | null>(null)
 
   const [lokasyonSeciciAcik, setLokasyonSeciciAcik] = useState<string | null>(null) // grup lokasyonu
   const [lokasyonSekme, setLokasyonSekme] = useState<'sube' | 'depo' | 'dis-musteri'>('sube')
@@ -3278,37 +3295,42 @@ function UrunGirisTab() {
   }
 
   // Odoo'dan ürün ara
-  async function araUrunler(q: string) {
-    if (!q.trim() || q.length < 2) { setUrunSonuclar([]); return }
+  // 10.11.2026 — Ürün seçme araması: her harfte istek atılıyordu ve geç gelen ESKİ cevap yeni sonucun
+  // üstüne yazabiliyordu; sonuç yokken de Odoo'da olmayan sahte ürünler (RX Cam vb.) gösteriliyordu.
+  // Artık 300 ms bekleyip arar, sadece son aramanın cevabını gösterir, sonuç yoksa liste boş kalır.
+  const urunAramaSiraRef = useRef(0)
+  const urunAramaZamanlayiciRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function araUrunler(q: string) {
+    if (urunAramaZamanlayiciRef.current) clearTimeout(urunAramaZamanlayiciRef.current)
+    const sira = ++urunAramaSiraRef.current
+    if (!q.trim() || q.trim().length < 2) {
+      setUrunSonuclar([])
+      setUrunAramaLoading(false)
+      return
+    }
     setUrunAramaLoading(true)
+    urunAramaZamanlayiciRef.current = setTimeout(() => { void araUrunlerHemen(q.trim(), sira) }, 300)
+  }
+
+  async function araUrunlerHemen(q: string, sira: number) {
     try {
       const res = await adminApi.get(`/admin/urun-ara?q=${encodeURIComponent(q)}`)
+      if (sira !== urunAramaSiraRef.current) return
       const data = res.data?.data ?? []
-      if (data.length > 0) {
-        setUrunSonuclar(data.map((u: any) => ({
-          id: u.id,
-          name: u.name,
-          default_code: u.default_code || '',
-          barcode: u.barcode || '',
-          type: u.type || 'product',
-          list_price: u.list_price || 0,
-          standard_price: u.standard_price || 0,
-        })))
-      } else {
-        // Odoo'dan sonuç yok, mock fallback
-        setUrunSonuclar([
-          { id: 101, name: 'Tek Odaklı RX Cam', default_code: 'RX-001', barcode: '', type: 'product', list_price: 0, standard_price: 0 },
-          { id: 102, name: 'Progresif RX Cam', default_code: 'RX-002', barcode: '', type: 'product', list_price: 0, standard_price: 0 },
-          { id: 103, name: 'Güneş Camı RX', default_code: 'RX-003', barcode: '', type: 'product', list_price: 0, standard_price: 0 },
-          { id: 104, name: 'Çerçeve RX', default_code: 'CERCEVE-001', barcode: '', type: 'product', list_price: 0, standard_price: 0 },
-          { id: 105, name: 'Kontakt Lens', default_code: 'KL-001', barcode: '', type: 'product', list_price: 0, standard_price: 0 },
-        ].filter(u => trIncludes(u.name, q) || trIncludes(u.default_code, q)))
-      }
+      setUrunSonuclar(data.map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        default_code: u.default_code || '',
+        barcode: u.barcode || '',
+        type: u.type || 'product',
+        list_price: u.list_price || 0,
+        standard_price: u.standard_price || 0,
+      })))
     } catch (err) {
       console.error('[urun-ara frontend hata]', err)
-      setUrunSonuclar([])
+      if (sira === urunAramaSiraRef.current) setUrunSonuclar([])
     } finally {
-      setUrunAramaLoading(false)
+      if (sira === urunAramaSiraRef.current) setUrunAramaLoading(false)
     }
   }
 
@@ -3682,14 +3704,17 @@ function UrunGirisTab() {
     return 'GVN2'
   }
 
-  async function utsBelgeNoIleCek() {
-    const belgeNo = utsBelgeNo.trim() || faturaNo.trim()
+  async function utsBelgeNoIleCek(belgeParam?: string) {
+    const belgeNo = (belgeParam ?? '').trim() || utsBelgeNo.trim() || faturaNo.trim()
     if (!belgeNo) {
       setUtsCekMesaj({ tip: 'warn', text: 'Belge numarası girin veya fatura no dolu olsun.' })
       return
     }
+    if (belgeParam) setUtsBelgeNo(belgeParam)
     setUtsCekLoading(true)
     setUtsCekMesaj(null)
+    setUtsEslesmeyen([])
+    setUtsDigerKabuller([])
     try {
       const subeKodu = utsReferansSubeKodu()
       const res = await adminApi.get('/admin/uts/belge-sorgula', {
@@ -3699,38 +3724,41 @@ function UrunGirisTab() {
           sirketId: secilenSirketId ?? undefined,
         },
       })
-      const utsSatirlar: Array<{ uno: string; lno?: string; sno?: string }> = res.data?.data ?? []
+      const utsSatirlar: UtsCekKaydi[] = res.data?.data ?? []
+      const subeAdi = res.data?.subeAdi ?? subeKodu
       if (!utsSatirlar.length) {
-        setUtsCekMesaj({
-          tip: 'warn',
-          text: `"${belgeNo}" için UTS'de bekleyen kayıt bulunamadı. Elle girmeye devam edebilirsiniz.`,
-        })
+        const baska: { subeKodu: string; adet: number; kaynak: string }[] = res.data?.baskaSubede ?? []
+        const diger: { belgeNo: string; karsiAd: string; adet: number; tarih: string | null }[] = res.data?.digerKabuller ?? []
+        setUtsDigerKabuller(diger)
+        const parcalar = [`"${belgeNo}" için ${subeAdi}'de UTS kaydı bulunamadı (UTS'de bekleyen yok, programda kabul edilmiş yok).`]
+        if (baska.length) {
+          parcalar.push(`Bu belge başka şubede: ${baska.map((b) => `${b.subeKodu} (${b.adet} kayıt, ${b.kaynak === 'KABUL' ? 'kabul edilmiş' : "UTS'de bekliyor"})`).join(', ')}.`)
+        }
+        if (res.data?.utsHata) parcalar.push(`UTS hatası: ${res.data.utsHata}`)
+        if (diger.length) parcalar.push(`${subeAdi}'de girişi bekleyen diğer kabul edilmiş belgeler aşağıda.`)
+        else parcalar.push('Elle girmeye devam edebilirsiniz.')
+        setUtsCekMesaj({ tip: 'warn', text: parcalar.join(' ') })
         return
       }
-      const byUno = new Map<string, Array<{ uno: string; lno?: string; sno?: string }>>()
-      for (const s of utsSatirlar) {
-        const k = s.uno.trim()
-        const arr = byUno.get(k) ?? []
-        arr.push(s)
-        byUno.set(k, arr)
-      }
-      const used = new Map<string, number>()
+      // Barkod (UNO) ile otomatik eşleştirme — sadece birebir aynı ürün numarası
+      const sadeNo = (x: string) => x.replace(/\D/g, '').replace(/^0+/, '')
+      const kalan = [...utsSatirlar]
       let uygulanan = 0
       setLotlar((prev) => prev.map((lot) => {
         if (lot.utsKodu.trim()) return lot
-        const barkod = lot.barkod.trim()
-        if (!barkod) return lot
-        const liste = byUno.get(barkod)
-        if (!liste?.length) return lot
-        const idx = used.get(barkod) ?? 0
-        if (idx >= liste.length) return lot
-        used.set(barkod, idx + 1)
+        const b = sadeNo(lot.barkod.trim() || lot.bizimUrunBarkod || '')
+        if (!b) return lot
+        const idx = kalan.findIndex((k) => sadeNo(k.uno) === b)
+        if (idx < 0) return lot
+        const [k] = kalan.splice(idx, 1)
         uygulanan++
-        return { ...lot, utsKodu: liste[idx].uno }
+        return { ...lot, utsKodu: formatGs1FromUtsFields(k.uno, k.lno, k.sno), utsBildirimId: k.utsBildirimId ?? null }
       }))
+      setUtsEslesmeyen(kalan)
+      const kabulSayi = utsSatirlar.filter((k) => k.kaynak === 'KABUL').length
       setUtsCekMesaj({
         tip: 'ok',
-        text: `${res.data?.subeAdi ?? subeKodu} — ${utsSatirlar.length} UTS kaydı, ${uygulanan} lot satırına uygulandı.`,
+        text: `${subeAdi} — ${utsSatirlar.length} UTS kaydı (${kabulSayi} kabul edilmiş, ${utsSatirlar.length - kabulSayi} UTS'de bekleyen). ${uygulanan} satıra barkodla otomatik uygulandı.${kalan.length ? ` ${kalan.length} kayıt barkodla eşleşmedi — aşağıdan hangi satıra gideceğini seçin.` : ''}`,
       })
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: string } }; message?: string }
@@ -3740,6 +3768,33 @@ function UrunGirisTab() {
       })
     } finally {
       setUtsCekLoading(false)
+    }
+  }
+
+  /** Eşleşmeyen UTS kaydını kullanıcının seçtiği lot satırına uygular */
+  function utsKaydiSatiraUygula(kayitIdx: number, lotId: string) {
+    const k = utsEslesmeyen[kayitIdx]
+    if (!k || !lotId) return
+    setLotlar((prev) => prev.map((l) => (l.id === lotId
+      ? { ...l, utsKodu: formatGs1FromUtsFields(k.uno, k.lno, k.sno), utsBildirimId: k.utsBildirimId ?? null }
+      : l)))
+    setUtsEslesmeyen((prev) => prev.filter((_, i) => i !== kayitIdx))
+  }
+
+  /** Elle girilmiş bir belgenin kabul kayıtlarını "ürün girişi yapıldı" işaretler */
+  async function utsBelgeGirisYapildiIsaretle(belgeNo: string) {
+    if (utsIsaretOnay !== belgeNo) {
+      setUtsIsaretOnay(belgeNo)
+      return
+    }
+    setUtsIsaretOnay(null)
+    try {
+      const res = await adminApi.post('/admin/uts/belge-giris-yapildi', { subeKodu: utsReferansSubeKodu(), belgeNo })
+      setUtsDigerKabuller((prev) => prev.filter((b) => b.belgeNo !== belgeNo))
+      setUtsCekMesaj({ tip: 'ok', text: `"${belgeNo}" — ${res.data?.adet ?? 0} UTS kaydı "ürün girişi yapıldı" olarak işaretlendi.` })
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } }; message?: string }
+      setUtsCekMesaj({ tip: 'warn', text: err?.response?.data?.error ?? err?.message ?? 'İşaretlenemedi' })
     }
   }
 
@@ -3857,6 +3912,7 @@ function UrunGirisTab() {
         girisNo,
         irsaliyeNo: irsaliyeNo || undefined,
         utsBildirimId: utsBridgeBildirimId || undefined,
+        utsBildirimIds: [...new Set(lotlar.map((l) => l.utsBildirimId).filter((x): x is string => Boolean(x)))],
       })
 
       const s = res.data?.sonuclar ?? {}
@@ -4031,12 +4087,17 @@ function UrunGirisTab() {
             </div>
             <input
               value={urunArama}
-              onChange={e => { setUrunArama(e.target.value); void araUrunler(e.target.value) }}
+              onChange={e => { setUrunArama(e.target.value); araUrunler(e.target.value) }}
               placeholder="Ürün adı veya kodu ile ara..."
               style={{ ...inp, marginBottom: 12 }}
               autoFocus
             />
             {urunAramaLoading && <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>Aranıyor...</div>}
+            {!urunAramaLoading && !yeniUrunFormu && urunArama.trim().length >= 2 && urunSonuclar.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#92400e', marginBottom: 8 }}>
+                Odoo'da "{urunArama.trim()}" ile eşleşen ürün bulunamadı. Model kodunun bir kısmını ya da marka adını deneyin.
+              </div>
+            ) : null}
             {urunSonuclar.length > 0 && !yeniUrunFormu && (
               <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, marginBottom: 12, overflow: 'hidden' }}>
                 {urunSonuclar.map(u => (
@@ -5193,6 +5254,77 @@ function UrunGirisTab() {
             </div>
           ) : null}
 
+          {utsEslesmeyen.length > 0 ? (
+            <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 10, backgroundColor: '#faf5ff', border: '1px solid #ddd6fe' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#5b21b6', marginBottom: 8 }}>
+                Barkodla eşleşmeyen UTS kayıtları ({utsEslesmeyen.length}) — her kaydın hangi satıra gideceğini seçin
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: '#6b7280' }}>
+                    <th style={{ padding: 4 }}>Ürün no (UNO)</th>
+                    <th style={{ padding: 4 }}>Lot</th>
+                    <th style={{ padding: 4 }}>Seri</th>
+                    <th style={{ padding: 4 }}>UTS ürün tanımı</th>
+                    <th style={{ padding: 4 }}>Durum</th>
+                    <th style={{ padding: 4 }}>Satıra uygula</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {utsEslesmeyen.map((k, idx) => (
+                    <tr key={`${k.uno}-${k.lno ?? ''}-${k.sno ?? ''}-${idx}`} style={{ borderTop: '1px solid #ede9fe' }}>
+                      <td style={{ padding: 4, fontFamily: 'monospace' }}>{k.uno}</td>
+                      <td style={{ padding: 4 }}>{k.lno ?? '—'}</td>
+                      <td style={{ padding: 4 }}>{k.sno ?? '—'}</td>
+                      <td style={{ padding: 4 }}>{k.urunTanimi ?? '—'}</td>
+                      <td style={{ padding: 4 }}>{k.kaynak === 'KABUL' ? 'Kabul edilmiş' : "UTS'de bekliyor"}</td>
+                      <td style={{ padding: 4 }}>
+                        <select
+                          value=""
+                          onChange={(e) => utsKaydiSatiraUygula(idx, e.target.value)}
+                          style={{ ...inp, marginBottom: 0, fontSize: 12, minWidth: 220 }}
+                        >
+                          <option value="">— satır seçin —</option>
+                          {lotlar.map((l, i) => (l.utsKodu.trim() ? null : (
+                            <option key={l.id} value={l.id}>
+                              {i + 1}. {l.bizimUrunAdi}{l.varyantEtiketi ? ` · ${l.varyantEtiketi}` : ''}{l.barkod ? ` · ${l.barkod}` : ''}
+                            </option>
+                          )))}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {utsDigerKabuller.length > 0 ? (
+            <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 10, backgroundColor: '#fffbeb', border: '1px solid #fde68a', fontSize: 12 }}>
+              <div style={{ fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
+                {utsReferansSubeKodu()}'de UTS'si kabul edilmiş, ürün girişi bekleyen belgeler
+              </div>
+              {utsDigerKabuller.map((b) => (
+                <div key={b.belgeNo} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderTop: '1px solid #fef3c7', flexWrap: 'wrap' }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{b.belgeNo}</span>
+                  <span>{b.karsiAd}</span>
+                  <span>· {b.adet} kayıt</span>
+                  {b.tarih ? <span style={{ color: '#9ca3af' }}>· {new Date(b.tarih).toLocaleDateString('tr-TR')}</span> : null}
+                  <button type="button" onClick={() => { void utsBelgeNoIleCek(b.belgeNo) }} style={{ ...btnSmall, marginLeft: 'auto' }}>
+                    Bu belgeden çek
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void utsBelgeGirisYapildiIsaretle(b.belgeNo) }}
+                    style={{ ...btnSmall, backgroundColor: utsIsaretOnay === b.belgeNo ? '#fee2e2' : undefined }}
+                  >
+                    {utsIsaretOnay === b.belgeNo ? 'Emin misiniz? Tekrar basın' : 'Girişi zaten yapıldı'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           {/* Lokasyon bazlı gruplar */}
           {Array.from(new Set(lotlar.map(l => l.lokasyon))).map(lokasyon => {
             const grup = lotlar.filter(l => l.lokasyon === lokasyon)
@@ -5355,7 +5487,7 @@ function UrunGirisTab() {
                           <td style={{ ...td, position: 'relative' }}>
                             <input
                               value={l.utsKodu}
-                              onChange={e => lotGuncelle(l.id, 'utsKodu', e.target.value)}
+                              onChange={e => setLotlar(prev => prev.map(x => x.id === l.id ? { ...x, utsKodu: e.target.value, utsBildirimId: null } : x))}
                               placeholder="UTS..."
                               style={{ ...inp, marginBottom: 0, fontSize: 12, width: 100 }}
                             />
