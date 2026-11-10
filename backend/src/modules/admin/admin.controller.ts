@@ -1715,22 +1715,28 @@ router.get('/urun-ara', async (req: Request, res: Response) => {
 
     // 10.11.2026 — Türkçe büyük/küçük harf: "optik" yazınca "OPTİK" bulunmuyordu (İ/ı). Arama
     // metninin Türkçe büyük ve küçük halleri de denenir.
-    const aramaBicimleri = [...new Set([q, q.toLocaleUpperCase('tr-TR'), q.toLocaleLowerCase('tr-TR')])];
-    const kosullar: any[] = [];
-    for (const v of aramaBicimleri) {
-      kosullar.push(
-        ['name', 'ilike', v],
-        ['attribute_line_ids.value_ids.name', 'ilike', v],
-        ['barcode', 'ilike', v],
-        ['default_code', 'ilike', v],
-      );
-    }
+    // 10.11.2026 (2) — Kelime kelime arama: Odoo'da adlar "Plus  1.56 Fotokromik Füme 0150 -0150"
+    // gibi ÇİFT boşluklu kayıtlı; metnin tamamı bitişik arandığında hiç bulunmuyordu. Artık
+    // yazılan her kelime (sırası ve aradaki boşluk fark etmeksizin) ayrı ayrı aranır, hepsi
+    // geçen ürünler gelir; yazılana en yakın olanlar başa dizilir.
+    const kelimeler = [...new Set(q.split(/\s+/).filter(Boolean))].slice(0, 8);
     const domain: any[] = [
       ['active', '=', true],
       ['type', 'in', ['product', 'consu']],
-      ...Array(kosullar.length - 1).fill('|'),
-      ...kosullar,
     ];
+    for (const kelime of kelimeler) {
+      const bicimler = [...new Set([kelime, kelime.toLocaleUpperCase('tr-TR'), kelime.toLocaleLowerCase('tr-TR')])];
+      const kosullar: any[] = [];
+      for (const v of bicimler) {
+        kosullar.push(
+          ['name', 'ilike', v],
+          ['attribute_line_ids.value_ids.name', 'ilike', v],
+          ['barcode', 'ilike', v],
+          ['default_code', 'ilike', v],
+        );
+      }
+      domain.push(...Array(kosullar.length - 1).fill('|'), ...kosullar);
+    }
 
     const products = await execute(
       'product.template',
@@ -1743,7 +1749,21 @@ router.get('/urun-ara', async (req: Request, res: Response) => {
       },
     );
 
-    return res.json({ data: products });
+    const sade = (s: unknown) => String(s ?? '').toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ').trim();
+    const aranan = sade(q);
+    const puan = (p: any) => {
+      const ad = sade(p.name);
+      if (ad === aranan) return 0;
+      if (ad.endsWith(aranan) || ad.startsWith(aranan)) return 1;
+      if (ad.includes(aranan)) return 2;
+      return 3;
+    };
+    const sirali = (products ?? [])
+      .map((p: any, i: number) => ({ p, i, s: puan(p) }))
+      .sort((a: any, b: any) => a.s - b.s || a.i - b.i)
+      .map((x: any) => x.p);
+
+    return res.json({ data: sirali });
   } catch (err: any) {
     console.error('[urun-ara hata]', err?.message ?? err);
     return res.json({ data: [] });
