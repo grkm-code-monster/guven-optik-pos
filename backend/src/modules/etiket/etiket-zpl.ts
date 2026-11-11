@@ -1,3 +1,5 @@
+import { normalizeGs1Raw } from '../odoo/gs1-parser.util';
+
 export type ElementType =
   | 'kulakcik'
   | 'urunAdi'
@@ -140,8 +142,21 @@ export function gs1AiVerileri(veri: EtiketVeri): {
   };
 }
 
+/**
+ * 11.11.2026 — Lotun GERÇEK UTS karekodu (x_uts_kodu: "01"+GTIN+seri/lot/tarih) varsa, etiketteki karekod
+ * birebir o UTS kodunu taşır. Önceden UTS'li ürünlerde de karekoda GTIN + programın kendi lot adı
+ * ("GRS-19102026-EXC9783-076") yazılıyordu; okutunca UTS numarası yerine GRS... çıkıyordu.
+ * Sadece GTIN olan (seri/lot içermeyen) utsKodu'nda eski davranış sürer.
+ */
+export function tamUtsKodu(veri: EtiketVeri): string | null {
+  const s = normalizeGs1Raw(String(veri.utsKodu ?? ''));
+  return /^01\d{14}/.test(s) && s.length > 18 ? s : null;
+}
+
 /** Karekodun icine gomulecek GS1 element string (tarayici icin) */
 export function buildGs1Data(veri: EtiketVeri): string {
+  const tam = tamUtsKodu(veri);
+  if (tam) return tam;
   const { gtin, skt, lot, seri, utsVarMi } = gs1AiVerileri(veri);
   if (utsVarMi) {
     let s = `01${gtin}`;
@@ -163,6 +178,15 @@ export function gs1ReferansSatirlari(
 ): string[] {
   const { gtin, skt, lot, seri, utsVarMi } = gs1AiVerileri(veri);
   const kullanUts = mode === 'uts' || (mode === 'oto' && utsVarMi);
+  const tam = kullanUts ? tamUtsKodu(veri) : null;
+  if (tam) {
+    // Ayırıcısız UTS kodlarında seri/lot sınırı kesin bilinemediği için yanlış bölmek yerine
+    // GTIN'den sonrasını olduğu gibi (karekodun içeriğiyle birebir) yazıyoruz.
+    const satir = [`(01) ${tam.slice(2, 16)}`];
+    const kalan = tam.slice(16).replace(/\x1d/g, ' ').trim();
+    for (let i = 0; i < kalan.length && satir.length < 3; i += 24) satir.push(kalan.slice(i, i + 24));
+    return satir;
+  }
   if (kullanUts) {
     const lines = [`(01) ${gtin}`];
     if (skt) lines.push(`(17) ${skt}`);
