@@ -136,6 +136,16 @@ export async function findExistingCategoryMatch(
   }
   if (exact.length > 1) {
     const normInput = normalizeCategoryLabel(trimmed);
+    // 11.11.2026 — Tam yol yazıldıysa (ör. "All / OPTİK ÇERÇEVE / ALT GRUP") ve TAM YOLU birebir
+    // tutan tek kategori varsa onu seç. Arşive taşınmış eski bir kategorinin ADI bu yolun aynısı
+    // olabiliyor ("ARŞİV (TEST / ESKİ) / All / OPTİK ÇERÇEVE / ALT GRUP") — ad eşleşmesi yüzünden
+    // "belirsiz" deyip yeni şablon açılamıyordu (GVN2 envanter aktarımı, 7 satır).
+    if (trimmed.includes('/')) {
+      const tamYol = exact.filter((row) => normalizeCategoryLabel(row.complete_name) === normInput);
+      if (tamYol.length === 1) {
+        return { matchType: 'exact', match: tamYol[0], candidates: exact };
+      }
+    }
     const allSameComplete = exact.every(
       (row) => normalizeCategoryLabel(row.complete_name)
         === normalizeCategoryLabel(exact[0].complete_name),
