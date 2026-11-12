@@ -57,6 +57,65 @@ type StokUrunRow = {
   toplamStok: number
   aktif: boolean
   varyantSayisi: number
+  /** Arama/Model filtresine uyan varyantlar (şablonun yalnız bir kısmı eşleştiyse) */
+  eslesenVaryantIds?: number[]
+}
+
+/**
+ * Arama metni (kelime kelime, hepsi geçmeli) ve model koduna uyan varyantları bulur.
+ * Her kelime: ürün adı, nitelik değeri (model/renk/ölçü), barkod veya iç ref içinde geçmeli.
+ * Dönen: şablon id → eşleşen varyant id'leri.
+ */
+async function stokVaryantEslesmesi(
+  q: string | undefined,
+  model: string | undefined,
+  durum: 'aktif' | 'arsiv' | 'hepsi',
+): Promise<Map<number, number[]>> {
+  const trBicimler = (k: string) => [...new Set([k, k.toLocaleUpperCase('tr-TR'), k.toLocaleLowerCase('tr-TR')])];
+  const ptavIdleri = async (k: string): Promise<number[]> => {
+    const bicimler = trBicimler(k);
+    const dom: unknown[] = [...Array(bicimler.length - 1).fill('|'), ...bicimler.map((b) => ['name', 'ilike', b])];
+    const rows = (await execute('product.template.attribute.value', 'search_read', [dom], {
+      fields: ['id'],
+      limit: 5000,
+      context: { active_test: false },
+    })) ?? [];
+    return rows.map((r: { id: number }) => r.id).filter(Boolean);
+  };
+  const kosulGrubu = async (k: string, adDahil: boolean): Promise<unknown[]> => {
+    const kosullar: unknown[] = [];
+    for (const b of trBicimler(k)) {
+      if (adDahil) kosullar.push(['name', 'ilike', b]);
+      kosullar.push(['barcode', 'ilike', b], ['default_code', 'ilike', b]);
+    }
+    const ptav = await ptavIdleri(k);
+    if (ptav.length) kosullar.push(['product_template_attribute_value_ids', 'in', ptav]);
+    return [...Array(kosullar.length - 1).fill('|'), ...kosullar];
+  };
+
+  const domain: unknown[] = [['type', 'in', ['product', 'consu']]];
+  if (durum === 'aktif') domain.push(['active', '=', true]);
+  else if (durum === 'arsiv') domain.push(['active', '=', false]);
+  else domain.push(['active', 'in', [true, false]]);
+
+  const kelimeler = [...new Set((q ?? '').trim().split(/\s+/).filter(Boolean))].slice(0, 8);
+  for (const k of kelimeler) domain.push(...(await kosulGrubu(k, true)));
+  if (model?.trim()) domain.push(...(await kosulGrubu(model.trim(), false)));
+
+  const variants = (await execute('product.product', 'search_read', [domain], {
+    fields: ['id', 'product_tmpl_id'],
+    limit: 30000,
+    context: { active_test: false },
+  })) ?? [];
+  const map = new Map<number, number[]>();
+  for (const v of variants as Array<{ id: number; product_tmpl_id: unknown }>) {
+    const tid = m2oId(v.product_tmpl_id);
+    if (!tid) continue;
+    const list = map.get(tid);
+    if (list) list.push(v.id);
+    else map.set(tid, [v.id]);
+  }
+  return map;
 }
 
 type VariantMeta = { fiyat: number; barkod: string | null }
@@ -180,44 +239,16 @@ export async function listStokUrunleri(filtre: StokFiltre) {
     searchContext.active_test = false;
   }
 
-  if (filtre.q?.trim()) {
-    const q = filtre.q.trim();
-    domain.push('|', ['name', 'ilike', q], ['default_code', 'ilike', q]);
-  }
-  if (filtre.model?.trim()) {
-    // "Model Ara": kullanıcı marka/kategori adını değil, sadece model kodunu
-    // yazıyor (ör. "MU2237"). Model kodu product.template.name içinde DEĞİL —
-    // varyant seviyesinde bir nitelik (attribute) değeri olarak tutuluyor.
-    // Önce eşleşen nitelik değerlerini, sonra o değerlere sahip varyantları,
-    // en son o varyantların şablon (template) id'lerini buluyoruz.
-    const modelQ = filtre.model.trim();
-    const ptavs = (await execute(
-      'product.template.attribute.value',
-      'search_read',
-      [[['name', 'ilike', modelQ]]],
-      { fields: ['id'], limit: 500 },
-    )) ?? [];
-    const ptavIds = ptavs.map((p: { id: number }) => p.id).filter(Boolean);
-
-    let modelTmplIds: number[] = [];
-    if (ptavIds.length) {
-      const variantlar = (await execute(
-        'product.product',
-        'search_read',
-        [[['product_template_attribute_value_ids', 'in', ptavIds]]],
-        { fields: ['product_tmpl_id'], limit: 3000 },
-      )) ?? [];
-      modelTmplIds = [
-        ...new Set(variantlar.map((v: { product_tmpl_id: unknown }) => m2oId(v.product_tmpl_id)).filter(Boolean) as number[]),
-      ];
-    }
-    // default_code'da da model kodu geçebilir (ör. ürün kendi tek şablonuysa) —
-    // o yüzden ayrıca default_code'da da arıyoruz.
-    domain.push(
-      '|',
-      ['default_code', 'ilike', modelQ],
-      ['id', 'in', modelTmplIds.length ? modelTmplIds : [-1]],
-    );
+  // 12.11.2026 — Arama artık VARYANT seviyesinde: "Arama" kutusu ürün adı + model/renk/ölçü
+  // (nitelik değerleri) + barkod + iç ref içinde kelime kelime arar (Stok Kontrol'deki gibi;
+  // önceden sadece şablon adı/iç ref'e bakıyordu, "RB6147RO" ya da barkod bulunmuyordu).
+  // "Model Ara" da aynı varyant kümesini daraltır. Eşleşen varyant id'leri şablon bazında
+  // döndürülür; ekran şablonu açınca SADECE o varyantları gösterir.
+  let eslesenVaryantMap: Map<number, number[]> | null = null;
+  if (filtre.q?.trim() || filtre.model?.trim()) {
+    eslesenVaryantMap = await stokVaryantEslesmesi(filtre.q, filtre.model, durum);
+    const ids = [...eslesenVaryantMap.keys()];
+    domain.push(['id', 'in', ids.length ? ids : [-1]]);
   }
   if (filtre.kategoriId) domain.push(['categ_id', 'child_of', filtre.kategoriId]);
   if (filtre.fiyatMin != null) domain.push(['list_price', '>=', filtre.fiyatMin]);
@@ -289,6 +320,11 @@ export async function listStokUrunleri(filtre: StokFiltre) {
       toplamStok,
       aktif: !!t.active,
       varyantSayisi,
+      ...(() => {
+        const eslesen = eslesenVaryantMap?.get(t.id);
+        // Şablonun bütün varyantları eşleşiyorsa (ör. sadece marka adı aranmış) daraltma yok.
+        return eslesen && eslesen.length < varyantSayisi ? { eslesenVaryantIds: eslesen } : {};
+      })(),
     };
   });
 

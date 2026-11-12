@@ -101,6 +101,31 @@ function varyantKey(tmplId: number, variantId: number) {
   return `${tmplId}-${variantId}`
 }
 
+// 12.11.2026 — Filtreler artık yazarken değil "Ara" (veya Enter) ile uygulanır.
+type StokFiltreForm = {
+  arama: string
+  modelAra: string
+  kategoriId: string
+  fiyatMin: string
+  fiyatMax: string
+  stokDurumu: 'tumu' | 'var' | 'sifir'
+  urunDurumu: 'aktif' | 'arsiv' | 'hepsi'
+  lokasyon: string
+  kdv: string
+}
+
+const BOS_FILTRE: StokFiltreForm = {
+  arama: '',
+  modelAra: '',
+  kategoriId: '',
+  fiyatMin: '',
+  fiyatMax: '',
+  stokDurumu: 'tumu',
+  urunDurumu: 'aktif',
+  lokasyon: '',
+  kdv: '',
+}
+
 type SecilenVaryantKayit = {
   key: string
   tmplId: number
@@ -133,6 +158,8 @@ export default function StokYonetimiPage() {
   const [urunDurumu, setUrunDurumu] = useState<'aktif' | 'arsiv' | 'hepsi'>('aktif')
   const [lokasyon, setLokasyon] = useState('')
   const [kdv, setKdv] = useState('')
+  const [uygulanan, setUygulanan] = useState<StokFiltreForm>(BOS_FILTRE)
+  const [tumVaryantlariGoster, setTumVaryantlariGoster] = useState<Set<number>>(new Set())
 
   const [secili, setSecili] = useState<Set<number>>(new Set())
   const [duzenlenen, setDuzenlenen] = useState<{ id: number; alan: 'satis' | 'alis'; deger: string } | null>(null)
@@ -173,8 +200,43 @@ export default function StokYonetimiPage() {
   )
 
   const isYonetimView = activeTab === 'yonetim' || activeTab === 'arsiv'
-  const arsivModu = activeTab === 'arsiv' || urunDurumu === 'arsiv'
-  const effectiveUrunDurumu = activeTab === 'arsiv' ? 'arsiv' : urunDurumu
+  const arsivModu = activeTab === 'arsiv' || uygulanan.urunDurumu === 'arsiv'
+  const effectiveUrunDurumu = activeTab === 'arsiv' ? 'arsiv' : uygulanan.urunDurumu
+  const lokasyonAktif = uygulanan.lokasyon
+  const formFiltre: StokFiltreForm = { arama, modelAra, kategoriId, fiyatMin, fiyatMax, stokDurumu, urunDurumu, lokasyon, kdv }
+  const filtreDegisti = JSON.stringify(formFiltre) !== JSON.stringify(uygulanan)
+
+  function ara(e?: React.FormEvent) {
+    e?.preventDefault()
+    const yeni: StokFiltreForm = { ...formFiltre, arama: arama.trim(), modelAra: modelAra.trim() }
+    setUygulanan(yeni)
+    setPage(1)
+    setSecili(new Set())
+    setSecilenVaryantlar(new Map())
+    setExpandedTmplIds(new Set())
+    setVaryantCache(new Map())
+    setTumVaryantlariGoster(new Set())
+    // Aynı filtreyle tekrar "Ara"ya basılırsa da listeyi tazele
+    if (JSON.stringify(yeni) === JSON.stringify(uygulanan) && page === 1) void yukle()
+  }
+
+  function filtreleriTemizle() {
+    setArama('')
+    setModelAra('')
+    setKategoriId('')
+    setFiyatMin('')
+    setFiyatMax('')
+    setStokDurumu('tumu')
+    setUrunDurumu(activeTab === 'arsiv' ? 'arsiv' : 'aktif')
+    setLokasyon('')
+    setKdv('')
+    setUygulanan({ ...BOS_FILTRE, urunDurumu: activeTab === 'arsiv' ? 'arsiv' : 'aktif' })
+    setPage(1)
+    setSecili(new Set())
+    setExpandedTmplIds(new Set())
+    setVaryantCache(new Map())
+    setTumVaryantlariGoster(new Set())
+  }
 
   function handleTabChange(tabId: TabId) {
     setActiveTab(tabId)
@@ -183,8 +245,10 @@ export default function StokYonetimiPage() {
     setSecilenVaryantlar(new Map())
     if (tabId === 'arsiv') {
       setUrunDurumu('arsiv')
+      setUygulanan((f) => ({ ...f, urunDurumu: 'arsiv' }))
     } else if (tabId === 'yonetim') {
       setUrunDurumu('aktif')
+      setUygulanan((f) => ({ ...f, urunDurumu: 'aktif' }))
     }
   }
 
@@ -199,14 +263,14 @@ export default function StokYonetimiPage() {
     setMesaj(null)
     try {
       const res = await getStokUrunleri({
-        q: arama || undefined,
-        model: modelAra || undefined,
-        kategoriId: kategoriId ? Number(kategoriId) : undefined,
-        fiyatMin: fiyatMin ? Number(fiyatMin) : undefined,
-        fiyatMax: fiyatMax ? Number(fiyatMax) : undefined,
-        stokDurumu: stokDurumu !== 'tumu' ? stokDurumu : undefined,
-        lokasyon: lokasyon || undefined,
-        kdv: kdv ? Number(kdv) : undefined,
+        q: uygulanan.arama || undefined,
+        model: uygulanan.modelAra || undefined,
+        kategoriId: uygulanan.kategoriId ? Number(uygulanan.kategoriId) : undefined,
+        fiyatMin: uygulanan.fiyatMin ? Number(uygulanan.fiyatMin) : undefined,
+        fiyatMax: uygulanan.fiyatMax ? Number(uygulanan.fiyatMax) : undefined,
+        stokDurumu: uygulanan.stokDurumu !== 'tumu' ? uygulanan.stokDurumu : undefined,
+        lokasyon: uygulanan.lokasyon || undefined,
+        kdv: uygulanan.kdv ? Number(uygulanan.kdv) : undefined,
         durum: effectiveUrunDurumu !== 'aktif' ? effectiveUrunDurumu : undefined,
         page,
         limit: 50,
@@ -214,13 +278,20 @@ export default function StokYonetimiPage() {
       if (reqId !== yukleReqRef.current) return // eskimiş (stale) yanıt — yok say
       setUrunler(res.data)
       setTotal(res.total)
+      // Arama belirli varyantlara indiyse (ör. model "6147") o şablonları açık getir — az sonuçta
+      const daralan = res.data.filter((u) => u.eslesenVaryantIds?.length)
+      if (daralan.length && daralan.length <= 10) {
+        setExpandedTmplIds(new Set(daralan.map((u) => u.id)))
+        for (const u of daralan) void yukleVaryantlar(u.id)
+      }
     } catch (e: any) {
       if (reqId !== yukleReqRef.current) return
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Ürünler yüklenemedi' })
     } finally {
       if (reqId === yukleReqRef.current) setLoading(false)
     }
-  }, [arama, modelAra, kategoriId, fiyatMin, fiyatMax, stokDurumu, effectiveUrunDurumu, lokasyon, kdv, page])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uygulanan, effectiveUrunDurumu, page])
 
   useEffect(() => {
     getOdooKategoriler().then((k) => setKategoriler(k)).catch(() => {})
@@ -238,7 +309,7 @@ export default function StokYonetimiPage() {
       if (!varyantCache.has(tmplId)) void yukleVaryantlar(tmplId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lokasyon])
+  }, [lokasyonAktif])
 
   function toggleSec(id: number) {
     setSecili((prev) => {
@@ -257,7 +328,7 @@ export default function StokYonetimiPage() {
   async function yukleVaryantlar(tmplId: number) {
     setVaryantYukleniyor((prev) => new Set(prev).add(tmplId))
     try {
-      const data = await getSablonVaryantlari(tmplId, lokasyon || undefined)
+      const data = await getSablonVaryantlari(tmplId, lokasyonAktif || undefined)
       setVaryantCache((prev) => new Map(prev).set(tmplId, data))
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? 'Varyantlar yüklenemedi' })
@@ -377,7 +448,7 @@ export default function StokYonetimiPage() {
     await Promise.all(
       kaynaklar.map(async (k) => {
         try {
-          lotMap.set(k.key, await getVaryantLotBilgisi(k.odooId, lokasyon || undefined));
+          lotMap.set(k.key, await getVaryantLotBilgisi(k.odooId, lokasyonAktif || undefined));
         } catch {
           lotMap.set(k.key, {
             productId: k.odooId,
@@ -394,7 +465,7 @@ export default function StokYonetimiPage() {
     // seri numarası olur. Önceden tek (herhangi bir mağazadaki son) lot, stok adedi kadar basılıyordu.
     return kaynaklar.flatMap((k) => {
       const bilgi = lotMap.get(k.key);
-      if (lokasyon && bilgi?.lotlar?.length) {
+      if (lokasyonAktif && bilgi?.lotlar?.length) {
         return bilgi.lotlar.map((l) => ({
           key: `${k.key}#${l.lotId}`,
           urunAdi: k.urunAdi ?? tmpl.urunAdi,
@@ -680,7 +751,7 @@ export default function StokYonetimiPage() {
     setEtiketAcik(true)
     setEtiketZpl('')
     setEtiketAdet(1)
-    setEtiketLokasyon(lokasyon || 'GVN1')
+    setEtiketLokasyon(lokasyonAktif || 'GVN1')
     setEtiketSablonId(otomatikSablonSec(u.kategori, false))
   }
 
@@ -813,15 +884,15 @@ export default function StokYonetimiPage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20, alignItems: 'start' }}>
         {/* Sol filtreler */}
-        <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
+        <form onSubmit={ara} style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, alignSelf: 'start' }}>
           <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Filtreler</div>
 
           <label style={{ display: 'block', marginBottom: 12 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Arama</span>
             <input
               value={arama}
-              onChange={(e) => { setArama(e.target.value); setPage(1) }}
-              placeholder="Ürün adı / iç ref"
+              onChange={(e) => setArama(e.target.value)}
+              placeholder="Ürün adı, model, renk, barkod…"
               style={{ ...inp, marginTop: 4 }}
             />
           </label>
@@ -830,7 +901,7 @@ export default function StokYonetimiPage() {
             <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Model Ara</span>
             <input
               value={modelAra}
-              onChange={(e) => { setModelAra(e.target.value); setPage(1) }}
+              onChange={(e) => setModelAra(e.target.value)}
               placeholder="Örn. MU2237"
               style={{ ...inp, marginTop: 4 }}
             />
@@ -838,7 +909,7 @@ export default function StokYonetimiPage() {
 
           <label style={{ display: 'block', marginBottom: 12 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Kategori</span>
-            <select value={kategoriId} onChange={(e) => { setKategoriId(e.target.value); setPage(1) }} style={{ ...inp, marginTop: 4 }}>
+            <select value={kategoriId} onChange={(e) => setKategoriId(e.target.value)} style={{ ...inp, marginTop: 4 }}>
               <option value="">Tümü</option>
               {kategoriler.map((k) => <option key={k.id} value={k.id}>{k.complete_name}</option>)}
             </select>
@@ -847,18 +918,18 @@ export default function StokYonetimiPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
             <label>
               <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Min ₺</span>
-              <input type="number" value={fiyatMin} onChange={(e) => { setFiyatMin(e.target.value); setPage(1) }} style={{ ...inp, marginTop: 4 }} />
+              <input type="number" value={fiyatMin} onChange={(e) => setFiyatMin(e.target.value)} style={{ ...inp, marginTop: 4 }} />
             </label>
             <label>
               <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Max ₺</span>
-              <input type="number" value={fiyatMax} onChange={(e) => { setFiyatMax(e.target.value); setPage(1) }} style={{ ...inp, marginTop: 4 }} />
+              <input type="number" value={fiyatMax} onChange={(e) => setFiyatMax(e.target.value)} style={{ ...inp, marginTop: 4 }} />
             </label>
           </div>
 
           {activeTab !== 'arsiv' ? (
             <label style={{ display: 'block', marginBottom: 12 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Ürün durumu</span>
-              <select value={urunDurumu} onChange={(e) => { setUrunDurumu(e.target.value as 'aktif' | 'arsiv' | 'hepsi'); setPage(1); setSecili(new Set()) }} style={{ ...inp, marginTop: 4 }}>
+              <select value={urunDurumu} onChange={(e) => setUrunDurumu(e.target.value as 'aktif' | 'arsiv' | 'hepsi')} style={{ ...inp, marginTop: 4 }}>
                 <option value="aktif">Aktif Ürünler</option>
                 <option value="arsiv">Arşiv</option>
                 <option value="hepsi">Hepsi</option>
@@ -868,7 +939,7 @@ export default function StokYonetimiPage() {
 
           <label style={{ display: 'block', marginBottom: 12 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Stok durumu</span>
-            <select value={stokDurumu} onChange={(e) => { setStokDurumu(e.target.value as any); setPage(1) }} style={{ ...inp, marginTop: 4 }}>
+            <select value={stokDurumu} onChange={(e) => setStokDurumu(e.target.value as any)} style={{ ...inp, marginTop: 4 }}>
               <option value="tumu">Tümü</option>
               <option value="var">Stokta var</option>
               <option value="sifir">Stok sıfır</option>
@@ -877,7 +948,7 @@ export default function StokYonetimiPage() {
 
           <label style={{ display: 'block', marginBottom: 12 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Şube</span>
-            <select value={lokasyon} onChange={(e) => { setLokasyon(e.target.value); setPage(1); setVaryantCache(new Map()) }} style={{ ...inp, marginTop: 4 }}>
+            <select value={lokasyon} onChange={(e) => setLokasyon(e.target.value)} style={{ ...inp, marginTop: 4 }}>
               <option value="">Tümü</option>
               {LOKASYONLAR.map((l) => <option key={l} value={l}>{l}</option>)}
             </select>
@@ -885,13 +956,33 @@ export default function StokYonetimiPage() {
 
           <label style={{ display: 'block' }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>KDV</span>
-            <select value={kdv} onChange={(e) => { setKdv(e.target.value); setPage(1) }} style={{ ...inp, marginTop: 4 }}>
+            <select value={kdv} onChange={(e) => setKdv(e.target.value)} style={{ ...inp, marginTop: 4 }}>
               <option value="">Tümü</option>
               <option value="10">%10</option>
               <option value="20">%20</option>
             </select>
           </label>
-        </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{ ...btnPrimary, width: '100%', marginTop: 16, padding: '10px 16px', opacity: loading ? 0.7 : 1 }}
+          >
+            {loading ? 'Aranıyor…' : 'Ara'}
+          </button>
+          {filtreDegisti && !loading ? (
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, textAlign: 'center' }}>
+              Filtre değişti — sonuç için "Ara"ya basın
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={filtreleriTemizle}
+            style={{ ...btn, width: '100%', marginTop: 8, backgroundColor: '#f3f4f6', color: '#374151' }}
+          >
+            Temizle
+          </button>
+        </form>
 
         {/* Tablo */}
         <div>
@@ -1016,7 +1107,13 @@ export default function StokYonetimiPage() {
                   {urunler.map((u) => {
                     const cokluVaryant = (u.varyantSayisi ?? 1) > 1
                     const expanded = expandedTmplIds.has(u.id)
-                    const varyantlar = varyantCache.get(u.id)
+                    const tumVaryantlar = varyantCache.get(u.id)
+                    const eslesenSet = u.eslesenVaryantIds?.length && !tumVaryantlariGoster.has(u.id)
+                      ? new Set(u.eslesenVaryantIds)
+                      : null
+                    const varyantlar = eslesenSet && tumVaryantlar
+                      ? tumVaryantlar.filter((v) => eslesenSet.has(v.id))
+                      : tumVaryantlar
                     const varyantLoading = varyantYukleniyor.has(u.id)
 
                     return (
@@ -1104,6 +1201,28 @@ export default function StokYonetimiPage() {
                               {varyantLoading ? (
                                 <div style={{ padding: '12px 16px', fontSize: 12, color: '#6b7280' }}>Varyantlar yükleniyor...</div>
                               ) : (
+                                <>
+                                {u.eslesenVaryantIds?.length ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px 4px 44px', fontSize: 12, color: '#1d4ed8' }}>
+                                    <span>
+                                      {eslesenSet
+                                        ? `Aramaya uyan ${varyantlar?.length ?? u.eslesenVaryantIds.length} varyant gösteriliyor (toplam ${u.varyantSayisi})`
+                                        : `Tüm varyantlar gösteriliyor (${tumVaryantlar?.length ?? u.varyantSayisi})`}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setTumVaryantlariGoster((prev) => {
+                                        const next = new Set(prev)
+                                        if (next.has(u.id)) next.delete(u.id)
+                                        else next.add(u.id)
+                                        return next
+                                      })}
+                                      style={{ border: 'none', background: 'none', color: '#2563eb', fontWeight: 700, cursor: 'pointer', fontSize: 12, textDecoration: 'underline', padding: 0 }}
+                                    >
+                                      {eslesenSet ? 'Tümünü göster' : 'Sadece eşleşenleri göster'}
+                                    </button>
+                                  </div>
+                                ) : null}
                                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                   <thead>
                                     <tr>
@@ -1205,6 +1324,7 @@ export default function StokYonetimiPage() {
                                     ) : null}
                                   </tbody>
                                 </table>
+                                </>
                               )}
                             </td>
                           </tr>

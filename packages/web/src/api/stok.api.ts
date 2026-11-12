@@ -13,6 +13,8 @@ export type StokUrun = {
   toplamStok: number
   aktif: boolean
   varyantSayisi: number
+  /** Arama/Model filtresine uyan varyantlar — sadece şablonun bir kısmı eşleştiyse gelir */
+  eslesenVaryantIds?: number[]
 }
 
 export type SablonVaryant = {
