@@ -1599,6 +1599,29 @@ model FiyatDegisiklikBildirimi {
   @@index([createdAt])
 }
 
+// 13.11.2026 — Etiket basım geçmişi: hangi ürüne (lot) ne zaman, hangi fiyatla etiket basıldı.
+// "Yazdır"a basıldığı an kaydedilir (yazıcının fiilen basıp basmadığı bilinemez).
+model EtiketBasimKaydi {
+  id         String   @id @default(cuid())
+  lotId      Int?     // Odoo stock.lot.id
+  lotAdi     String?
+  utsKodu    String?
+  varyantId  Int?     // Odoo product.product.id
+  urunAdi    String
+  nitelik    String?  // MODEL / RENK / ÖLÇÜ
+  fiyat      Decimal? @db.Decimal(12, 2)
+  sablonSlug String?
+  kaynak     String   // ETIKET_MERKEZI | STOK_YONETIMI | DEPO | TRANSFER | EXCEL_ENVANTER | POS_FIYAT | ILK_KAYIT
+  lokasyon   String?
+  adet       Int      @default(1)
+  userId     String?
+  basildi    DateTime @default(now())
+
+  @@index([lotId])
+  @@index([varyantId])
+  @@index([basildi])
+}
+
 model Bildirim {
   id        String   @id @default(cuid())
   userId    String

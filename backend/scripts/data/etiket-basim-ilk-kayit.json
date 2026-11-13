@@ -1,0 +1,1582 @@
+[
+{
+"lotAdi": "GRS-11112026-EXC2662-094",
+"utsKodu": null,
+"urunAdi": "1959 EYEWEAR OPTİK ÇERÇEVE",
+"nitelik": "160111O / C3 / 54",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-126",
+"utsKodu": null,
+"urunAdi": "1959 EYEWEAR OPTİK ÇERÇEVE",
+"nitelik": "160161O / C13 / 55",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-065",
+"utsKodu": null,
+"urunAdi": "1959 EYEWEAR OPTİK ÇERÇEVE",
+"nitelik": "160171O / C7 / 50",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-066",
+"utsKodu": null,
+"urunAdi": "1959 EYEWEAR OPTİK ÇERÇEVE",
+"nitelik": "95010PO / C2 / 49",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-090",
+"utsKodu": null,
+"urunAdi": "1959 EYEWEAR OPTİK ÇERÇEVE",
+"nitelik": "CT10941O / C2 / 50",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-093",
+"utsKodu": null,
+"urunAdi": "1959 EYEWEAR OPTİK ÇERÇEVE",
+"nitelik": "FD80411O / C3 / 51",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-062",
+"utsKodu": null,
+"urunAdi": "1959 EYEWEAR OPTİK ÇERÇEVE",
+"nitelik": "FD80491O / C4 / 50",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-132",
+"utsKodu": null,
+"urunAdi": "ADIDAS OPTİK ÇERÇEVE",
+"nitelik": "AF02AO / 6054 / 54",
+"fiyat": 4500,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-029",
+"utsKodu": null,
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE ALYTT009-3AO",
+"nitelik": "",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-106",
+"utsKodu": "0108680285481903211001010260324111",
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8110AO",
+"nitelik": "",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-107",
+"utsKodu": "0108680285481927211001210260324111",
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8111AO",
+"nitelik": "",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-081",
+"utsKodu": "0108680285481958211000810260324111",
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8113AO",
+"nitelik": "C177",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-108",
+"utsKodu": null,
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8113AO",
+"nitelik": "C188",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-109",
+"utsKodu": "0108680285481941211000810260324111",
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8113AO",
+"nitelik": "C78",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-082",
+"utsKodu": "0108680285481989211001110260324111",
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8114AO",
+"nitelik": "",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-105",
+"utsKodu": null,
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8115AO",
+"nitelik": "",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-104",
+"utsKodu": null,
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8201AO",
+"nitelik": "",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-086",
+"utsKodu": null,
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8256AO",
+"nitelik": "C132",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-103",
+"utsKodu": null,
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8256AO",
+"nitelik": "C138",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-087",
+"utsKodu": null,
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8306AO",
+"nitelik": "",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-041-1",
+"utsKodu": null,
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8307AO",
+"nitelik": "",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-041-2",
+"utsKodu": null,
+"urunAdi": "ALYSON SASSO OPTİK ÇERÇEVE MSSP8307AO",
+"nitelik": "",
+"fiyat": 2800,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-037",
+"utsKodu": "010868335961200521104311230523101",
+"urunAdi": "AUSTINBERG OPTİK ÇERÇEVE",
+"nitelik": "BV2094BDAO / C4462 / 53",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-019",
+"utsKodu": "010868335961205021104511230523101",
+"urunAdi": "AUSTINBERG OPTİK ÇERÇEVE",
+"nitelik": "BV2134BAO / C201 / 54",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC3002-007",
+"utsKodu": "0108681668114883211076*11190902101",
+"urunAdi": "BELMOND OPTİK ÇERÇEVE",
+"nitelik": "",
+"fiyat": 1298,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-075",
+"utsKodu": null,
+"urunAdi": "CENTRO STYLE OPTİK ÇERÇEVE",
+"nitelik": "12005CO / CLİLA / 53",
+"fiyat": 7550,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-095",
+"utsKodu": null,
+"urunAdi": "CENTRO STYLE OPTİK ÇERÇEVE",
+"nitelik": "F025753242000CO / C24000514 / 47",
+"fiyat": 7550,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-003",
+"utsKodu": "0108680285366927211002011221011101",
+"urunAdi": "DE VALENTINI OPTİK ÇERÇEVE",
+"nitelik": "DV503DO / C8 / 49",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC3002-005",
+"utsKodu": "01086825300089412110011*11200720101",
+"urunAdi": "DEMETZ OPTİK ÇERÇEVE",
+"nitelik": "",
+"fiyat": 6200,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-015",
+"utsKodu": "010868261209937921500010145709(11220909109092022(",
+"urunAdi": "ESPRIT OPTİK ÇERÇEVE",
+"nitelik": "ET33451EO / C538 / 51",
+"fiyat": 6000,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-056",
+"utsKodu": "010868042171225021421000849167-11230111101",
+"urunAdi": "FILA OPTİK ÇERÇEVE",
+"nitelik": "VFI495FO / C0302 / 55",
+"fiyat": 4818.18,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-055",
+"utsKodu": "010868042146204921421000539428-1116080110206",
+"urunAdi": "FILA OPTİK ÇERÇEVE",
+"nitelik": "VFI9081FO / C0721 / 50",
+"fiyat": 4818.18,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-057",
+"utsKodu": "01086804216518252142100073296711201106101",
+"urunAdi": "FLIRT OPTİK ÇERÇEVE",
+"nitelik": "FLV389FO / C520 / 51",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-020",
+"utsKodu": "0108680256429835213111240129101",
+"urunAdi": "FRANZ VOGEL OPTİK ÇERÇEVE",
+"nitelik": "FV054FO / C1 / 49",
+"fiyat": 6510,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-040",
+"utsKodu": null,
+"urunAdi": "GOODLOOK GÜNEŞ GÖZLÜĞÜ",
+"nitelik": "GDLK306GG / C19 / 49",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-051",
+"utsKodu": "01086836979191872137112208231000000165",
+"urunAdi": "GOODLOOK OPTİK ÇERÇEVE",
+"nitelik": "GL1014GO / C75 / 42",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-011",
+"utsKodu": "01086836979073132118112208101000000111",
+"urunAdi": "GOODLOOK OPTİK ÇERÇEVE",
+"nitelik": "GL305GO / C20 / 51",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-018",
+"utsKodu": "0108683697906873217112208091000000109",
+"urunAdi": "GOODLOOK OPTİK ÇERÇEVE",
+"nitelik": "GL309GO / C18 / 51",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC3002-006",
+"utsKodu": null,
+"urunAdi": "GRAND TARGET OPTİK ÇERÇEVE",
+"nitelik": "GT6005/2GO / C165 / 56",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC3002-004",
+"utsKodu": "010868336903548121037176311211228101",
+"urunAdi": "GRAND TARGET OPTİK ÇERÇEVE",
+"nitelik": "GT6011/2GO / C0165 / 51",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC3002-003",
+"utsKodu": "010868336900890421029905311211108101",
+"urunAdi": "GRAND TARGET OPTİK ÇERÇEVE",
+"nitelik": "GT605TKGO / C02R04M / 56",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC3002-002",
+"utsKodu": "010868336901375521027949111211021101",
+"urunAdi": "GRAND TARGET OPTİK ÇERÇEVE",
+"nitelik": "GT609TKGO / C01R02M / 48",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-134",
+"utsKodu": "01086803046907292190000031*11210810101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "8731GO / C1 / 53",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-135",
+"utsKodu": "01086816790664092110029*11201112101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "8762GO / C4 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-061",
+"utsKodu": "01086816790893542110176*11220111101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "9134GO / C3 / 53",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-133",
+"utsKodu": "01086816790934812110010*11211013101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "9136GO / C3 / 53",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-069",
+"utsKodu": "0108681679116289211007911220916101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYIG31853GO / C07 / 52",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-077",
+"utsKodu": "01086816791374992110213*11230310101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYIG31854GO / C12 / 48",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-080",
+"utsKodu": "0108681679135891211014611230307101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYK88012GO / C01 / 49",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-064",
+"utsKodu": "0108681679136386211000911230228101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYK88035GO / C3 / 48",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-118",
+"utsKodu": "0108681679135365211002211230329101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYK88048GO / C3 / 47",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-072",
+"utsKodu": "0108681679113318211003811220909101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYLT2092GO / C2 / 46",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-058",
+"utsKodu": "0108681679135648211070711230227101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYSS55109GO / C1 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-059",
+"utsKodu": "0108681679112243211018711220909101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYSS7802GO / C2 / 51",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-121",
+"utsKodu": "01086816790850422110017*11210804101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYSS8095GO / C9 / 52",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-114",
+"utsKodu": "018681679071687211008411210204101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYSS8121GO / C06 / 53",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-124",
+"utsKodu": "0108681679100615211011311220418101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYSS8197GO / C2 / 51",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-071",
+"utsKodu": "010868167904520621100076*11200902101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYSS8201GO / C3 / 49",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-119",
+"utsKodu": "01086803046847042110009411210119101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYSS8317GO / C07 / 53",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-120",
+"utsKodu": "01086803046808432110017511191202101",
+"urunAdi": "GYESSE OPTİK ÇERÇEVE",
+"nitelik": "GYSS8482GO / C06 / 52",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-005",
+"utsKodu": "0108682037157685212101000005931121112610210100057222",
+"urunAdi": "HAWK OPTİK ÇERÇEVE",
+"nitelik": "HW7550HO / C8 / 47",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-045",
+"utsKodu": null,
+"urunAdi": "HAWK OPTİK ÇERÇEVE",
+"nitelik": "HW7684HO / C2 / 51",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-039",
+"utsKodu": "010868203722049521220100000034*1122090510220100047101",
+"urunAdi": "HAWK OPTİK ÇERÇEVE",
+"nitelik": "HW7708HO / C04 / 48",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-098",
+"utsKodu": "01086815208601632110016*11230513101",
+"urunAdi": "HERMOD PARIS OPTİK ÇERÇEVE",
+"nitelik": "HP1810HO / C5 / 43",
+"fiyat": 3410,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-128",
+"utsKodu": null,
+"urunAdi": "INFINITI OPTİK ÇERÇEVE",
+"nitelik": "BN25IO / C13 / 53",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC3002-008",
+"utsKodu": "0102372373773637214*11120101101",
+"urunAdi": "JACQUES LEMANS OPTİK ÇERÇEVE",
+"nitelik": "",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-137",
+"utsKodu": null,
+"urunAdi": "JOYA CORUNA OPTİK ÇERÇEVE",
+"nitelik": "P1005JO / C3 / 52",
+"fiyat": 3410,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-130",
+"utsKodu": null,
+"urunAdi": "JOYA CORUNA OPTİK ÇERÇEVE",
+"nitelik": "P1006JO / C3 / 54",
+"fiyat": 3410,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-054",
+"utsKodu": "0108681668110908211051*11190205101",
+"urunAdi": "LEE COOPER OPTİK ÇERÇEVE",
+"nitelik": "LC2338LO / C1 / 43",
+"fiyat": 2270,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-053",
+"utsKodu": null,
+"urunAdi": "LEE COOPER OPTİK ÇERÇEVE",
+"nitelik": "LC2516LO / C6 / 48",
+"fiyat": 2270,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-131",
+"utsKodu": null,
+"urunAdi": "LEGION OPTİK ÇERÇEVE",
+"nitelik": "509LO / 36M / 56",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-139",
+"utsKodu": null,
+"urunAdi": "LEGION OPTİK ÇERÇEVE",
+"nitelik": "804LO / 36M / 54",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-036",
+"utsKodu": "010868203726108521230100000136*1123082410230100042000",
+"urunAdi": "MUSTANG OPTİK ÇERÇEVE",
+"nitelik": "MU7457MO / C02 / 51",
+"fiyat": 6200,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-002",
+"utsKodu": "010868200541775921000000000028011191220101",
+"urunAdi": "NOSSA OPTİK ÇERÇEVE",
+"nitelik": "2034NO / C3 / 52",
+"fiyat": 1790,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-088",
+"utsKodu": "0108682005417445210000000000290*11191220101",
+"urunAdi": "NOSSA OPTİK ÇERÇEVE",
+"nitelik": "NS2023NO / C2P / 47",
+"fiyat": 1790,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-099",
+"utsKodu": "010868200541489521000000000015011191220101",
+"urunAdi": "NOSSA OPTİK ÇERÇEVE",
+"nitelik": "NSS2005NO / C1-S / 44",
+"fiyat": 1790,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-050",
+"utsKodu": "010868200541562521000000000034011191220101",
+"urunAdi": "NOSSA OPTİK ÇERÇEVE",
+"nitelik": "NSS2015NO / C03 / 47",
+"fiyat": 1790,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-115",
+"utsKodu": null,
+"urunAdi": "OKKIALI OPTİK ÇERÇEVE",
+"nitelik": "OKK090OO / C7 / 52",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-032",
+"utsKodu": "0108682037200879212301000000661123070510230100031268",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11845OO / C1-3 / 53",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-024",
+"utsKodu": "0108682037200855212301000001191123070510230100031268",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11845OO / C1 / 53",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-033",
+"utsKodu": "0108682037200916212301000000401123070510230100031268",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11845OO / C6-5 / 53",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-034",
+"utsKodu": "010868203720099221230100000021*1123070510230100031268",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11846OO / C6-5 / 50",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-026",
+"utsKodu": "010868203720120321230100000050*1123070510230100031268",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11849OO / C1-6 / 52",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-014",
+"utsKodu": "0108682037201432212301000000111123070510230100031268",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11852OO / C1-3 / 53",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-035",
+"utsKodu": "0108682037201609212301000000211123070510230100031268",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11854OO / C1-6 / 53",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-031",
+"utsKodu": "0108682037201647212301000000231123070510230100031268",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11854OO / C6 / 53",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-048",
+"utsKodu": "0108682037215170212201000000151122030510220100010747",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11967OO / C8 / 56",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-012",
+"utsKodu": "0108682037216207212201000000801122030510220100010747",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11983OO / C5 / 51",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-078",
+"utsKodu": "0108682037217082212201000000891122032810220100014618",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP11996OO / C6 / 56",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-038",
+"utsKodu": "0108681856290788211016011220526101",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP12011OO / C4 / 51",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-023",
+"utsKodu": "01086818562953942110320*11220819101",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP12068OO / C03 / 51",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-021",
+"utsKodu": "0108682037279387212301000000801123071810230100034357",
+"urunAdi": "OPTELLI OPTİK ÇERÇEVE",
+"nitelik": "OP12074OO / C3 / 53",
+"fiyat": 1970,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-043",
+"utsKodu": "01086819901247342190000233*11211111105",
+"urunAdi": "OPTICALL KIDS OPTİK ÇERÇEVE",
+"nitelik": "109OO / C1 / 41",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-063",
+"utsKodu": "01086819901453882110456*11210319105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "M007OO / C2 / 54",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-084",
+"utsKodu": "010868199016258321109611220509105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OP1115OO / C5 / 54",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-085",
+"utsKodu": null,
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OP1115OO / C5 / 54",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-089",
+"utsKodu": "0108681990162798211383*11220518105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OP1119OO / C8 / 48",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-097",
+"utsKodu": "0108681990163368211051*11220419105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OP1129OO / C7 / 54",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-096",
+"utsKodu": "0108681990163986211034*11220412105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OP1138OO / C6 / 53",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-070",
+"utsKodu": "0108681990162446211096*11220414105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1112OO / C8 / 53",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-100",
+"utsKodu": "01086819901707932110185*11220609105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1115OO / C1 / 54",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-067",
+"utsKodu": "0108681990162606211206*11220331105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1116OO / C2 / 55",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-079",
+"utsKodu": "010868199016260621128811220408105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1116OO / C2 / 55",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-116",
+"utsKodu": "0108681990162842211299*11220517105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1120OO / C8 / 53",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-123",
+"utsKodu": "0108681990162842211283*11220517105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1120OO / C8 / 53",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-110",
+"utsKodu": "0108681990162897211377*11220408105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1121OO / C8 / 53",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-112",
+"utsKodu": "0108681990162897211389*11220408105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1121OO / C8 / 53",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-122",
+"utsKodu": "01086819901730842110528*11230824105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1122OO / C1 / 55",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-074",
+"utsKodu": "010868199016300921129111220309105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1124OO / C2 / 53",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-111",
+"utsKodu": "010868199016308521107811220330105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1125OO / C5 / 54",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-091",
+"utsKodu": "010868199016317721112411220317105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1127OO / C2 / 51",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-113",
+"utsKodu": "0108681990163221211156*11220418105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1127OO / C2 / 51",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-068",
+"utsKodu": "0108681990163382211582*11230425105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1130OO / C2 / 52",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-125",
+"utsKodu": "010868199016338221123311230109105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1130OO / C2 / 52",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-073",
+"utsKodu": "010868199016393121130411220609105",
+"urunAdi": "OPTICALL OPTİK ÇERÇEVE",
+"nitelik": "OPTC1137OO / C8 / 52",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-025",
+"utsKodu": null,
+"urunAdi": "PIERRE CARDIN OPTİK ÇERÇEVE",
+"nitelik": "PC8840PO / CS8R / 56",
+"fiyat": 5300,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-009",
+"utsKodu": "010868205925981721811221112101",
+"urunAdi": "POLO CAYENNE OPTİK ÇERÇEVE",
+"nitelik": "PC021063PO / C4A-5 / 51",
+"fiyat": 3410,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-076",
+"utsKodu": "01008680256428159211031112510221036",
+"urunAdi": "QUİNCY OPTİK ÇERÇEVE",
+"nitelik": "QNCY019QO / C4 / 52",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-049",
+"utsKodu": "01008680256428234211032112510221036",
+"urunAdi": "QUİNCY OPTİK ÇERÇEVE",
+"nitelik": "QNCY021QO / C4 / 47",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-060",
+"utsKodu": "01008680256428333211047112510221036",
+"urunAdi": "QUİNCY OPTİK ÇERÇEVE",
+"nitelik": "QNCY024QO / C2 / 49",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-138",
+"utsKodu": null,
+"urunAdi": "RAYBAN OPTİK ÇERÇEVE",
+"nitelik": "RB6147RO / C2502 / 53",
+"fiyat": 8900,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-102",
+"utsKodu": null,
+"urunAdi": "RAYBAN OPTİK ÇERÇEVE",
+"nitelik": "RB6160RO / C2538 / 50",
+"fiyat": 8900,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-127",
+"utsKodu": null,
+"urunAdi": "RAYBAN OPTİK ÇERÇEVE",
+"nitelik": "RB7506RO / C1070 / 51",
+"fiyat": 8900,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-007",
+"utsKodu": "0108698716172917214611120101102385",
+"urunAdi": "SEIKO OPTİK ÇERÇEVE",
+"nitelik": "SE757SO / C11 / 56",
+"fiyat": 2960,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-017",
+"utsKodu": "010868034109986821000009131249111112131000001",
+"urunAdi": "STEPPER OPTİK ÇERÇEVE",
+"nitelik": "SI60036SO / CF092 / 52",
+"fiyat": 2960,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-006",
+"utsKodu": null,
+"urunAdi": "TOGK OPTİK ÇERÇEVE",
+"nitelik": "1126TO / C5 / 51",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-047",
+"utsKodu": "0108681856210946211301*11200121101",
+"urunAdi": "TOGK OPTİK ÇERÇEVE",
+"nitelik": "1367TO / C10 / 53",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-117",
+"utsKodu": "0108681856210854211218*11190118101",
+"urunAdi": "TOGK OPTİK ÇERÇEVE",
+"nitelik": "1375TO / C10 / 50",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-004",
+"utsKodu": "0108680297010740217000000169451111123110311211",
+"urunAdi": "TOGK OPTİK ÇERÇEVE",
+"nitelik": "1375TO / C6 / 50",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-083",
+"utsKodu": "01086818562110112110134*11181019101",
+"urunAdi": "TOGK OPTİK ÇERÇEVE",
+"nitelik": "TG017TO / C6 / 51",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-027",
+"utsKodu": "010868199016654321102011220318105",
+"urunAdi": "TOGK OPTİK ÇERÇEVE",
+"nitelik": "TG1126TO / C4 / 51",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-028",
+"utsKodu": "010868199016668021102511220318105",
+"urunAdi": "TOGK OPTİK ÇERÇEVE",
+"nitelik": "TG1128TO / C4 / 53",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-008",
+"utsKodu": "010868185621087821132111190411101",
+"urunAdi": "TOGK OPTİK ÇERÇEVE",
+"nitelik": "TG1375TO / C40 / 50",
+"fiyat": 999,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-016",
+"utsKodu": "01086803590625882111000002161120102310201023",
+"urunAdi": "TUDOR OPTİK ÇERÇEVE",
+"nitelik": "HS2090TO / C2 / 50",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-042",
+"utsKodu": "01086803590629082111000002261120102310201023",
+"urunAdi": "TUDOR OPTİK ÇERÇEVE",
+"nitelik": "TDR2091TO / C05 / 50",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-044",
+"utsKodu": "01086803590629082111000002271120102310201023",
+"urunAdi": "TUDOR OPTİK ÇERÇEVE",
+"nitelik": "TDR2091TO / C05 / 50",
+"fiyat": 998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-046",
+"utsKodu": null,
+"urunAdi": "VALERON OPTİK ÇERÇEVE",
+"nitelik": "V2572VO / C2 / 54",
+"fiyat": 8900,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-052",
+"utsKodu": null,
+"urunAdi": "VİVALDİ OPTİK ÇERÇEVE",
+"nitelik": "V201VO / C3 / 54",
+"fiyat": 6000,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": "GRS-11112026-EXC2662-030",
+"utsKodu": "0108680285391295211002611230804101",
+"urunAdi": "XBLACK OPTİK ÇERÇEVE",
+"nitelik": "XBLCK83033XO / C3 / 52",
+"fiyat": 4490,
+"lokasyon": "GVN2",
+"basildi": "2026-11-11T10:40:00+03:00",
+"not": "GVN2 toplu baskı 11.11"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251432110040*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C1 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251432110042*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C1 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251432110044*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C1 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251672110044*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C3 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251672110046*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C3 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251672110047*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C3 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251742110031*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C4 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251742110032*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C4 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251742110033*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C4 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251812110037*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C5 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251812110038*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C5 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251812110039*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C5 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251812110040*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C5 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251812110041*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C5 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251982110045*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C6 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251982110046*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C6 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251982110047*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C6 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251982110049*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C6 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+},
+{
+"lotAdi": null,
+"utsKodu": "01086802854251982110050*11241021101",
+"urunAdi": "MARCO SALVADORI OPTİK ÇERÇEVE",
+"nitelik": "SP8201MO / C6 / 50",
+"fiyat": 1998,
+"lokasyon": "GVN2",
+"basildi": "2026-11-13T11:00:00+03:00",
+"not": "Marco Salvadori SP8201"
+}
+]

@@ -1,0 +1,114 @@
+/**
+ * 13.11.2026 — Etiket basım geçmişi.
+ *
+ * Her "Yazdır" işleminde basılan her lot için bir kayıt düşülür: hangi ürün, hangi fiyatla,
+ * hangi şablonla, hangi ekrandan, ne zaman. "Fiyatı değişti, etiketi eski" filtresi
+ * buradaki `fiyat` ile ürünün bugünkü satış fiyatını karşılaştırır.
+ *
+ * Not: "basıldı" = Yazdır'a basıldığı an. Yazıcının kâğıdı fiilen çıkarıp çıkarmadığı bilinemez.
+ */
+import { prisma } from '../../database/prisma';
+
+export const ETIKET_BASIM_KAYNAKLARI = [
+  'ETIKET_MERKEZI',
+  'STOK_YONETIMI',
+  'DEPO',
+  'TRANSFER',
+  'EXCEL_ENVANTER',
+  'POS_FIYAT',
+  'ILK_KAYIT',
+] as const;
+export type EtiketBasimKaynak = (typeof ETIKET_BASIM_KAYNAKLARI)[number];
+
+export type EtiketBasimGirdi = {
+  lotId?: number | null;
+  lotAdi?: string | null;
+  utsKodu?: string | null;
+  varyantId?: number | null;
+  urunAdi: string;
+  nitelik?: string | null;
+  fiyat?: number | string | null;
+  sablonSlug?: string | null;
+  lokasyon?: string | null;
+  adet?: number | null;
+};
+
+export type SonBasim = { basildi: Date; fiyat: number | null; kaynak: string };
+
+function sayiYap(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
+function pozitifInt(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+export function kaynakGecerliMi(k: unknown): k is EtiketBasimKaynak {
+  return typeof k === 'string' && (ETIKET_BASIM_KAYNAKLARI as readonly string[]).includes(k);
+}
+
+export async function basimKaydet(
+  kaynak: EtiketBasimKaynak,
+  kayitlar: EtiketBasimGirdi[],
+  userId: string | null,
+): Promise<number> {
+  const data = kayitlar
+    .filter((k) => k && String(k.urunAdi ?? '').trim())
+    .slice(0, 5000)
+    .map((k) => ({
+      lotId: pozitifInt(k.lotId),
+      lotAdi: k.lotAdi ? String(k.lotAdi).slice(0, 200) : null,
+      utsKodu: k.utsKodu ? String(k.utsKodu).slice(0, 200) : null,
+      varyantId: pozitifInt(k.varyantId),
+      urunAdi: String(k.urunAdi).slice(0, 300),
+      nitelik: k.nitelik ? String(k.nitelik).slice(0, 200) : null,
+      fiyat: sayiYap(k.fiyat),
+      sablonSlug: k.sablonSlug ? String(k.sablonSlug).slice(0, 100) : null,
+      kaynak,
+      lokasyon: k.lokasyon ? String(k.lokasyon).slice(0, 100) : null,
+      adet: pozitifInt(k.adet) ?? 1,
+      userId,
+    }));
+  if (!data.length) return 0;
+  const r = await prisma.etiketBasimKaydi.createMany({ data });
+  return r.count;
+}
+
+/** Lot başına EN SON basım (lotId → kayıt). */
+export async function sonBasimlarLot(lotIds: number[]): Promise<Map<number, SonBasim>> {
+  const ids = [...new Set(lotIds.filter((x) => Number.isInteger(x) && x > 0))];
+  const sonuc = new Map<number, SonBasim>();
+  for (let i = 0; i < ids.length; i += 5000) {
+    const parca = ids.slice(i, i + 5000);
+    const satirlar = await prisma.etiketBasimKaydi.findMany({
+      where: { lotId: { in: parca } },
+      orderBy: { basildi: 'desc' },
+      select: { lotId: true, basildi: true, fiyat: true, kaynak: true },
+    });
+    for (const s of satirlar) {
+      if (s.lotId == null || sonuc.has(s.lotId)) continue;
+      sonuc.set(s.lotId, { basildi: s.basildi, fiyat: s.fiyat == null ? null : Number(s.fiyat), kaynak: s.kaynak });
+    }
+  }
+  return sonuc;
+}
+
+/** Lotu olmayan (lot takipsiz) ürünler için varyant başına en son basım. */
+export async function sonBasimlarVaryant(varyantIds: number[]): Promise<Map<number, SonBasim>> {
+  const ids = [...new Set(varyantIds.filter((x) => Number.isInteger(x) && x > 0))];
+  const sonuc = new Map<number, SonBasim>();
+  if (!ids.length) return sonuc;
+  const satirlar = await prisma.etiketBasimKaydi.findMany({
+    where: { varyantId: { in: ids } },
+    orderBy: { basildi: 'desc' },
+    select: { varyantId: true, basildi: true, fiyat: true, kaynak: true },
+  });
+  for (const s of satirlar) {
+    if (s.varyantId == null || sonuc.has(s.varyantId)) continue;
+    sonuc.set(s.varyantId, { basildi: s.basildi, fiyat: s.fiyat == null ? null : Number(s.fiyat), kaynak: s.kaynak });
+  }
+  return sonuc;
+}

@@ -19,6 +19,7 @@ function parseEtiketDil(body: Record<string, unknown>): EtiketDil {
   return dil === 'zpl' ? 'zpl' : 'ppla';
 }
 import * as sablonService from './etiket-sablon.service';
+import { basimKaydet, kaynakGecerliMi, sonBasimlarLot, sonBasimlarVaryant } from './etiket-basim.service';
 
 const router = Router();
 
@@ -78,6 +79,37 @@ router.delete('/sablon/:id', async (req: Request, res: Response) => {
     return res.json({ success: true, data });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message ?? 'Şablon silinemedi' });
+  }
+});
+
+// 13.11.2026 — Etiket basım geçmişi: her "Yazdır"da basılan lotlar kaydedilir (POS dahil tüm ekranlar).
+router.post('/basim-kaydi', async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    if (!kaynakGecerliMi(body.kaynak) || body.kaynak === 'ILK_KAYIT') {
+      return res.status(400).json({ error: 'Geçersiz kaynak' });
+    }
+    const kayitlar = Array.isArray(body.kayitlar) ? body.kayitlar : [];
+    const sayi = await basimKaydet(body.kaynak, kayitlar, req.user?.userId ?? null);
+    return res.json({ kaydedilen: sayi });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message ?? 'Basım kaydı yazılamadı' });
+  }
+});
+
+// Lot (ve lotsuz ürünler için varyant) başına en son basım.
+router.post('/basim-gecmisi', async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const lotIds = Array.isArray(body.lotIds) ? body.lotIds.map(Number) : [];
+    const varyantIds = Array.isArray(body.varyantIds) ? body.varyantIds.map(Number) : [];
+    const [lot, varyant] = await Promise.all([sonBasimlarLot(lotIds), sonBasimlarVaryant(varyantIds)]);
+    return res.json({
+      lot: Object.fromEntries(lot),
+      varyant: Object.fromEntries(varyant),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message ?? 'Basım geçmişi okunamadı' });
   }
 });
 
