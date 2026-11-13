@@ -1,0 +1,662 @@
+[
+ {
+  "vkn": "8770013406",
+  "ad": "Turkcell Iletisim Hizmetleri A.S.",
+  "sehir": "Istanbul",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "1090418874",
+  "ad": "Aydem Elektrik Perakende Satış AŞ",
+  "sehir": "Denizli",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "9860008925",
+  "ad": "Yurtiçi Kargo Servisi A.Ş.",
+  "sehir": "İstanbul",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "1040996132",
+  "ad": "AVANSAS OFİS MALZEMELERİ TİC. A.Ş",
+  "sehir": "KOCAELİ",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "0040043014",
+  "ad": "Acarlar Ticaret Sanayi Ve Turizm A.Ş.",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "6230090752",
+  "ad": "MULTINET KURUMSAL HIZMETLER A.Ş.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "7330372688",
+  "ad": "Pronet Güvenlik Hizmetleri Anonim Şirketi",
+  "sehir": "İstanbul",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "5640573938",
+  "ad": "KOBİKOM TELEKOMÜNİKASYON BİLİŞİM HİZMETLERİ SANAYİ VE TİCARET ANONİM ŞİRKETİ",
+  "sehir": "Bursa",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "7230433665",
+  "ad": "Paynet Ödeme Hizmetleri A.Ş.",
+  "sehir": "Marmara B.",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "7720023795",
+  "ad": "SODEXO AVANTAJ VE ÖDÜLLENDİRME HİZMETLERİ A.Ş.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "0710807856",
+  "ad": "AR BA AMBALAJ SU ÜRN.LTD.ŞTİ.",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "9000068418",
+  "ad": "UYUMSOFT BİLGİ SİSTEMLERİ VE TEKNOLOJİLERİ TİC.A.Ş",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "3960739871",
+  "ad": "GNET İNTERNET TELEKOMÜNİKASYON A.Ş.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "8590491872",
+  "ad": "TTNET ANONIM SIRKETI",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "7700915108",
+  "ad": "SİBER TEKNOLOJİ ANONİM ŞİRKETİ",
+  "sehir": "",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "8820280073",
+  "ad": "TÜVTURK GÜNEY TAŞIT MUAYENE İSTASYONLARI YAPIM VE İŞLETİM A.Ş.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "0010127053",
+  "ad": "ERMAK NAK.SAĞ.ÜRN.TİC.LTD.ŞTİ.",
+  "sehir": "ANTALYA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "0860295236",
+  "ad": "ASIM KARATOPRAK İNŞAAT TİC.LTD.ŞTİ.",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "4110346683",
+  "ad": "GÖZLEM AJANS REK.BASIM HZM.TUR.SN.VE TICLTD.STI",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "5640004227",
+  "ad": "KKB KREDI KAYIT BÜROSU A.S.",
+  "sehir": "Istanbul",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "7721361000",
+  "ad": "SMARTMETRİCS TEKNOLOJİ VE BİLİŞİM SAN. LTD. ŞTİ.",
+  "sehir": "İzmir",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "8400802588",
+  "ad": "TERMAL BARKOD ETİKET SANAYİ VE TİCARET A.Ş.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "0131412061",
+  "ad": "AKARSU İNŞAATÇILIK TURİZM VE TİCARET LTD.ŞTİ.",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "6080158166",
+  "ad": "LENA OTOMOTİV SAN.VE TİC.A.Ş. - LENA - BODRUM",
+  "sehir": "Muğla",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "6080712084",
+  "ad": "MNG KARGO YURTİÇİ VE YURTDIŞI TAŞIMACILIK A.Ş.",
+  "sehir": "İstanbul",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "6440320885",
+  "ad": "OR-PA PAZARLAMA VE TEKSTİL SANAYİ A.Ş.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "7321640262",
+  "ad": "PORT KARGO VE LOJİSTİK A.Ş.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "8710260815",
+  "ad": "TURKUAZ TOPTAN PAZARLAMA İTHALAT İHRACAT SANAYİ VE TİCARET LİMİTED ŞİRKETİ",
+  "sehir": "İstanbul",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "0790257003",
+  "ad": "ARKAS OTOMOTİV SERVİS VE TİCARET A.Ş",
+  "sehir": "İZMİR",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "3740104110",
+  "ad": "Ertuğrullar Metal İnş. Tur.Tar. ve Hay.Ürn.İth.İhr.Paz.San. Tic.Ltd.Şti",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "6230048541",
+  "ad": "MUĞLA TÜKETİM MALLARPAZ SAN VE TİCLTD ŞTİ",
+  "sehir": "Muğla",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "8360144393",
+  "ad": "Teknosa İç ve Dış Ticaret A.Ş.",
+  "sehir": "İstanbul",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "8700362730",
+  "ad": "TURGUT MOTORLU TAŞITLAR SAN.VE TİC.LTD.ŞTİ.",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "0790032214",
+  "ad": "ARMA ELEKTRONİK METAL SAN.VE TİC.LTD.ŞTİ.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "1340260246",
+  "ad": "Bal Ser Seramik İnşaat Malz. Nak. Oto Tekstil Gıda San. ve Tic. Ltd. Şti.",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "2170421628",
+  "ad": "ÇAĞLAR TEKNOLOJİ SANAYİ TİC.A.Ş.",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "4110004800",
+  "ad": "SEZER PLASTİK KALIP SAN. VE TİC. LTD. ŞTİ.",
+  "sehir": "İstanbul",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "4350390927",
+  "ad": "GÜNEY PLASTİK SAN.DIŞ TİC LTD.ŞTİ.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "4651456781",
+  "ad": "INOCORP MEDİKAL ANONİM ŞİRKETİ",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "4670047568",
+  "ad": "ÇAMLICA BARKOD BİLGİSAYAR SİSTEM. TURİZM TEKS.GIDA İMALAT İTHALAT İHR.MÜMESSİLLİK SAN.VE TİC.LTD.ŞTİ.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "4690561421",
+  "ad": "İ PROMOSYON REKLAM SANAYİ VE TİC.LTD.ŞTİ.",
+  "sehir": "İzmir",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "5740132885",
+  "ad": "Koçtaş Yapı Marketleri Ticaret A.Ş.",
+  "sehir": "İstanbul",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "6210325613",
+  "ad": "MİL-GROSS MARKET ÜRN.GIDA VE DERi EŞYA SAN.İNŞ.TAAH.TİC.LTD.ŞTİ.",
+  "sehir": "MUĞLA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "6220529513",
+  "ad": "MİGROS TİCARET.A.Ş.",
+  "sehir": "İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "6620434009",
+  "ad": "ÖZYILDIZ HALI MOBILYA SAN.VE TIC.PAZ.LTD.STI.",
+  "sehir": "",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "7320068060",
+  "ad": "Posta ve Telgraf Teşkilatı Anonim Şirketi",
+  "sehir": "ANKARA",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "8140131899",
+  "ad": "ŞOK MARKETLER TIC. A.Ş",
+  "sehir": "Çamlıca ÜSKÜDAR/İSTANBUL",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "9830305147",
+  "ad": "Yön Otomotiv Tic.San.Ltd.Şti.",
+  "sehir": "Muğla",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "9830831260",
+  "ad": "Yön Otomotiv Tic.San.A.Ş.",
+  "sehir": "Muğla",
+  "tur": "Gider / hizmet"
+ },
+ {
+  "vkn": "0071251547",
+  "ad": "ADESE OPTİK LTD. ŞTİ.",
+  "sehir": "MUĞLA",
+  "tur": "Kendi şirketimiz"
+ },
+ {
+  "vkn": "1670395210",
+  "ad": "BETA OPTİK SANAYİ TİCARET LİMİTED ŞİRKETİ",
+  "sehir": "İstanbul",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "4101372291",
+  "ad": "GÖZBİR GÖZLÜK SAN.VE TİC. LTD.ŞTİ.",
+  "sehir": "IZMIR",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "7820642054",
+  "ad": "SUDE GÖZLÜK CAMLARI SAN.TIC.LTD.ŞTİ",
+  "sehir": "İZMİR",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "8750359098",
+  "ad": "S.S. TÜM OPTİSYENLER VE GÖZLÜKÇÜLER TEMİN TEVZİ KOOPERATİFİ",
+  "sehir": "İZMİR",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6440373408",
+  "ad": "OPAK LENS SANAYİ VE TİCARET ANONİM ŞİRKETİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6090106636",
+  "ad": "LUXOTTICA GÖZLÜK ENDÜSTRİ VE TİCARET A.Ş",
+  "sehir": "İZMİR",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6190533437",
+  "ad": "MERVE OPTİK SANAYİ VE TİCARET A.Ş.",
+  "sehir": "İstanbul",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "7330028385",
+  "ad": "PRESTİJ OPTİK GÖZLÜK SAN VE TİC LTD ŞTİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "63664011096",
+  "ad": "Aslı Balıkçıoğlu",
+  "sehir": "İzmir",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6440384427",
+  "ad": "OPTOMOD OPTIK SAN. VE TİC.  A.Ş",
+  "sehir": "İstanbul",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "7320765853",
+  "ad": "POTENTIAL OPTICAL İÇ DIŞ TİC.PAZ.LTD.ŞTİ.",
+  "sehir": "İZMİR",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "0500063763",
+  "ad": "Alcon Laboratuvarları Tic.A.Ş.",
+  "sehir": "ISTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6190542199",
+  "ad": "MERVE GÖZLÜK CAMI SANAYİ VE TİCARET A.Ş.",
+  "sehir": "İstanbul",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6440148747",
+  "ad": "Opak Optik San.Tic.A.Ş",
+  "sehir": "İstanbul",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "1150109026",
+  "ad": "AYDIN OPTİK MAKINA PAZ.SANLTD.ŞTİ.",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6160040276",
+  "ad": "MERCAN OPTİK İTHALAT İHRACAT SANAYİ TİCARET LİMİTED ŞİRKETİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "4810071030",
+  "ad": "Isbir Optik San. A.S.",
+  "sehir": "ANKARA",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "0790370777",
+  "ad": "ARMA OPTİK SAN.VE TİC.LTD.ŞTİ.",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "0070645079",
+  "ad": "ADELLENS OPTİK SAN. VE TİC. A.Ş",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "7320547432",
+  "ad": "POLO OPTİK SANAYİ VE TİCARET ANONİM ŞİRKETİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "7610032784",
+  "ad": "SER OPTİK SANAYİ VE TİCARET LTD. STİ.",
+  "sehir": "ISTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6080289254",
+  "ad": "LENS MARKET KONTAK LENS TIBBİ MAL.OPTİK ÜR.TEKS.KONF.BLG.ELKTR.TRZ.SAN.VE TİC.LTD. ŞTİ.",
+  "sehir": "Bursa",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "3770437908",
+  "ad": "ERZİRVE OPTİK TEKS. SAN.TİC.LTD.ŞTİ.",
+  "sehir": "İstanbul",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "0690425978",
+  "ad": "ANLAM OPTİK MEDİKAL ÖZEL SAĞLIK TUR.ve TİC.LTD.ŞTİ",
+  "sehir": "Antalya",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "17087666326",
+  "ad": "Yasin Öz",
+  "sehir": "Muğla",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "40876729834",
+  "ad": "RECEP SİVRİTEPE",
+  "sehir": "İzmir",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6440124677",
+  "ad": "OPSA OPTİK CAMLARI SANAYİ VE TİC.LTD.ŞTİ.",
+  "sehir": "İstanbul",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "8430692295",
+  "ad": "TGS OPTİK SANAYİ VE TİCARET LTD. ŞTİ.",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "9970651393",
+  "ad": "ZEN OPTİK SAN.TİC.LTD.ŞTİ.",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "1150106008",
+  "ad": "SAFİR OPTİK SAN. VE DIŞ TİC. LTD. ŞTİ.",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "1270995146",
+  "ad": "AZUR MEDİKAL OPTİK SAN.TİC.LTD.ŞTİ.",
+  "sehir": "MUĞLA",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "1600721717",
+  "ad": "BDT OPTİK VE TEKNOLOJİ ÇÖZÜMLERİ LTD. ŞTİ",
+  "sehir": "İstanbul",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "2930484138",
+  "ad": "DERİN GÖZLÜK MEDİKAL SAN. VE DIŞ TİC. LTD.ŞTİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "3770453310",
+  "ad": "ESEL OPTİK MAKİNELERİ İTHALAT İHRACAT PAZARLAMA TİCARET ANONİM ŞİRKETİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "4810608315",
+  "ad": "İŞBİROĞLU OPTİK İNŞAAT GIDA SANAYİ DIŞ TİCARET LİMİTED ŞİRKETİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6140609666",
+  "ad": "MELTEM OPTİK TİCARET VE SANAYİ LİMİTED ŞİRKETİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "7330648947",
+  "ad": "PUNTA OPTİK CAM LENS ÜRETİM ITH. IHR. VE PAZ. SAN. TİC. A.Ş.",
+  "sehir": "İZMİR",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "0140050203",
+  "ad": "AKBABALAR İNŞ.SAN.TİC.LTD.ŞTİ.",
+  "sehir": "Antalya",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "1270889588",
+  "ad": "AZUR OPTİK SAN. VE TİC. LTD.ŞTİ.",
+  "sehir": "",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "1800473584",
+  "ad": "BOSPHORUS OPTİK END. GÖZ SAN. İTH. İHR. VE DIŞ TİC. A.Ş.",
+  "sehir": "",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "3060524822",
+  "ad": "DOĞAN OPTİK SANAYİ VE TİCARET LİMİTED ŞİRKETİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "34573776710",
+  "ad": "Yavuz Şahin Türkeli",
+  "sehir": "İzmir",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "4640507353",
+  "ad": "EDL GRUP OPTİK SAN. VE TİC. LTD. ŞTİ.",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "4810503380",
+  "ad": "İSTANBUL GÖZLÜK SAN.İÇ. VE DIŞ TİC.LTD.ŞTİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6271064107",
+  "ad": "MVG ULUSLARARASI DANIŞMANLIK VE DIŞ TİCARET A.Ş.",
+  "sehir": "İstanbul",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "6440838453",
+  "ad": "OPTİME OPTİK İTH.İHR.SAN.TİC.LTD.ŞTİ.",
+  "sehir": "Ankara",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "8420318263",
+  "ad": "TEZEL OPTİK ÜRÜNLERİ SANAYİ VE TİCARET LİMİTED ŞİRKETİ",
+  "sehir": "İSTANBUL",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "8860028138",
+  "ad": "UĞUR OPTİK TURİZM MAKİNA YAZILIM MEDİKAL SANAYİ VE TİCARET LİMİTED ŞİRKETİ",
+  "sehir": "ANTALYA",
+  "tur": "Optik tedarikçi"
+ },
+ {
+  "vkn": "15484408914",
+  "ad": "HÜSEYİN KARAGÖNEN",
+  "sehir": "Muğla",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "43858773634",
+  "ad": "Zehra Bahar - Bahar Toptan Gıda  Bahar Toptan Gıda- Zehra Bahar",
+  "sehir": "MUĞLA",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "32653889510",
+  "ad": "BÜLENT GEDİK",
+  "sehir": "İzmir",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "28414077036",
+  "ad": "BAYRAM KARATAÇ",
+  "sehir": "MUĞLA",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "28211295190",
+  "ad": "HALİL İBRAHİM GÜNAY",
+  "sehir": "Muğla",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "27031585528",
+  "ad": "HAKAN GEZEN",
+  "sehir": "İZMİR",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "33143130648",
+  "ad": "GÜVEN ODUN KÖMÜR OFİSİ",
+  "sehir": "Muğla",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "39857065306",
+  "ad": "ORHAN KAYA",
+  "sehir": "İstanbul",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "46945671226",
+  "ad": "CELAL AYDIN",
+  "sehir": "MUĞLA",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "51235528180",
+  "ad": "SERKAN DEMİR",
+  "sehir": "MUĞLA",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "53617535892",
+  "ad": "EDİZ DEMİR",
+  "sehir": "İZMİR",
+  "tur": "Şahıs"
+ },
+ {
+  "vkn": "57145330806",
+  "ad": "MEHMET BALLI",
+  "sehir": "Muğla",
+  "tur": "Şahıs"
+ }
+]
