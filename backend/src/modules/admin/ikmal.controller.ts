@@ -12,7 +12,7 @@ import {
   type IkmalTur,
 } from './ikmal.service';
 import { siparisDurum, siparisListesi, siparisOlustur, tedarikciler } from './satin-alma-siparis.service';
-import { kuralKaydet, kuralKopyala, kuralListesi, kuralSil, minMaxDegerlendir, seriOnizle } from './stok-seviye.service';
+import { kuralKaydet, kuralKopyala, kuralListesi, kuralSil, minMaxDegerlendir, seriListesi, seriOnizle } from './stok-seviye.service';
 
 /** 13.11.2026 — Mağaza İkmali (Stok Yönetimi). Erişim: ek-yetki.ts kuralı. */
 const router = Router();
@@ -130,6 +130,14 @@ router.post('/kural-kopyala', async (req, res) => {
     return res.json({ kopyalanan: await kuralKopyala(String(req.body?.kaynak ?? ''), hedefler) });
   } catch (e) {
     return hata(res, e, 'Kopyalanamadı');
+  }
+});
+
+router.get('/seriler', async (_req, res) => {
+  try {
+    return res.json({ data: await seriListesi() });
+  } catch (e) {
+    return hata(res, e, 'Seri listesi okunamadı');
   }
 });
 

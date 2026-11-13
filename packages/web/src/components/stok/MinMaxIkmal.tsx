@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   getKurallar,
   getMinMax,
+  getSeriler,
   getSiparisler,
   getTedarikciler,
   siparisDurum,
@@ -10,7 +11,6 @@ import {
   kuralKaydet,
   kuralKopyala,
   kuralSil,
-  seriOnizle,
   type MinMaxSatir,
   type SatinAlmaSiparis,
   type StokSeviyeKurali,
@@ -49,6 +49,9 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
   const [kurallar, setKurallar] = useState<StokSeviyeKurali[]>([])
   const [form, setForm] = useState<Form>(BOS)
   const [onizleme, setOnizleme] = useState<string | null>(null)
+  const [seriler, setSeriler] = useState<{ seri: string; kategori: string; adet: number }[]>([])
+  const [seriFiltre, setSeriFiltre] = useState('')
+  const [seriAcik, setSeriAcik] = useState(false)
   const [satirlar, setSatirlar] = useState<MinMaxSatir[] | null>(null)
   const [ozet, setOzet] = useState<{ kuralId: string; seri: string; uyan: number; eksik: number }[]>([])
   const [adet, setAdet] = useState<Record<number, number>>({})
@@ -82,21 +85,16 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
   }, [yukle, siparisYukle])
   useEffect(() => {
     getTedarikciler().then(setFirmalar).catch(() => setFirmalar([]))
+    getSeriler().then(setSeriler).catch(() => setSeriler([]))
   }, [])
-
-  async function onizle() {
-    if (form.seri.trim().length < 3) return
-    try {
-      const r = await seriOnizle(form.seri)
-      setOnizleme(r.sablon ? `${r.sablon} ürün/derece bulundu — ör. ${r.ornek.join(' · ')}` : 'Bu adla başlayan ürün bulunamadı (adı Stok Yönetimi\'ndeki gibi yazın)')
-    } catch (e) {
-      setOnizleme(hataMesaji(e, 'Önizlenemedi'))
-    }
-  }
 
   async function ekle(e: React.FormEvent) {
     e.preventDefault()
     setMesaj(null)
+    if (!form.seri) {
+      setMesaj({ tip: 'hata', text: 'Önce listeden bir seri / ürün seçin' })
+      return
+    }
     try {
       await kuralKaydet({
         lokasyon,
@@ -223,13 +221,42 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
       <div style={kutu}>
         <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 4 }}>📐 {lokasyon} min-max kuralları</div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
-          Seri = ürün adının başı, Stok Yönetimi'ndeki gibi yazın (ör. <b>Plus 1.56</b>, <b>Plus 1.57 Kırılmaz</b>, <b>ULTRA KONTAKT LENS</b>, <b>BIOTRUE 300ML</b>).
+          Seriyi listeden seçin (stok cam, kontak lens ve solüsyon serileri; kutuya yazdıkça liste daralır).
           Derece aralığı boş bırakılırsa serinin tüm dereceleri kurala girer. Dereceyi <b>-4.00</b> ya da ürün adındaki gibi <b>-0400</b> yazabilirsiniz; CYL eksi yazılır (0 … -2.00).
         </div>
         <form onSubmit={ekle} style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 6 }}>
-          <label style={{ fontSize: 11 }}>Seri / ürün<br />
-            <input value={form.seri} onChange={(e) => setForm({ ...form, seri: e.target.value })} onBlur={() => void onizle()} style={{ ...inp, width: 220 }} required />
-          </label>
+          <div style={{ fontSize: 11, position: 'relative' }}>Seri / ürün (listeden seçin)<br />
+            <input
+              value={seriAcik ? seriFiltre : form.seri}
+              onFocus={() => { setSeriAcik(true); setSeriFiltre('') }}
+              onBlur={() => setTimeout(() => setSeriAcik(false), 200)}
+              onChange={(e) => setSeriFiltre(e.target.value)}
+              placeholder={form.seri || 'Aramak için yazın, listeden seçin'}
+              style={{ ...inp, width: 280, borderColor: form.seri ? '#059669' : '#d1d5db', fontWeight: form.seri ? 700 : 400 }}
+            />
+            {seriAcik ? (
+              <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, width: 420, maxHeight: 280, overflowY: 'auto', background: 'white', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+                {seriler
+                  .filter((x) => !seriFiltre.trim() || seriFiltre.toLocaleUpperCase('tr-TR').split(/\s+/).filter(Boolean).every((k) => `${x.seri} ${x.kategori}`.toLocaleUpperCase('tr-TR').includes(k)))
+                  .slice(0, 200)
+                  .map((x) => (
+                    <div
+                      key={x.seri}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setForm((f) => ({ ...f, seri: x.seri }))
+                        setOnizleme(`${x.adet} ürün/derece · ${x.kategori}`)
+                        setSeriAcik(false)
+                      }}
+                      style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}
+                    >
+                      <b>{x.seri}</b> <span style={{ color: '#6b7280' }}>· {x.adet} · {x.kategori}</span>
+                    </div>
+                  ))}
+                {!seriler.length ? <div style={{ padding: 10, color: '#6b7280' }}>Liste yükleniyor…</div> : null}
+              </div>
+            ) : null}
+          </div>
           <label style={{ fontSize: 11 }}>SPH en düşük<br /><input value={form.sphMin} onChange={(e) => setForm({ ...form, sphMin: e.target.value })} placeholder="-4.00" style={{ ...inp, width: 72 }} /></label>
           <label style={{ fontSize: 11 }}>SPH en yüksek<br /><input value={form.sphMax} onChange={(e) => setForm({ ...form, sphMax: e.target.value })} placeholder="+4.00" style={{ ...inp, width: 72 }} /></label>
           <label style={{ fontSize: 11 }}>CYL<br /><input value={form.cylMin} onChange={(e) => setForm({ ...form, cylMin: e.target.value })} placeholder="0" style={{ ...inp, width: 60 }} /></label>

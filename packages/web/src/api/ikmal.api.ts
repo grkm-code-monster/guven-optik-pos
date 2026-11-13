@@ -158,3 +158,7 @@ export async function siparisOlustur(body: { lokasyon: string; tedarikciId?: num
 export async function siparisDurum(id: string, durum: SatinAlmaSiparis['durum']) {
   await adminApi.post(`/admin/ikmal/siparis/${id}/durum`, { durum })
 }
+export async function getSeriler(): Promise<{ seri: string; kategori: string; adet: number }[]> {
+  const r = await adminApi.get('/admin/ikmal/seriler')
+  return r.data?.data ?? []
+}

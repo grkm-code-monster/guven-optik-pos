@@ -139,6 +139,34 @@ function aralikta(k: StokSeviyeKurali, sph: number | null, cyl: number | null) {
   return true;
 }
 
+/** Seçim listesi: stok cam / kontak lens / solüsyon şablon adlarından seriler (derece sonekleri atılır). 10 dk önbellek. */
+let seriOnbellek: { t: number; data: { seri: string; kategori: string; adet: number }[] } | null = null;
+export async function seriListesi(): Promise<{ seri: string; kategori: string; adet: number }[]> {
+  if (seriOnbellek && Date.now() - seriOnbellek.t < 10 * 60 * 1000) return seriOnbellek.data;
+  const t = (await execute('product.template', 'search_read', [[
+    ['active', '=', true],
+    '|', '|',
+    ['categ_id.complete_name', 'ilike', 'STOK CAM'],
+    ['categ_id.complete_name', 'ilike', 'LENS'],
+    ['categ_id.complete_name', 'ilike', 'SOLÜSYON'],
+  ]], { fields: ['name', 'categ_id'], limit: 50000, ...CTX })) as { name: string; categ_id: [number, string] | false }[];
+  const m = new Map<string, { seri: string; kategori: string; adet: number }>();
+  for (const x of t) {
+    const ad = String(x.name ?? '').trim();
+    if (!ad || ad.startsWith('[')) continue;
+    const seri = ad.replace(/(\s+-?\d{4}){1,2}\s*$/, '').replace(/\s+/g, ' ').trim();
+    if (!seri) continue;
+    const kat = Array.isArray(x.categ_id) ? String(x.categ_id[1]).replace(/^All\s*\/\s*/, '') : '';
+    const k = seri.toLocaleUpperCase('tr-TR');
+    const o = m.get(k) ?? { seri, kategori: kat, adet: 0 };
+    o.adet++;
+    m.set(k, o);
+  }
+  const data = [...m.values()].sort((a, b) => a.kategori.localeCompare(b.kategori, 'tr') || a.seri.localeCompare(b.seri, 'tr'));
+  seriOnbellek = { t: Date.now(), data };
+  return data;
+}
+
 /** Bir seri adına uyan şablon/varyantları (adla) gösterir — kural girerken önizleme için. */
 export async function seriOnizle(seri: string) {
   const s = String(seri ?? '').replace(/\s+/g, ' ').trim();
