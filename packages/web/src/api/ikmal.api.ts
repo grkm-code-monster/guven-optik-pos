@@ -27,7 +27,7 @@ export type IkmalKalem = {
   urunAdi: string
   nitelik: string
   adet: number
-  sebep: 'SATIS' | 'ALTERNATIF'
+  sebep: 'SATIS' | 'ALTERNATIF' | 'MINMAX'
   satilanVaryantId?: number
 }
 export type IkmalTaslak = {
@@ -73,4 +73,56 @@ export async function ikmalToplama(id: string) {
 export async function ikmalGonder(id: string) {
   const r = await adminApi.post(`/admin/ikmal/taslak/${id}/gonder`).catch((e) => ({ data: e?.response?.data ?? { success: false, message: e?.message } }))
   return r.data as { success: boolean; message?: string; refNo?: string | null }
+}
+
+// ── Min-max (stok cam / lens / solüsyon) ──
+export type StokSeviyeKurali = {
+  id: string
+  lokasyon: string
+  seri: string
+  sphMin: string | number | null
+  sphMax: string | number | null
+  cylMin: string | number | null
+  cylMax: string | number | null
+  min: number
+  max: number
+  aktif: boolean
+}
+export type MinMaxSatir = {
+  varyantId: number
+  ad: string
+  seri: string
+  sph: number | null
+  cyl: number | null
+  min: number
+  max: number
+  magazaAdet: number
+  depoAdet: number
+  taslakta: number
+  satis30: number
+  eksik: number
+  onerilen: number
+}
+export async function getKurallar(lokasyon: string): Promise<StokSeviyeKurali[]> {
+  const r = await adminApi.get('/admin/ikmal/kurallar', { params: { lokasyon } })
+  return r.data?.data ?? []
+}
+export async function kuralKaydet(body: Partial<StokSeviyeKurali> & { lokasyon: string; seri: string; min: number; max: number }) {
+  const r = await adminApi.post('/admin/ikmal/kural', body)
+  return r.data?.data as StokSeviyeKurali
+}
+export async function kuralSil(id: string) {
+  await adminApi.delete(`/admin/ikmal/kural/${id}`)
+}
+export async function kuralKopyala(kaynak: string, hedefler: string[]) {
+  const r = await adminApi.post('/admin/ikmal/kural-kopyala', { kaynak, hedefler })
+  return Number(r.data?.kopyalanan ?? 0)
+}
+export async function seriOnizle(seri: string) {
+  const r = await adminApi.get('/admin/ikmal/seri-onizle', { params: { seri } })
+  return r.data as { sablon: number; ornek: string[] }
+}
+export async function getMinMax(lokasyon: string) {
+  const r = await adminApi.get('/admin/ikmal/minmax', { params: { lokasyon } })
+  return r.data as { satirlar: MinMaxSatir[]; kuralOzet: { kuralId: string; seri: string; uyan: number; eksik: number }[] }
 }

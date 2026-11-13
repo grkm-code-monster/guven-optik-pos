@@ -11,6 +11,7 @@ import {
   type IkmalSatir,
   type IkmalTaslak,
 } from '../../api/ikmal.api'
+import MinMaxIkmal from './MinMaxIkmal'
 
 /**
  * 13.11.2026 — Mağaza İkmali: mağazanın sattığı çerçeve/güneş gözlüklerinin yerine Ana Depo'dan birebir sevk.
@@ -54,6 +55,7 @@ th{background:#eee}.kutu{width:14px;height:14px;border:1px solid #333;display:in
 
 export default function MagazaIkmaliTab() {
   const [lokasyon, setLokasyon] = useState('GVN2')
+  const [mod, setMod] = useState<'satis' | 'minmax'>('satis')
   const [tur, setTur] = useState<'' | 'CERCEVE' | 'GUNES'>('')
   const [donem, setDonem] = useState<Donem>('sonsevk')
   const [bas, setBas] = useState(GUN_ONCE(6))
@@ -218,13 +220,27 @@ export default function MagazaIkmaliTab() {
 
   return (
     <div>
-      <form onSubmit={ara} style={{ ...kutu, display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+      <div style={{ ...kutu, display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <label>
           <span style={etk}>Mağaza</span>
           <select value={lokasyon} onChange={(e) => setLokasyon(e.target.value)} style={inp}>
             {MAGAZALAR.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </label>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {([['satis', '👓 Satılanı yerine koy (çerçeve / güneş)'], ['minmax', '📐 Min-max (stok cam / lens / solüsyon)']] as const).map(([id, ad]) => (
+            <button key={id} type="button" onClick={() => setMod(id)}
+              style={{ ...btn, borderColor: mod === id ? '#2563eb' : '#d1d5db', backgroundColor: mod === id ? '#eff6ff' : 'white', color: mod === id ? '#1d4ed8' : '#374151' }}>
+              {ad}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {mod === 'minmax' ? <MinMaxIkmal lokasyon={lokasyon} onTaslakOlustu={() => void taslakYukle()} /> : null}
+
+      {mod === 'satis' ? (
+      <form onSubmit={ara} style={{ ...kutu, display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <label>
           <span style={etk}>Tür</span>
           <select value={tur} onChange={(e) => setTur(e.target.value as typeof tur)} style={inp}>
@@ -252,11 +268,12 @@ export default function MagazaIkmaliTab() {
         </label>
         <button type="submit" disabled={yukleniyor} style={btnAna}>{yukleniyor ? 'Hazırlanıyor…' : '🔍 Satılanları getir'}</button>
       </form>
+      ) : null}
 
       {hata ? <div style={{ ...kutu, borderColor: '#fecaca', color: '#991b1b' }}>{hata}</div> : null}
       {bilgi ? <div style={{ ...kutu, borderColor: '#a7f3d0', color: '#065f46', fontWeight: 700 }}>{bilgi}</div> : null}
 
-      {satirlar ? (
+      {mod === 'satis' && satirlar ? (
         <div style={kutu}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
             <div style={{ fontWeight: 900, fontSize: 15 }}>

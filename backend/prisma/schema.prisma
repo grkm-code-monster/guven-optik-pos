@@ -1646,6 +1646,26 @@ model IkmalTaslak {
   @@index([createdAt])
 }
 
+// 13.11.2026 — Mağaza min-max stok seviyeleri (stok cam, lens, solüsyon).
+// "seri" = ürün adının başı (ör. "Plus 1.56", "ULTRA KONTAKT LENS", "BIOTRUE 300ML").
+// Derece aralığı verilirse sadece o SPH/CYL aralığındaki dereceler kurala girer.
+model StokSeviyeKurali {
+  id        String   @id @default(cuid())
+  lokasyon  String
+  seri      String
+  sphMin    Decimal? @db.Decimal(5, 2)
+  sphMax    Decimal? @db.Decimal(5, 2)
+  cylMin    Decimal? @db.Decimal(5, 2)
+  cylMax    Decimal? @db.Decimal(5, 2)
+  min       Int
+  max       Int
+  aktif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lokasyon, aktif])
+}
+
 model Bildirim {
   id        String   @id @default(cuid())
   userId    String

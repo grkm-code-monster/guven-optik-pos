@@ -268,7 +268,7 @@ export type IkmalKalem = {
   urunAdi: string;
   nitelik: string;
   adet: number;
-  sebep: 'SATIS' | 'ALTERNATIF';
+  sebep: 'SATIS' | 'ALTERNATIF' | 'MINMAX';
   satilanVaryantId?: number;
 };
 
@@ -279,7 +279,7 @@ function kalemTemizle(k: IkmalKalem[]): IkmalKalem[] {
       urunAdi: String(x.urunAdi ?? '').slice(0, 300),
       nitelik: String(x.nitelik ?? '').slice(0, 200),
       adet: Math.max(1, Math.round(Number(x.adet) || 1)),
-      sebep: x.sebep === 'ALTERNATIF' ? 'ALTERNATIF' as const : 'SATIS' as const,
+      sebep: x.sebep === 'ALTERNATIF' ? 'ALTERNATIF' as const : x.sebep === 'MINMAX' ? 'MINMAX' as const : 'SATIS' as const,
       ...(x.satilanVaryantId ? { satilanVaryantId: Number(x.satilanVaryantId) } : {}),
     }))
     .filter((x) => Number.isInteger(x.varyantId) && x.varyantId > 0);

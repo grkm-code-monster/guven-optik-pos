@@ -11,6 +11,7 @@ import {
   taslakToplamaListesi,
   type IkmalTur,
 } from './ikmal.service';
+import { kuralKaydet, kuralKopyala, kuralListesi, kuralSil, minMaxDegerlendir, seriOnizle } from './stok-seviye.service';
 
 /** 13.11.2026 — Mağaza İkmali (Stok Yönetimi). Erişim: ek-yetki.ts kuralı. */
 const router = Router();
@@ -93,6 +94,57 @@ router.post('/taslak/:id/gonder', async (req, res) => {
     return res.status(r.success ? 200 : 400).json(r);
   } catch (e) {
     return hata(res, e, 'Transfer başlatılamadı');
+  }
+});
+
+// ── Min-max (stok cam / lens / solüsyon) ──
+router.get('/kurallar', async (req, res) => {
+  try {
+    return res.json({ data: await kuralListesi(req.query.lokasyon ? String(req.query.lokasyon) : undefined) });
+  } catch (e) {
+    return hata(res, e, 'Kurallar okunamadı');
+  }
+});
+
+router.post('/kural', async (req, res) => {
+  try {
+    return res.json({ data: await kuralKaydet(req.body ?? {}) });
+  } catch (e) {
+    return hata(res, e, 'Kural kaydedilemedi');
+  }
+});
+
+router.delete('/kural/:id', async (req, res) => {
+  try {
+    await kuralSil(req.params.id);
+    return res.json({ success: true });
+  } catch (e) {
+    return hata(res, e, 'Kural silinemedi');
+  }
+});
+
+router.post('/kural-kopyala', async (req, res) => {
+  try {
+    const hedefler = Array.isArray(req.body?.hedefler) ? req.body.hedefler.map(String) : [];
+    return res.json({ kopyalanan: await kuralKopyala(String(req.body?.kaynak ?? ''), hedefler) });
+  } catch (e) {
+    return hata(res, e, 'Kopyalanamadı');
+  }
+});
+
+router.get('/seri-onizle', async (req, res) => {
+  try {
+    return res.json(await seriOnizle(String(req.query.seri ?? '')));
+  } catch (e) {
+    return hata(res, e, 'Önizlenemedi');
+  }
+});
+
+router.get('/minmax', async (req, res) => {
+  try {
+    return res.json(await minMaxDegerlendir(String(req.query.lokasyon ?? '')));
+  } catch (e) {
+    return hata(res, e, 'Min-max hesaplanamadı');
   }
 });
 
