@@ -34,6 +34,15 @@ function sayi(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Derece: "2.00", "+2", "-1,25" ya da ürün adındaki gibi "0200" / "-0125" yazılabilir (|n| ≥ 20 → yüzde birlik). */
+function derece(v: unknown): number | null {
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  const n = sayi(s);
+  if (n == null) return null;
+  return Math.abs(n) >= 20 || /^[+-]?\d{4}$/.test(s) ? n / 100 : n;
+}
+
 function kuralTemizle(g: KuralGirdi) {
   const seri = String(g.seri ?? '').replace(/\s+/g, ' ').trim();
   if (!seri) throw new Error('Seri / ürün adı boş olamaz');
@@ -42,13 +51,13 @@ function kuralTemizle(g: KuralGirdi) {
   const max = Math.max(0, Math.round(Number(g.max)));
   if (!Number.isFinite(min) || !Number.isFinite(max) || max < min || max === 0) throw new Error('Max, min\'den küçük olamaz ve 0 olamaz');
   // CYL her zaman eksi tutulur (0 … -2.00)
-  const c1 = sayi(g.cylMin);
-  const c2 = sayi(g.cylMax);
+  const c1 = derece(g.cylMin);
+  const c2 = derece(g.cylMax);
   const cyl = [c1, c2].map((c) => (c == null ? null : -Math.abs(c)));
   const cylLo = cyl[0] != null && cyl[1] != null ? Math.min(cyl[0], cyl[1]) : cyl[0] ?? cyl[1];
   const cylHi = cyl[0] != null && cyl[1] != null ? Math.max(cyl[0], cyl[1]) : null;
-  const s1 = sayi(g.sphMin);
-  const s2 = sayi(g.sphMax);
+  const s1 = derece(g.sphMin);
+  const s2 = derece(g.sphMax);
   return {
     lokasyon: g.lokasyon,
     seri,

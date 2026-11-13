@@ -154,6 +154,21 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
     }
   }
 
+  function siparisYazdir() {
+    const yok = (satirlar ?? []).filter((s) => !s.depoAdet)
+    if (!yok.length) return
+    const esc = (x: unknown) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
+    const gruplar = new Map<string, MinMaxSatir[]>()
+    for (const s of yok) gruplar.set(s.seri, [...(gruplar.get(s.seri) ?? []), s])
+    const govde = [...gruplar.entries()].map(([seri, l]) => `<h2>${esc(seri)} — ${l.reduce((a, x) => a + x.eksik, 0)} adet</h2>
+<table><thead><tr><th>Ürün / derece</th><th>SPH</th><th>CYL</th><th>Mağazada</th><th>Sipariş adedi</th></tr></thead><tbody>${l.map((x) => `<tr><td>${esc(x.ad)}</td><td>${x.sph == null ? '' : x.sph.toFixed(2)}</td><td>${x.cyl == null ? '' : x.cyl.toFixed(2)}</td><td>${x.magazaAdet}</td><td><b>${x.eksik}</b></td></tr>`).join('')}</tbody></table>`).join('')
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Sipariş listesi ${esc(lokasyon)}</title><style>body{font-family:Arial,sans-serif;font-size:12px;margin:18px}h1{font-size:16px}h2{font-size:14px;margin:16px 0 6px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:4px 6px;text-align:left}th{background:#eee}</style></head><body>
+<h1>Sipariş listesi — ${esc(lokasyon)} (Ana Depo'da olmayanlar)</h1><div>${new Date().toLocaleString('tr-TR')} · ${yok.length} kalem · ${yok.reduce((a, x) => a + x.eksik, 0)} adet</div>${govde}<script>window.onload=()=>window.print()</script></body></html>`)
+    w.document.close()
+  }
+
   const seciliAdet = (satirlar ?? []).filter((s) => secili.has(s.varyantId)).reduce((a, s) => a + (adet[s.varyantId] ?? 0), 0)
 
   return (
@@ -166,7 +181,7 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
         <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 4 }}>📐 {lokasyon} min-max kuralları</div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
           Seri = ürün adının başı, Stok Yönetimi'ndeki gibi yazın (ör. <b>Plus 1.56</b>, <b>Plus 1.57 Kırılmaz</b>, <b>ULTRA KONTAKT LENS</b>, <b>BIOTRUE 300ML</b>).
-          Derece aralığı boş bırakılırsa serinin tüm dereceleri kurala girer. CYL eksi yazılır (0 … -2.00).
+          Derece aralığı boş bırakılırsa serinin tüm dereceleri kurala girer. Dereceyi <b>-4.00</b> ya da ürün adındaki gibi <b>-0400</b> yazabilirsiniz; CYL eksi yazılır (0 … -2.00).
         </div>
         <form onSubmit={ekle} style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 6 }}>
           <label style={{ fontSize: 11 }}>Seri / ürün<br />
@@ -250,7 +265,7 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
                         <td style={td}>{s.min} / {s.max}</td>
                         <td style={td}>{s.magazaAdet}</td>
                         <td style={td}>{s.taslakta || ''}</td>
-                        <td style={{ ...td, fontWeight: 800, color: s.depoAdet ? '#047857' : '#b91c1c' }}>{s.depoAdet || 'yok → satın alma'}</td>
+                        <td style={{ ...td, fontWeight: 800, color: s.depoAdet ? '#047857' : '#b91c1c' }} title={s.depoAdet ? '' : "Ana Depo'da bu dereceden hiç yok — depodan gönderilemez, tedarikçiden sipariş edilmeli"}>{s.depoAdet || "Depoda yok — sipariş edilmeli"}</td>
                         <td style={td}>{s.satis30 || ''}</td>
                         <td style={td}>{s.eksik}</td>
                         <td style={td}>
@@ -266,6 +281,8 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
                 </table>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                <button type="button" disabled={!satirlar.some((s) => !s.depoAdet)} onClick={siparisYazdir} style={btn}>🛒 Depoda olmayanları yazdır (sipariş listesi)</button>
+                <div style={{ flex: 1 }} />
                 <span style={{ fontSize: 13 }}>Seçili: <b>{secili.size}</b> kalem · <b>{seciliAdet}</b> adet</span>
                 <button type="button" disabled={mesgul || !seciliAdet} onClick={() => void taslak()} style={{ ...btnYesil, opacity: seciliAdet ? 1 : 0.5 }}>📦 İkmal taslağı oluştur</button>
               </div>
