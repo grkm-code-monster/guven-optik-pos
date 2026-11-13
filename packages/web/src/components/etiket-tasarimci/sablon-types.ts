@@ -36,8 +36,10 @@ export const ORNEK_SABLON_VERI = {
   renkVaryant: 'GG1188S / C1 / 58',
   fiyat: 999,
   seriNo: 'SN-123456',
-  barkod: '8693283900499',
-  utsKodu: '08681234567890',
+  // GS1 karekod GTIN kontrol hanesini doğrular: örnek veri GEÇERLİ bir GTIN taşımalı
+  // (13.11.2026 — eski örnek GTIN geçersizdi, karekodlu şablonların önizlemesi çizilemiyordu).
+  barkod: '08680657152424',
+  utsKodu: '01086806571524242136*1125110610000139',
   sonGuncelleme: '22.06.2026',
   lotNo: 'LOT-2024-001',
   sktTarihi: '260624',
