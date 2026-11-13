@@ -51,8 +51,7 @@ const MENU: MenuGroup[] = [
     items: [
       { label: 'Depo Yönetimi', icon: '📦', to: '/admin/depo' },
       { label: 'Stok Yönetimi', icon: '🏷️', to: '/admin/stok-yonetimi' },
-      { label: 'Etiket Tasarımcısı', icon: '🎨', to: '/admin/etiket-tasarimci' },
-      { label: 'Etiket Şablonları (Yeni)', icon: '🏷️', to: '/admin/etiket-sablon-duzenleyici' },
+      { label: 'Etiket Merkezi', icon: '🏷️', to: '/admin/etiket-merkezi' },
       { label: 'Ürün Yapılandırma', icon: '⚙️', to: '/admin/urun-yapilandirma' },
       { label: 'Garanti & İade', icon: '🔧', to: '/admin/garanti' },
       { label: 'UTS Yönetimi', icon: '🏥', to: '/admin/uts' },

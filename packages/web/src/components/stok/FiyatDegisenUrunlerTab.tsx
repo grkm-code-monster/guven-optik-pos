@@ -6,7 +6,7 @@ import {
   posFiyatBildirimEtiketBasildiToplu,
   type FiyatBildirimi,
 } from '../../api/stok.api'
-import { generateZpl } from '../../api/etiket.api'
+import EtiketBasModal, { type EtiketModalUrun } from '../etiket/EtiketBasModal'
 
 const PRIMARY = '#c0392b'
 const KATEGORISIZ = '__KATEGORISIZ__'
@@ -21,17 +21,43 @@ function kategoriDegeri(kategoriAdi: string | null | undefined): string {
   return ad || KATEGORISIZ
 }
 
-async function bildirimEtiketItems(b: FiyatBildirimi) {
+/**
+ * 13.11.2026 — Fiyatı değişen ürünün o şubedeki her lotu için bir etiket satırı.
+ * Önceden burada sadece ekrana Zebra kodu yazılıyor, Yazdır yoktu ve butona basınca "basıldı"
+ * işaretleniyordu. Artık diğer ekranlardaki gibi gerçek şablon + Argox/Zebra seçimi + Yazdır kullanılıyor;
+ * "basıldı" işareti ancak Yazdır / Ham kod indir / Kopyala'dan sonra konuyor.
+ */
+async function bildirimEtiketUrunleri(b: FiyatBildirimi): Promise<EtiketModalUrun[]> {
   const lotlar = await getPosUrunLotlari(b.urunId, b.subeKodu)
-  return (lotlar.length ? lotlar : [{
-    seriNo: '-',
-    fiyat: Number(b.yeniFiyat),
-    barkod: null,
-  }]).map((l) => ({
+  if (!lotlar.length) {
+    return [{
+      key: `${b.id}-0`,
+      urunAdi: b.urunAdi,
+      seriNo: '-',
+      fiyat: Number(b.yeniFiyat),
+      barkod: null,
+      secili: true,
+      categAdi: b.kategoriAdi ?? '',
+      lokasyon: b.subeKodu,
+      adet: 1,
+    }]
+  }
+  return lotlar.map((l, i) => ({
+    key: `${b.id}-${i}`,
     urunAdi: b.urunAdi,
     seriNo: l.seriNo || '-',
     fiyat: l.fiyat ?? Number(b.yeniFiyat),
     barkod: l.barkod,
+    secili: true,
+    categAdi: b.kategoriAdi ?? '',
+    renkVaryant: l.nitelik || undefined,
+    utsKodu: l.utsKodu ?? null,
+    utsKodlu: Boolean(l.utsKodu),
+    lotNo: l.seriNo || null,
+    lotId: l.lotId,
+    varyantId: l.varyantId ?? null,
+    lokasyon: b.subeKodu,
+    adet: l.lotId ? 1 : Math.max(1, Math.round(l.adet || 1)),
   }))
 }
 
@@ -39,7 +65,9 @@ export default function FiyatDegisenUrunlerTab() {
   const [bildirimler, setBildirimler] = useState<FiyatBildirimi[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [etiketZpl, setEtiketZpl] = useState('')
+  // 13.11.2026 — Etiket Bas penceresi (gerçek şablon + yazıcı seçimi + Yazdır)
+  const [modalUrunler, setModalUrunler] = useState<EtiketModalUrun[]>([])
+  const [modalBildirimIds, setModalBildirimIds] = useState<string[]>([])
   const [etiketYukleniyor, setEtiketYukleniyor] = useState<string | null>(null)
   const [topluYukleniyor, setTopluYukleniyor] = useState(false)
   const [seciliIds, setSeciliIds] = useState<Set<string>>(new Set())
@@ -117,21 +145,12 @@ export default function FiyatDegisenUrunlerTab() {
 
   async function etiketBas(b: FiyatBildirimi) {
     setEtiketYukleniyor(b.id)
-    setEtiketZpl('')
     setError(null)
     try {
-      const items = await bildirimEtiketItems(b)
-      const res = await generateZpl(items, 'pos')
-      setEtiketZpl(res.zpl)
-      await posFiyatBildirimEtiketBasildi(b.id)
-      setSeciliIds((prev) => {
-        const next = new Set(prev)
-        next.delete(b.id)
-        return next
-      })
-      await yukle()
+      setModalUrunler(await bildirimEtiketUrunleri(b))
+      setModalBildirimIds([b.id])
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? e?.message ?? 'Etiket basılamadı')
+      setError(e?.response?.data?.error ?? e?.message ?? 'Etiket hazırlanamadı')
     } finally {
       setEtiketYukleniyor(null)
     }
@@ -140,22 +159,30 @@ export default function FiyatDegisenUrunlerTab() {
   async function secilenlereEtiketBas() {
     if (!seciliFiltreli.length) return
     setTopluYukleniyor(true)
-    setEtiketZpl('')
     setError(null)
     try {
-      let birlesikZpl = ''
-      for (const b of seciliFiltreli) {
-        const items = await bildirimEtiketItems(b)
-        const res = await generateZpl(items, 'pos')
-        birlesikZpl += res.zpl
-      }
-      setEtiketZpl(birlesikZpl)
-      await posFiyatBildirimEtiketBasildiToplu(seciliFiltreli.map((b) => b.id))
-      await yukle()
+      const hepsi: EtiketModalUrun[] = []
+      for (const b of seciliFiltreli) hepsi.push(...(await bildirimEtiketUrunleri(b)))
+      setModalUrunler(hepsi)
+      setModalBildirimIds(seciliFiltreli.map((b) => b.id))
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? e?.message ?? 'Toplu etiket basılamadı')
+      setError(e?.response?.data?.error ?? e?.message ?? 'Etiketler hazırlanamadı')
     } finally {
       setTopluYukleniyor(false)
+    }
+  }
+
+  /** Yazdır / Ham kod indir / Kopyala yapıldıktan sonra: bildirim(ler) "etiket basıldı" olur. */
+  async function basildiIsaretle() {
+    const ids = modalBildirimIds
+    if (!ids.length) return
+    try {
+      if (ids.length === 1) await posFiyatBildirimEtiketBasildi(ids[0])
+      else await posFiyatBildirimEtiketBasildiToplu(ids)
+      setModalBildirimIds([])
+      setSeciliIds(new Set())
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? e?.message ?? '"Etiket basıldı" işaretlenemedi')
     }
   }
 
@@ -322,41 +349,17 @@ export default function FiyatDegisenUrunlerTab() {
         ))}
       </div>
 
-      {etiketZpl ? (
-        <div style={{ marginTop: 16, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, backgroundColor: '#f9fafb' }}>
-          <textarea
-            readOnly
-            value={etiketZpl}
-            rows={5}
-            style={{
-              width: '100%',
-              fontFamily: 'monospace',
-              fontSize: 11,
-              padding: 8,
-              borderRadius: 8,
-              border: '1px solid #e5e7eb',
-              boxSizing: 'border-box',
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => void navigator.clipboard.writeText(etiketZpl)}
-            style={{
-              marginTop: 8,
-              padding: '8px 14px',
-              borderRadius: 8,
-              border: 'none',
-              backgroundColor: '#1a1a2e',
-              color: 'white',
-              fontWeight: 700,
-              cursor: 'pointer',
-              width: '100%',
-            }}
-          >
-            ZPL Kopyala
-          </button>
-        </div>
-      ) : null}
+      <EtiketBasModal
+        acik={modalUrunler.length > 0}
+        urunler={modalUrunler}
+        source="pos"
+        kaynak="POS_FIYAT"
+        onBasildi={() => void basildiIsaretle()}
+        onKapat={() => {
+          setModalUrunler([])
+          void yukle()
+        }}
+      />
     </div>
   )
 }

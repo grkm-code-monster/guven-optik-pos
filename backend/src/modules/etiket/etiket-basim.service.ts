@@ -8,6 +8,7 @@
  * Not: "basıldı" = Yazdır'a basıldığı an. Yazıcının kâğıdı fiilen çıkarıp çıkarmadığı bilinemez.
  */
 import { prisma } from '../../database/prisma';
+import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 
 export const ETIKET_BASIM_KAYNAKLARI = [
   'ETIKET_MERKEZI',
@@ -73,6 +74,32 @@ export async function basimKaydet(
       userId,
     }));
   if (!data.length) return 0;
+
+  // Lot id'si gelmeyen ama lot adı olan satırlar (ör. Stok Yönetimi, Depo ürün girişi): Odoo'dan
+  // lot adıyla bulunur — "son etiket" bilgisi lot id'ye göre okunduğu için. Bulunamazsa id'siz yazılır.
+  const adlar = [...new Set(data.filter((d) => !d.lotId && d.lotAdi).map((d) => d.lotAdi as string))];
+  if (adlar.length) {
+    try {
+      const lotlar = (await execute('stock.lot', 'search_read', [[['name', 'in', adlar.slice(0, 2000)]]], {
+        fields: ['id', 'name', 'product_id'],
+        context: { active_test: false, allowed_company_ids: ODOO_ALL_COMPANY_IDS },
+      })) as { id: number; name: string; product_id: [number, string] | false }[];
+      const adaGore = new Map<string, { id: number; product_id: [number, string] | false }[]>();
+      for (const l of lotlar) adaGore.set(l.name, [...(adaGore.get(l.name) ?? []), l]);
+      for (const d of data) {
+        if (d.lotId || !d.lotAdi) continue;
+        const adaylar = adaGore.get(d.lotAdi) ?? [];
+        const uyan = d.varyantId ? adaylar.filter((a) => a.product_id && a.product_id[0] === d.varyantId) : adaylar;
+        if (uyan.length === 1) {
+          d.lotId = uyan[0].id;
+          if (!d.varyantId && uyan[0].product_id) d.varyantId = uyan[0].product_id[0];
+        }
+      }
+    } catch (e) {
+      console.warn('[etiket-basim] lot adı çözülemedi', e instanceof Error ? e.message : e);
+    }
+  }
+
   const r = await prisma.etiketBasimKaydi.createMany({ data });
   return r.count;
 }

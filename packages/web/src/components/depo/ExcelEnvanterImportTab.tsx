@@ -291,6 +291,9 @@ export default function ExcelEnvanterImportTab() {
           lotNo: lot?.lotNo || undefined,
           kategoriId: bilgi?.kategoriId ?? null,
           adet: lot?.adet && lot.adet > 0 ? Math.round(lot.adet) : (satir?.adet && satir.adet > 0 ? Math.round(satir.adet) : 1),
+          lotId: s.olusturulanLotId ?? null,
+          varyantId: s.olusturulanVaryantId ?? null,
+          lokasyon: aktarimLokasyonu ?? null,
         }
       })
       setEtiketUrunleri(liste)
@@ -308,6 +311,7 @@ export default function ExcelEnvanterImportTab() {
         acik={etiketAcik}
         urunler={etiketUrunleri}
         source="admin"
+        kaynak="EXCEL_ENVANTER"
         onKapat={() => setEtiketAcik(false)}
       />
       <p style={{ fontSize: 14, color: '#6b7280', marginTop: 0, marginBottom: 20, maxWidth: 720 }}>

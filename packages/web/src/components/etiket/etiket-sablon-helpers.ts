@@ -1,9 +1,6 @@
 import { generateZplFromSablon, getEtiketSablonBySlug, type EtiketDil } from '../../api/etiket.api'
 import type { CanvasElement, EtiketRenderVeri, EtiketSablonRender } from './etiket-canvas-render'
 import type { SablonId } from '../etiket-tasarimci/sablon-types'
-import { sablonBul, VARSAYILAN_AYAR } from '../etiket-tasarimci/sablon-registry'
-import { uretSablonZpl } from '../etiket-tasarimci/sablon-zpl'
-import type { SablonAyar, SablonVeri } from '../etiket-tasarimci/sablon-types'
 
 export type EtiketUrunVeri = {
   urunAdi: string
@@ -73,24 +70,6 @@ export function otomatikSablonSec(urunKategori: string, utsKodlu: boolean): Sabl
   return 'gunes-aksesuar'
 }
 
-export function urundenSablonVeri(item: EtiketUrunVeri): SablonVeri {
-  return {
-    urunAdi: item.urunAdi,
-    icReferans: item.icReferans ?? item.barkod ?? '',
-    renkVaryant: item.renkVaryant,
-    fiyat: item.fiyat,
-    seriNo: item.seriNo || '-',
-    barkod: item.barkod ?? item.icReferans ?? '',
-    utsKodu: item.utsKodu ?? undefined,
-    kategoriAdi: item.categAdi,
-    lokasyon: item.lokasyon,
-    miktar: item.miktar,
-    lotNo: item.lotNo ?? undefined,
-    sktTarihi: item.sktTarihi,
-    sonGuncelleme: item.sonGuncelleme ?? new Date().toLocaleDateString('tr-TR'),
-  }
-}
-
 function etiketItemToApiPayload(item: EtiketUrunVeri) {
   return {
     urunAdi: item.urunAdi,
@@ -125,27 +104,16 @@ export function etiketUrunToRenderVeri(item: EtiketUrunVeri): EtiketRenderVeri {
 export async function getPilotEtiketSablon(
   sablonId: SablonId,
   categAdi?: string,
+  source: 'pos' | 'admin' = 'admin',
 ): Promise<EtiketSablonRender | null> {
   const slug = pilotSlugForSablon(sablonId, categAdi)
   if (!slug) return null
-  const dbSablon = await getEtiketSablonBySlug(slug)
+  const dbSablon = await getEtiketSablonBySlug(slug, source)
   return {
     elemanlar: dbSablon.elemanlar as CanvasElement[],
     genislikMm: dbSablon.etiketGenislik,
     yukseklikMm: dbSablon.etiketYukseklik,
   }
-}
-
-export function uretCokluEtiketZpl(
-  sablonId: SablonId,
-  items: EtiketUrunVeri[],
-  ayar?: SablonAyar,
-): string {
-  const sablon = sablonBul(sablonId)
-  const a = ayar ?? sablon?.defaultAyar ?? VARSAYILAN_AYAR
-  return items
-    .map((item) => uretSablonZpl(sablonId, urundenSablonVeri(item), a))
-    .join('\n')
 }
 
 /**
@@ -161,7 +129,7 @@ export function kayitliYaziciDili(): EtiketDil {
   }
 }
 
-/** Pilot motor varsa DB sablonu, yoksa eski sablon-registry yolu */
+/** Etiket kodu her zaman veritabanındaki şablondan üretilir (13.11.2026 — eski yerel yol kaldırıldı). */
 export async function uretEtiketZplTercihli(
   sablonId: SablonId,
   items: EtiketUrunVeri[],
@@ -171,7 +139,7 @@ export async function uretEtiketZplTercihli(
 ): Promise<string> {
   const slug = pilotSlugForSablon(sablonId, categAdi)
   if (slug) {
-    const dbSablon = await getEtiketSablonBySlug(slug)
+    const dbSablon = await getEtiketSablonBySlug(slug, source)
     const { zpl } = await generateZplFromSablon(
       {
         sablonId: dbSablon.id,
@@ -182,5 +150,5 @@ export async function uretEtiketZplTercihli(
     )
     return zpl
   }
-  return uretCokluEtiketZpl(sablonId, items)
+  throw new Error(`"${sablonId}" şablonu için kayıtlı etiket şablonu yok`)
 }

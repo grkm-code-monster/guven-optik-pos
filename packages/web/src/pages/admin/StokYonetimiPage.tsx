@@ -23,7 +23,7 @@ import EtiketSablonSecici from '../../components/etiket/EtiketSablonSecici'
 import { kayitliYaziciDili, otomatikSablonSec, uretEtiketZplTercihli } from '../../components/etiket/etiket-sablon-helpers'
 import YaziciDiliSecici from '../../components/etiket/YaziciDiliSecici'
 import { hamEtiketKoduIndir } from '../../components/etiket/yazici-dili'
-import type { EtiketDil } from '../../api/etiket.api'
+import { etiketBasimKaydet, type EtiketBasimGirdi, type EtiketDil } from '../../api/etiket.api'
 import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
 import StokKontrolTab from './StokKontrolTab'
 
@@ -178,6 +178,8 @@ export default function StokYonetimiPage() {
   const [etiketLokasyon, setEtiketLokasyon] = useState('GVN1')
   const [etiketAdet, setEtiketAdet] = useState(1)
   const [etiketZpl, setEtiketZpl] = useState('')
+  // 13.11.2026 — basım geçmişi: üretilen etiketler, İndir/Kopyala'da bir kez kaydedilir
+  const [etiketBasimBekleyen, setEtiketBasimBekleyen] = useState<EtiketBasimGirdi[] | null>(null)
   const [etiketDil, setEtiketDil] = useState<EtiketDil>(kayitliYaziciDili)
   const [etiketYukleniyor, setEtiketYukleniyor] = useState(false)
   const [etiketSablonId, setEtiketSablonId] = useState<SablonId>('gunes-aksesuar')
@@ -825,11 +827,26 @@ export default function StokYonetimiPage() {
       }))
 
       setEtiketZpl(await uretEtiketZplTercihli(etiketSablonId, items, etiketUrun.kategori, 'admin', etiketDil))
+      setEtiketBasimBekleyen(items.map((it) => ({
+        lotAdi: it.lotNo && it.lotNo !== '-' ? it.lotNo : null,
+        utsKodu: it.utsKodu ?? null,
+        urunAdi: it.urunAdi,
+        fiyat: it.fiyat,
+        sablonSlug: etiketSablonId,
+        lokasyon: etiketLokasyon,
+        adet: 1,
+      })))
     } catch (e: any) {
       setMesaj({ tip: 'err', text: e?.response?.data?.error ?? e?.message ?? 'ZPL üretilemedi' })
     } finally {
       setEtiketYukleniyor(false)
     }
+  }
+
+  function etiketBasimiYaz() {
+    if (!etiketBasimBekleyen?.length) return
+    void etiketBasimKaydet('STOK_YONETIMI', etiketBasimBekleyen, 'admin')
+    setEtiketBasimBekleyen(null)
   }
 
   const toplamSayfa = Math.max(1, Math.ceil(total / 50))
@@ -1468,8 +1485,8 @@ export default function StokYonetimiPage() {
                 </button>
               ) : (
                 <>
-                  <button type="button" onClick={() => hamEtiketKoduIndir(etiketZpl, etiketDil)} style={btn}>İndir (.txt)</button>
-                  <button type="button" onClick={() => void navigator.clipboard.writeText(etiketZpl)} style={btnPrimary}>Kopyala</button>
+                  <button type="button" onClick={() => { etiketBasimiYaz(); hamEtiketKoduIndir(etiketZpl, etiketDil) }} style={btn}>İndir (.txt)</button>
+                  <button type="button" onClick={() => { etiketBasimiYaz(); void navigator.clipboard.writeText(etiketZpl) }} style={btnPrimary}>Kopyala</button>
                 </>
               )}
             </div>

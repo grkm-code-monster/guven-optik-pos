@@ -790,15 +790,45 @@ export async function getUrunLotlari(tmplId: number, lokasyon: string) {
     limit: 500,
   })) ?? [];
 
+  // 13.11.2026 — etiket için ek bilgiler: UTS kodu, varyant id ve MODEL / RENK / ÖLÇÜ (POS fiyat değişen etiketi)
+  const utsMap = new Map<number, string | null>();
+  const nitelikMap = new Map<number, string>();
+  try {
+    const lotIds = quants.map((q: any) => m2oId(q.lot_id)).filter((x: number | null): x is number => !!x);
+    if (lotIds.length) {
+      const lotlar = (await execute('stock.lot', 'read', [lotIds], { fields: ['x_uts_kodu'] })) ?? [];
+      for (const l of lotlar as Array<{ id: number; x_uts_kodu?: unknown }>) {
+        utsMap.set(l.id, l.x_uts_kodu ? String(l.x_uts_kodu).trim() || null : null);
+      }
+    }
+    const pids = [...new Set(quants.map((q: any) => m2oId(q.product_id)).filter((x: number | null): x is number => !!x))];
+    if (pids.length) {
+      const urunler = (await execute('product.product', 'read', [pids], { fields: ['product_template_attribute_value_ids'] })) ?? [];
+      const ptavMap = await buildPtavMap((urunler as any[]).flatMap((u) => u.product_template_attribute_value_ids ?? []));
+      for (const u of urunler as Array<{ id: number; product_template_attribute_value_ids?: number[] }>) {
+        const bul = (on: string) => (u.product_template_attribute_value_ids ?? [])
+          .map((id) => ptavMap.get(id))
+          .find((p) => p && p.attrName.toLocaleUpperCase('tr-TR').startsWith(on))?.valueName ?? '';
+        nitelikMap.set(u.id, [bul('MODEL'), bul('RENK'), bul('ÖLÇÜ')].filter(Boolean).join(' / '));
+      }
+    }
+  } catch {
+    // ek bilgiler okunamazsa etiket yine basılır (UTS/nitelik olmadan)
+  }
+
   return quants.map((q: any) => {
     const pid = m2oId(q.product_id) ?? 0;
     const meta = priceMap.get(pid) ?? { fiyat: 0, barkod: null };
+    const lotId = m2oId(q.lot_id);
     return {
-      lotId: m2oId(q.lot_id),
+      lotId,
       seriNo: m2oName(q.lot_id),
       adet: Number(q.quantity) || 1,
       fiyat: meta.fiyat,
       barkod: meta.barkod,
+      varyantId: pid || null,
+      utsKodu: lotId ? utsMap.get(lotId) ?? null : null,
+      nitelik: nitelikMap.get(pid) ?? '',
     };
   });
 }

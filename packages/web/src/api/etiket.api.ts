@@ -65,8 +65,9 @@ export async function getEtiketSablonlari(kategori?: string) {
   return (res.data?.data ?? []) as EtiketSablonKayit[]
 }
 
-export async function getEtiketSablonBySlug(slug: string) {
-  const client = clientFor('admin')
+export async function getEtiketSablonBySlug(slug: string, source: 'pos' | 'admin' = 'admin') {
+  // 13.11.2026 — POS ekranlarında (transfer kabul, fiyat değişen) POS oturumuyla okunur
+  const client = clientFor(source)
   const res = await client.get(`/etiket/sablon/slug/${encodeURIComponent(slug)}`)
   return res.data?.data as EtiketSablonKayit
 }
@@ -99,4 +100,40 @@ export async function silEtiketSablon(id: string) {
   const client = clientFor('admin')
   const res = await client.delete(`/etiket/sablon/${id}`)
   return res.data
+}
+
+// ── 13.11.2026 — Etiket basım geçmişi ──
+export type EtiketBasimKaynak =
+  | 'ETIKET_MERKEZI'
+  | 'STOK_YONETIMI'
+  | 'DEPO'
+  | 'TRANSFER'
+  | 'EXCEL_ENVANTER'
+  | 'POS_FIYAT'
+
+export type EtiketBasimGirdi = {
+  lotId?: number | null
+  lotAdi?: string | null
+  utsKodu?: string | null
+  varyantId?: number | null
+  urunAdi: string
+  nitelik?: string | null
+  fiyat?: number | string | null
+  sablonSlug?: string | null
+  lokasyon?: string | null
+  adet?: number | null
+}
+
+/** Basılan etiketleri geçmişe yazar. Hata verirse baskıyı ENGELLEMEZ (sadece konsola yazar). */
+export async function etiketBasimKaydet(
+  kaynak: EtiketBasimKaynak,
+  kayitlar: EtiketBasimGirdi[],
+  source: 'pos' | 'admin' = 'admin',
+): Promise<void> {
+  if (!kayitlar.length) return
+  try {
+    await clientFor(source).post('/etiket/basim-kaydi', { kaynak, kayitlar })
+  } catch (e) {
+    console.warn('[etiket] basım kaydı yazılamadı', e)
+  }
 }

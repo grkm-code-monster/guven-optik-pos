@@ -30,8 +30,7 @@ import RaporMatrisPage from './pages/admin/RaporMatrisPage'
 import GarantiYonetimPage from './pages/admin/GarantiYonetimPage'
 import UrunYapilandirmaPage from './pages/admin/UrunYapilandirmaPage'
 import StokYonetimiPage from './pages/admin/StokYonetimiPage'
-import EtiketTasarimciPage from './pages/admin/EtiketTasarimciPage'
-import EtiketSablonDuzenleyici from './pages/admin/EtiketSablonDuzenleyici'
+import EtiketMerkeziPage from './pages/admin/EtiketMerkeziPage'
 import DeployPage from './pages/admin/DeployPage'
 import UtsYonetimiPage from './pages/admin/UtsYonetimiPage'
 import SatisYonetimPage from './pages/admin/SatisYonetimPage'
@@ -85,7 +84,7 @@ const ADMIN_DASHBOARD_CANDIDATES = [
   '/admin/kampanyalar',
   '/admin/depo',
   '/admin/stok-yonetimi',
-  '/admin/etiket-tasarimci',
+  '/admin/etiket-merkezi',
   '/admin/urun-yapilandirma',
   '/admin/garanti',
   '/admin/uts',
@@ -129,8 +128,9 @@ export default function App() {
           <Route path="kampanyalar" element={<KampanyalarPage />} />
           <Route path="depo" element={<DepoPage />} />
           <Route path="stok-yonetimi" element={<StokYonetimiPage />} />
-          <Route path="etiket-tasarimci" element={<EtiketTasarimciPage />} />
-          <Route path="etiket-sablon-duzenleyici" element={<EtiketSablonDuzenleyici />} />
+          <Route path="etiket-tasarimci" element={<Navigate to="/admin/etiket-merkezi" replace />} />
+          <Route path="etiket-merkezi" element={<AdminYetkiRoute to="/admin/etiket-merkezi"><EtiketMerkeziPage /></AdminYetkiRoute>} />
+          <Route path="etiket-sablon-duzenleyici" element={<Navigate to="/admin/etiket-merkezi?sekme=sablonlar" replace />} />
           <Route path="urun-yapilandirma" element={<UrunYapilandirmaPage />} />
           <Route path="garanti" element={<GarantiYonetimPage />} />
           <Route path="uts" element={<UtsYonetimiPage />} />

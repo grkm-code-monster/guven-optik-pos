@@ -4,13 +4,14 @@ import { renderEtiketBatchToDataUrls, type EtiketSablonRender } from './etiket-c
 import { yazdirEtiketGorselleri } from './etiket-gorsel-yazdir'
 import { etiketleriPdfOlustur } from './etiket-pdf-yazdir'
 import EtiketSablonSecici from './EtiketSablonSecici'
-import type { EtiketDil } from '../../api/etiket.api'
+import { etiketBasimKaydet, type EtiketBasimKaynak, type EtiketDil } from '../../api/etiket.api'
 import YaziciDiliSecici from './YaziciDiliSecici'
 import { hamEtiketKoduIndir } from './yazici-dili'
 import {
   etiketUrunToRenderVeri,
   getPilotEtiketSablon,
   kayitliYaziciDili,
+  pilotSlugForSablon,
   otomatikSablonSec,
   uretEtiketZplTercihli,
   type EtiketUrunVeri,
@@ -30,6 +31,10 @@ export type EtiketModalUrun = {
   lotNo?: string | null
   kategoriId?: number | null
   adet?: number
+  /** 13.11.2026 — basım geçmişi için (varsa) */
+  lotId?: number | null
+  varyantId?: number | null
+  lokasyon?: string | null
 }
 
 type Props = {
@@ -37,6 +42,10 @@ type Props = {
   urunler: EtiketModalUrun[]
   source?: 'pos' | 'admin'
   onKapat: () => void
+  /** 13.11.2026 — verilirse Yazdır / Ham Kod İndir / Kopyala'da basım geçmişine yazılır */
+  kaynak?: EtiketBasimKaynak
+  /** Basım geçmişine yazıldıktan sonra (ör. listeyi tazelemek için) */
+  onBasildi?: () => void
 }
 
 function varsayilanSablon(urunler: EtiketModalUrun[]): SablonId {
@@ -60,7 +69,7 @@ function modalUrunToEtiketVeri(s: EtiketModalUrun): EtiketUrunVeri {
   }
 }
 
-export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapat }: Props) {
+export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapat, kaynak, onBasildi }: Props) {
   const [secimler, setSecimler] = useState<EtiketModalUrun[]>([])
   const [sablonId, setSablonId] = useState<SablonId>('gunes-aksesuar')
   const [zpl, setZpl] = useState('')
@@ -72,6 +81,9 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
   const [kopyalandi, setKopyalandi] = useState(false)
   // 09.11.2026 — Yazıcı dili: Argox (PPLA) ya da Zebra (ZPL, ör. ZD220). Seçim bu bilgisayarda hatırlanır.
   const [dil, setDil] = useState<EtiketDil>(kayitliYaziciDili)
+  // 13.11.2026 — Üretilen bu baskı geçmişe yazıldı mı (aynı baskı için tekrar yazmamak için)
+  const [kaydedilenler, setKaydedilenler] = useState<EtiketModalUrun[] | null>(null)
+  const [basimYazildi, setBasimYazildi] = useState(false)
 
   const ilkSecili = useMemo(
     () => secimler.find((u) => u.secili) ?? secimler[0],
@@ -88,6 +100,8 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
       setUretilenItems([])
       setError(null)
       setKopyalandi(false)
+      setKaydedilenler(null)
+      setBasimYazildi(false)
     }
   }, [acik, urunler])
 
@@ -114,11 +128,13 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
       })
       const [zplKod, sablon] = await Promise.all([
         uretEtiketZplTercihli(sablonId, items, ilkSecili?.categAdi, source, dil),
-        getPilotEtiketSablon(sablonId, ilkSecili?.categAdi),
+        getPilotEtiketSablon(sablonId, ilkSecili?.categAdi, source),
       ])
       setZpl(zplKod)
       setSablonRender(sablon)
       setUretilenItems(items)
+      setKaydedilenler(payload)
+      setBasimYazildi(false)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: string } }; message?: string }
       setError(err?.response?.data?.error ?? err?.message ?? 'Etiket üretilemedi')
@@ -127,18 +143,44 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
     }
   }
 
+  /** Yazdır / Ham kod indir / Kopyala — baskı başına bir kez geçmişe yazılır. */
+  async function basimiKaydet() {
+    if (!kaynak || basimYazildi || !kaydedilenler?.length) return
+    setBasimYazildi(true)
+    await etiketBasimKaydet(
+      kaynak,
+      kaydedilenler.map((s) => ({
+        lotId: s.lotId ?? null,
+        lotAdi: s.lotNo ?? (s.seriNo && s.seriNo !== '-' ? s.seriNo : null),
+        utsKodu: s.utsKodu ?? null,
+        varyantId: s.varyantId ?? null,
+        urunAdi: s.urunAdi,
+        nitelik: s.renkVaryant ?? null,
+        fiyat: s.fiyat,
+        sablonSlug: pilotSlugForSablon(sablonId, s.categAdi) ?? sablonId,
+        lokasyon: s.lokasyon ?? null,
+        adet: Math.max(1, Math.round(s.adet ?? 1)),
+      })),
+      source,
+    )
+    onBasildi?.()
+  }
+
   async function kopyala() {
     if (!zpl) return
+    void basimiKaydet()
     await navigator.clipboard.writeText(zpl)
     setKopyalandi(true)
     setTimeout(() => setKopyalandi(false), 2000)
   }
 
   function hamKoduIndir() {
+    void basimiKaydet()
     hamEtiketKoduIndir(zpl, dil)
   }
 
   async function yazdir() {
+    void basimiKaydet()
     if (sablonRender && uretilenItems.length) {
       setYazdiriliyor(true)
       try {
@@ -241,6 +283,7 @@ export default function EtiketBasModal({ acik, urunler, source = 'admin', onKapa
               utsKodlu={ilkSecili?.utsKodlu ?? Boolean(ilkSecili?.utsKodu) ?? false}
               secilenId={sablonId}
               onSecim={(id) => setSablonId(id as SablonId)}
+              source={source}
             />
           </div>
         ) : null}

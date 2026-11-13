@@ -179,6 +179,8 @@ export default function BekleyenTransferler({
         renkVaryant: u.varyant ?? u.renkVaryant,
         utsKodu: u.utsKodu ?? null,
         utsKodlu: u.utsDurumu === 'ALINDI' || Boolean(u.utsKodu),
+        lotNo: u.lotNo ?? u.seriNo ?? null,
+        lokasyon: t.hedefLokasyon ?? t.hedef ?? null,
       }))
   }
 
@@ -437,6 +439,7 @@ export default function BekleyenTransferler({
         acik={etiketAcik}
         urunler={etiketUrunler}
         source={source}
+        kaynak="TRANSFER"
         onKapat={() => setEtiketAcik(false)}
       />
     </div>

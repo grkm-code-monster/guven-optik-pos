@@ -53,6 +53,10 @@ export type StokLot = {
   adet: number
   fiyat: number
   barkod: string | null
+  /** 13.11.2026 — etiket için */
+  varyantId?: number | null
+  utsKodu?: string | null
+  nitelik?: string
 }
 
 export type VaryantLotBilgisi = {

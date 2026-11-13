@@ -29,6 +29,7 @@ import {
 } from '../../components/etiket/etiket-sablon-helpers'
 import { renderEtiketBatchToDataUrls } from '../../components/etiket/etiket-canvas-render'
 import { etiketleriPdfOlustur } from '../../components/etiket/etiket-pdf-yazdir'
+import { etiketBasimKaydet } from '../../api/etiket.api'
 import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
 import {
   OZEL_SIPARIS_AKIS,
@@ -2890,6 +2891,17 @@ function UrunGirisTab() {
       : undefined
 
     setError(null)
+    // 13.11.2026 — basım geçmişi (ürün girişinde basılan etiketler)
+    const basimKaydi = () => void etiketBasimKaydet('DEPO', lotlar.map((lot) => ({
+      lotAdi: lot.lotNo || null,
+      utsKodu: lot.utsKodu || null,
+      urunAdi: lot.bizimUrunAdi || lot.tedarikciUrunAdi,
+      nitelik: lot.varyantEtiketi || null,
+      fiyat: lot.satisFiyati || lot.birimFiyat,
+      sablonSlug: etiketSablonId,
+      lokasyon: lot.lokasyon || null,
+      adet: Math.max(1, etiketAdetler[lot.id] ?? 1),
+    })), 'admin')
 
     // Görsel motoru olan şablonlar (ör. depo-kutu) için normal yazıcıdan PDF çıktısı —
     // etiket yazıcısı/Argox sürücüsüne hiç gerek kalmaz.
@@ -2901,6 +2913,7 @@ function UrunGirisTab() {
         const sayfalar = renderEtiketBatchToDataUrls(sablonRender, veriler)
         await etiketleriPdfOlustur(sayfalar, `depo-etiketleri-${new Date().toISOString().slice(0, 10)}.pdf`)
         setEtiketPdfOlusturuldu(true)
+        basimKaydi()
       } catch (e: unknown) {
         const err = e as { message?: string }
         setError(err?.message ?? 'PDF oluşturulamadı')
@@ -2913,6 +2926,7 @@ function UrunGirisTab() {
     // Görsel motoru olmayan şablonlar için eski ham ZPL/PPLA metni (yedek yol)
     const zpl = await uretEtiketZplTercihli(etiketSablonId, items, kategori)
     setEtiketZpl(zpl)
+    basimKaydi()
   }
 
   async function odooCariBul(vkn?: string, adi?: string): Promise<Tedarikci | null> {
