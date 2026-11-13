@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import { getVaryantLotBilgisi } from '../../api/stok.api'
+import EtiketBasModal, { type EtiketModalUrun } from '../etiket/EtiketBasModal'
 import {
   indirEnvanterSablon,
   onizleEnvanterExcel,
@@ -131,6 +133,13 @@ export default function ExcelEnvanterImportTab() {
   const [hata, setHata] = useState<string | null>(null)
   const [uygulaSonuc, setUygulaSonuc] = useState<EnvanterUygulaSonuc | null>(null)
   const [ilerleme, setIlerleme] = useState<{ tamamlanan: number; toplam: number; parca: number; toplamParca: number } | null>(null)
+  // 13.11.2026 — İçe aktarma sonrası "başarılı olanlara etiket bas": aktarımın yapıldığı lokasyon ve
+  // satırların önizleme bilgisi (ürün adı, model/renk/ölçü, fiyat, barkod) aktarım anında saklanır.
+  const [aktarimLokasyonu, setAktarimLokasyonu] = useState<string | null>(null)
+  const [aktarilanSatirlar, setAktarilanSatirlar] = useState<Map<number, ParsedEnvanterRow & { kategori: string }>>(new Map())
+  const [etiketAcik, setEtiketAcik] = useState(false)
+  const [etiketUrunleri, setEtiketUrunleri] = useState<EtiketModalUrun[]>([])
+  const [etiketHazirlaniyor, setEtiketHazirlaniyor] = useState(false)
 
   const gecerliSatirlar = onizleme?.satirlar.filter((s) => s.durum !== 'HATA') ?? []
   const gosterilecekSatirlar = haricTutHatalilar
@@ -195,6 +204,8 @@ export default function ExcelEnvanterImportTab() {
     setUygulaSonuc(null)
 
     const tumSatirlar = gecerliSatirlar.map(satirOnizlemedenParsed)
+    setAktarimLokasyonu(lokasyon)
+    setAktarilanSatirlar(new Map(tumSatirlar.map((r) => [r.satirNo, r])))
     const parcalar = parcalaraBol<ParsedEnvanterRow>(tumSatirlar, IMPORT_PARCA_BOYUTU)
     setIlerleme({ tamamlanan: 0, toplam: tumSatirlar.length, parca: 0, toplamParca: parcalar.length })
 
@@ -244,8 +255,61 @@ export default function ExcelEnvanterImportTab() {
     setIlerleme(null)
   }
 
+  async function basariliEtiketleriHazirla() {
+    if (!uygulaSonuc) return
+    const basarili = uygulaSonuc.satirlar.filter((s) => s.durum === 'BASARILI' && s.olusturulanVaryantId)
+    if (!basarili.length) return
+    setEtiketHazirlaniyor(true)
+    setHata(null)
+    try {
+      // Her varyantın bu lokasyondaki lotlarını bir kez çek; satırın oluşturduğu lotu (seri no + UTS) bul.
+      const varyantIdler = [...new Set(basarili.map((s) => s.olusturulanVaryantId as number))]
+      const lotBilgisi = new Map<number, Awaited<ReturnType<typeof getVaryantLotBilgisi>> | null>()
+      await Promise.all(varyantIdler.map(async (id) => {
+        try {
+          lotBilgisi.set(id, await getVaryantLotBilgisi(id, aktarimLokasyonu ?? undefined))
+        } catch {
+          lotBilgisi.set(id, null)
+        }
+      }))
+      const liste: EtiketModalUrun[] = basarili.map((s) => {
+        const satir = aktarilanSatirlar.get(s.satirNo)
+        const bilgi = lotBilgisi.get(s.olusturulanVaryantId as number)
+        const lot = bilgi?.lotlar?.find((l) => l.lotId === s.olusturulanLotId)
+        const uts = lot?.utsKodu ?? (satir?.utsKodu?.trim() || null)
+        return {
+          key: `${s.satirNo}#${s.olusturulanLotId ?? ''}`,
+          urunAdi: satir?.urunAdi ?? '',
+          seriNo: lot?.lotNo || '-',
+          fiyat: satir?.satisFiyati ?? 0,
+          barkod: satir?.barkod || null,
+          secili: true,
+          categAdi: satir?.kategori ?? '',
+          renkVaryant: [satir?.model, satir?.renk, satir?.olcu].filter((x) => String(x ?? '').trim()).join(' / '),
+          utsKodu: uts,
+          utsKodlu: Boolean(uts),
+          lotNo: lot?.lotNo || undefined,
+          kategoriId: bilgi?.kategoriId ?? null,
+          adet: lot?.adet && lot.adet > 0 ? Math.round(lot.adet) : (satir?.adet && satir.adet > 0 ? Math.round(satir.adet) : 1),
+        }
+      })
+      setEtiketUrunleri(liste)
+      setEtiketAcik(true)
+    } catch (e) {
+      setHata(hataMesaji(e))
+    } finally {
+      setEtiketHazirlaniyor(false)
+    }
+  }
+
   return (
     <div>
+      <EtiketBasModal
+        acik={etiketAcik}
+        urunler={etiketUrunleri}
+        source="admin"
+        onKapat={() => setEtiketAcik(false)}
+      />
       <p style={{ fontSize: 14, color: '#6b7280', marginTop: 0, marginBottom: 20, maxWidth: 720 }}>
         Excel şablonunu indirip doldurun, ardından dosyayı yükleyerek önizleme alın.
         Onayladıktan sonra şablon, varyant, lot ve stok kayıtları seçtiğiniz lokasyona yazılır.
@@ -531,6 +595,30 @@ export default function ExcelEnvanterImportTab() {
           >
             İçe aktarma tamamlandı: {uygulaSonuc.ozet.basarili} başarılı, {uygulaSonuc.ozet.basarisiz} başarısız
           </div>
+
+          {uygulaSonuc.satirlar.some((s) => s.durum === 'BASARILI' && s.olusturulanVaryantId) && (
+            <button
+              type="button"
+              onClick={() => void basariliEtiketleriHazirla()}
+              disabled={etiketHazirlaniyor}
+              style={{
+                marginBottom: 14,
+                padding: '10px 18px',
+                borderRadius: 10,
+                border: 'none',
+                backgroundColor: '#166534',
+                color: 'white',
+                fontSize: 14,
+                fontWeight: 800,
+                cursor: etiketHazirlaniyor ? 'wait' : 'pointer',
+                opacity: etiketHazirlaniyor ? 0.7 : 1,
+              }}
+            >
+              {etiketHazirlaniyor
+                ? 'Etiketler hazırlanıyor…'
+                : `🏷️ Başarılı olanlara etiket bas (${uygulaSonuc.satirlar.filter((s) => s.durum === 'BASARILI' && s.olusturulanVaryantId).length})`}
+            </button>
+          )}
 
           {uygulaSonuc.satirlar.some((s) => s.durum === 'BASARISIZ') && (
             <div style={{ marginBottom: 12 }}>
