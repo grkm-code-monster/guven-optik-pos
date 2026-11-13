@@ -73,6 +73,12 @@ function prefix(path: string, p: string): boolean {
 }
 
 const ADMIN_ROUTE_RULES: RouteAccessRule[] = [
+  // ── Mağaza İkmali (13.11.2026): admin + depo müdürü (+ Stok Yönetimi ek yetkisi) ──
+  {
+    test: (p) => p.startsWith('/ikmal'),
+    yetkiler: [EK_YETKI.STOK_YONETIMI],
+    roles: [Role.ADMIN, Role.WAREHOUSE_MANAGER],
+  },
   // ── Etiket Merkezi (13.11.2026): yöneticiler + Etiket ek yetkisi ──
   {
     test: (p) => p.startsWith('/etiket-merkezi'),

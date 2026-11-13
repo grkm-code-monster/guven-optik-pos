@@ -1622,6 +1622,30 @@ model EtiketBasimKaydi {
   @@index([basildi])
 }
 
+// 13.11.2026 — Mağaza ikmali (Ana Depo → mağaza sevk) taslakları.
+// Taslak sadece bu tabloda durur; "Transferi başlat" denince gerçek transfer (Odoo) oluşturulur.
+model IkmalTaslak {
+  id             String    @id @default(cuid())
+  no             Int       @default(autoincrement())
+  hedefLokasyon  String    // GVN1, GVN2 …
+  kaynakLokasyon String    @default("ANADEPO")
+  durum          String    @default("TASLAK") // TASLAK | GONDERILDI | IPTAL
+  kalemler       Json      // [{ varyantId, urunAdi, nitelik, adet, sebep, satilanVaryantId? }]
+  donemBas       DateTime?
+  donemBit       DateTime?
+  aciklama       String?
+  olusturanId    String?
+  olusturanAdi   String?
+  transferRef    String?
+  transferSonuc  Json?
+  gonderildi     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([hedefLokasyon, durum])
+  @@index([createdAt])
+}
+
 model Bildirim {
   id        String   @id @default(cuid())
   userId    String

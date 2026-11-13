@@ -59,6 +59,7 @@ import {
 } from '../uts/uts.service';
 import envanterImportRouter from './envanter-import.controller';
 import etiketMerkeziRouter from './etiket-merkezi.controller';
+import ikmalRouter from './ikmal.controller';
 import camEnvanterImportRouter from './cam-envanter-import.controller';
 import sablonExcelImportRouter from './sablon-excel-import.controller';
 import deployRouter from './deploy.controller';
@@ -8256,6 +8257,7 @@ router.post('/personel/:id/hatirlatma-gonder', async (req, res, next) => {
 
 router.use('/envanter-import', envanterImportRouter);
 router.use('/etiket-merkezi', etiketMerkeziRouter);
+router.use('/ikmal', ikmalRouter);
 router.use('/cam-envanter-import', camEnvanterImportRouter);
 router.use('/odoo-sablon-excel', sablonExcelImportRouter);
 router.use('/deploy', deployRouter);
