@@ -11,6 +11,7 @@ import {
   taslakToplamaListesi,
   type IkmalTur,
 } from './ikmal.service';
+import { siparisDurum, siparisListesi, siparisOlustur, tedarikciler } from './satin-alma-siparis.service';
 import { kuralKaydet, kuralKopyala, kuralListesi, kuralSil, minMaxDegerlendir, seriOnizle } from './stok-seviye.service';
 
 /** 13.11.2026 — Mağaza İkmali (Stok Yönetimi). Erişim: ek-yetki.ts kuralı. */
@@ -145,6 +146,40 @@ router.get('/minmax', async (req, res) => {
     return res.json(await minMaxDegerlendir(String(req.query.lokasyon ?? '')));
   } catch (e) {
     return hata(res, e, 'Min-max hesaplanamadı');
+  }
+});
+
+// ── Satın alma siparişleri (firmadan mağazaya) ──
+router.get('/tedarikciler', async (req, res) => {
+  try {
+    return res.json({ data: await tedarikciler(req.query.q ? String(req.query.q) : undefined) });
+  } catch (e) {
+    return hata(res, e, 'Tedarikçiler okunamadı');
+  }
+});
+
+router.get('/siparisler', async (req, res) => {
+  try {
+    return res.json({ data: await siparisListesi({ lokasyon: req.query.lokasyon ? String(req.query.lokasyon) : undefined, durum: req.query.durum ? String(req.query.durum) : undefined }) });
+  } catch (e) {
+    return hata(res, e, 'Siparişler okunamadı');
+  }
+});
+
+router.post('/siparis', async (req, res) => {
+  try {
+    const k = await kullanici(req);
+    return res.json({ data: await siparisOlustur(req.body ?? {}, k.ad) });
+  } catch (e) {
+    return hata(res, e, 'Sipariş oluşturulamadı');
+  }
+});
+
+router.post('/siparis/:id/durum', async (req, res) => {
+  try {
+    return res.json({ data: await siparisDurum(req.params.id, req.body?.durum) });
+  } catch (e) {
+    return hata(res, e, 'Durum değiştirilemedi');
   }
 });
 

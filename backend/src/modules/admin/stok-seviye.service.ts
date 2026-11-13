@@ -12,6 +12,7 @@ import type { StokSeviyeKurali } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 import { LOKASYON_ID_MAP } from '../odoo/odooLocations';
+import { acikSiparisAdetleri } from './satin-alma-siparis.service';
 
 const CTX = { context: { allowed_company_ids: ODOO_ALL_COMPANY_IDS } };
 const DEPO = 'ANADEPO';
@@ -160,6 +161,7 @@ export type MinMaxSatir = {
   magazaAdet: number;
   depoAdet: number;
   taslakta: number;
+  sipariste: number;
   satis30: number;
   eksik: number;
   onerilen: number;
@@ -225,6 +227,7 @@ export async function minMaxDegerlendir(lokasyon: string): Promise<{
       taslakta.set(Number(k.varyantId), (taslakta.get(Number(k.varyantId)) ?? 0) + Number(k.adet ?? 0));
     }
   }
+  const sipariste = await acikSiparisAdetleri(lokasyon);
   const branch = await prisma.branch.findFirst({ where: { code: lokasyon }, select: { id: true } });
   const satis30 = new Map<number, number>();
   if (branch) {
@@ -244,7 +247,9 @@ export async function minMaxDegerlendir(lokasyon: string): Promise<{
     const st = stok.get(pid) ?? { m: 0, d: 0 };
     const mag = Math.round(st.m);
     const ts = taslakta.get(pid) ?? 0;
-    const eksik = mag < v.k.min ? Math.max(0, v.k.max - mag - ts) : 0;
+    const sp = sipariste.get(pid) ?? 0;
+    // Yolda olanlar (açık ikmal taslağı + açık sipariş) stok sayılır
+    const eksik = mag + ts + sp < v.k.min ? Math.max(0, v.k.max - mag - ts - sp) : 0;
     if (eksik <= 0) continue;
     const dep = Math.round(st.d);
     const o = ozet.get(v.k.id);
@@ -260,6 +265,7 @@ export async function minMaxDegerlendir(lokasyon: string): Promise<{
       magazaAdet: mag,
       depoAdet: dep,
       taslakta: ts,
+      sipariste: sp,
       satis30: satis30.get(pid) ?? 0,
       eksik,
       onerilen: Math.min(eksik, dep),

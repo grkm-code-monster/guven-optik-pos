@@ -1666,6 +1666,27 @@ model StokSeviyeKurali {
   @@index([lokasyon, aktif])
 }
 
+// 13.11.2026 — Satın alma siparişleri (firmadan doğrudan mağazaya / depoya). İlk kaynak: min-max eksikleri.
+// TASLAK → VERILDI (firmaya iletildi) → TAMAMLANDI (faturalı girişle geldi) | IPTAL
+model SatinAlmaSiparis {
+  id           String    @id @default(cuid())
+  no           Int       @default(autoincrement())
+  lokasyon     String    // teslim yeri: GVN2, ANADEPO …
+  tedarikciId  Int?      // Odoo res.partner id
+  tedarikciAdi String?
+  durum        String    @default("TASLAK")
+  kaynak       String    @default("MINMAX") // MINMAX | IKMAL | ELLE
+  kalemler     Json      // [{ varyantId, urunAdi, nitelik, adet }]
+  aciklama     String?
+  olusturanAdi String?
+  verildi      DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([lokasyon, durum])
+  @@index([createdAt])
+}
+
 model Bildirim {
   id        String   @id @default(cuid())
   userId    String

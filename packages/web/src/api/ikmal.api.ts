@@ -99,6 +99,7 @@ export type MinMaxSatir = {
   magazaAdet: number
   depoAdet: number
   taslakta: number
+  sipariste: number
   satis30: number
   eksik: number
   onerilen: number
@@ -125,4 +126,35 @@ export async function seriOnizle(seri: string) {
 export async function getMinMax(lokasyon: string) {
   const r = await adminApi.get('/admin/ikmal/minmax', { params: { lokasyon } })
   return r.data as { satirlar: MinMaxSatir[]; kuralOzet: { kuralId: string; seri: string; uyan: number; eksik: number }[] }
+}
+
+// ── Satın alma siparişleri ──
+export type SatinAlmaSiparis = {
+  id: string
+  no: number
+  lokasyon: string
+  tedarikciId: number | null
+  tedarikciAdi: string | null
+  durum: 'TASLAK' | 'VERILDI' | 'TAMAMLANDI' | 'IPTAL'
+  kaynak: string
+  kalemler: { varyantId: number; urunAdi: string; nitelik?: string; adet: number }[]
+  aciklama: string | null
+  olusturanAdi: string | null
+  verildi: string | null
+  createdAt: string
+}
+export async function getTedarikciler(q?: string): Promise<{ id: number; ad: string }[]> {
+  const r = await adminApi.get('/admin/ikmal/tedarikciler', { params: { q } })
+  return r.data?.data ?? []
+}
+export async function getSiparisler(lokasyon?: string): Promise<SatinAlmaSiparis[]> {
+  const r = await adminApi.get('/admin/ikmal/siparisler', { params: { lokasyon } })
+  return r.data?.data ?? []
+}
+export async function siparisOlustur(body: { lokasyon: string; tedarikciId?: number | null; tedarikciAdi?: string | null; kalemler: { varyantId: number; urunAdi: string; nitelik?: string; adet: number }[]; kaynak?: string; aciklama?: string }) {
+  const r = await adminApi.post('/admin/ikmal/siparis', body)
+  return r.data?.data as SatinAlmaSiparis
+}
+export async function siparisDurum(id: string, durum: SatinAlmaSiparis['durum']) {
+  await adminApi.post(`/admin/ikmal/siparis/${id}/durum`, { durum })
 }

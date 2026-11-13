@@ -2,12 +2,17 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   getKurallar,
   getMinMax,
+  getSiparisler,
+  getTedarikciler,
+  siparisDurum,
+  siparisOlustur,
   ikmalTaslakOlustur,
   kuralKaydet,
   kuralKopyala,
   kuralSil,
   seriOnizle,
   type MinMaxSatir,
+  type SatinAlmaSiparis,
   type StokSeviyeKurali,
 } from '../../api/ikmal.api'
 
@@ -51,6 +56,9 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
   const [kopyaHedef, setKopyaHedef] = useState<Set<string>>(new Set())
   const [mesaj, setMesaj] = useState<{ tip: 'ok' | 'hata'; text: string } | null>(null)
   const [mesgul, setMesgul] = useState(false)
+  const [firmalar, setFirmalar] = useState<{ id: number; ad: string }[]>([])
+  const [firma, setFirma] = useState('')
+  const [siparisler, setSiparisler] = useState<SatinAlmaSiparis[]>([])
 
   const yukle = useCallback(async () => {
     try {
@@ -59,11 +67,22 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
       setKurallar([])
     }
   }, [lokasyon])
+  const siparisYukle = useCallback(async () => {
+    try {
+      setSiparisler(await getSiparisler(lokasyon))
+    } catch {
+      setSiparisler([])
+    }
+  }, [lokasyon])
   useEffect(() => {
     void yukle()
+    void siparisYukle()
     setSatirlar(null)
     setKopyaHedef(new Set())
-  }, [yukle])
+  }, [yukle, siparisYukle])
+  useEffect(() => {
+    getTedarikciler().then(setFirmalar).catch(() => setFirmalar([]))
+  }, [])
 
   async function onizle() {
     if (form.seri.trim().length < 3) return
@@ -127,8 +146,9 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
       const r = await getMinMax(lokasyon)
       setSatirlar(r.satirlar)
       setOzet(r.kuralOzet)
-      setAdet(Object.fromEntries(r.satirlar.map((s) => [s.varyantId, s.onerilen])))
-      setSecili(new Set(r.satirlar.filter((s) => s.onerilen > 0).map((s) => s.varyantId)))
+      // Cam/lens firmadan doğrudan mağazaya gelir: varsayılan adet = eksik (depoda varsa depodan gönderilebilecek kadarı)
+      setAdet(Object.fromEntries(r.satirlar.map((s) => [s.varyantId, s.eksik])))
+      setSecili(new Set(r.satirlar.map((s) => s.varyantId)))
     } catch (err) {
       setMesaj({ tip: 'hata', text: hataMesaji(err, 'Hesaplanamadı') })
     } finally {
@@ -136,10 +156,48 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
     }
   }
 
-  async function taslak() {
+  async function siparisTaslagi() {
     const kalemler = (satirlar ?? [])
       .filter((s) => secili.has(s.varyantId) && (adet[s.varyantId] ?? 0) > 0)
-      .map((s) => ({ varyantId: s.varyantId, urunAdi: s.ad, nitelik: '', adet: adet[s.varyantId], sebep: 'MINMAX' as const }))
+      .map((s) => ({ varyantId: s.varyantId, urunAdi: s.ad, nitelik: '', adet: adet[s.varyantId] }))
+    if (!kalemler.length) return
+    const f = firmalar.find((x) => x.ad.toLocaleUpperCase('tr-TR') === firma.trim().toLocaleUpperCase('tr-TR'))
+    setMesgul(true)
+    try {
+      const sp = await siparisOlustur({ lokasyon, tedarikciId: f?.id ?? null, tedarikciAdi: f?.ad ?? (firma.trim() || null), kalemler, kaynak: 'MINMAX', aciklama: 'Min-max eksikleri' })
+      setMesaj({ tip: 'ok', text: `Sipariş #${sp.no} oluşturuldu (${kalemler.length} kalem, ${kalemler.reduce((a, k) => a + k.adet, 0)} adet${sp.tedarikciAdi ? ' · ' + sp.tedarikciAdi : ''}). Aşağıdaki listeden sipariş formunu yazdırabilirsiniz.` })
+      await siparisYukle()
+      await hesapla()
+    } catch (err) {
+      setMesaj({ tip: 'hata', text: hataMesaji(err, 'Sipariş oluşturulamadı') })
+    } finally {
+      setMesgul(false)
+    }
+  }
+
+  function siparisFormu(sp: SatinAlmaSiparis) {
+    const esc = (x: unknown) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
+    const toplam = sp.kalemler.reduce((a, k) => a + k.adet, 0)
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Sipariş #${sp.no}</title><style>body{font-family:Arial,sans-serif;font-size:12px;margin:18px}h1{font-size:16px;margin:0 0 4px}table{border-collapse:collapse;width:100%;margin-top:10px}th,td{border:1px solid #bbb;padding:4px 6px;text-align:left}th{background:#eee}</style></head><body>
+<h1>SİPARİŞ FORMU #${sp.no}</h1><div>Firma: <b>${esc(sp.tedarikciAdi ?? '—')}</b> · Teslim yeri: <b>${esc(sp.lokasyon)}</b> · ${new Date(sp.createdAt).toLocaleDateString('tr-TR')} · ${sp.kalemler.length} kalem · ${toplam} adet</div>
+<table><thead><tr><th>#</th><th>Ürün / derece</th><th>Adet</th></tr></thead><tbody>${sp.kalemler.map((k, i) => `<tr><td>${i + 1}</td><td>${esc(k.urunAdi)}${k.nitelik ? ' ' + esc(k.nitelik) : ''}</td><td><b>${k.adet}</b></td></tr>`).join('')}</tbody></table>
+<script>window.onload=()=>window.print()</script></body></html>`)
+    w.document.close()
+  }
+
+  async function durumDegis(sp: SatinAlmaSiparis, durum: SatinAlmaSiparis['durum'], soru: string) {
+    if (!window.confirm(soru)) return
+    await siparisDurum(sp.id, durum)
+    await siparisYukle()
+  }
+
+  async function taslak() {
+    // Depodan ikmal: sadece Ana Depo'da stoğu olan satırlar, en fazla depodaki kadar
+    const kalemler = (satirlar ?? [])
+      .filter((s) => secili.has(s.varyantId) && s.depoAdet > 0 && (adet[s.varyantId] ?? 0) > 0)
+      .map((s) => ({ varyantId: s.varyantId, urunAdi: s.ad, nitelik: '', adet: Math.min(adet[s.varyantId], s.depoAdet), sebep: 'MINMAX' as const }))
     if (!kalemler.length) return
     setMesgul(true)
     try {
@@ -152,21 +210,6 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
     } finally {
       setMesgul(false)
     }
-  }
-
-  function siparisYazdir() {
-    const yok = (satirlar ?? []).filter((s) => !s.depoAdet)
-    if (!yok.length) return
-    const esc = (x: unknown) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
-    const gruplar = new Map<string, MinMaxSatir[]>()
-    for (const s of yok) gruplar.set(s.seri, [...(gruplar.get(s.seri) ?? []), s])
-    const govde = [...gruplar.entries()].map(([seri, l]) => `<h2>${esc(seri)} — ${l.reduce((a, x) => a + x.eksik, 0)} adet</h2>
-<table><thead><tr><th>Ürün / derece</th><th>SPH</th><th>CYL</th><th>Mağazada</th><th>Sipariş adedi</th></tr></thead><tbody>${l.map((x) => `<tr><td>${esc(x.ad)}</td><td>${x.sph == null ? '' : x.sph.toFixed(2)}</td><td>${x.cyl == null ? '' : x.cyl.toFixed(2)}</td><td>${x.magazaAdet}</td><td><b>${x.eksik}</b></td></tr>`).join('')}</tbody></table>`).join('')
-    const w = window.open('', '_blank')
-    if (!w) return
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Sipariş listesi ${esc(lokasyon)}</title><style>body{font-family:Arial,sans-serif;font-size:12px;margin:18px}h1{font-size:16px}h2{font-size:14px;margin:16px 0 6px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:4px 6px;text-align:left}th{background:#eee}</style></head><body>
-<h1>Sipariş listesi — ${esc(lokasyon)} (Ana Depo'da olmayanlar)</h1><div>${new Date().toLocaleString('tr-TR')} · ${yok.length} kalem · ${yok.reduce((a, x) => a + x.eksik, 0)} adet</div>${govde}<script>window.onload=()=>window.print()</script></body></html>`)
-    w.document.close()
   }
 
   const seciliAdet = (satirlar ?? []).filter((s) => secili.has(s.varyantId)).reduce((a, s) => a + (adet[s.varyantId] ?? 0), 0)
@@ -252,28 +295,26 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr>
-                      <th style={th}><input type="checkbox" checked={satirlar.every((s) => secili.has(s.varyantId) || !s.depoAdet)} onChange={(e) => setSecili(e.target.checked ? new Set(satirlar.filter((s) => s.depoAdet > 0).map((s) => s.varyantId)) : new Set())} /></th>
-                      <th style={th}>Ürün / derece</th><th style={th}>Min / Max</th><th style={th}>Mağazada</th><th style={th}>Taslakta</th>
-                      <th style={th}>Ana Depo</th><th style={th}>Satış (30 gün)</th><th style={th}>Eksik</th><th style={th}>Gönderilecek</th>
+                      <th style={th}><input type="checkbox" checked={satirlar.every((s) => secili.has(s.varyantId))} onChange={(e) => setSecili(e.target.checked ? new Set(satirlar.map((s) => s.varyantId)) : new Set())} /></th>
+                      <th style={th}>Ürün / derece</th><th style={th}>Min / Max</th><th style={th}>Mağazada</th><th style={th}>Yolda (taslak + sipariş)</th>
+                      <th style={th}>Ana Depo</th><th style={th}>Satış (30 gün)</th><th style={th}>Eksik</th><th style={th}>Adet</th>
                     </tr>
                   </thead>
                   <tbody>
                     {satirlar.map((s) => (
-                      <tr key={s.varyantId} style={{ backgroundColor: !s.depoAdet ? '#fef2f2' : secili.has(s.varyantId) ? '#f0fdf4' : undefined }}>
-                        <td style={td}><input type="checkbox" disabled={!s.depoAdet} checked={secili.has(s.varyantId)} onChange={() => setSecili((p) => { const n = new Set(p); if (n.has(s.varyantId)) n.delete(s.varyantId); else n.add(s.varyantId); return n })} /></td>
+                      <tr key={s.varyantId} style={{ backgroundColor: secili.has(s.varyantId) ? '#f0fdf4' : undefined }}>
+                        <td style={td}><input type="checkbox" checked={secili.has(s.varyantId)} onChange={() => setSecili((p) => { const n = new Set(p); if (n.has(s.varyantId)) n.delete(s.varyantId); else n.add(s.varyantId); return n })} /></td>
                         <td style={{ ...td, fontWeight: 700 }}>{s.ad}</td>
                         <td style={td}>{s.min} / {s.max}</td>
                         <td style={td}>{s.magazaAdet}</td>
-                        <td style={td}>{s.taslakta || ''}</td>
-                        <td style={{ ...td, fontWeight: 800, color: s.depoAdet ? '#047857' : '#b91c1c' }} title={s.depoAdet ? '' : "Ana Depo'da bu dereceden hiç yok — depodan gönderilemez, tedarikçiden sipariş edilmeli"}>{s.depoAdet || "Depoda yok — sipariş edilmeli"}</td>
+                        <td style={td}>{s.taslakta + s.sipariste || ''}</td>
+                        <td style={{ ...td, color: s.depoAdet ? '#047857' : '#9ca3af' }}>{s.depoAdet || '—'}</td>
                         <td style={td}>{s.satis30 || ''}</td>
                         <td style={td}>{s.eksik}</td>
                         <td style={td}>
-                          {s.depoAdet ? (
-                            <input type="number" min={0} max={s.depoAdet} value={adet[s.varyantId] ?? 0}
-                              onChange={(e) => setAdet((p) => ({ ...p, [s.varyantId]: Math.max(0, Math.min(s.depoAdet, Math.round(Number(e.target.value) || 0))) }))}
-                              style={{ ...inp, width: 56 }} />
-                          ) : null}
+                          <input type="number" min={0} value={adet[s.varyantId] ?? 0}
+                            onChange={(e) => setAdet((p) => ({ ...p, [s.varyantId]: Math.max(0, Math.round(Number(e.target.value) || 0)) }))}
+                            style={{ ...inp, width: 56 }} />
                         </td>
                       </tr>
                     ))}
@@ -281,15 +322,55 @@ export default function MinMaxIkmal({ lokasyon, onTaslakOlustu }: { lokasyon: st
                 </table>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginTop: 10 }}>
-                <button type="button" disabled={!satirlar.some((s) => !s.depoAdet)} onClick={siparisYazdir} style={btn}>🛒 Depoda olmayanları yazdır (sipariş listesi)</button>
-                <div style={{ flex: 1 }} />
                 <span style={{ fontSize: 13 }}>Seçili: <b>{secili.size}</b> kalem · <b>{seciliAdet}</b> adet</span>
-                <button type="button" disabled={mesgul || !seciliAdet} onClick={() => void taslak()} style={{ ...btnYesil, opacity: seciliAdet ? 1 : 0.5 }}>📦 İkmal taslağı oluştur</button>
+                <div style={{ flex: 1 }} />
+                <label style={{ fontSize: 12 }}>Firma{' '}
+                  <input list="mm-firmalar" value={firma} onChange={(e) => setFirma(e.target.value)} placeholder="ör. BETA OPTİK" style={{ ...inp, width: 230 }} />
+                  <datalist id="mm-firmalar">{firmalar.map((f) => <option key={f.id} value={f.ad} />)}</datalist>
+                </label>
+                <button type="button" disabled={mesgul || !seciliAdet} onClick={() => void siparisTaslagi()} style={{ ...btnYesil, opacity: seciliAdet ? 1 : 0.5 }}>🛒 {lokasyon} adına sipariş oluştur</button>
+                <button type="button" disabled={mesgul || !satirlar.some((s) => secili.has(s.varyantId) && s.depoAdet > 0)} onClick={() => void taslak()} style={btn} title="Sadece Ana Depo'da stoğu olan satırlar">📦 Depodan ikmal taslağı</button>
               </div>
             </>
           )
         ) : (
           <div style={{ fontSize: 12, color: '#6b7280' }}>Kuralları girdikten sonra "Eksikleri hesapla"ya basın.</div>
+        )}
+      </div>
+
+      <div style={kutu}>
+        <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 10 }}>🛒 {lokasyon} satın alma siparişleri</div>
+        {!siparisler.length ? (
+          <div style={{ fontSize: 12, color: '#6b7280' }}>Henüz sipariş yok.</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr><th style={th}>No</th><th style={th}>Tarih</th><th style={th}>Firma</th><th style={th}>Kalem / adet</th><th style={th}>Durum</th><th style={th}>Oluşturan</th><th style={th} /></tr>
+            </thead>
+            <tbody>
+              {siparisler.map((sp) => (
+                <tr key={sp.id}>
+                  <td style={{ ...td, fontWeight: 800 }}>#{sp.no}</td>
+                  <td style={td}>{new Date(sp.createdAt).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                  <td style={td}>{sp.tedarikciAdi ?? '—'}</td>
+                  <td style={td}>{sp.kalemler.length} / {sp.kalemler.reduce((a, k) => a + k.adet, 0)}</td>
+                  <td style={td}>
+                    {sp.durum === 'TASLAK' ? <span style={{ color: '#b45309', fontWeight: 700 }}>Taslak</span> : null}
+                    {sp.durum === 'VERILDI' ? <span style={{ color: '#1d4ed8', fontWeight: 700 }}>Firmaya iletildi{sp.verildi ? ` · ${new Date(sp.verildi).toLocaleDateString('tr-TR')}` : ''}</span> : null}
+                    {sp.durum === 'TAMAMLANDI' ? <span style={{ color: '#047857', fontWeight: 700 }}>Geldi</span> : null}
+                    {sp.durum === 'IPTAL' ? <span style={{ color: '#6b7280' }}>İptal</span> : null}
+                  </td>
+                  <td style={td}>{sp.olusturanAdi ?? '—'}</td>
+                  <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button type="button" onClick={() => siparisFormu(sp)} style={{ ...btn, padding: '4px 8px' }}>🖨️ Sipariş formu</button>{' '}
+                    {sp.durum === 'TASLAK' ? <button type="button" onClick={() => void durumDegis(sp, 'VERILDI', `Sipariş #${sp.no} firmaya iletildi olarak işaretlensin mi?`)} style={{ ...btn, padding: '4px 8px' }}>📨 Firmaya iletildi</button> : null}{' '}
+                    {sp.durum === 'VERILDI' ? <button type="button" onClick={() => void durumDegis(sp, 'TAMAMLANDI', `Sipariş #${sp.no} geldi (faturalı giriş yapıldı) olarak kapatılsın mı?`)} style={{ ...btn, padding: '4px 8px' }}>✅ Geldi</button> : null}{' '}
+                    {sp.durum === 'TASLAK' || sp.durum === 'VERILDI' ? <button type="button" onClick={() => void durumDegis(sp, 'IPTAL', `Sipariş #${sp.no} iptal edilsin mi?`)} style={{ ...btn, padding: '4px 8px' }}>İptal</button> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>
