@@ -1397,6 +1397,8 @@ export async function getSales(branchId: string | null, filters?: any) {
       items: { select: { status: true } },
       _count: { select: { items: true } },
       user: { select: { id: true, name: true } },
+      // 14.11.2026 — listede "açık hesap kalan" gösterimi için (sadece tür/tutar/tarih)
+      payments: { select: { paymentType: true, grossAmount: true, createdAt: true } },
     },
     orderBy: { createdAt: 'desc' },
     // Arama (q) yapılırken sonuç sayısı sınırlanmaz — eşleşen TÜM satışlar döner.
@@ -1435,11 +1437,26 @@ export async function getSales(branchId: string | null, filters?: any) {
     }, active[0].status);
   }
 
+  // 14.11.2026 — satış detayındaki openAccountRemaining ile aynı hesap: açık hesap toplamı −
+  // ilk açık hesap kaydından SONRA gelen diğer ödemeler (tahsilatlar).
+  function acikHesapKalan(pays: { paymentType: string; grossAmount: unknown; createdAt: Date }[]): number {
+    const acik = pays.filter((p) => p.paymentType === 'OPEN_ACCOUNT');
+    const toplam = acik.reduce((a, p) => a + Number(p.grossAmount), 0);
+    if (!toplam) return 0;
+    const ilk = Math.min(...acik.map((p) => p.createdAt.getTime()));
+    const kapanan = pays
+      .filter((p) => p.paymentType !== 'OPEN_ACCOUNT' && p.createdAt.getTime() > ilk)
+      .reduce((a, p) => a + Number(p.grossAmount), 0);
+    return Math.max(0, Math.round((toplam - kapanan) * 100) / 100);
+  }
+
   return sales.map((s) => ({
     ...s,
     itemsCount: s._count.items,
     totalAmount: s.netTotal,
     itemDurum: rollupItemStatus(s.items),
+    acikHesapKalan: acikHesapKalan(s.payments),
+    payments: undefined,
     branch: branchMap.get(s.branchId) ?? null,
     items: undefined,
     _count: undefined,

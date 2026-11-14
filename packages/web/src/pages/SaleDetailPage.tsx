@@ -54,8 +54,16 @@ function fmtDate(iso?: string) {
   }
 }
 
-function headerSaleStatusBadge(status: string) {
+function headerSaleStatusBadge(status: string, acikKalan = 0) {
   const s = status?.toUpperCase?.() ?? ''
+  // 14.11.2026 — açık hesapta kalan borç varsa "Ödendi" yerine kalan tutar gösterilir
+  if (s === 'PAID' && acikKalan > 0.009) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, backgroundColor: '#f97316', color: '#fff', padding: '10px 18px', fontSize: 15, fontWeight: 800, letterSpacing: '0.02em' }}>
+        Açık Hesap: {money(acikKalan)}
+      </span>
+    )
+  }
   const map: Record<string, { label: string; bg: string; color: string }> = {
     PAID: { label: 'Ödendi', bg: '#22c55e', color: '#fff' },
     DRAFT: { label: 'Taslak', bg: '#f97316', color: '#fff' },
@@ -944,7 +952,7 @@ export default function SaleDetailPage() {
                 Odoo #{sale.odooSaleOrderId}
               </span>
             ) : null}
-            {headerSaleStatusBadge(sale.status)}
+            {headerSaleStatusBadge(sale.status, openRemaining)}
           </div>
         </div>
       </div>

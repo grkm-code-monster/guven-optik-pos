@@ -10,6 +10,8 @@ type Satis = {
   totalAmount: number
   itemsCount: number
   itemDurum?: string | null
+  /** 14.11.2026 — açık hesapta kalan borç (0 = yok/kapandı) */
+  acikHesapKalan?: number
   customer?: { name: string; phone: string } | null
 }
 
@@ -171,6 +173,11 @@ export default function SatislarPage() {
                     </td>
                     <td style={{ padding: '10px 14px' }}>
                       <span style={{ background: st.bg, color: st.color, fontSize: 11, padding: '3px 9px', borderRadius: 999, fontWeight: 700 }}>{st.label}</span>
+                      {Number(s.acikHesapKalan ?? 0) > 0.009 ? (
+                        <span style={{ marginLeft: 6, background: '#ffedd5', color: '#9a3412', fontSize: 11, padding: '3px 9px', borderRadius: 999, fontWeight: 800 }}>
+                          Açık hesap {Number(s.acikHesapKalan).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                        </span>
+                      ) : null}
                     </td>
                     <td style={{ padding: '10px 14px' }}>
                       <div style={{ display: 'flex', gap: 6 }}>
