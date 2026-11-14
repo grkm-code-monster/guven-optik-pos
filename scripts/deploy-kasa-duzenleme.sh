@@ -33,7 +33,7 @@ git log --oneline -1
 
 echo "== 3/7 Migration kontrolü (sadece okur) =="
 cd backend
-npx ts-node --transpile-only scripts/migration-kontrol.ts 20261105120000_kasa_tahsilat_ciro_duzeltme 20261106100000_tahsilat_subesi_manuel_saat 20261113150000_etiket_basim_kaydi 20261113180000_ikmal_taslak 20261113190000_stok_seviye_kurali 20261113200000_satin_alma_siparis 20261114120000_satis_gecmisi 20261114170000_ozel_siparis_urun_girisi
+npx ts-node --transpile-only scripts/migration-kontrol.ts 20261105120000_kasa_tahsilat_ciro_duzeltme 20261106100000_tahsilat_subesi_manuel_saat 20261113150000_etiket_basim_kaydi 20261113180000_ikmal_taslak 20261113190000_stok_seviye_kurali 20261113200000_satin_alma_siparis 20261114120000_satis_gecmisi 20261114170000_ozel_siparis_urun_girisi 20261114180000_uts_bekleyen_giris 20261114190000_tedarikci_urun_eslesme
 
 echo "== 4/7 Veritabanı: yalnızca yeni alanlar ekleniyor =="
 npx prisma migrate deploy

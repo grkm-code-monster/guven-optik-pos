@@ -61,6 +61,18 @@ import envanterImportRouter from './envanter-import.controller';
 import etiketMerkeziRouter from './etiket-merkezi.controller';
 import ikmalRouter from './ikmal.controller';
 import { bekleyenMusteriSiparisleri, girisSonrasiDagit, type GirisLotBilgi } from './urun-giris-siparis.service';
+import { fizikiTedarikciBul, hafizayaYaz, oneriler } from './urun-giris-oneri.service';
+import {
+  belgeTumSubelerde,
+  bekleyeneKayitUygula,
+  utsBekleyenIptal,
+  utsBekleyenListesi,
+  utsBekleyenleriKontrolEt,
+  utsGirisSonrasi,
+  siparisTuketiciyeVerme,
+  type UtsBelgeKaydi,
+  type UtsGirisLot,
+} from '../uts/uts-giris.service';
 import camEnvanterImportRouter from './cam-envanter-import.controller';
 import sablonExcelImportRouter from './sablon-excel-import.controller';
 import deployRouter from './deploy.controller';
@@ -3141,6 +3153,58 @@ async function createFaturasizIncomingPicking(
 }
 
 // ── ÜRÜN GİRİŞİ ANA ENDPOINT ──────────────────────────────────────
+// 14.11.2026 — Ürün girişi UTS: belge no ile tüm mağazalar, UTS bekleyen ürünler
+router.get('/urun-giris-uts/belge', async (req: Request, res: Response) => {
+  try {
+    return res.json(await belgeTumSubelerde(String(req.query.belgeNo ?? ''), req.query.oncelikli ? String(req.query.oncelikli) : undefined));
+  } catch (e) {
+    return res.status(500).json({ error: e instanceof Error ? e.message : 'UTS sorgulanamadı' });
+  }
+});
+router.get('/urun-giris-uts/bekleyenler', async (req: Request, res: Response) => {
+  try {
+    return res.json({ data: await utsBekleyenListesi(req.query.durum ? String(req.query.durum) : 'BEKLIYOR') });
+  } catch (e) {
+    return res.status(500).json({ error: e instanceof Error ? e.message : 'Okunamadı' });
+  }
+});
+router.post('/urun-giris-uts/bekleyenler/kontrol', async (_req: Request, res: Response) => {
+  try {
+    return res.json(await utsBekleyenleriKontrolEt());
+  } catch (e) {
+    return res.status(500).json({ error: e instanceof Error ? e.message : 'Kontrol edilemedi' });
+  }
+});
+router.post('/urun-giris-uts/bekleyenler/:id/uygula', async (req: Request, res: Response) => {
+  try {
+    return res.json(await bekleyeneKayitUygula(req.params.id, req.body?.kayit as UtsBelgeKaydi));
+  } catch (e) {
+    return res.status(400).json({ error: e instanceof Error ? e.message : 'Uygulanamadı' });
+  }
+});
+router.post('/urun-giris-uts/bekleyenler/:id/iptal', async (req: Request, res: Response) => {
+  try {
+    return res.json({ data: await utsBekleyenIptal(req.params.id, String(req.body?.neden ?? 'UTS gerekmiyor')) });
+  } catch (e) {
+    return res.status(400).json({ error: e instanceof Error ? e.message : 'İptal edilemedi' });
+  }
+});
+
+router.post('/urun-giris-oneri', async (req: Request, res: Response) => {
+  try {
+    return res.json({ data: await oneriler(req.body ?? {}) });
+  } catch (e) {
+    return res.status(500).json({ error: e instanceof Error ? e.message : 'Öneriler okunamadı' });
+  }
+});
+router.post('/urun-giris-fiziki-tedarikci', async (req: Request, res: Response) => {
+  try {
+    return res.json({ data: await fizikiTedarikciBul(Array.isArray(req.body?.urunAdlari) ? req.body.urunAdlari : []) });
+  } catch (e) {
+    return res.status(500).json({ error: e instanceof Error ? e.message : 'Okunamadı' });
+  }
+});
+
 router.get('/urun-giris-siparisler', async (_req: Request, res: Response) => {
   try {
     return res.json({ data: await bekleyenMusteriSiparisleri() });
@@ -3699,6 +3763,53 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
           console.error('[urun-giris] dağıtım hatası:', msg);
           hatalar.push(`Mağaza/sipariş dağıtımı yapılamadı (ürünler depoda): ${msg.slice(0, 200)}`);
         }
+      }
+    }
+
+    // 14.11.2026 — eşleştirme hafızası (firma + faturadaki ad → bizim ürün)
+    if (success) {
+      try {
+        sonuclar.hafizayaYazilan = await hafizayaYaz({ cariAdi: String(cariAdi ?? ''), cariVkn: req.body?.cariVkn ?? null, satirlar: satirList });
+      } catch (he) {
+        console.warn('[urun-giris] eşleştirme hafızası:', he instanceof Error ? he.message : he);
+      }
+    }
+
+    // 14.11.2026 — UTS: gelen mağazada kabul, gerekiyorsa hedef mağazaya aktarım, bulunamayanlar bekleyen listesine
+    if (success) {
+      try {
+        const sipIds: string[] = [...new Set<string>(lotList.map((l: any) => l?.siparisId).filter((x: unknown): x is string => typeof x === 'string' && !!x))];
+        const sipSube = new Map<string, string | null>();
+        if (sipIds.length) {
+          for (const sp of await prisma.ozelSiparis.findMany({ where: { id: { in: sipIds } }, select: { id: true, subeId: true } })) sipSube.set(sp.id, sp.subeId);
+        }
+        const utsLotlar: UtsGirisLot[] = lotList.map((l: any) => ({
+          lotOdooId: lotIdMap[l.id] ?? null,
+          lotNo: String(l.lotNo ?? ''),
+          urunAdi: String(l.bizimUrunAdi ?? l.tedarikciUrunAdi ?? ''),
+          barkod: String(l.barkod ?? ''),
+          utsKodu: String(l.utsKodu ?? ''),
+          utsKayit: l.utsKayit && typeof l.utsKayit === 'object' && l.utsKayit.uno && l.utsKayit.subeKodu ? (l.utsKayit as UtsBelgeKaydi) : null,
+          // Depoda kalanlar için hedef = şirketin UTS referans mağazası (NG→GVN2, ADESE→GVN1, POTENTIAL→GVN5);
+          // firma UTS'yi başka mağazaya bildirdiyse oradan buraya aktarılır.
+          hedefSube: l.siparisId
+            ? (sipSube.get(l.siparisId) ?? null)
+            : (l.lokasyonTip === 'sube' && l.lokasyon && l.lokasyon !== 'ANADEPO' ? String(l.lokasyon) : sirketIdToReferansSube(cid ?? 2)),
+          siparisId: typeof l.siparisId === 'string' && l.siparisId ? l.siparisId : null,
+        }));
+        const u = await utsGirisSonrasi({
+          girisNo: String(girisNo ?? ''),
+          belgeNo: String(faturaNo ?? '').trim() || String(req.body?.irsaliyeNo ?? '').trim(),
+          cariAdi: String(cariAdi ?? ''),
+          sirketId: cid ?? null,
+          lotlar: utsLotlar,
+        });
+        sonuclar.uts = u;
+        for (const h of [...u.kabulHata, ...u.aktarimHata]) hatalar.push(`UTS: ${h}`);
+      } catch (ue) {
+        const msg = ue instanceof Error ? ue.message : String(ue);
+        console.error('[urun-giris] UTS hatası:', msg);
+        hatalar.push(`UTS işlemleri yapılamadı: ${msg.slice(0, 200)}`);
       }
     }
 
@@ -5942,6 +6053,11 @@ router.post('/ozel-siparis-teslim/:id', async (req, res) => {
         data: { durum: 'TESLIM_EDILDI', teslimTarihi: new Date() }
       })
       sonuc.durum = 'TESLIM_EDILDI'
+      try {
+        sonuc.uts = (await siparisTuketiciyeVerme(id)).mesaj
+      } catch (ue: any) {
+        sonuc.uts = `UTS: ${String(ue?.message ?? ue).slice(0, 150)}`
+      }
 
     } else {
       // Depoya al → normal stok girişi

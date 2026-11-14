@@ -1916,3 +1916,51 @@ model MarkaTedarikci {
   aciklama      String?
   updatedAt     DateTime @updatedAt
 }
+
+/// 14.11.2026 — Ürün girişinde UTS kaydı henüz bulunamayan ürünler. Zamanlayıcı (30 dk) UTS'ye tekrar bakar;
+/// kayıt düşünce kabul + gerekiyorsa mağazaya aktarım yapılır, UTS kodu lota/siparişe yazılır.
+model UtsBekleyenGiris {
+  id         String    @id @default(cuid())
+  girisNo    String?
+  belgeNo    String?
+  cariAdi    String?
+  sirketId   Int?
+  lotNo      String
+  odooLotId  Int?
+  urunAdi    String
+  barkod     String?
+  utsKodu    String?   // elle yazılmış ya da bulunduktan sonra yazılan UTS kodu
+  utsSube    String?   // kaydın bulunduğu (kabul edilen) mağaza
+  hedefSube  String?   // ürünün gittiği mağaza (müşteri siparişi / seçilen mağaza)
+  siparisId  String?
+  durum      String    @default("BEKLIYOR") // BEKLIYOR | TAMAM | IPTAL | ZAMAN_ASIMI
+  deneme     Int       @default(0)
+  sonDeneme  DateTime?
+  mesaj      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([durum, belgeNo])
+}
+
+/// 14.11.2026 — Ürün girişi eşleştirme hafızası: firmanın faturadaki ürün adı → bizim Odoo ürünü.
+/// Aynı firmadan aynı ad tekrar gelince "Bu mu?" önerisi çıkar (otomatik kabul yok).
+model TedarikciUrunEslesme {
+  id               String   @id @default(cuid())
+  tedarikciKey     String   // firma VKN'si ya da sade adı
+  tedarikciAdi     String?
+  urunKey          String   // faturadaki ürün adının sade hali
+  tedarikciUrunAdi String
+  tedarikciKodu    String?
+  odooTmplId       Int
+  odooProductId    Int?
+  urunAdi          String
+  barkod           String?
+  varyantEtiketi   String?
+  kullanim         Int      @default(1)
+  sonKullanim      DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  @@unique([tedarikciKey, urunKey])
+  @@index([tedarikciKey])
+}

@@ -1,3 +1,4 @@
+import { siparisTuketiciyeVerme } from '../uts/uts-giris.service'
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { Role } from '@prisma/client'
 import { authenticate } from '../../middleware/authenticate'
@@ -151,6 +152,14 @@ router.post(
         }
       }
 
+      // 14.11.2026 — siparişte UTS kodu varsa tüketiciye verme bildirimi (teslimi engellemez)
+      let utsSonuc: string | null = null
+      try {
+        utsSonuc = (await siparisTuketiciyeVerme(siparis.id)).mesaj
+      } catch (err: any) {
+        utsSonuc = `UTS: ${String(err?.message ?? err).slice(0, 150)}`
+      }
+
       const waPhone = siparis.musteriTelefon?.replace(/\D/g, '') ?? ''
       const waLink = waPhone
         ? `https://wa.me/90${waPhone.replace(/^0/, '')}?text=${encodeURIComponent(
@@ -158,7 +167,7 @@ router.post(
           )}`
         : null
 
-      return res.json({ success: true, data: updated, odooSonuc, waLink })
+      return res.json({ success: true, data: updated, odooSonuc, waLink, utsSonuc })
     } catch (e: any) {
       return res.status(400).json({ error: e?.message ?? 'Teslim kaydedilemedi' })
     }

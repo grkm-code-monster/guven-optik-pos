@@ -16,6 +16,12 @@ import { olusturTransfer } from './transfer-olustur.service';
 import { updateOzelSiparisDurum } from '../ozel-siparis/ozel-siparis.service';
 
 const CTX = { context: { active_test: false, allowed_company_ids: ODOO_ALL_COMPANY_IDS } };
+/**
+ * Dağıtım transferlerinde UTS'yi transfer motoru TAŞIMASIN: bu lotların UTS kabul/aktarımı ürün girişinin
+ * UTS adımında (uts-giris.service) kaydın geldiği mağazadan yapılır. Transfer motoru boş olmayan utsKodu
+ * görünce lottan okumaz; boşluk (trim → boş) olduğu için UTS adımı "atlandı" olur.
+ */
+const UTS_TRANSFERDE_ATLA = ' ';
 export const BEKLEYEN_SIPARIS_DURUMLARI = ['BEKLIYOR', 'GONDERILDI', 'TEDARIKCIE_GONDERILDI', 'URETIMDE', 'KARGODA'];
 
 export type SiparisAday = {
@@ -176,6 +182,7 @@ export async function girisSonrasiDagit(input: {
               resolvedProductId: l.productId!,
               lotId: l.lotId,
               miktar: 1,
+              utsKodu: UTS_TRANSFERDE_ATLA,
               urunAdi: l.urunAdi || s.urunAdi,
             })),
             notlar: `OzelSiparis:${s.id} — ${s.musteriAdi} — Ürün girişi ${input.girisNo}${input.faturaNo ? ` (fatura ${input.faturaNo})` : ''}`,
@@ -257,6 +264,7 @@ export async function girisSonrasiDagit(input: {
           resolvedProductId: l.productId!,
           lotId: l.lotId,
           miktar: 1,
+          utsKodu: UTS_TRANSFERDE_ATLA,
           urunAdi: l.urunAdi,
         })),
         notlar: `Ürün girişi ${input.girisNo}${input.faturaNo ? ` (fatura ${input.faturaNo})` : ''} → ${lok}`,

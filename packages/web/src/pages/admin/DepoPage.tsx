@@ -46,6 +46,7 @@ import {
 import ExcelEnvanterImportTab from '../../components/depo/ExcelEnvanterImportTab'
 import CamEnvanteriImportTab from '../../components/depo/CamEnvanteriImportTab'
 import MusteriSiparisPaneli, { type SiparisAday, type SiparisBag } from '../../components/depo/MusteriSiparisPaneli'
+import UtsBekleyenPaneli from '../../components/depo/UtsBekleyenPaneli'
 import { canSeeDepoTab, type AdminUserLite } from '../../constants/ekYetki'
 
 // ── Sabitler ─────────────────────────────────────────────────
@@ -1730,6 +1731,16 @@ function SiparisUrunGirisiTab({ onGeri }: { onGeri: () => void }) {
 
 // ── ÜRÜN GİRİŞ SEKMESİ ───────────────────────────────────────
 
+type UrunOneri = {
+  kaynak: 'HAFIZA' | 'BENZER'
+  odooTmplId: number
+  odooProductId: number | null
+  urunAdi: string
+  barkod: string | null
+  varyantEtiketi: string | null
+  aciklama: string
+}
+
 /** Lot adımında gruplama: müşteri siparişine bağlı lotlar kendi grubunda (konum değiştirilemez) */
 function lotGrupAnahtar(l: { lokasyon: string; siparisId?: string | null }): string {
   return l.siparisId ? `SIP:${l.siparisId}` : l.lokasyon
@@ -2003,6 +2014,8 @@ type LotSatiri = {
   /** 14.11.2026 — bağlı müşteri siparişi */
   siparisId?: string | null
   musteriAdi?: string
+  /** 14.11.2026 — satıra uygulanan UTS kaydı (kayıtta geldiği mağazada otomatik kabul edilir) */
+  utsKayit?: UtsCekKaydi | null
 }
 
 type UtsCekKaydi = {
@@ -2012,6 +2025,12 @@ type UtsCekKaydi = {
   urunTanimi?: string
   kaynak?: 'BEKLEYEN' | 'KABUL'
   utsBildirimId?: string
+  /** 14.11.2026 — kaydın geldiği mağaza (kayıtta orada kabul edilir) ve UTS kabul bilgileri */
+  subeKodu?: string
+  bid?: string
+  gkk?: number
+  bno?: string
+  gonderenKurum?: string
 }
 
 function lotUrunAnahtar(lot: LotSatiri): string {
@@ -2397,6 +2416,9 @@ function UrunGirisTab() {
   const [bagSatirId, setBagSatirId] = useState<string | null>(null)
   const [kartListesi, setKartListesi] = useState<SiparisAday[]>([])
   const [kartBasilan, setKartBasilan] = useState<Set<string>>(new Set())
+  // 14.11.2026 — "Bu mu?" önerileri (satır id → öneriler)
+  const [oneriMap, setOneriMap] = useState<Record<string, UrunOneri[]>>({})
+  const [oneriYukleniyor, setOneriYukleniyor] = useState(false)
 
   // Adım 1
   const [cariAdi, setCariAdi] = useState('')
@@ -3666,6 +3688,74 @@ function UrunGirisTab() {
     }))
   }
 
+  async function onerileriGetir(liste?: FaturaSatiri[]) {
+    const kaynak = (liste ?? satirlar).filter((x) => !x.eslesti && x.tedarikciUrunAdi.trim())
+    if (!kaynak.length) { setOneriMap({}); return }
+    setOneriYukleniyor(true)
+    try {
+      const r = await adminApi.post('/admin/urun-giris-oneri', {
+        cariAdi,
+        cariVkn: uyumsoftTedarikciVkn ?? undefined,
+        satirlar: kaynak.map((x) => ({ id: x.id, tedarikciUrunAdi: x.tedarikciUrunAdi, tedarikciKodu: x.tedarikciKodu ?? null })),
+      }, { timeout: 120000 })
+      setOneriMap(r.data?.data ?? {})
+    } catch {
+      setOneriMap({})
+    } finally {
+      setOneriYukleniyor(false)
+    }
+  }
+  useEffect(() => {
+    if (adim === 'satirlar') void onerileriGetir()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adim])
+
+  function oneriUygula(satirId: string, o: UrunOneri) {
+    setSatirlar((prev) => prev.map((x) => (x.id === satirId ? {
+      ...x,
+      bizimUrunId: String(o.odooTmplId),
+      bizimUrunAdi: o.urunAdi,
+      bizimUrunOdooId: o.odooTmplId,
+      bizimUrunProductId: o.odooProductId,
+      bizimUrunBarkod: o.barkod ?? undefined,
+      varyantEtiketi: o.varyantEtiketi ?? undefined,
+      eslesti: true,
+    } : x)))
+  }
+
+  function hafizaOnerileriniUygula() {
+    let n = 0
+    const yeni = satirlar.map((x) => {
+      const o = !x.eslesti ? oneriMap[x.id]?.find((y) => y.kaynak === 'HAFIZA') : undefined
+      if (!o) return x
+      n++
+      return { ...x, bizimUrunId: String(o.odooTmplId), bizimUrunAdi: o.urunAdi, bizimUrunOdooId: o.odooTmplId, bizimUrunProductId: o.odooProductId, bizimUrunBarkod: o.barkod ?? undefined, varyantEtiketi: o.varyantEtiketi ?? undefined, eslesti: true }
+    })
+    setSatirlar(yeni)
+    setEslestirmeMesaj({ tip: 'ok', text: `Önceki eşleştirmelerden ${n} satır uygulandı. Kontrol edin.` })
+  }
+
+  /** 14.11.2026 — fiziki tedarikçi boşsa eşleşen ürünlerin marka kartından doldurulur */
+  async function fizikiTedarikciMarkadanDoldur() {
+    if (fizikiTedarikciId || girisTipi === 'FATURASIZ') return
+    const adlar = satirlar.filter((x) => x.eslesti).map((x) => x.bizimUrunAdi)
+    if (!adlar.length) return
+    try {
+      const r = await adminApi.post('/admin/urun-giris-fiziki-tedarikci', { urunAdlari: adlar })
+      const l: Array<{ marka: string; tedarikciId: number | null; tedarikciAdi: string | null }> = r.data?.data ?? []
+      const firmalar = [...new Map(l.filter((x) => x.tedarikciId).map((x) => [x.tedarikciId, x])).values()]
+      if (firmalar.length === 1) {
+        setFizikiTedarikciId(firmalar[0].tedarikciId)
+        setFizikiTedarikciAdi(firmalar[0].tedarikciAdi ?? '')
+        setFiyatMesaj({ tip: 'ok', text: `Fiziki tedarikçi marka kartından dolduruldu: ${firmalar[0].tedarikciAdi} (${l.map((x) => x.marka).join(', ')}). Farklıysa 2. adımdan değiştirin.` })
+      } else if (firmalar.length > 1) {
+        setFiyatMesaj({ tip: 'warn', text: `Faturadaki markalar farklı fiziki tedarikçilere bağlı (${firmalar.map((x) => `${x.marka}: ${x.tedarikciAdi}`).join(' · ')}). Fiziki tedarikçiyi 2. adımda seçin.` })
+      }
+    } catch {
+      // öneri alınamazsa sessizce devam
+    }
+  }
+
   async function siparisKartiBas(sp: SiparisAday) {
     try {
       const { downloadOzelSiparisKartPdf } = await import('../../utils/ozelSiparisKartPdf')
@@ -3871,27 +3961,15 @@ function UrunGirisTab() {
     setUtsDigerKabuller([])
     try {
       const subeKodu = utsReferansSubeKodu()
-      const res = await adminApi.get('/admin/uts/belge-sorgula', {
-        params: {
-          belgeNo,
-          subeKodu,
-          sirketId: secilenSirketId ?? undefined,
-        },
-      })
-      const utsSatirlar: UtsCekKaydi[] = res.data?.data ?? []
-      const subeAdi = res.data?.subeAdi ?? subeKodu
+      // 14.11.2026 — belge bütün mağazaların UTS hesaplarında aranır (firma bazen başka mağazaya bildirir)
+      const res = await adminApi.get('/admin/urun-giris-uts/belge', { params: { belgeNo, oncelikli: subeKodu } })
+      const utsSatirlar: UtsCekKaydi[] = res.data?.kayitlar ?? []
+      const utsHatalar: string[] = res.data?.hatalar ?? []
       if (!utsSatirlar.length) {
-        const baska: { subeKodu: string; adet: number; kaynak: string }[] = res.data?.baskaSubede ?? []
-        const diger: { belgeNo: string; karsiAd: string; adet: number; tarih: string | null }[] = res.data?.digerKabuller ?? []
-        setUtsDigerKabuller(diger)
-        const parcalar = [`"${belgeNo}" için ${subeAdi}'de UTS kaydı bulunamadı (UTS'de bekleyen yok, programda kabul edilmiş yok).`]
-        if (baska.length) {
-          parcalar.push(`Bu belge başka şubede: ${baska.map((b) => `${b.subeKodu} (${b.adet} kayıt, ${b.kaynak === 'KABUL' ? 'kabul edilmiş' : "UTS'de bekliyor"})`).join(', ')}.`)
-        }
-        if (res.data?.utsHata) parcalar.push(`UTS hatası: ${res.data.utsHata}`)
-        if (diger.length) parcalar.push(`${subeAdi}'de girişi bekleyen diğer kabul edilmiş belgeler aşağıda.`)
-        else parcalar.push('Elle girmeye devam edebilirsiniz.')
-        setUtsCekMesaj({ tip: 'warn', text: parcalar.join(' ') })
+        setUtsCekMesaj({
+          tip: 'warn',
+          text: `"${belgeNo}" için hiçbir mağazada UTS kaydı yok (firma henüz bildirmemiş olabilir). Kaydettiğinizde barkodlu ürünler "UTS bekliyor" listesine alınır; UTS kaydı düşünce program kendisi kabul eder.${utsHatalar.length ? ` UTS hataları: ${utsHatalar.join('; ')}` : ''}`,
+        })
         return
       }
       // Barkod (UNO) ile otomatik eşleştirme — sadece birebir aynı ürün numarası
@@ -3907,7 +3985,7 @@ function UrunGirisTab() {
         if (idx < 0) return lot
         const [k] = kalan.splice(idx, 1)
         uygulanan++
-        return { ...lot, utsKodu: formatGs1FromUtsFields(k.uno, k.lno, k.sno), utsBildirimId: k.utsBildirimId ?? null }
+        return { ...lot, utsKodu: formatGs1FromUtsFields(k.uno, k.lno, k.sno), utsBildirimId: k.utsBildirimId ?? null, utsKayit: k }
       })
       // 2. tur — cam: tedarikçi kodundaki dioptri (ör. ST.N.111-0075-075 → SPH -0.75 CYL -0.75) ile UTS ürün
       // tanımındaki "SPH: -0075 CYL: -075" eşleşir. Aynı dioptri birden fazla ürün ailesinde varsa, aynı
@@ -3938,14 +4016,14 @@ function UrunGirisTab() {
         if (aileler.length === 1 && onek) onekAile.set(onek, aileler[0])
         kalan.splice(kalan.indexOf(secilen), 1)
         gucleUygulanan++
-        return { ...lot, utsKodu: formatGs1FromUtsFields(secilen.uno, secilen.lno, secilen.sno), utsBildirimId: secilen.utsBildirimId ?? null }
+        return { ...lot, utsKodu: formatGs1FromUtsFields(secilen.uno, secilen.lno, secilen.sno), utsBildirimId: secilen.utsBildirimId ?? null, utsKayit: secilen }
       })
       setLotlar(yeniLotlar)
       setUtsEslesmeyen(kalan)
       const kabulSayi = utsSatirlar.filter((k) => k.kaynak === 'KABUL').length
       setUtsCekMesaj({
         tip: 'ok',
-        text: `${subeAdi} — ${utsSatirlar.length} UTS kaydı (${kabulSayi} kabul edilmiş, ${utsSatirlar.length - kabulSayi} UTS'de bekleyen). ${uygulanan} satıra barkodla, ${gucleUygulanan} satıra dioptriyle otomatik uygulandı.${kalan.length ? ` ${kalan.length} kayıt eşleşmedi — aşağıdan hangi satıra gideceğini seçin.` : ''}`,
+        text: `${[...new Set(utsSatirlar.map((k) => k.subeKodu).filter(Boolean))].join(', ') || subeKodu} — ${utsSatirlar.length} UTS kaydı (${kabulSayi} kabul edilmiş, ${utsSatirlar.length - kabulSayi} UTS'de bekleyen). ${uygulanan} satıra barkodla, ${gucleUygulanan} satıra dioptriyle otomatik uygulandı.${kalan.length ? ` ${kalan.length} kayıt eşleşmedi — aşağıdan hangi satıra gideceğini seçin.` : ''}`,
       })
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: string } }; message?: string }
@@ -3958,12 +4036,24 @@ function UrunGirisTab() {
     }
   }
 
+  // 14.11.2026 — Lot adımına gelince UTS kendiliğinden çekilir (her giriş için bir kez)
+  const utsOtomatikRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (adim !== 'lotlar' || !lotlar.length) return
+    const belge = (faturaNo || irsaliyeNo).trim()
+    if (!belge || utsOtomatikRef.current === girisNo) return
+    if (lotlar.every((l) => l.utsKodu.trim())) return
+    utsOtomatikRef.current = girisNo
+    void utsBelgeNoIleCek(belge)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adim, lotlar.length, girisNo])
+
   /** Eşleşmeyen UTS kaydını kullanıcının seçtiği lot satırına uygular */
   function utsKaydiSatiraUygula(kayitIdx: number, lotId: string) {
     const k = utsEslesmeyen[kayitIdx]
     if (!k || !lotId) return
     setLotlar((prev) => prev.map((l) => (l.id === lotId
-      ? { ...l, utsKodu: formatGs1FromUtsFields(k.uno, k.lno, k.sno), utsBildirimId: k.utsBildirimId ?? null }
+      ? { ...l, utsKodu: formatGs1FromUtsFields(k.uno, k.lno, k.sno), utsBildirimId: k.utsBildirimId ?? null, utsKayit: k }
       : l)))
     setUtsEslesmeyen((prev) => prev.filter((_, i) => i !== kayitIdx))
   }
@@ -4021,6 +4111,7 @@ function UrunGirisTab() {
     setUtsBelgeNo(faturaNo.trim())
     setUtsCekMesaj(null)
     setAdim('lotlar')
+    void fizikiTedarikciMarkadanDoldur()
   }
 
   function lotGuncelle<K extends keyof LotSatiri>(id: string, field: K, value: LotSatiri[K]) {
@@ -4100,6 +4191,7 @@ function UrunGirisTab() {
         girisTipi: girisTipi ?? 'FATURAYLA',
         girisNo,
         irsaliyeNo: irsaliyeNo || undefined,
+        cariVkn: uyumsoftTedarikciVkn ?? undefined,
         utsBildirimId: utsBridgeBildirimId || undefined,
         utsBildirimIds: [...new Set(lotlar.map((l) => l.utsBildirimId).filter((x): x is string => Boolean(x)))],
       })
@@ -4169,29 +4261,16 @@ function UrunGirisTab() {
           }
         }
 
+        // 14.11.2026 — UTS kabulü artık kayıtta, kaydın geldiği mağazada otomatik (eskiden hep Ana Depo adına kuyruğa yazılıyordu)
+        if (s.uts) {
+          const u = s.uts
+          const parca = [`${u.kabul} kabul`]
+          if (u.aktarim) parca.push(`${u.aktarim} mağazaya aktarıldı`)
+          if (u.bekleyeneYazilan) parca.push(`${u.bekleyeneYazilan} ürün "UTS bekliyor" listesine alındı`)
+          mesajlar.push(`✓ UTS: ${parca.join(' · ')}`)
+          setError(mesajlar.join('\n'))
+        }
         if (gelenFaturaId) {
-          const anadepo = branches.find(b => b.code === 'ANADEPO')
-          const utsKalemler = lotlar
-            .filter((l: LotSatiri) => (l.barkod || l.utsKodu)?.trim())
-            .map((l: LotSatiri) => ({
-              barkod: (l.barkod || l.utsKodu).trim(),
-              lotNo: l.lotNo || undefined,
-              seriNo: l.lotNo || undefined,
-              adet: 1,
-            }))
-          if (anadepo && utsKalemler.length > 0) {
-            try {
-              await adminApi.post(`/efatura/gelen/${gelenFaturaId}/uts-alma`, {
-                branchId: anadepo.id,
-                kalemler: utsKalemler,
-                belgeNo: faturaNo,
-              })
-              mesajlar.push(`✓ UTS Alma bildirimi kuyruğa eklendi (${utsKalemler.length} kalem)`)
-              setError(mesajlar.join('\n'))
-            } catch (utsErr: unknown) {
-              console.warn('[uts alma]', utsErr)
-            }
-          }
           setGelenFaturaId(null)
         }
       } else if (girisTipi === 'FATURASIZ' && (s.lotSayisi ?? 0) > 0 && !stokOk) {
@@ -4778,6 +4857,7 @@ function UrunGirisTab() {
               </button>
             </div>
           </div>
+          <UtsBekleyenPaneli />
         </div>
       )}
 
@@ -5274,6 +5354,23 @@ function UrunGirisTab() {
             </div>
           ) : null}
 
+          {(() => {
+            const hafizaSayi = satirlar.filter((x) => !x.eslesti && oneriMap[x.id]?.some((o) => o.kaynak === 'HAFIZA')).length
+            return (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                {hafizaSayi > 0 ? (
+                  <button type="button" onClick={hafizaOnerileriniUygula} style={{ ...btnSmall, backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #86efac', fontWeight: 800 }}>
+                    💡 Önceki eşleştirmeleri uygula ({hafizaSayi} satır)
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => void onerileriGetir()} style={btnSmall} disabled={oneriYukleniyor}>
+                  {oneriYukleniyor ? 'Öneriler aranıyor…' : '↻ Öneri getir'}
+                </button>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>💡 = bu firmadan aynı adla daha önce eşleşmiş · ≈ = benzer ad. Öneri otomatik uygulanmaz, tıklayınca uygulanır.</span>
+              </div>
+            )
+          })()}
+
           <MusteriSiparisPaneli
             siparisler={musteriSiparisleri}
             yukleniyor={musteriSiparisYukleniyor}
@@ -5322,6 +5419,16 @@ function UrunGirisTab() {
                           style={{ width: '100%', padding: '6px 10px', backgroundColor: s.eslesti ? '#f0fdf4' : '#fefce8', border: `1px solid ${s.eslesti ? '#86efac' : '#fde68a'}`, borderRadius: 6, fontSize: 12, fontWeight: s.eslesti ? 700 : 400, color: s.eslesti ? '#166534' : '#92400e', cursor: 'pointer', textAlign: 'left', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
                           {s.eslesti ? `✓ ${s.bizimUrunAdi}` : '🔍 Odoo\'dan Seç...'}
                         </button>
+                        {!s.eslesti && oneriMap[s.id]?.length ? (
+                          <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {oneriMap[s.id].map((o, oi) => (
+                              <button key={oi} type="button" title={o.aciklama} onClick={() => oneriUygula(s.id, o)}
+                                style={{ textAlign: 'left', padding: '3px 7px', borderRadius: 6, fontSize: 11, cursor: 'pointer', border: `1px solid ${o.kaynak === 'HAFIZA' ? '#86efac' : '#e5e7eb'}`, backgroundColor: o.kaynak === 'HAFIZA' ? '#f0fdf4' : '#f9fafb', color: o.kaynak === 'HAFIZA' ? '#166534' : '#374151', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                                {o.kaynak === 'HAFIZA' ? '💡 Bu mu? ' : '≈ '}{o.urunAdi}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                         {ayniIsimdeKalan > 0 ? (
                           <button
                             type="button"
@@ -5498,6 +5605,7 @@ function UrunGirisTab() {
                     <th style={{ padding: 4 }}>Lot</th>
                     <th style={{ padding: 4 }}>Seri</th>
                     <th style={{ padding: 4 }}>UTS ürün tanımı</th>
+                    <th style={{ padding: 4 }}>Geldiği mağaza</th>
                     <th style={{ padding: 4 }}>Durum</th>
                     <th style={{ padding: 4 }}>Satıra uygula</th>
                   </tr>
@@ -5509,7 +5617,8 @@ function UrunGirisTab() {
                       <td style={{ padding: 4 }}>{k.lno ?? '—'}</td>
                       <td style={{ padding: 4 }}>{k.sno ?? '—'}</td>
                       <td style={{ padding: 4 }}>{k.urunTanimi ?? '—'}</td>
-                      <td style={{ padding: 4 }}>{k.kaynak === 'KABUL' ? 'Kabul edilmiş' : "UTS'de bekliyor"}</td>
+                      <td style={{ padding: 4, fontWeight: 700 }}>{k.subeKodu ?? '—'}</td>
+                      <td style={{ padding: 4 }}>{k.kaynak === 'KABUL' ? 'Kabul edilmiş' : "UTS'de bekliyor (kayıtta kabul edilir)"}</td>
                       <td style={{ padding: 4 }}>
                         <select
                           value=""

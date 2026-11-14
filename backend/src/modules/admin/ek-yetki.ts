@@ -128,6 +128,9 @@ const ADMIN_ROUTE_RULES: RouteAccessRule[] = [
     test: (p) =>
       p === '/urun-giris' ||
       p === '/urun-giris-siparisler' ||
+      p === '/urun-giris-oneri' ||
+      p === '/urun-giris-fiziki-tedarikci' ||
+      prefix(p, '/urun-giris-uts') ||
       p === '/urun-ara' ||
       p === '/urun-olustur' ||
       p === '/urun-tracking-guncelle' ||
