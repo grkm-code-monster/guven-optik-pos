@@ -2578,8 +2578,11 @@ function UrunGirisTab() {
     faturaTarihi?: string
     tutarKdvHaric?: number
     kalemSayisi: number
+    kalemOzet?: Array<{ ad: string; kod: string; miktar: number; birimFiyat: number }>
     durum: string
   }>>([])
+  // 14.11.2026 — gelen fatura listesinde satırları açılan faturalar
+  const [gelenAcik, setGelenAcik] = useState<Record<string, 'kisa' | 'tum'>>({})
   const [gelenYukleniyor, setGelenYukleniyor] = useState(false)
   const [gelenFaturaId, setGelenFaturaId] = useState<string | null>(null)
   const [gelenAralikPreset, setGelenAralikPreset] = useState<GelenFaturaAralikPreset>('30')
@@ -6509,7 +6512,11 @@ function UrunGirisTab() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {gelenFaturalarFiltreli.map(f => (
                   <div key={f.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                    <div>
+                    <div
+                      style={{ flex: 1, minWidth: 0, cursor: f.kalemOzet?.length ? 'pointer' : 'default' }}
+                      onClick={() => f.kalemOzet?.length && setGelenAcik((p) => { const n = { ...p }; if (n[f.id]) delete n[f.id]; else n[f.id] = 'kisa'; return n })}
+                      title={f.kalemOzet?.length ? 'Ürün satırlarını göster / gizle' : undefined}
+                    >
                       <div style={{ fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={kaynakBadgeUyumsoft}>UYUMSOFT</span>
                         <span>{f.uyumsoftNo || '—'} — {f.tedarikciAdi || 'Tedarikçi'}</span>
@@ -6517,7 +6524,29 @@ function UrunGirisTab() {
                       <div style={{ fontSize: 12, color: '#6b7280' }}>
                         {f.faturaTarihi ?? ''} · {f.kalemSayisi} kalem · ₺{(f.tutarKdvHaric ?? 0).toLocaleString('tr-TR')}
                         {f.durum === 'AKTARILDI' && <span style={{ marginLeft: 8, color: '#059669' }}>Aktarıldı</span>}
+                        {f.kalemOzet?.length ? <span style={{ marginLeft: 8, color: '#2563eb', fontWeight: 700 }}>{gelenAcik[f.id] ? '▾ satırları gizle' : '▸ satırları göster'}</span> : null}
                       </div>
+                      {gelenAcik[f.id] && f.kalemOzet?.length ? (
+                        <div style={{ marginTop: 6, borderTop: '1px dashed #e5e7eb', paddingTop: 6 }}>
+                          {(gelenAcik[f.id] === 'tum' ? f.kalemOzet : f.kalemOzet.slice(0, 3)).map((k, i) => (
+                            <div key={i} style={{ fontSize: 12, color: '#374151', display: 'flex', gap: 8, padding: '2px 0' }}>
+                              <span style={{ color: '#9ca3af', width: 18, textAlign: 'right' }}>{i + 1}.</span>
+                              <span style={{ flex: 1, minWidth: 0 }}>
+                                {k.ad || '—'}
+                                {k.kod ? <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 11 }}>({k.kod})</span> : null}
+                              </span>
+                              <span style={{ whiteSpace: 'nowrap', fontWeight: 700 }}>{k.miktar} ad.</span>
+                              <span style={{ whiteSpace: 'nowrap', color: '#6b7280', width: 90, textAlign: 'right' }}>₺{k.birimFiyat.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</span>
+                            </div>
+                          ))}
+                          {gelenAcik[f.id] === 'kisa' && f.kalemSayisi > 3 ? (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); setGelenAcik((p) => ({ ...p, [f.id]: 'tum' })) }}
+                              style={{ marginTop: 4, border: 'none', background: 'none', color: '#2563eb', fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                              + {f.kalemSayisi - 3} satır daha — tümünü göster
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                     <button type="button" disabled={gelenYukleniyor} onClick={() => void gelenFaturadanAktar(f.id)} style={{ ...btnPrimary, fontSize: 12, whiteSpace: 'nowrap' }}>
                       Ürün Girişine Aktar

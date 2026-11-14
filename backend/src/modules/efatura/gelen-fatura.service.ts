@@ -93,6 +93,8 @@ export interface GelenFaturaOzet {
   uyumsoftDurum: string | null;
   hedefDepo: string | null;
   kalemSayisi: number;
+  /** 14.11.2026 — listede faturaya tıklayınca görünen satır özeti (ekleme; mevcut alanlar değişmedi) */
+  kalemOzet?: Array<{ ad: string; kod: string; miktar: number; birimFiyat: number }>;
   createdAt: Date;
 }
 
@@ -174,6 +176,12 @@ function kayittanOzet(kayit: {
     uyumsoftDurum: kayit.uyumsoftDurum,
     hedefDepo: kayit.hedefDepo,
     kalemSayisi: kalemler.length,
+    kalemOzet: kalemler.slice(0, 50).map((l) => ({
+      ad: String(l?.urunAdi || l?.malzemeHizmet || '').slice(0, 200),
+      kod: String(l?.stokKodu ?? '').slice(0, 60),
+      miktar: Number(l?.miktar) || 0,
+      birimFiyat: Number(l?.birimFiyat) || 0,
+    })),
     createdAt: kayit.createdAt,
   };
 }
