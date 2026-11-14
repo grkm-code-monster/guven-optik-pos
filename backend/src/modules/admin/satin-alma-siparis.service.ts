@@ -7,18 +7,20 @@ import { prisma } from '../../database/prisma';
 import { execute } from '../odoo/odoo.service';
 import { LOKASYON_ID_MAP } from '../odoo/odooLocations';
 
-export type SiparisKalem = { varyantId: number; urunAdi: string; nitelik?: string; adet: number };
+/** varyantId 0 = sistemde olmayan ürün (firma ziyaretinde yeni model / yeni renk) — urunAdi zorunlu. */
+export type SiparisKalem = { varyantId: number; urunAdi: string; nitelik?: string; adet: number; not?: string };
 export const ACIK_SIPARIS_DURUMLARI = ['TASLAK', 'VERILDI'];
 
 function kalemTemizle(k: SiparisKalem[]): SiparisKalem[] {
   return (Array.isArray(k) ? k : [])
     .map((x) => ({
-      varyantId: Number(x.varyantId),
+      varyantId: Number(x.varyantId) || 0,
       urunAdi: String(x.urunAdi ?? '').slice(0, 300),
       nitelik: String(x.nitelik ?? '').slice(0, 200),
       adet: Math.max(1, Math.round(Number(x.adet) || 1)),
+      ...(x.not ? { not: String(x.not).slice(0, 300) } : {}),
     }))
-    .filter((x) => Number.isInteger(x.varyantId) && x.varyantId > 0);
+    .filter((x) => Number.isInteger(x.varyantId) && (x.varyantId > 0 || (x.varyantId === 0 && x.urunAdi.trim() !== '')));
 }
 
 export async function siparisOlustur(g: {
@@ -38,7 +40,7 @@ export async function siparisOlustur(g: {
       tedarikciId: g.tedarikciId ? Number(g.tedarikciId) : null,
       tedarikciAdi: g.tedarikciAdi?.slice(0, 300) || null,
       kalemler,
-      kaynak: ['MINMAX', 'IKMAL', 'ELLE'].includes(String(g.kaynak)) ? String(g.kaynak) : 'MINMAX',
+      kaynak: ['MINMAX', 'IKMAL', 'ELLE', 'ZIYARET'].includes(String(g.kaynak)) ? String(g.kaynak) : 'MINMAX',
       aciklama: g.aciklama?.slice(0, 500) || null,
       olusturanAdi,
     },
@@ -71,7 +73,7 @@ export async function acikSiparisAdetleri(lokasyon: string): Promise<Map<number,
   });
   const m = new Map<number, number>();
   for (const s of list) {
-    for (const k of (s.kalemler as SiparisKalem[]) ?? []) m.set(Number(k.varyantId), (m.get(Number(k.varyantId)) ?? 0) + Number(k.adet ?? 0));
+    for (const k of (s.kalemler as SiparisKalem[]) ?? []) if (Number(k.varyantId) > 0) m.set(Number(k.varyantId), (m.get(Number(k.varyantId)) ?? 0) + Number(k.adet ?? 0));
   }
   return m;
 }

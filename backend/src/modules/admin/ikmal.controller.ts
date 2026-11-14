@@ -12,6 +12,7 @@ import {
   type IkmalTur,
 } from './ikmal.service';
 import { siparisDurum, siparisListesi, siparisOlustur, tedarikciler } from './satin-alma-siparis.service';
+import { markaAnalizi, markaKartKaydet, markaListesi, okut } from './satin-alma-analiz.service';
 import { kuralKaydet, kuralKopyala, kuralListesi, kuralSil, minMaxDegerlendir, seriListesi, seriOnizle } from './stok-seviye.service';
 
 /** 13.11.2026 — Mağaza İkmali (Stok Yönetimi). Erişim: ek-yetki.ts kuralı. */
@@ -188,6 +189,40 @@ router.post('/siparis/:id/durum', async (req, res) => {
     return res.json({ data: await siparisDurum(req.params.id, req.body?.durum) });
   } catch (e) {
     return hata(res, e, 'Durum değiştirilemedi');
+  }
+});
+
+
+// ───────── Satın Alma (firma ziyareti) — 14.11.2026 ─────────
+router.get('/satin-alma/markalar', async (req, res) => {
+  try {
+    return res.json(await markaListesi(req.query.yenile === '1'));
+  } catch (e) {
+    return hata(res, e, 'Markalar okunamadı');
+  }
+});
+
+router.get('/satin-alma/marka', async (req, res) => {
+  try {
+    return res.json(await markaAnalizi(String(req.query.marka ?? '')));
+  } catch (e) {
+    return hata(res, e, 'Marka analizi okunamadı');
+  }
+});
+
+router.get('/satin-alma/okut', async (req, res) => {
+  try {
+    return res.json({ data: await okut(String(req.query.kod ?? '')) });
+  } catch (e) {
+    return hata(res, e, 'Okunamadı');
+  }
+});
+
+router.put('/satin-alma/marka-kart', async (req, res) => {
+  try {
+    return res.json({ data: await markaKartKaydet(req.body ?? {}) });
+  } catch (e) {
+    return hata(res, e, 'Kaydedilemedi');
   }
 });
 

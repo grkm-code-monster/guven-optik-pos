@@ -137,7 +137,7 @@ export type SatinAlmaSiparis = {
   tedarikciAdi: string | null
   durum: 'TASLAK' | 'VERILDI' | 'TAMAMLANDI' | 'IPTAL'
   kaynak: string
-  kalemler: { varyantId: number; urunAdi: string; nitelik?: string; adet: number }[]
+  kalemler: { varyantId: number; urunAdi: string; nitelik?: string; adet: number; not?: string }[]
   aciklama: string | null
   olusturanAdi: string | null
   verildi: string | null
@@ -151,7 +151,7 @@ export async function getSiparisler(lokasyon?: string): Promise<SatinAlmaSiparis
   const r = await adminApi.get('/admin/ikmal/siparisler', { params: { lokasyon } })
   return r.data?.data ?? []
 }
-export async function siparisOlustur(body: { lokasyon: string; tedarikciId?: number | null; tedarikciAdi?: string | null; kalemler: { varyantId: number; urunAdi: string; nitelik?: string; adet: number }[]; kaynak?: string; aciklama?: string }) {
+export async function siparisOlustur(body: { lokasyon: string; tedarikciId?: number | null; tedarikciAdi?: string | null; kalemler: { varyantId: number; urunAdi: string; nitelik?: string; adet: number; not?: string }[]; kaynak?: string; aciklama?: string }) {
   const r = await adminApi.post('/admin/ikmal/siparis', body)
   return r.data?.data as SatinAlmaSiparis
 }
@@ -161,4 +161,83 @@ export async function siparisDurum(id: string, durum: SatinAlmaSiparis['durum'])
 export async function getSeriler(): Promise<{ seri: string; kategori: string; adet: number }[]> {
   const r = await adminApi.get('/admin/ikmal/seriler')
   return r.data?.data ?? []
+}
+
+// ── Satın Alma (firma ziyareti) — 14.11.2026 ──
+export type SaTur = 'OPTIK' | 'GUNES'
+export type SaDurum = 'COK_SATAN' | 'TUKENDI' | 'DURGUN' | 'YENI' | 'ESKI' | 'NORMAL'
+export type SaMarka = {
+  marka: string
+  markaKey: string
+  turler: SaTur[]
+  stok: number
+  satis12: number
+  siber: number
+  modelSayisi: number
+  tedarikciId: number | null
+  tedarikciAdi: string | null
+  faturaFirma: string | null
+  temsilci: string | null
+  telefon: string | null
+  ziyaretDonemi: string | null
+  aciklama: string | null
+}
+export type SaVaryant = {
+  id: number
+  renk: string
+  olcu: string
+  barkod: string | null
+  aktif: boolean
+  stok: number
+  depo: number
+  lokasyonlar: Record<string, number>
+  satis12: number
+  fiyat: number
+  maliyet: number
+}
+export type SaModel = {
+  anahtar: string
+  tur: SaTur
+  model: string
+  digerYazimlar: string[]
+  sistemde: boolean
+  sablonAdi: string | null
+  varyantlar: SaVaryant[]
+  renkler: { renk: string; stok: number; satis12: number; siber: number; sistemde: boolean }[]
+  stok: number
+  depo: number
+  magaza: number
+  satis12: number
+  satis3: number
+  siber: number
+  satisLokasyon: Record<string, number>
+  sonSatis: string | null
+  ilkGiris: string | null
+  fiyat: number | null
+  maliyet: number | null
+  durum: SaDurum
+}
+export type SaMarkaAnaliz = {
+  marka: string
+  markaKey: string
+  kart: SaMarka | null
+  modeller: SaModel[]
+  donem: { b12: string; b3: string; bugun: string }
+  posBaslangic: Record<string, string>
+}
+export async function getSaMarkalar(yenile = false) {
+  const r = await adminApi.get('/admin/ikmal/satin-alma/markalar', { params: yenile ? { yenile: '1' } : {}, timeout: 180000 })
+  return r.data as { data: SaMarka[]; posBaslangic: Record<string, string>; zaman: string }
+}
+export async function getSaMarkaAnaliz(marka: string) {
+  const r = await adminApi.get('/admin/ikmal/satin-alma/marka', { params: { marka }, timeout: 180000 })
+  return r.data as SaMarkaAnaliz
+}
+export async function saOkut(kod: string) {
+  const r = await adminApi.get('/admin/ikmal/satin-alma/okut', { params: { kod } })
+  return (r.data?.data ?? null) as { markaKey: string; marka: string; anahtar: string; varyantId: number } | null
+}
+export async function saMarkaKartKaydet(body: { marka: string; tedarikciId?: number | null; tedarikciAdi?: string | null; temsilci?: string | null; telefon?: string | null; ziyaretDonemi?: string | null; aciklama?: string | null }) {
+  const r = await adminApi.put('/admin/ikmal/satin-alma/marka-kart', body)
+  return r.data?.data
 }

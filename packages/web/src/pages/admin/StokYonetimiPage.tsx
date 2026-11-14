@@ -27,12 +27,14 @@ import { etiketBasimKaydet, type EtiketBasimGirdi, type EtiketDil } from '../../
 import type { SablonId } from '../../components/etiket-tasarimci/sablon-types'
 import StokKontrolTab from './StokKontrolTab'
 import MagazaIkmaliTab from '../../components/stok/MagazaIkmaliTab'
+import SatinAlmaTab from '../../components/stok/SatinAlmaTab'
 
 const TABS = [
   { id: 'yonetim', label: '🏷️ Stok Yönetimi' },
   { id: 'arsiv', label: '🗄️ Arşivlenmiş Ürünler' },
   { id: 'kontrol', label: '📊 Stok Kontrol' },
   { id: 'ikmal', label: '🚚 Mağaza İkmali' },
+  { id: 'satin-alma', label: '🛍️ Satın Alma' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -887,6 +889,7 @@ export default function StokYonetimiPage() {
 
       {activeTab === 'kontrol' ? <StokKontrolTab /> : null}
       {activeTab === 'ikmal' ? <MagazaIkmaliTab /> : null}
+      {activeTab === 'satin-alma' ? <SatinAlmaTab /> : null}
 
       {isYonetimView ? (
         <>

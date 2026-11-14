@@ -1877,3 +1877,36 @@ model SequenceCounter {
   deger     Int      @default(0)
   updatedAt DateTime @updatedAt
 }
+
+/// 14.11.2026 — Eski sistemlerden satış geçmişi (Siber 2023-24, eski Odoo 11.2025-11.2026), çerçeve + güneş.
+/// Yeni sistem (POS) satışları buraya YAZILMAZ; analizde canlı okunur. Eski Odoo satırları, şubenin
+/// POS'taki ilk satış gününden itibaren sayılmaz (çift sayım olmasın).
+model SatisGecmisi {
+  id       Int      @id @default(autoincrement())
+  kaynak   String   // SIBER | ESKI_ODOO
+  tarih    DateTime @db.Date
+  lokasyon String
+  tur      String   // OPTIK | GUNES
+  marka    String
+  model    String
+  renk     String
+  urunAdi  String
+  adet     Int
+  tutar    Decimal  @db.Decimal(12, 2)
+
+  @@index([marka])
+  @@index([kaynak, tarih])
+}
+
+/// 14.11.2026 — Marka → fiziki tedarikçi (siparişi verdiğimiz firma). Fatura kesen firma ayrı tutulur.
+model MarkaTedarikci {
+  marka         String   @id // büyük harf, görünen ad
+  tedarikciId   Int?     // Odoo res.partner (fiziki tedarikçi)
+  tedarikciAdi  String?
+  faturaFirma   String?  // faturayı kesen (bilgi)
+  temsilci      String?
+  telefon       String?
+  ziyaretDonemi String?
+  aciklama      String?
+  updatedAt     DateTime @updatedAt
+}

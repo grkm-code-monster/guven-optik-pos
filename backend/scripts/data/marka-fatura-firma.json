@@ -1,0 +1,758 @@
+[
+{
+"marka": "OSSE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "OTTO",
+"faturaFirma": null
+},
+{
+"marka": "MUSTANG",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "1959 EYEWEAR",
+"faturaFirma": "ADESE OPTİK LTD."
+},
+{
+"marka": "POLO VILLAGE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "HAWK",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "GYESSE",
+"faturaFirma": "ADESE OPTİK LİMİTED"
+},
+{
+"marka": "ALYSON SASSO",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "OPTICALL",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "ALLIGATOR",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "SWING",
+"faturaFirma": "PRESTİJ OPTİK"
+},
+{
+"marka": "TWENTY1",
+"faturaFirma": null
+},
+{
+"marka": "TOM FORD",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "OLIVER ARJE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "ESPRIT",
+"faturaFirma": "OPTOMOD"
+},
+{
+"marka": "BENX",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "LACOSTE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "OPTELLI",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "POLICE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "REACHER",
+"faturaFirma": null
+},
+{
+"marka": "OKKIALI",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "GUESS",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "GUCCI",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "LIBERTY",
+"faturaFirma": "POLO OPTİK SANAYİ"
+},
+{
+"marka": "STEPPER",
+"faturaFirma": "KOOPERATİF"
+},
+{
+"marka": "VİVALDİ",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "TARGET",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "ONEX",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "DE VALENTINI",
+"faturaFirma": "AYDIN OPTİK MAKINA"
+},
+{
+"marka": "VALERON",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "FISHER PRICE KIDS",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "FLIRT",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "ALLIGATOR KIDS",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "FURLA",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "SWING KIDS",
+"faturaFirma": "PRESTİJ OPTİK"
+},
+{
+"marka": "FILA",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "SILHOUETTE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "RETRO",
+"faturaFirma": null
+},
+{
+"marka": "MARCO SALVADORI",
+"faturaFirma": "MVG ULUSLARARASI DANIŞMANLIK"
+},
+{
+"marka": "TOMMY HILFIGER",
+"faturaFirma": "KOOPERATİF"
+},
+{
+"marka": "UNDEFINED",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "MASSIMO MILANO",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "TOGK",
+"faturaFirma": "KOOPERATİF"
+},
+{
+"marka": "DUTZ",
+"faturaFirma": "OPTOMOD"
+},
+{
+"marka": "MAGIC",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "MATTEO",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "XBLACK",
+"faturaFirma": null
+},
+{
+"marka": "PYER MOSS",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "TUDOR",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "ESPRIT KIDS",
+"faturaFirma": "OPTOMOD"
+},
+{
+"marka": "LEE COOPER",
+"faturaFirma": null
+},
+{
+"marka": "QUİNCY",
+"faturaFirma": "POLO OPTİK SANAYİ"
+},
+{
+"marka": "QUINCY",
+"faturaFirma": "POLO OPTİK SANAYİ"
+},
+{
+"marka": "LEGION KIDS",
+"faturaFirma": null
+},
+{
+"marka": "SERENGETI",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "ZEISS",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "ALEXANDER WINTSCH",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "QUANTUM",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "FRATELLI ROSSETTI",
+"faturaFirma": "ZEN OPTİK SAN.TİC.LTD.ŞTİ."
+},
+{
+"marka": "INFINITI",
+"faturaFirma": "PRESTİJ OPTİK"
+},
+{
+"marka": "POLO EXCHANGE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "BRUNO MAZZINI",
+"faturaFirma": null
+},
+{
+"marka": "PIERRE CARDIN",
+"faturaFirma": null
+},
+{
+"marka": "GOODLOOK",
+"faturaFirma": null
+},
+{
+"marka": "CARTIER",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "FRANCO VITAL",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "FERFARINI",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "BENISSIMO",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "NOSSA",
+"faturaFirma": null
+},
+{
+"marka": "POLO MOON",
+"faturaFirma": null
+},
+{
+"marka": "OPTICALL KIDS",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "FRANZ VOGEL",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "DEEP PURPLE",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "CENTRO STYLE KIDS",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "CHARMANT",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "POLO CAYENNE",
+"faturaFirma": "ERMAK NAK.SAĞ.ÜRN.TİC.LTD.ŞTİ."
+},
+{
+"marka": "RAYBAN",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "EXESS",
+"faturaFirma": "OPTOMOD"
+},
+{
+"marka": "HERMOD PARIS",
+"faturaFirma": "MELTEM OPTİK TİCARET"
+},
+{
+"marka": "TUATARA",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "SAINT LAURENT",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "VIVALDI",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "BENX PREMINMIUM",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "AUSTINBERG",
+"faturaFirma": null
+},
+{
+"marka": "RACHEL PARIS",
+"faturaFirma": "AYDIN OPTİK MAKINA"
+},
+{
+"marka": "GUCCİ",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "HELENA RUBINSTEIN",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "OPTELLİ",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "LACOSTE KIDS",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "GRAND TARGET",
+"faturaFirma": null
+},
+{
+"marka": "PIRATA",
+"faturaFirma": null
+},
+{
+"marka": "JOYA CORUNA",
+"faturaFirma": null
+},
+{
+"marka": "HERMOSSA",
+"faturaFirma": "MELTEM OPTİK TİCARET"
+},
+{
+"marka": "THEORO",
+"faturaFirma": null
+},
+{
+"marka": "MONTBLANC",
+"faturaFirma": null
+},
+{
+"marka": "X BLACK",
+"faturaFirma": null
+},
+{
+"marka": "CARRERA",
+"faturaFirma": "ADESE OPTİK LİMİTED"
+},
+{
+"marka": "CARAT",
+"faturaFirma": null
+},
+{
+"marka": "ALEXANDRE",
+"faturaFirma": null
+},
+{
+"marka": "JUST CAVALLI",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "POLAROID",
+"faturaFirma": null
+},
+{
+"marka": "BOLON",
+"faturaFirma": null
+},
+{
+"marka": "BAUSCH&LOMB",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "REDBERRY",
+"faturaFirma": "BOSPHORUS OPTİK END."
+},
+{
+"marka": "RAYBAN KIDS",
+"faturaFirma": "LUXOTTICA"
+},
+{
+"marka": "OPTIMUM",
+"faturaFirma": null
+},
+{
+"marka": "LEXDRAY",
+"faturaFirma": null
+},
+{
+"marka": "LUCKY MOMENT",
+"faturaFirma": "İŞBİROĞLU OPTİK İNŞAAT"
+},
+{
+"marka": "MONT BLANC",
+"faturaFirma": null
+},
+{
+"marka": "STEPPER KIDS",
+"faturaFirma": "KOOPERATİF"
+},
+{
+"marka": "OPBAN",
+"faturaFirma": null
+},
+{
+"marka": "ONEX KIDS",
+"faturaFirma": null
+},
+{
+"marka": "LEGION",
+"faturaFirma": null
+},
+{
+"marka": "LOTUS",
+"faturaFirma": null
+},
+{
+"marka": "KARL WAGNER",
+"faturaFirma": null
+},
+{
+"marka": "GIGI MILANO",
+"faturaFirma": null
+},
+{
+"marka": "KILIAN",
+"faturaFirma": "BOSPHORUS OPTİK END."
+},
+{
+"marka": "FOR ART'S SAKE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "CHOPARD",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "ESCHENBACH",
+"faturaFirma": null
+},
+{
+"marka": "BOTTEGA VENETA",
+"faturaFirma": "BÜLENT GEDİK"
+},
+{
+"marka": "CENTRO STYLE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "FLIRT KIDS",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "DAVID PEOPLE",
+"faturaFirma": null
+},
+{
+"marka": "LEE COOPER KIDS",
+"faturaFirma": null
+},
+{
+"marka": "ZAROSSI",
+"faturaFirma": null
+},
+{
+"marka": "TUDOR KIDS",
+"faturaFirma": "SAFİR OPTİK SAN."
+},
+{
+"marka": "TOMS TEDDY",
+"faturaFirma": null
+},
+{
+"marka": "TR90 TITANIUM",
+"faturaFirma": null
+},
+{
+"marka": "SO COOL",
+"faturaFirma": null
+},
+{
+"marka": "SEIKO",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "PRADA",
+"faturaFirma": "BÜLENT GEDİK"
+},
+{
+"marka": "PERSOL",
+"faturaFirma": "LUXOTTICA"
+},
+{
+"marka": "TOGK KIDS",
+"faturaFirma": "KOOPERATİF"
+},
+{
+"marka": "KODAK",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "PERSEUS",
+"faturaFirma": null
+},
+{
+"marka": "VOGUE",
+"faturaFirma": "LUXOTTICA"
+},
+{
+"marka": "MIU MIU",
+"faturaFirma": "LENS MARKET KONTAK"
+},
+{
+"marka": "OPTOLİNE",
+"faturaFirma": null
+},
+{
+"marka": "MORLIN BRON",
+"faturaFirma": null
+},
+{
+"marka": "LINDBERG",
+"faturaFirma": null
+},
+{
+"marka": "LOOL",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "ASTON MARTIN",
+"faturaFirma": null
+},
+{
+"marka": "BLACK OFF",
+"faturaFirma": "AYDIN OPTİK MAKINA"
+},
+{
+"marka": "BELMOND",
+"faturaFirma": null
+},
+{
+"marka": "ALAIN MIKLI",
+"faturaFirma": null
+},
+{
+"marka": "ADIDAS",
+"faturaFirma": null
+},
+{
+"marka": "ARTLIFE",
+"faturaFirma": null
+},
+{
+"marka": "ALAN BLANK",
+"faturaFirma": null
+},
+{
+"marka": "BARBARA BARRY",
+"faturaFirma": null
+},
+{
+"marka": "DANIEL DUFF",
+"faturaFirma": null
+},
+{
+"marka": "COOL",
+"faturaFirma": null
+},
+{
+"marka": "DEMETZ",
+"faturaFirma": null
+},
+{
+"marka": "CAGALLI",
+"faturaFirma": "POTENTIAL OPTICAL"
+},
+{
+"marka": "BRUNO ROSSI",
+"faturaFirma": null
+},
+{
+"marka": "BROOK'S",
+"faturaFirma": null
+},
+{
+"marka": "CARLOS PIEN",
+"faturaFirma": null
+},
+{
+"marka": "FIDELA",
+"faturaFirma": null
+},
+{
+"marka": "EYE EMPIRE",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "EYE EMPIRE KIDS",
+"faturaFirma": null
+},
+{
+"marka": "EYE PLAYER",
+"faturaFirma": null
+},
+{
+"marka": "DESPADA",
+"faturaFirma": null
+},
+{
+"marka": "DILEM",
+"faturaFirma": null
+},
+{
+"marka": "DONATO RICCI",
+"faturaFirma": null
+},
+{
+"marka": "ELLE",
+"faturaFirma": "OPAK"
+},
+{
+"marka": "DE VALAENTINI",
+"faturaFirma": "AYDIN OPTİK MAKINA"
+},
+{
+"marka": "HELLO KITTY KIDS",
+"faturaFirma": null
+},
+{
+"marka": "HELENA RUBENSTEIN",
+"faturaFirma": null
+},
+{
+"marka": "GUESS MARCIANO",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "HERMOD",
+"faturaFirma": "MELTEM OPTİK TİCARET"
+},
+{
+"marka": "INFINITI DESING",
+"faturaFirma": null
+},
+{
+"marka": "IMOOD",
+"faturaFirma": null
+},
+{
+"marka": "JACQUES LEMANS",
+"faturaFirma": null
+},
+{
+"marka": "NANO VISTA",
+"faturaFirma": null
+},
+{
+"marka": "LINDA ASHLEY",
+"faturaFirma": null
+},
+{
+"marka": "MASSIMO MILANO KIDS",
+"faturaFirma": null
+},
+{
+"marka": "MODO",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "FREE TITANIUM",
+"faturaFirma": null
+},
+{
+"marka": "PARADOX KIDS",
+"faturaFirma": null
+},
+{
+"marka": "SLASTIK",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "ROMANSON",
+"faturaFirma": "BETA OPTİK"
+},
+{
+"marka": "SLAZENGER KIDS",
+"faturaFirma": null
+},
+{
+"marka": "SLAZENGER",
+"faturaFirma": null
+},
+{
+"marka": "SWAROVSKI",
+"faturaFirma": "GÖZBİR"
+},
+{
+"marka": "TAGHEUER",
+"faturaFirma": null
+},
+{
+"marka": "TMAX",
+"faturaFirma": null
+},
+{
+"marka": "VALENTIN YUDASHKIN",
+"faturaFirma": null
+},
+{
+"marka": "XLINE",
+"faturaFirma": null
+},
+{
+"marka": "ZEN MILANO",
+"faturaFirma": null
+}
+]
