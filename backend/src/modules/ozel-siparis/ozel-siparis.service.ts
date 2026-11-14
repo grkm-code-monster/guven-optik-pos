@@ -382,6 +382,9 @@ export async function stokaAlOzelSiparis(
   if (siparis.durum !== 'TESLIM_ALINDI') {
     throw new Error('Sadece TESLIM_ALINDI siparişler stoka alınabilir')
   }
+  if (siparis.urunGirisNo) {
+    throw new Error(`Bu sipariş ürün girişinde (${siparis.urunGirisNo}) zaten stoğa alındı ve mağazasına gönderildi`)
+  }
   if (!eslestirmeler.length) {
     throw new Error('Taranmış karekod bulunamadı')
   }

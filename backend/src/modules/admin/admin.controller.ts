@@ -60,6 +60,7 @@ import {
 import envanterImportRouter from './envanter-import.controller';
 import etiketMerkeziRouter from './etiket-merkezi.controller';
 import ikmalRouter from './ikmal.controller';
+import { bekleyenMusteriSiparisleri, girisSonrasiDagit, type GirisLotBilgi } from './urun-giris-siparis.service';
 import camEnvanterImportRouter from './cam-envanter-import.controller';
 import sablonExcelImportRouter from './sablon-excel-import.controller';
 import deployRouter from './deploy.controller';
@@ -3140,6 +3141,14 @@ async function createFaturasizIncomingPicking(
 }
 
 // ── ÜRÜN GİRİŞİ ANA ENDPOINT ──────────────────────────────────────
+router.get('/urun-giris-siparisler', async (_req: Request, res: Response) => {
+  try {
+    return res.json({ data: await bekleyenMusteriSiparisleri() });
+  } catch (e) {
+    return res.status(500).json({ error: e instanceof Error ? e.message : 'Siparişler okunamadı' });
+  }
+});
+
 router.post('/urun-giris', async (req: Request, res: Response) => {
   try {
     const {
@@ -3649,6 +3658,46 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
           await markUtsUrunGirisiTamamlandi({ barkod, seriNo, lotNo, utsBildirimId: null });
         } catch (markErr) {
           console.warn('[urun-giris] UTS ürün girişi işaretleme:', markErr);
+        }
+      }
+    }
+
+    // 14.11.2026 — Müşteri siparişine bağlı / mağaza seçilmiş lotları dağıt (hata stok girişini geri almaz)
+    if (success) {
+      const dagitilacak = lotList.filter((l: any) =>
+        (typeof l?.siparisId === 'string' && l.siparisId)
+        || (l?.lokasyonTip === 'sube' && l?.lokasyon && l.lokasyon !== 'ANADEPO'));
+      if (dagitilacak.length) {
+        try {
+          const lotBilgi: GirisLotBilgi[] = [];
+          for (const l of dagitilacak) {
+            const productId = await resolveProductVariantId(l.bizimUrunOdooId, l.bizimUrunProductId, cid).catch(() => null);
+            lotBilgi.push({
+              lotId: lotIdMap[l.id] ?? null,
+              productId: productId ?? null,
+              lotNo: String(l.lotNo ?? ''),
+              utsKodu: String(l.utsKodu ?? ''),
+              urunAdi: String(l.bizimUrunAdi ?? l.tedarikciUrunAdi ?? ''),
+              lokasyon: String(l.lokasyon ?? ''),
+              lokasyonTip: String(l.lokasyonTip ?? ''),
+              siparisId: typeof l.siparisId === 'string' && l.siparisId ? l.siparisId : null,
+            });
+          }
+          const dagitim = await girisSonrasiDagit({
+            cid,
+            girisNo: String(girisNo ?? ''),
+            faturaNo: String(faturaNo ?? ''),
+            userId: (req as any).user?.userId ?? null,
+            lotlar: lotBilgi,
+          });
+          sonuclar.siparisBaglari = dagitim.siparisler;
+          sonuclar.lokasyonTransferleri = dagitim.lokasyonlar;
+          for (const x of dagitim.siparisler) if (x.transfer === 'HATA') hatalar.push(`Sipariş ${x.musteriAdi}: ${x.mesaj}`);
+          for (const x of dagitim.lokasyonlar) if (!x.basarili) hatalar.push(`${x.lokasyon} transferi: ${x.mesaj}`);
+        } catch (de) {
+          const msg = de instanceof Error ? de.message : String(de);
+          console.error('[urun-giris] dağıtım hatası:', msg);
+          hatalar.push(`Mağaza/sipariş dağıtımı yapılamadı (ürünler depoda): ${msg.slice(0, 200)}`);
         }
       }
     }

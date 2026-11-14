@@ -45,6 +45,7 @@ import {
 } from '../../api/ozelSiparis.api'
 import ExcelEnvanterImportTab from '../../components/depo/ExcelEnvanterImportTab'
 import CamEnvanteriImportTab from '../../components/depo/CamEnvanteriImportTab'
+import MusteriSiparisPaneli, { type SiparisAday, type SiparisBag } from '../../components/depo/MusteriSiparisPaneli'
 import { canSeeDepoTab, type AdminUserLite } from '../../constants/ekYetki'
 
 // ── Sabitler ─────────────────────────────────────────────────
@@ -1536,7 +1537,8 @@ function SiparisUrunGirisiTab({ onGeri }: { onGeri: () => void }) {
           adminApi.get('/admin/ozel-siparisler?durum=TESLIM_ALINDI'),
           adminApi.get('/admin/bekleyen-faturalar'),
         ])
-        setSiparisler(sipRes.data?.data ?? [])
+        // 14.11.2026 — Ürün girişinde müşteriye bağlanıp zaten stoğa alınanlar burada tekrar listelenmez
+        setSiparisler((sipRes.data?.data ?? []).filter((x: any) => !x.urunGirisNo))
         setBekleyenFaturalar(fatRes.data?.data ?? [])
       } catch {
         setSiparisler([])
@@ -1728,6 +1730,11 @@ function SiparisUrunGirisiTab({ onGeri }: { onGeri: () => void }) {
 
 // ── ÜRÜN GİRİŞ SEKMESİ ───────────────────────────────────────
 
+/** Lot adımında gruplama: müşteri siparişine bağlı lotlar kendi grubunda (konum değiştirilemez) */
+function lotGrupAnahtar(l: { lokasyon: string; siparisId?: string | null }): string {
+  return l.siparisId ? `SIP:${l.siparisId}` : l.lokasyon
+}
+
 type UrunGirisAdim = 'giris-tipi' | 'siparis-urun-girisi' | 'fatura' | 'satirlar' | 'lotlar' | 'onay' | 'bekleyen-faturalar'
 
 type Tedarikci = {
@@ -1789,6 +1796,8 @@ type FaturaSatiri = {
   iskonto: string
   kdvOrani: string
   eslesti: boolean
+  /** 14.11.2026 — müşteri siparişine bağ (varsa ürün müşterinin mağazasına gider) */
+  siparisBag?: SiparisBag | null
 }
 
 type EslestirmeAlanlari = Pick<
@@ -1991,6 +2000,9 @@ type LotSatiri = {
   lokasyonTip: 'sube' | 'depo' | 'dis-musteri'
   disMusteriId: number | null
   disMusteriAdi: string
+  /** 14.11.2026 — bağlı müşteri siparişi */
+  siparisId?: string | null
+  musteriAdi?: string
 }
 
 type UtsCekKaydi = {
@@ -2377,6 +2389,14 @@ function UrunGirisTab() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+
+  // 14.11.2026 — müşteri siparişi bağı
+  const [musteriSiparisleri, setMusteriSiparisleri] = useState<SiparisAday[]>([])
+  const [musteriSiparisYukleniyor, setMusteriSiparisYukleniyor] = useState(false)
+  const [musteriSiparisHata, setMusteriSiparisHata] = useState<string | null>(null)
+  const [bagSatirId, setBagSatirId] = useState<string | null>(null)
+  const [kartListesi, setKartListesi] = useState<SiparisAday[]>([])
+  const [kartBasilan, setKartBasilan] = useState<Set<string>>(new Set())
 
   // Adım 1
   const [cariAdi, setCariAdi] = useState('')
@@ -2868,6 +2888,9 @@ function UrunGirisTab() {
     setEtiketPdfUretiliyor(false)
     setEtiketPdfOlusturuldu(false)
     setGirisTipi(null)
+    setBagSatirId(null)
+    setKartListesi([])
+    setKartBasilan(new Set())
   }
 
   async function etiketUret() {
@@ -3549,6 +3572,116 @@ function UrunGirisTab() {
     }
   }
 
+  // ── 14.11.2026 — müşteri siparişi bağı ──
+  const musteriSiparisleriniYukle = useCallback(async () => {
+    setMusteriSiparisYukleniyor(true)
+    setMusteriSiparisHata(null)
+    try {
+      const r = await adminApi.get('/admin/urun-giris-siparisler')
+      setMusteriSiparisleri(r.data?.data ?? [])
+    } catch (e: any) {
+      setMusteriSiparisHata(e?.response?.data?.error ?? 'Müşteri siparişleri okunamadı')
+    } finally {
+      setMusteriSiparisYukleniyor(false)
+    }
+  }, [])
+  useEffect(() => {
+    if (adim === 'satirlar') void musteriSiparisleriniYukle()
+  }, [adim, musteriSiparisleriniYukle])
+
+  const siparisKullanim = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const x of satirlar) if (x.siparisBag) m.set(x.siparisBag.siparisId, (m.get(x.siparisBag.siparisId) ?? 0) + (x.miktar || 0))
+    return m
+  }, [satirlar])
+
+  function siparisBagUygula(satir: FaturaSatiri, sp: SiparisAday): FaturaSatiri {
+    const bag: SiparisBag = { siparisId: sp.id, musteriAdi: sp.musteriAdi, subeId: sp.subeId, urunAdi: sp.urunAdi, optikCam: sp.optikCam, bagdanEslesti: false }
+    if (!sp.odooTmplId) return { ...satir, siparisBag: bag }
+    return {
+      ...satir,
+      siparisBag: { ...bag, bagdanEslesti: true },
+      bizimUrunId: String(sp.odooTmplId),
+      bizimUrunAdi: sp.odooUrunAdi ?? sp.urunAdi,
+      bizimUrunOdooId: sp.odooTmplId,
+      bizimUrunProductId: sp.odooProductId,
+      bizimUrunBarkod: sp.odooBarkod ?? undefined,
+      varyantEtiketi: undefined,
+      eslesti: true,
+    }
+  }
+
+  function siparisKalan(sp: SiparisAday, haricSatirId?: string): number {
+    let kul = 0
+    for (const x of satirlar) if (x.siparisBag?.siparisId === sp.id && x.id !== haricSatirId) kul += x.miktar || 0
+    return sp.kalan - kul
+  }
+
+  function satiraSiparisBagla(sp: SiparisAday) {
+    const satir = satirlar.find((x) => x.id === bagSatirId)
+    if (!satir) return
+    const kalan = siparisKalan(sp, satir.id)
+    if ((satir.miktar || 1) > kalan) {
+      setEslestirmeMesaj({ tip: 'warn', text: `${sp.musteriAdi} siparişinde kalan ${Math.max(0, kalan)} adet var, satır ${satir.miktar} adet. Satırın adedini düşürüp kalanı ayrı satır yapın.` })
+      return
+    }
+    setSatirlar((prev) => prev.map((x) => (x.id === satir.id ? siparisBagUygula(x, sp) : x)))
+    setEslestirmeMesaj({
+      tip: sp.odooTmplId ? 'ok' : 'warn',
+      text: sp.odooTmplId
+        ? `Satır ${sp.musteriAdi} (${sp.subeId ?? '—'}) siparişine bağlandı — ürün: ${sp.odooUrunAdi ?? sp.urunAdi}`
+        : `Satır ${sp.musteriAdi} siparişine bağlandı. Satılan ürünün Odoo karşılığı bulunamadı — "Bizim Ürünümüz"ü elle seçin.`,
+    })
+    setBagSatirId(null)
+  }
+
+  function tumSatirlariMusteriyeBagla(grup: SiparisAday[]) {
+    const yerel = new Map(grup.map((g) => [g.id, siparisKalan(g)]))
+    let baglanan = 0
+    let kalanSatir = 0
+    const yeni = satirlar.map((x) => {
+      if (x.siparisBag) return x
+      const sp = grup.find((g) => (yerel.get(g.id) ?? 0) >= (x.miktar || 1))
+      if (!sp) { kalanSatir++; return x }
+      yerel.set(sp.id, (yerel.get(sp.id) ?? 0) - (x.miktar || 1))
+      baglanan++
+      return siparisBagUygula(x, sp)
+    })
+    setSatirlar(yeni)
+    setBagSatirId(null)
+    setEslestirmeMesaj({
+      tip: kalanSatir ? 'warn' : 'ok',
+      text: `${grup[0]?.musteriAdi ?? 'Müşteri'}: ${baglanan} satır bağlandı.${kalanSatir ? ` ${kalanSatir} satır bağlanamadı (siparişte kalan adet yetmedi) — bunlar stok girişi olarak kalır ya da başka müşteriye bağlayın.` : ''}`,
+    })
+  }
+
+  function siparisBagKaldir(satirId: string) {
+    setSatirlar((prev) => prev.map((x) => {
+      if (x.id !== satirId || !x.siparisBag) return x
+      const temiz: FaturaSatiri = { ...x, siparisBag: null }
+      if (x.siparisBag.bagdanEslesti) {
+        return { ...temiz, bizimUrunId: null, bizimUrunAdi: '', bizimUrunOdooId: null, bizimUrunProductId: null, bizimUrunBarkod: undefined, varyantEtiketi: undefined, eslesti: false }
+      }
+      return temiz
+    }))
+  }
+
+  async function siparisKartiBas(sp: SiparisAday) {
+    try {
+      const { downloadOzelSiparisKartPdf } = await import('../../utils/ozelSiparisKartPdf')
+      await downloadOzelSiparisKartPdf({
+        musteriAdi: sp.musteriAdi,
+        musteriTelefon: sp.musteriTelefon,
+        urunAdi: sp.urunAdi,
+        ...sp.recete,
+      })
+      await adminApi.put(`/admin/ozel-siparis-kart-basildi/${sp.id}`)
+      setKartBasilan((prev) => new Set([...prev, sp.id]))
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? e?.message ?? 'Kart oluşturulamadı')
+    }
+  }
+
   function satirEkle() {
     setSatirlar(prev => [...prev, {
       id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -3720,7 +3853,7 @@ function UrunGirisTab() {
   function utsReferansSubeKodu(): string {
     if (secilenSirketId === 3) return 'GVN1'
     if (secilenSirketId === 4) return 'GVN5'
-    const ilkLok = lotlar[0]?.lokasyon
+    const ilkLok = lotlar.find((l) => !l.siparisId)?.lokasyon
     if (ilkLok && ilkLok !== 'ANADEPO' && !ilkLok.startsWith('MUS-')) return ilkLok
     return 'GVN2'
   }
@@ -3873,12 +4006,14 @@ function UrunGirisTab() {
           utsKodu: '',
           lotNo: `${girisNo}-S${String(satirIdx + 1).padStart(2, '0')}-${String(i + 1).padStart(3, '0')}`,
           birimFiyat: satir.birimFiyat,
-          lokasyon: 'ANADEPO',
+          lokasyon: satir.siparisBag?.subeId || 'ANADEPO',
           satisFiyati: '',
           satisFiyatiDegisti: '',
-          lokasyonTip: 'depo' as const,
+          lokasyonTip: satir.siparisBag?.subeId ? 'sube' as const : 'depo' as const,
           disMusteriId: null,
           disMusteriAdi: '',
+          siparisId: satir.siparisBag?.siparisId ?? null,
+          musteriAdi: satir.siparisBag?.musteriAdi ?? '',
         })
       }
     })
@@ -3985,6 +4120,19 @@ function UrunGirisTab() {
         else if (s.vendorBill || s.faturaOnay) mesajlar.push(`⚠️ Fatura onaylanamadı: ${s.faturaOnay?.error ?? 'taslak kaldı'}`)
         if (s.lotSayisi) mesajlar.push(`✓ ${s.lotSayisi} lot/seri no oluşturuldu`)
         if (s.fiyatGuncellenen) mesajlar.push(`✓ ${s.fiyatGuncellenen} ürün satış fiyatı güncellendi`)
+        if (Array.isArray(s.siparisBaglari)) {
+          for (const b of s.siparisBaglari) {
+            mesajlar.push(`${b.transfer === 'HATA' ? '⚠️' : '✓'} 👤 ${b.musteriAdi}: ${b.adet} adet — ${b.mesaj}${b.tamamlandi && b.transfer !== 'HATA' ? ' · sipariş "geldi" yapıldı, mağazaya bildirildi' : ''}`)
+          }
+        }
+        if (Array.isArray(s.lokasyonTransferleri)) {
+          for (const t of s.lokasyonTransferleri) mesajlar.push(`${t.basarili ? '✓' : '⚠️'} ${t.lokasyon}: ${t.adet} adet — ${t.mesaj}`)
+        }
+        {
+          const bagliIdler = new Set(lotlar.map((l) => l.siparisId).filter((x): x is string => !!x))
+          setKartListesi(musteriSiparisleri.filter((x) => bagliIdler.has(x.id) && x.optikCam))
+          setKartBasilan(new Set())
+        }
         if (res.data.hatalar?.length) mesajlar.push(`⚠️ Hatalar:\n${res.data.hatalar.join('\n')}`)
         setError(mesajlar.length > 0 ? mesajlar.join('\n') : null)
 
@@ -5126,6 +5274,18 @@ function UrunGirisTab() {
             </div>
           ) : null}
 
+          <MusteriSiparisPaneli
+            siparisler={musteriSiparisleri}
+            yukleniyor={musteriSiparisYukleniyor}
+            hata={musteriSiparisHata}
+            kullanilan={siparisKullanim}
+            firmaIpucu={`${cariAdi} ${fizikiTedarikciAdi}`}
+            aktifSatirAdi={bagSatirId ? (satirlar.find((x) => x.id === bagSatirId)?.tedarikciUrunAdi || `Satır ${satirlar.findIndex((x) => x.id === bagSatirId) + 1}`) : null}
+            onSatiraBagla={satiraSiparisBagla}
+            onTumune={tumSatirlariMusteriyeBagla}
+            onYenile={() => void musteriSiparisleriniYukle()}
+          />
+
           <div style={{ overflowX: 'auto', marginBottom: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
               <thead>
@@ -5133,6 +5293,7 @@ function UrunGirisTab() {
                   <th style={{ ...th, width: 200 }}>Tedarikçi Ürün Adı</th>
                   <th style={{ ...th, width: 90 }}>Üretici</th>
                   <th style={{ ...th, width: 220 }}>Bizim Ürünümüz (Odoo)</th>
+                  <th style={{ ...th, width: 150 }}>Kime?</th>
                   <th style={{ ...th, width: 60 }}>Adet</th>
                   <th style={{ ...th, width: 90 }}>Birim Fiyat ₺</th>
                   <th style={{ ...th, width: 70 }}>İskonto %</th>
@@ -5181,6 +5342,21 @@ function UrunGirisTab() {
                             Aynı isimde {ayniIsimdeKalan} satır daha — hepsine uygula
                           </button>
                         ) : null}
+                      </td>
+                      <td style={td}>
+                        {s.siparisBag ? (
+                          <div style={{ fontSize: 11, backgroundColor: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: 6, padding: '4px 6px' }}>
+                            <div style={{ fontWeight: 800, color: '#5b21b6' }}>👤 {s.siparisBag.musteriAdi}</div>
+                            <div style={{ color: '#6b7280' }}>→ 🏪 {s.siparisBag.subeId ?? '—'}
+                              <button type="button" onClick={() => siparisBagKaldir(s.id)} title="Bağı kaldır" style={{ marginLeft: 6, border: 'none', background: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 900 }}>✕</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button type="button" onClick={() => setBagSatirId(bagSatirId === s.id ? null : s.id)}
+                            style={{ width: '100%', padding: '6px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: `1px solid ${bagSatirId === s.id ? '#7c3aed' : '#e5e7eb'}`, backgroundColor: bagSatirId === s.id ? '#ede9fe' : 'white', color: bagSatirId === s.id ? '#5b21b6' : '#6b7280' }}>
+                            {bagSatirId === s.id ? '👤 müşteri seçin ↑' : '👤 Kime? (stok)'}
+                          </button>
+                        )}
                       </td>
                       <td style={td}>
                         <input type="number" value={s.miktar} min={1} onChange={e => satirGuncelle(s.id, 'miktar', Number(e.target.value))} style={{ ...inp, marginBottom: 0, width: 60, fontSize: 12 }} />
@@ -5382,17 +5558,20 @@ function UrunGirisTab() {
           ) : null}
 
           {/* Lokasyon bazlı gruplar */}
-          {Array.from(new Set(lotlar.map(l => l.lokasyon))).map(lokasyon => {
-            const grup = lotlar.filter(l => l.lokasyon === lokasyon)
+          {Array.from(new Set(lotlar.map(lotGrupAnahtar))).map(lokasyon => {
+            const grup = lotlar.filter(l => lotGrupAnahtar(l) === lokasyon)
+            const siparisGrubu = grup[0]?.siparisId ? grup[0] : null
             return (
               <div key={lokasyon} style={{ marginBottom: 20, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
                 {/* Grup başlığı */}
                 <div style={{ backgroundColor: '#f9fafb', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: 14, fontWeight: 900, color: '#1a1a2e' }}>
-                      {lotlar.find(l => l.lokasyon === lokasyon)?.lokasyonTip === 'dis-musteri'
-                        ? `🚚 ${lotlar.find(l => l.lokasyon === lokasyon)?.disMusteriAdi || lokasyon}`
-                        : lotlar.find(l => l.lokasyon === lokasyon)?.lokasyonTip === 'depo'
+                      {siparisGrubu
+                        ? `👤 ${siparisGrubu.musteriAdi || 'Müşteri'} → 🏪 ${siparisGrubu.lokasyon} (müşteri siparişi)`
+                        : grup[0]?.lokasyonTip === 'dis-musteri'
+                        ? `🚚 ${grup[0]?.disMusteriAdi || lokasyon}`
+                        : grup[0]?.lokasyonTip === 'depo'
                         ? `🏭 ${lokasyon}`
                         : `🏪 ${lokasyon}`}
                     </span>
@@ -5404,6 +5583,7 @@ function UrunGirisTab() {
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{grup.length} kalem</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {siparisGrubu ? <span style={{ fontSize: 11, color: '#6d28d9', fontWeight: 700 }}>Kayıtta bu mağazaya otomatik gönderilir</span> : (
                     <button
                       type="button"
                       onClick={() => {
@@ -5416,6 +5596,7 @@ function UrunGirisTab() {
                     >
                       📍 Lokasyon Değiştir ▾
                     </button>
+                    )}
                   </div>
                 </div>
 
@@ -5438,7 +5619,7 @@ function UrunGirisTab() {
                       {LOKASYONLAR.filter(l => !['ANADEPO', 'GVN5'].includes(l.id)).map(lok => (
                         <button key={lok.id} type="button"
                           onClick={() => {
-                            setLotlar(prev => prev.map(l => l.lokasyon === lokasyon ? { ...l, lokasyon: lok.id, lokasyonTip: 'sube', disMusteriId: null, disMusteriAdi: '' } : l))
+                            setLotlar(prev => prev.map(l => l.lokasyon === lokasyon && !l.siparisId ? { ...l, lokasyon: lok.id, lokasyonTip: 'sube', disMusteriId: null, disMusteriAdi: '' } : l))
                             setLokasyonSeciciAcik(null)
                           }}
                           style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', backgroundColor: lok.id === lokasyon ? '#1a1a2e' : '#f3f4f6', color: lok.id === lokasyon ? 'white' : '#374151', border: '1px solid #e5e7eb' }}>
@@ -5454,7 +5635,7 @@ function UrunGirisTab() {
                       {LOKASYONLAR.filter(l => ['ANADEPO', 'GVN5'].includes(l.id)).map(lok => (
                         <button key={lok.id} type="button"
                           onClick={() => {
-                            setLotlar(prev => prev.map(l => l.lokasyon === lokasyon ? { ...l, lokasyon: lok.id, lokasyonTip: 'depo', disMusteriId: null, disMusteriAdi: '' } : l))
+                            setLotlar(prev => prev.map(l => l.lokasyon === lokasyon && !l.siparisId ? { ...l, lokasyon: lok.id, lokasyonTip: 'depo', disMusteriId: null, disMusteriAdi: '' } : l))
                             setLokasyonSeciciAcik(null)
                           }}
                           style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', backgroundColor: lok.id === lokasyon ? '#1a1a2e' : '#f3f4f6', color: lok.id === lokasyon ? 'white' : '#374151', border: '1px solid #e5e7eb' }}>
@@ -5484,7 +5665,7 @@ function UrunGirisTab() {
                             {disMusteriSonuclar.map(p => (
                               <div key={p.id}
                                 onClick={() => {
-                                  setLotlar(prev => prev.map(l => l.lokasyon === lokasyon ? { ...l, lokasyon: `MUS-${p.id}`, lokasyonTip: 'dis-musteri', disMusteriId: p.id, disMusteriAdi: p.name } : l))
+                                  setLotlar(prev => prev.map(l => l.lokasyon === lokasyon && !l.siparisId ? { ...l, lokasyon: `MUS-${p.id}`, lokasyonTip: 'dis-musteri', disMusteriId: p.id, disMusteriAdi: p.name } : l))
                                   setDisMusteriArama(p.name)
                                   setDisMusteriSonuclar([])
                                   setLokasyonSeciciAcik(null)
@@ -5766,6 +5947,24 @@ function UrunGirisTab() {
               ))}
             </div>
           )}
+
+          {success && kartListesi.length > 0 ? (
+            <div style={{ backgroundColor: '#faf5ff', border: '1px solid #c4b5fd', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 4 }}>🪪 Garanti / reçete kartı</div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>Optik cam içeren müşteri siparişleri. Kart yazıcıdan basıp ürünle birlikte mağazaya gönderin.</div>
+              {kartListesi.map((sp) => (
+                <div key={sp.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid #ede9fe', fontSize: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <b>{sp.musteriAdi}</b> · 🏪 {sp.subeId ?? '—'} · {sp.urunAdi}
+                  </div>
+                  <button type="button" onClick={() => void siparisKartiBas(sp)}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${kartBasilan.has(sp.id) ? '#059669' : '#d97706'}`, backgroundColor: 'white', color: kartBasilan.has(sp.id) ? '#059669' : '#d97706', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                    {kartBasilan.has(sp.id) ? '✓ Basıldı (tekrar)' : '🪪 Kart Bas'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {success && lotlar.length > 0 ? (
             <div style={{ backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 16 }}>
