@@ -290,7 +290,7 @@ function validateRow(row: ParsedCamEnvanterRow): string | null {
   return null;
 }
 
-type CamTemplateCandidate = { id: number; name: string; categName: string; type: string };
+type CamTemplateCandidate = { id: number; name: string; categName: string; type: string; active: boolean };
 
 export type CamOdooLookup = {
   utsMap: Map<string, { lotId: number; lotName: string }>;
@@ -314,8 +314,11 @@ export async function loadCamOdooLookup(): Promise<CamOdooLookup> {
   const templates = await execute(
     'product.template', 'search_read',
     [[]],
-    { fields: ['id', 'name', 'categ_id', 'type'], limit: 5000, context: { active_test: false } },
-  ) as { id: number; name: string; categ_id: [number, string] | false; type: string }[];
+    // 16.11.2026 — limit:5000 KALDIRILDI: katalogda 14.000+ şablon var; aynı isimli
+    // ikizlerden hangisinin ilk 5000'e girdiği sorgudan sorguya değişebiliyordu ve
+    // önizleme (#2889) ile uygulama (#2881) FARKLI şablon seçti. Artık hepsi, id sırasıyla.
+    { fields: ['id', 'name', 'categ_id', 'type', 'active'], order: 'id asc', context: { active_test: false } },
+  ) as { id: number; name: string; categ_id: [number, string] | false; type: string; active: boolean }[];
 
   const templatesByName = new Map<string, CamTemplateCandidate[]>();
   const templatesByNameNoSpace = new Map<string, CamTemplateCandidate[]>();
@@ -323,7 +326,7 @@ export async function loadCamOdooLookup(): Promise<CamOdooLookup> {
     const key = turkceSadelestir(t.name);
     const keyNoSpace = key.replace(/\s+/g, '');
     const categName = t.categ_id ? t.categ_id[1] : '';
-    const entry: CamTemplateCandidate = { id: t.id, name: t.name, categName, type: t.type };
+    const entry: CamTemplateCandidate = { id: t.id, name: t.name, categName, type: t.type, active: t.active };
     const list = templatesByName.get(key) ?? [];
     list.push(entry);
     templatesByName.set(key, list);
@@ -356,16 +359,22 @@ export async function findCamTemplate(
     const live = (await execute(
       'product.template', 'search_read',
       [andKosullari],
-      { fields: ['id', 'name', 'categ_id', 'type'], limit: 100, context: { active_test: false } },
-    )) as { id: number; name: string; categ_id: [number, string] | false; type: string }[];
+      { fields: ['id', 'name', 'categ_id', 'type', 'active'], limit: 100, order: 'id asc', context: { active_test: false } },
+    )) as { id: number; name: string; categ_id: [number, string] | false; type: string; active: boolean }[];
     const eslesen = live.filter((t) => {
       const tNorm = turkceSadelestir(t.name);
       return tNorm === normKey || tNorm.replace(/\s+/g, '') === normKeyNoSpace;
     });
-    candidates = eslesen.map((t) => ({ id: t.id, name: t.name, categName: t.categ_id ? t.categ_id[1] : '', type: t.type }));
+    candidates = eslesen.map((t) => ({ id: t.id, name: t.name, categName: t.categ_id ? t.categ_id[1] : '', type: t.type, active: t.active }));
   }
 
   if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // 16.11.2026 — İkiz şablonlarda öncelik: ARŞİVLİ olmayan → stok tutan (aşağıda) →
+  // kategori → en küçük id. Arşivdeki bir ikiz, aktif olanın önüne geçemez.
+  const aktifler = candidates.filter((c) => c.active);
+  if (aktifler.length) candidates = aktifler;
   if (candidates.length === 1) return candidates[0];
 
   // 20.10.2026 — MÜKERRER isimli şablonlar varsa (canlı veride görüldü:

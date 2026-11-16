@@ -392,7 +392,9 @@ async function loadOdooLookup(): Promise<{
   const templates = await execute(
     'product.template', 'search_read',
     [[]],
-    { fields: ['id', 'name', 'categ_id'], limit: 5000, context: { active_test: false } },
+    // 16.11.2026 — limit:5000 kaldırıldı (14.000+ şablon; ikizlerden hangisinin listeye
+    // girdiği sorgudan sorguya değişiyordu). Hepsi, id sırasıyla.
+    { fields: ['id', 'name', 'categ_id'], order: 'id asc', context: { active_test: false } },
   ) as { id: number; name: string; categ_id: [number, string] | false }[];
   console.log(`[envanter-onizle] loadOdooLookup: şablonlar tamam (${templates.length})`);
 
