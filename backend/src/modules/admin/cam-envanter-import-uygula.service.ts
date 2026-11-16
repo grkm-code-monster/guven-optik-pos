@@ -31,6 +31,8 @@ export type CamEnvanterUygulaSatirSonuc = {
 export type CamEnvanterUygulaSonuc = {
   ozet: { basarili: number; basarisiz: number };
   satirlar: CamEnvanterUygulaSatirSonuc[];
+  /** 16.11.2026 — tip kilidi yüzünden otomatik yeni kart açılan şablonlar */
+  otomatikYenilenen?: string[];
 };
 
 function urunAnahtar(kategori: string, urunSablonu: string): string {
@@ -160,6 +162,61 @@ async function guncelleCamFiyatlari(
   ]);
 }
 
+/**
+ * 16.11.2026 — Tipi kilitli (consu + geçmiş hareketli) şablonu otomatik yeniler.
+ * scripts/sablon-tip-kilidi-coz.ts ile aynı mantık + eski şablonu güvenliyse arşivler.
+ */
+async function kilitliSablonuYenile(
+  eskiId: number,
+  sebep: unknown,
+): Promise<{ tmplId: number; varyantId: number; not: string }> {
+  const eski = (await execute('product.template', 'read', [[eskiId]], {
+    fields: ['id', 'name'], context: { active_test: false },
+  })) as { id: number; name: string }[];
+  const ad = eski[0]?.name ?? '';
+  if (!ad) throw new Error(`Şablon #${eskiId} okunamadı (tip kilidi yenilenemedi)`);
+  console.warn(`[cam-envanter-import] Şablon #${eskiId} tip kilitli, otomatik yenileniyor:`,
+    sebep instanceof Error ? sebep.message : sebep);
+
+  const yeniTmplId = Number(await execute('product.template', 'copy', [[eskiId], {
+    name: ad, type: 'product', detailed_type: 'product', tracking: 'serial', barcode: false, active: true,
+  }]));
+  await execute('product.template', 'write', [[eskiId], { name: `[ESKİ-TİP-KİLİTLİ] ${ad}` }]);
+
+  // Eski şablonu arşivle — SADECE stoğu ve açık stok hareketi yoksa.
+  let arsivlendi = false;
+  try {
+    const eskiVaryantlar = (await execute('product.product', 'search', [[['product_tmpl_id', '=', eskiId]]], {
+      context: { active_test: false },
+    })) as number[];
+    const stok = eskiVaryantlar.length ? Number(await execute('stock.quant', 'search_count', [[
+      ['product_id', 'in', eskiVaryantlar], ['quantity', '!=', 0], ['location_id.usage', '=', 'internal'],
+    ]])) : 0;
+    const acik = eskiVaryantlar.length ? Number(await execute('stock.move', 'search_count', [[
+      ['product_id', 'in', eskiVaryantlar], ['state', 'not in', ['done', 'cancel']],
+    ]])) : 0;
+    if (!stok && !acik) {
+      await execute('product.template', 'write', [[eskiId], { active: false }]);
+      arsivlendi = true;
+    }
+  } catch (e: unknown) {
+    console.error(`[cam-envanter-import] Eski şablon #${eskiId} arşivlenemedi:`, e instanceof Error ? e.message : e);
+  }
+
+  const varyantId = await findCamVariantIdForTemplate(yeniTmplId);
+  if (!varyantId) throw new Error(`Yeni şablon #${yeniTmplId} için varyant bulunamadı`);
+  const v = (await execute('product.product', 'read', [[varyantId]], { fields: ['barcode'] })) as { barcode: string | false }[];
+  if (!v[0]?.barcode || !String(v[0].barcode).trim()) {
+    await execute('product.product', 'write', [[varyantId], { barcode: await generateNextTemsilciBarkod() }]);
+  }
+  return {
+    tmplId: yeniTmplId,
+    varyantId,
+    not: `"${ad}": eski kilitli kart #${eskiId} yerine yeni kart #${yeniTmplId} açıldı` +
+      (arsivlendi ? ', eskisi arşivlendi' : ' (eskisinde stok/açık hareket olduğu için arşivlenmedi)'),
+  };
+}
+
 export async function uygulaCamEnvanterImport(input: {
   lokasyonKodu: string;
   satirlar: ParsedCamEnvanterRow[];
@@ -174,6 +231,7 @@ export async function uygulaCamEnvanterImport(input: {
 
   const sonuclar: CamEnvanterUygulaSatirSonuc[] = [];
   const islenenSatirNolar = new Set<number>();
+  const otomatikYenilenen: string[] = [];
 
   const urunGruplari = new Map<string, ParsedCamEnvanterRow[]>();
   for (const row of input.satirlar) {
@@ -310,12 +368,16 @@ export async function uygulaCamEnvanterImport(input: {
           // tüketilebilirlik için oluşturulamaz" hatasını teşhis etmek için
           // Odoo'yu tekrar kazmak gerekmesin.
           if (tmplDuzeltme.type) {
-            throw new Error(
-              `Şablon #${tmplId} ("${ilk.urunSablonu}") kalıcı tip kilidi: bu şablon bu akıştan önce ` +
-              `oluşturulmuş ve type='product' değil, üzerinde de geçmiş stok hareketi var — Odoo tipin ` +
-              `değiştirilmesine izin vermiyor. Düzeltmek için sunucuda çalıştır: ` +
-              `npm run sablon-tip-kilidi-coz -- --tmpl=${tmplId} --confirm`,
-            );
+            // 16.11.2026 — Görkem'in talebi: artık hata verip sunucuda script
+            // çalıştırmayı beklemiyoruz. sablon-tip-kilidi-coz.ts'in yaptığının
+            // aynısını burada OTOMATİK yapıyoruz: aynı adla stok tutan (product,
+            // serial) yeni şablon açılır, eski kilitli şablonun adı
+            // "[ESKİ-TİP-KİLİTLİ] ..." yapılır ve (stoğu/açık hareketi yoksa)
+            // arşivlenir. Bu grubun satırları YENİ şablona işlenir.
+            const yeni = await kilitliSablonuYenile(tmplId, typeErr);
+            tmplId = yeni.tmplId;
+            varyantId = yeni.varyantId;
+            otomatikYenilenen.push(yeni.not);
           }
           console.warn(
             `[cam-envanter-import] Şablon #${tmplId} detailed_type/tracking düzeltilemedi (type zaten doğru, mevcut stok hareketi engelliyor):`,
@@ -441,5 +503,6 @@ export async function uygulaCamEnvanterImport(input: {
       basarisiz: sonuclar.filter((s) => s.durum === 'BASARISIZ').length,
     },
     satirlar: sonuclar,
+    ...(otomatikYenilenen.length ? { otomatikYenilenen } : {}),
   };
 }

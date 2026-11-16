@@ -50,6 +50,8 @@ export type CamEnvanterUygulaSonuc = {
   success: boolean
   ozet: { basarili: number; basarisiz: number }
   satirlar: CamEnvanterUygulaSatirSonuc[]
+  /** Tip kilidi yüzünden otomatik yeni kart açılan şablonlar (bilgi amaçlı) */
+  otomatikYenilenen?: string[]
 }
 
 export async function indirCamEnvanterSablon(): Promise<void> {

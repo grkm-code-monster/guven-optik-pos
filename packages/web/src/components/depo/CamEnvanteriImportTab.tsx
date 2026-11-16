@@ -209,6 +209,9 @@ export default function CamEnvanteriImportTab() {
         birlesik.ozet.basarili += sonuc.ozet.basarili
         birlesik.ozet.basarisiz += sonuc.ozet.basarisiz
         birlesik.satirlar.push(...sonuc.satirlar)
+        if (sonuc.otomatikYenilenen?.length) {
+          birlesik.otomatikYenilenen = [...(birlesik.otomatikYenilenen ?? []), ...sonuc.otomatikYenilenen]
+        }
         if (!sonuc.success) birlesik.success = false
       } catch (e) {
         birlesik.ozet.basarisiz += parca.length
@@ -522,6 +525,17 @@ export default function CamEnvanteriImportTab() {
           >
             İçe aktarma tamamlandı: {uygulaSonuc.ozet.basarili} başarılı, {uygulaSonuc.ozet.basarisiz} başarısız
           </div>
+
+          {!!uygulaSonuc.otomatikYenilenen?.length && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#1e40af', marginBottom: 6 }}>
+                Eski kilitli kartlar otomatik yenilendi
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#1e3a8a' }}>
+                {uygulaSonuc.otomatikYenilenen.map((n) => <li key={n}>{n}</li>)}
+              </ul>
+            </div>
+          )}
 
           {uygulaSonuc.satirlar.some((s) => s.durum === 'BASARISIZ') && (
             <div style={{ marginBottom: 12 }}>
