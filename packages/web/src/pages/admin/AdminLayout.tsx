@@ -106,7 +106,10 @@ export default function AdminLayout() {
         ...groups.slice(0, 1),
         {
           title: '📈 RAPOR MOTORU',
-          items: [{ label: 'Rapor Matrisi', icon: '📈', to: '/admin/rapor-matris' }],
+          items: [
+            { label: 'Hazır Raporlar', icon: '📋', to: '/admin/hazir-raporlar' },
+            { label: 'Rapor Matrisi', icon: '📈', to: '/admin/rapor-matris' },
+          ],
         },
         {
           title: '🚀 SİSTEM',

@@ -91,7 +91,7 @@ export function canSeeAdminMenuItem(user: AdminUserLite, to: string): boolean {
     if (role === 'ADMIN') return true
     return hasEkYetki(user, EK_YETKI.PATRON_PANELI)
   }
-  if (to === '/admin/rapor-matris') {
+  if (to === '/admin/rapor-matris' || to === '/admin/hazir-raporlar') {
     return role === 'ADMIN'
   }
   if (to === '/admin/deploy') {
@@ -100,7 +100,7 @@ export function canSeeAdminMenuItem(user: AdminUserLite, to: string): boolean {
 
   if (FULL_MENU_ROLES.has(role)) {
     if (role === 'STORE_MANAGER' && to === '/admin/stok-yonetimi') return false
-    if (to === '/admin/patron' || to === '/admin/rapor-matris' || to === '/admin/deploy') return false
+    if (to === '/admin/patron' || to === '/admin/rapor-matris' || to === '/admin/hazir-raporlar' || to === '/admin/deploy') return false
     return true
   }
 

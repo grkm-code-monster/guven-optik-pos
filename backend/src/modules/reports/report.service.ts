@@ -15,7 +15,7 @@ import { getOrFetchTodayRate } from '../admin/doviz-kuru.service';
 import { getKasaDuzeltmeToplamForGun, getKasaDuzeltmeNakitTumZamanlar, getKasaDuzeltmeToplamForAy } from './kasa-duzeltme.service';
 import { buildManuelTahsilatRows } from '../openaccount/manuel-tahsilat.service';
 
-type DashboardKategori =
+export type DashboardKategori =
   | 'GUNES_GOZLUGU'
   | 'CAM'
   | 'LENS'
@@ -161,7 +161,7 @@ async function buildLabIncidentsSummary(
   };
 }
 
-function resolveItemKategori(
+export function resolveItemKategori(
   item: {
     odooCategoryId: number | null;
     odooProductName: string | null;
@@ -186,7 +186,7 @@ function resolveItemKategori(
   return 'DIGER';
 }
 
-async function loadOdooCategoryPaths(categoryIds: Array<number | null | undefined>): Promise<Map<number, string>> {
+export async function loadOdooCategoryPaths(categoryIds: Array<number | null | undefined>): Promise<Map<number, string>> {
   const unique = [...new Set(categoryIds.filter((id): id is number => id != null))];
   if (unique.length === 0) return new Map();
 

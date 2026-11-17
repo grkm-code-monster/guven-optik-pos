@@ -27,6 +27,7 @@ import IKPage from './pages/admin/IKPage'
 import FinansPage from './pages/admin/FinansPage'
 import PatronPage from './pages/admin/PatronPage'
 import RaporMatrisPage from './pages/admin/RaporMatrisPage'
+import HazirRaporlarPage from './pages/admin/HazirRaporlarPage'
 import GarantiYonetimPage from './pages/admin/GarantiYonetimPage'
 import UrunYapilandirmaPage from './pages/admin/UrunYapilandirmaPage'
 import StokYonetimiPage from './pages/admin/StokYonetimiPage'
@@ -93,6 +94,7 @@ const ADMIN_DASHBOARD_CANDIDATES = [
   '/admin/ik',
   '/admin/patron',
   '/admin/rapor-matris',
+  '/admin/hazir-raporlar',
   '/admin/deploy',
 ]
 
@@ -147,6 +149,7 @@ export default function App() {
             }
           />
           <Route path="rapor-matris" element={<RaporMatrisPage />} />
+          <Route path="hazir-raporlar" element={<HazirRaporlarPage />} />
           <Route path="deploy" element={<DeployPage />} />
         </Route>
         <Route
