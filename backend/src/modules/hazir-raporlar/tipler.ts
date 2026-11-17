@@ -74,7 +74,7 @@ export type CalistirmaBaglami = {
   maliyetGorur: boolean;
 };
 
-export type RaporGrup = 'SATIS' | 'STOK' | 'KAREKOD' | 'KASA' | 'CARI' | 'LISTE';
+export type RaporGrup = 'SATIS' | 'STOK' | 'KAREKOD' | 'ALIS' | 'KASA' | 'CARI' | 'LISTE';
 
 export type RaporTanim = {
   id: string;
@@ -97,6 +97,7 @@ export const GRUP_ADLARI: Record<RaporGrup, string> = {
   SATIS: 'Satış',
   STOK: 'Stok',
   KAREKOD: 'Karekod / ÜTS',
+  ALIS: 'Alış (tedarikçi)',
   KASA: 'Kasa ve tahsilat',
   CARI: 'Cari ve müşteri',
   LISTE: 'Listeler',

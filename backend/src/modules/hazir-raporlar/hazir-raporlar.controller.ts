@@ -49,8 +49,18 @@ async function calistir(req: Request) {
   const f = filtreOku(req.body);
   for (const z of tanim.zorunlu ?? []) {
     const bos =
-      (z === 'musteri' && !f.musteriId) || (z === 'camGrubu' && !f.camGrubu) || (z === 'personel' && !f.personelId);
-    if (bos) throw new RaporHatasi(z === 'musteri' ? 'Önce müşteriyi seçin.' : z === 'camGrubu' ? 'Önce cam grubunu seçin.' : 'Eksik filtre.');
+      (z === 'musteri' && !f.musteriId) ||
+      (z === 'camGrubu' && !f.camGrubu) ||
+      (z === 'personel' && !f.personelId) ||
+      (z === 'lokasyon' && !(f.lokasyonlar ?? []).length) ||
+      (z === 'ara' && !f.ara);
+    const MESAJ: Partial<Record<string, string>> = {
+      musteri: 'Önce müşteriyi seçin.',
+      camGrubu: 'Önce cam grubunu seçin.',
+      lokasyon: 'Önce lokasyon (mağaza) seçin.',
+      ara: 'Arama kutusunu doldurun.',
+    };
+    if (bos) throw new RaporHatasi(MESAJ[z] ?? 'Eksik filtre.');
   }
   const ctx = baglam(req);
   const t0 = Date.now();

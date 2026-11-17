@@ -4,7 +4,7 @@ import { GECERSIZ_SATIS, GUN_MS, ODEME_ADI, aralik, buyuk, sayi, subeFiltresi, s
 import { RaporHatasi, type Filtre, type RaporSonuc, type Satir } from './tipler';
 
 /** Satış detayındaki açık hesap kalanıyla aynı hesap (sale.service acikHesapKalan) */
-function acikHesapDurumu(pays: { paymentType: string; grossAmount: unknown; createdAt: Date }[]) {
+export function acikHesapDurumu(pays: { paymentType: string; grossAmount: unknown; createdAt: Date }[]) {
   const acik = pays.filter((p) => p.paymentType === 'OPEN_ACCOUNT');
   const toplam = acik.reduce((a, p) => a + sayi(p.grossAmount), 0);
   if (!toplam) return { toplam: 0, odenen: 0, kalan: 0, sonOdeme: null as Date | null, ilk: null as Date | null };

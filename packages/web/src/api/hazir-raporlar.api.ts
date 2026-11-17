@@ -15,7 +15,7 @@ export type FiltreAnahtar =
   | 'enAz'
   | 'karsilastir'
 
-export type RaporGrup = 'SATIS' | 'STOK' | 'KAREKOD' | 'KASA' | 'CARI' | 'LISTE'
+export type RaporGrup = 'SATIS' | 'STOK' | 'KAREKOD' | 'ALIS' | 'KASA' | 'CARI' | 'LISTE'
 
 export type RaporTanimi = {
   id: string

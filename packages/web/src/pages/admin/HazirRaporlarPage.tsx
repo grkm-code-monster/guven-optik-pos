@@ -19,7 +19,7 @@ import {
 
 const ANA = '#C8102E'
 const MAVI = '#1D4ED8'
-const GRUP_SIRA: RaporGrup[] = ['SATIS', 'STOK', 'KAREKOD', 'KASA', 'CARI', 'LISTE']
+const GRUP_SIRA: RaporGrup[] = ['SATIS', 'STOK', 'KAREKOD', 'ALIS', 'KASA', 'CARI', 'LISTE']
 const FAVORI_ANAHTAR = 'hazir-rapor-favoriler'
 
 function favorileriOku(): string[] {

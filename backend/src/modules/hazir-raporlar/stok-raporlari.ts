@@ -30,7 +30,7 @@ const ETIKET_TO_KAT: Record<string, DashboardKategori> = {
   'GÜNEŞ GÖZLÜĞÜ': 'GUNES_GOZLUGU',
   AKSESUAR: 'AKSESUAR',
 };
-function kategoriYoldan(yol: string): DashboardKategori {
+export function kategoriYoldan(yol: string): DashboardKategori {
   return ETIKET_TO_KAT[kategoriTespit(yol)] ?? 'DIGER';
 }
 
@@ -44,7 +44,7 @@ export function camAdCoz(ad: string): { grup: string; sph: number; cyl: number }
 
 // ───────────────────────── stok fotoğrafı (5 dk önbellek) ─────────────────────────
 
-type Urun = {
+export type Urun = {
   id: number;
   ad: string;
   tmplId: number | null;
@@ -55,8 +55,8 @@ type Urun = {
   barkod: string | null;
   fiyat: number;
 };
-type Quant = { urunId: number; lok: string; adet: number; lotId: number | null; lotAd: string };
-type Fotograf = { zaman: number; quantlar: Quant[]; urunler: Map<number, Urun> };
+export type Quant = { urunId: number; lok: string; adet: number; lotId: number | null; lotAd: string; giris: string | null };
+export type Fotograf = { zaman: number; quantlar: Quant[]; urunler: Map<number, Urun> };
 
 let foto: Fotograf | null = null;
 let fotoSoz: Promise<Fotograf> | null = null;
@@ -64,21 +64,21 @@ let fotoSoz: Promise<Fotograf> | null = null;
 async function fotografCek(): Promise<Fotograf> {
   const lokIds = Object.values(STOK_LOKASYONLARI);
   const ham = (await execute('stock.quant', 'search_read', [[['location_id', 'in', lokIds], ['quantity', '>', 0]]], {
-    fields: ['product_id', 'location_id', 'quantity', 'lot_id'],
+    fields: ['product_id', 'location_id', 'quantity', 'lot_id', 'in_date'],
     ...ODOO_CTX,
-  })) as { product_id: unknown; location_id: unknown; quantity: number; lot_id: unknown }[];
+  })) as { product_id: unknown; location_id: unknown; quantity: number; lot_id: unknown; in_date: string | false }[];
   const quantlar: Quant[] = [];
   for (const q of ham) {
     const urunId = m2oId(q.product_id);
     const lok = LOKASYON_KODU.get(m2oId(q.location_id) ?? -1);
     if (!urunId || !lok) continue;
-    quantlar.push({ urunId, lok, adet: sayi(q.quantity), lotId: m2oId(q.lot_id), lotAd: m2oAd(q.lot_id) });
+    quantlar.push({ urunId, lok, adet: sayi(q.quantity), lotId: m2oId(q.lot_id), lotAd: m2oAd(q.lot_id), giris: q.in_date ? String(q.in_date).slice(0, 10) : null });
   }
   const urunler = await urunleriOku(quantlar.map((q) => q.urunId));
   return { zaman: Date.now(), quantlar, urunler };
 }
 
-async function urunleriOku(ids: number[]): Promise<Map<number, Urun>> {
+export async function urunleriOku(ids: number[]): Promise<Map<number, Urun>> {
   type P = { id: number; display_name: string; product_tmpl_id: unknown; categ_id: unknown; barcode: string | false; lst_price: number };
   const rows = await odooParcaOku<P>('product.product', ids, ['id', 'display_name', 'product_tmpl_id', 'categ_id', 'barcode', 'lst_price']);
   const out = new Map<number, Urun>();
@@ -100,7 +100,7 @@ async function urunleriOku(ids: number[]): Promise<Map<number, Urun>> {
   return out;
 }
 
-async function fotograf(): Promise<Fotograf> {
+export async function fotograf(): Promise<Fotograf> {
   if (foto && Date.now() - foto.zaman < 5 * 60 * 1000) return foto;
   if (!fotoSoz) {
     fotoSoz = fotografCek()
@@ -115,12 +115,12 @@ async function fotograf(): Promise<Fotograf> {
   return fotoSoz;
 }
 
-function lokasyonSecimi(f: Filtre): string[] {
+export function lokasyonSecimi(f: Filtre): string[] {
   const secili = (f.lokasyonlar ?? []).filter((k) => k in STOK_LOKASYONLARI);
   return secili.length ? secili : Object.keys(STOK_LOKASYONLARI);
 }
 
-function urunFiltresi(f: Filtre) {
+export function urunFiltresi(f: Filtre) {
   const markaF = f.marka ? buyuk(f.marka) : '';
   const araF = f.ara ? buyuk(f.ara) : '';
   return (u: Urun | undefined) => {
@@ -132,7 +132,7 @@ function urunFiltresi(f: Filtre) {
   };
 }
 
-function stokNotu(fo: Fotograf): string {
+export function stokNotu(fo: Fotograf): string {
   return `Stok Odoo’dan okundu (${trSaat(new Date(fo.zaman))}; en fazla 5 dakikalık).`;
 }
 
@@ -288,7 +288,7 @@ export const HAREKET_GRUPLAMA = [
   { key: 'urun', label: 'Ürün' },
 ];
 
-const KULLANIM_TUR = (kaynak: string, hedef: string): string => {
+export const KULLANIM_TUR = (kaynak: string, hedef: string): string => {
   if (kaynak === 'internal' && hedef === 'customer') return 'Satış / müşteriye çıkış';
   if (kaynak === 'customer' && hedef === 'internal') return 'Müşteriden iade';
   if (kaynak === 'supplier' && hedef === 'internal') return 'Alış girişi';
