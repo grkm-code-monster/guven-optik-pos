@@ -36,13 +36,25 @@ type Satir = {
   firma: string | null
   firmaUrunAdi: string | null
   firmaUrunKodu: string | null
-  firmaUrunKaynak: 'SIPARIS' | 'FATURA_HAFIZASI' | null
+  firmaUrunKaynak: 'SIPARIS' | 'FATURA' | 'FATURA_HAFIZASI' | 'UTS' | 'ESKI' | null
+  gtin: string | null
+  marka: string | null
+  urunKaydiAdi: string | null
+  urunKaydiKaynak: 'UTS' | 'ESKI' | null
   firmaSiparisNo: string | null
   siparisDurum: string | null
   faturaNo: string | null
   gelisTarihi: string | null
   girisBelgesi: string | null
   karekodlar: string[]
+}
+
+const KAYNAK: Record<string, string> = {
+  SIPARIS: 'siparişten',
+  FATURA: 'faturadan',
+  FATURA_HAFIZASI: 'fatura eşleşmesinden',
+  UTS: "UTS'den",
+  ESKI: 'eski sistemden',
 }
 
 const KALEM_DURUM: Record<string, string> = {
@@ -194,7 +206,7 @@ export default function MusteriSatisDetaylariPage() {
       }
       if (eksik && s.firmaUrunAdi) return false
       if (ua) {
-        const hay = `${s.urunAdi} ${s.firmaUrunAdi ?? ''} ${s.firmaUrunKodu ?? ''} ${s.lotNo ?? ''} ${s.karekodlar.join(' ')}`.toLocaleLowerCase('tr-TR')
+        const hay = `${s.urunAdi} ${s.firmaUrunAdi ?? ''} ${s.firmaUrunKodu ?? ''} ${s.urunKaydiAdi ?? ''} ${s.marka ?? ''} ${s.lotNo ?? ''} ${s.gtin ?? ''} ${s.karekodlar.join(' ')}`.toLocaleLowerCase('tr-TR')
         if (!hay.includes(ua)) return false
       }
       return true
@@ -208,7 +220,7 @@ export default function MusteriSatisDetaylariPage() {
   function excelIndir() {
     const basliklar = [
       'Tarih', 'Satış No', 'Şube', 'Personel', 'Müşteri', 'Telefon', 'Ürün (bizim)', 'Kategori', 'Adet', 'Tutar',
-      'Reçete', 'Not', 'Özel işlemler', 'Firma', 'Firma ürün adı', 'Firma ürün kodu', 'Firma sipariş no',
+      'Reçete', 'Not', 'Özel işlemler', 'Firma', 'Marka', 'Firma ürün adı', 'Firma ürün kodu', 'Kaynak', 'Ürün kaydı (UTS/eski sistem)', 'GTIN', 'Firma sipariş no',
       'Fatura no', 'Geliş', 'Giriş belgesi', 'Lot / Seri', 'UTS karekod', 'Kalem durumu', 'Sipariş durumu',
     ]
     const hucre = (v: unknown) => {
@@ -217,7 +229,8 @@ export default function MusteriSatisDetaylariPage() {
     }
     const satir = (s: Satir) => [
       tarihTR(s.tarih), s.satisNo, s.sube, s.personel, s.musteri, s.musteriTelefon, s.urunAdi, s.kategori, s.adet,
-      s.tutar.toFixed(2).replace('.', ','), s.recete, s.nitelik, islemMetni(s), s.firma, s.firmaUrunAdi, s.firmaUrunKodu,
+      s.tutar.toFixed(2).replace('.', ','), s.recete, s.nitelik, islemMetni(s), s.firma, s.marka, s.firmaUrunAdi, s.firmaUrunKodu,
+      s.firmaUrunKaynak ? KAYNAK[s.firmaUrunKaynak] : '', s.urunKaydiAdi, s.gtin,
       s.firmaSiparisNo, s.faturaNo, tarihTR(s.gelisTarihi), s.girisBelgesi, s.lotNo, s.karekodlar.join(' '),
       KALEM_DURUM[s.kalemDurum] ?? s.kalemDurum, siparisDurumTR(s.siparisDurum),
     ]
@@ -340,15 +353,23 @@ export default function MusteriSatisDetaylariPage() {
                       </div>
                     ))}
                   </td>
-                  <td style={td}>{s.firma ?? <span style={bos}>—</span>}</td>
+                  <td style={td}>
+                    {s.firma ?? <span style={bos}>—</span>}
+                    {s.marka ? <div style={kucuk}>Marka: {s.marka}</div> : null}
+                  </td>
                   <td style={td}>
                     {s.firmaUrunAdi ? (
                       <>
                         <div style={{ fontWeight: 700 }}>{s.firmaUrunAdi}</div>
                         <div style={kucuk}>
                           {s.firmaUrunKodu ? `Kod ${s.firmaUrunKodu} · ` : ''}
-                          {s.firmaUrunKaynak === 'SIPARIS' ? 'siparişten' : 'fatura eşleşmesinden'}
+                          {s.firmaUrunKaynak ? KAYNAK[s.firmaUrunKaynak] : ''}
                         </div>
+                        {s.urunKaydiAdi ? (
+                          <div style={kucuk}>
+                            {s.urunKaydiAdi} ({s.urunKaydiKaynak ? KAYNAK[s.urunKaydiKaynak] : ''})
+                          </div>
+                        ) : null}
                       </>
                     ) : (
                       <span style={bos}>eksik</span>
