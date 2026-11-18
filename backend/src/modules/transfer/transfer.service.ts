@@ -1,7 +1,7 @@
 // @ts-nocheck
 import * as odooService from '../odoo/odoo.service';
 import * as odooLocations from '../odoo/odooLocations';
-import { getOzelIslemKategoriId, ozelIslemKategoriIdOnbellek } from '../sales/ozel-islem';
+import { GUNES_CAMLARI_KATEGORI_ID, getOzelIslemKategoriId, ozelIslemKategoriIdOnbellek } from '../sales/ozel-islem';
 import { normalizeTransferSearchTerm } from '../odoo/gs1-parser.util';
 import { kabulEtTransfer, baslatTransfer } from './transfer-core.service';
 import { isDevMockEnabled } from './transfer.mock';
@@ -568,6 +568,11 @@ function applyKategoriToDomain(domain, options) {
     const ozelId = ozelIslemKategoriIdOnbellek();
     if (tekBakim && ozelId) {
         domain.push(['categ_id', '!=', ozelId]);
+    }
+    // 18.11.2026 — Güneş camları (stoklu, seri takipli) Bakım'dan satılmasın: lot/stok adımı
+    // atlanırdı. Satışta "Hazır Güneş Camı" seçicisinden eklenir.
+    if (tekBakim) {
+        domain.push(['categ_id', '!=', GUNES_CAMLARI_KATEGORI_ID]);
     }
     return domain;
 }

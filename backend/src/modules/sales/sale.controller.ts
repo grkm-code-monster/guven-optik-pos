@@ -17,7 +17,7 @@ import {
 } from './sale.types';
 import * as saleService from './sale.service';
 import * as labIncidentService from './lab-incident.service';
-import { listOzelIslemUrunleri } from './ozel-islem';
+import { listHazirGunesCamlari, listOzelIslemUrunleri } from './ozel-islem';
 import { subeToSirketAyarId } from '../efatura/uyumsoft-efatura.service';
 import { getOutboxInvoicePdf } from '../uyumsoft/uyumsoft.service';
 
@@ -212,6 +212,15 @@ router.get('/urun-kdv-orani', async (req: Request, res: Response, next: NextFunc
 router.get('/ozel-islem-urunleri', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     return res.status(200).json(await listOzelIslemUrunleri());
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 18.11.2026 — "Hazır Güneş Camı" seçicisi: BAKIM / Güneş Camları (#83) kartları
+router.get('/hazir-gunes-camlari', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    return res.status(200).json({ urunler: await listHazirGunesCamlari() });
   } catch (err) {
     next(err);
   }

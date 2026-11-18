@@ -5,6 +5,8 @@ import { apiClient } from '../../api/client'
 import { useAuthStore } from '../../store/auth.store'
 import BarkodKameraInput from '../BarkodKameraInput'
 import OzelIslemModal from './OzelIslemModal'
+import HazirGunesCamiModal from './HazirGunesCamiModal'
+import { isHazirGunesCamiItem } from '../../utils/hazirGunesCami'
 import type { SaleItem } from '../../api/types'
 import { camOzelIslemleri, nitelikSatirlari, ozelIslemAdi, ustSeviyeKalemler } from '../../utils/ozelIslem'
 import { isLensMeasurementSaleItem } from '../../utils/saleMeasurements'
@@ -343,6 +345,8 @@ export default function ItemsStep({
   const [modalOpen, setModalOpen] = useState(false)
   // 18.11.2026 — cam satırındaki "Özel İşlem" penceresi
   const [ozelIslemPencere, setOzelIslemPencere] = useState<{ cam: SaleItem; duzenlenen: SaleItem | null } | null>(null)
+  // 18.11.2026 — "Hazır Güneş Camı" seçicisi (null = kapalı; duzenlenen = tek satır düzenleme)
+  const [gunesPencere, setGunesPencere] = useState<{ duzenlenen: SaleItem | null } | null>(null)
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [pickedType, setPickedType] = useState<(typeof typeCards)[number] | null>(null)
   const [pickedKategoriId, setPickedKategoriId] = useState<number | null>(null)
@@ -933,6 +937,22 @@ export default function ItemsStep({
     <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
         <div style={{ fontWeight: 800 }}>Kalemler</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={() => setGunesPencere({ duzenlenen: null })}
+          style={{
+            backgroundColor: 'white',
+            color: '#111827',
+            border: '1px solid #111827',
+            borderRadius: '10px',
+            padding: '10px 14px',
+            cursor: 'pointer',
+            fontWeight: 800,
+          }}
+        >
+          🕶️ Hazır Güneş Camı
+        </button>
         <button
           type="button"
           onClick={open}
@@ -948,6 +968,7 @@ export default function ItemsStep({
         >
           + Kalem Ekle
         </button>
+        </div>
       </div>
 
       <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1023,7 +1044,11 @@ export default function ItemsStep({
                     🎨 Özel İşlem
                   </button>
                 ) : null}
-                <button type="button" onClick={() => openEdit(it)} style={editBtnStyle}>
+                <button
+                  type="button"
+                  onClick={() => (isHazirGunesCamiItem(it) ? setGunesPencere({ duzenlenen: it }) : openEdit(it))}
+                  style={editBtnStyle}
+                >
                   Düzenle
                 </button>
                 <button
@@ -1064,6 +1089,14 @@ export default function ItemsStep({
                 <span style={{ fontWeight: 900, fontSize: 16 }}>Tutar: {money(it.lineTotal)}</span>
               </div>
             </div>
+            {!isLensMeasurementSaleItem(it) && (it.maintenanceNature || it.maintenanceDescription) ? (
+              <div style={{ fontSize: 12, color: '#4b5563' }}>
+                {nitelikSatirlari(it.maintenanceNature).map((satir) => (
+                  <div key={satir}>{satir}</div>
+                ))}
+                {it.maintenanceDescription ? <div style={{ fontStyle: 'italic' }}>Açıklama: {it.maintenanceDescription}</div> : null}
+              </div>
+            ) : null}
             {camOzelIslemleri(items, it.id).map((oi) => (
               <div
                 key={oi.id}
@@ -1116,6 +1149,14 @@ export default function ItemsStep({
         ))}
       </div>
 
+      {gunesPencere ? (
+        <HazirGunesCamiModal
+          saleId={saleId}
+          duzenlenen={gunesPencere.duzenlenen}
+          onClose={() => setGunesPencere(null)}
+          onSaved={onSaleUpdated}
+        />
+      ) : null}
       {ozelIslemPencere ? (
         <OzelIslemModal
           saleId={saleId}
