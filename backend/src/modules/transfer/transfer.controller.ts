@@ -60,6 +60,28 @@ router.get('/urun-ara', async (req, res) => {
   }
 });
 
+// 18.11.2026 — Optik Gözlük / Güneş Gözlüğü: ürün adı + model + renk + ölçü ile ayrı alanlı arama
+router.get('/urun-ara-cerceve', async (req, res) => {
+  try {
+    const s = (k: string) => (typeof req.query[k] === 'string' ? String(req.query[k]) : '');
+    const kategoriIds = s('kategoriIds').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0);
+    const kid = Number(s('kategoriId'));
+    const rows = await transferService.searchCerceve({
+      ad: s('ad'),
+      model: s('model'),
+      renk: s('renk'),
+      olcu: s('olcu'),
+      lokasyon: s('lokasyon'),
+      sadeceStok: s('sadeceStok') !== '0',
+      kategoriIds: kategoriIds.length ? kategoriIds : undefined,
+      kategoriId: Number.isFinite(kid) && kid > 0 ? kid : undefined,
+    });
+    return res.status(200).json(rows);
+  } catch (err) {
+    return handleOdooFailure(res, err);
+  }
+});
+
 router.get('/urun-lotlari', async (req, res) => {
   try {
     const productId = Number(req.query.productId);

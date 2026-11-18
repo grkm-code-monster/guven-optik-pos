@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
-import { searchTransferProducts, type TransferUrun } from '../../api/transfer.api'
+import { searchCerceveUrun, searchTransferProducts, type TransferUrun } from '../../api/transfer.api'
 import { addItem, deleteItem, getSaleById, hesaplaPersonelFiyati, updateItem } from '../../api/sales.api'
 import { apiClient } from '../../api/client'
 import { useAuthStore } from '../../store/auth.store'
@@ -349,6 +349,9 @@ export default function ItemsStep({
   const [aramaYontemi, setAramaYontemi] = useState<string>('ad')
   const [kameraAcik, setKameraAcik] = useState(false)
   const [searchResults, setSearchResults] = useState<TransferUrun[]>([])
+  // 18.11.2026 — Optik Gözlük / Güneş Gözlüğü "Ürün adı" araması: ayrı alanlar
+  const [cerceveAra, setCerceveAra] = useState({ ad: '', model: '', renk: '', olcu: '' })
+  const [sadeceStokta, setSadeceStokta] = useState(true)
   const [productsLoading, setProductsLoading] = useState(false)
   const [pickedProduct, setPickedProduct] = useState<PickedProduct | null>(null)
 
@@ -406,8 +409,45 @@ export default function ItemsStep({
       .catch(() => {})
   }, [])
 
+  const cerceveModu =
+    step === 3 && (pickedType?.type === 'FRAME' || pickedType?.type === 'SUN') && aramaYontemi === 'ad'
+
+  useEffect(() => {
+    if (!modalOpen || !cerceveModu) return
+    const { ad, model, renk, olcu } = cerceveAra
+    const bos = !ad.trim() && !model.trim() && !renk.trim()
+    const lokasyon = getAktifLokasyon()
+    const t = setTimeout(() => {
+      if (bos) {
+        setSearchResults([])
+        return
+      }
+      setProductsLoading(true)
+      setError(null)
+      searchCerceveUrun({
+        ad: ad.trim(),
+        model: model.trim(),
+        renk: renk.trim(),
+        olcu: olcu.trim(),
+        lokasyon,
+        sadeceStok: sadeceStokta,
+        kategoriId: pickedKategoriId ?? undefined,
+        kategoriIds: pickedKategoriIds ?? undefined,
+      })
+        .then((data) => setSearchResults(Array.isArray(data) ? data : []))
+        .catch((e: unknown) => {
+          const d = (e as { response?: { data?: { message?: string; detail?: string } } })?.response?.data
+          setError(d?.message ?? d?.detail ?? 'Ürünler alınamadı')
+          setSearchResults([])
+        })
+        .finally(() => setProductsLoading(false))
+    }, bos ? 0 : 350)
+    return () => clearTimeout(t)
+  }, [modalOpen, cerceveModu, cerceveAra, sadeceStokta, pickedKategoriId, pickedKategoriIds])
+
   useEffect(() => {
     if (!modalOpen || step !== 3) return
+    if (cerceveModu) return
     const term = q.trim()
     // Stok cam kategorilerinde (Reçeteye göre öneri paneli) kullanıcı hiçbir şey
     // yazmadan, sadece kategori seçerek TÜM kategori kataloğunu (stokta olsun
@@ -457,7 +497,7 @@ export default function ItemsStep({
     }, 300)
 
     return () => clearTimeout(t)
-  }, [modalOpen, step, q, aramaYontemi, pickedKategoriId, pickedKategoriIds])
+  }, [modalOpen, step, q, aramaYontemi, pickedKategoriId, pickedKategoriIds, cerceveModu])
 
   // Reçeteye göre öneri: kullanıcının yazdığı arama metninden tamamen BAĞIMSIZ,
   // reçetedeki SPH/CYL numaralarını doğrudan backend'e arama terimi olarak
@@ -546,6 +586,8 @@ export default function ItemsStep({
     setQ('')
     setAramaYontemi('ad')
     setSearchResults([])
+    setCerceveAra({ ad: '', model: '', renk: '', olcu: '' })
+    setSadeceStokta(true)
     setPickedProduct(null)
     setQty('1')
     setUnitPrice('')
@@ -1398,12 +1440,46 @@ export default function ItemsStep({
                   )
                 })() : null}
 
-                {aramaYontemi === 'ad' && pickedKategoriId == null && !pickedKategoriIds?.length ? (
+                {cerceveModu ? (
+                  <div style={{ marginBottom: 4 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr 1fr', gap: 8 }}>
+                      {(
+                        [
+                          ['ad', 'Ürün adı / marka', 'örn. MATTEO veya MAT'],
+                          ['model', 'Model', 'örn. 265'],
+                          ['renk', 'Renk', 'örn. C6 veya 6'],
+                          ['olcu', 'Ölçü', 'boş bırakılabilir'],
+                        ] as const
+                      ).map(([alan, etiket, ornek], i) => (
+                        <label key={alan} style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                          {etiket}
+                          <input
+                            autoFocus={i === 0}
+                            value={cerceveAra[alan]}
+                            onChange={(e) => setCerceveAra((o) => ({ ...o, [alan]: e.target.value }))}
+                            placeholder={ornek}
+                            style={{ ...inputStyle, marginBottom: 0, marginTop: 4 }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 8, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={sadeceStokta} onChange={(e) => setSadeceStokta(e.target.checked)} />
+                      Sadece bu mağazada stokta olanlar
+                    </label>
+                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                      Kutulardan birini doldurmanız yeter; en çok uyanlar en üstte listelenir.
+                    </div>
+                  </div>
+                ) : null}
+
+                {!cerceveModu && aramaYontemi === 'ad' && pickedKategoriId == null && !pickedKategoriIds?.length ? (
                   <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
                     Kategori seçilmedi — tüm kategorilerde aranıyor.
                   </div>
                 ) : null}
 
+                {cerceveModu ? null : (
                 <BarkodKameraInput
                   value={q}
                   onChange={setQ}
@@ -1420,9 +1496,14 @@ export default function ItemsStep({
                   placeholder={aramaYontemi === 'barkod' ? 'Barkod okutun veya yazın...' : 'En az 1 karakter ara...'}
                   inputStyle={{ ...inputStyle, marginBottom: 0 }}
                 />
+                )}
                 <div style={{ marginTop: '10px', maxHeight: '320px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {productsLoading ? <div style={{ fontSize: '13px', color: '#6b7280' }}>Aranıyor...</div> : null}
-                  {!productsLoading && q.trim().length >= 1 && searchResults.length === 0 ? (
+                  {!productsLoading &&
+                  (cerceveModu
+                    ? Boolean(cerceveAra.ad.trim() || cerceveAra.model.trim() || cerceveAra.renk.trim())
+                    : q.trim().length >= 1) &&
+                  searchResults.length === 0 ? (
                     <div style={{ fontSize: 13, color: '#6b7280', padding: '8px 0' }}>
                       Sonuç bulunamadı.
                     </div>
@@ -1431,7 +1512,13 @@ export default function ItemsStep({
                     <div key={String(u.id)} style={resultCardStyle}>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ fontWeight: 800, fontSize: '14px' }}>{u.ad}</div>
-                        {u.varyant ? (
+                        {u.model || u.renk || u.olcu ? (
+                          <div style={{ fontSize: '13px', color: '#111827', marginTop: '2px', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                            {u.model ? <span>Model: <b>{u.model}</b></span> : null}
+                            {u.renk ? <span>Renk: <b>{u.renk}</b></span> : null}
+                            {u.olcu ? <span>Ölçü: <b>{u.olcu}</b></span> : null}
+                          </div>
+                        ) : u.varyant ? (
                           <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Varyant: {u.varyant}</div>
                         ) : null}
                         <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>

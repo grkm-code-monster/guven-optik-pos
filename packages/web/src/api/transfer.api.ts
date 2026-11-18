@@ -13,6 +13,11 @@ export type TransferUrun = {
   utsDurumu?: string
   stok?: number | null
   kaynakFatura?: string | null
+  /** 18.11.2026 — çerçeve aramasında ayrı alanlar */
+  model?: string | null
+  renk?: string | null
+  olcu?: string | null
+  puan?: number
 }
 
 function transferClient(source: 'pos' | 'admin' = 'pos') {
@@ -46,6 +51,31 @@ export async function searchTransferProducts(
   if (params.kategoriIds?.length) queryParams.kategoriIds = params.kategoriIds.join(',')
   if (params.katalog) queryParams.katalog = '1'
   const res = await transferClient(source).get('/transfer/urun-ara', { params: queryParams })
+  return res.data
+}
+
+/** 18.11.2026 — Optik Gözlük / Güneş Gözlüğü: ürün adı + model + renk + ölçü ile arama */
+export async function searchCerceveUrun(params: {
+  ad: string
+  model: string
+  renk: string
+  olcu: string
+  lokasyon: string
+  sadeceStok: boolean
+  kategoriId?: number
+  kategoriIds?: number[]
+}): Promise<TransferUrun[]> {
+  const queryParams: Record<string, string | number> = {
+    ad: params.ad,
+    model: params.model,
+    renk: params.renk,
+    olcu: params.olcu,
+    lokasyon: params.lokasyon,
+    sadeceStok: params.sadeceStok ? '1' : '0',
+  }
+  if (params.kategoriId != null) queryParams.kategoriId = params.kategoriId
+  if (params.kategoriIds?.length) queryParams.kategoriIds = params.kategoriIds.join(',')
+  const res = await apiClient.get('/transfer/urun-ara-cerceve', { params: queryParams })
   return res.data
 }
 

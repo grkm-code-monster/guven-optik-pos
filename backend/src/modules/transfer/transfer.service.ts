@@ -980,6 +980,135 @@ async function fetchQuantsAtLocation(lokasyonId, companyId, filters) {
     }
 }
 /** Ürün adı aramasından sonra: seçili lokasyondaki lot/seri kayıtları */
+/**
+ * 18.11.2026 — Kalem Ekle › Optik Gözlük / Güneş Gözlüğü › "Ürün adı" için ayrı alanlı arama:
+ * ürün adı (marka) + model + renk + ölçü. Şablonların TÜM varyantlarını çekip elemek yerine
+ * doğrudan eşleşen varyantlar alınır (stoklu modda doğrudan mağaza stoğundan) → hızlı.
+ * Ad ve model SIKI filtredir; renk ve ölçü sıralama puanıdır ("en çok uyan" üstte).
+ */
+const TR_UP = (s) => String(s ?? '').trim().toLocaleUpperCase('tr-TR');
+function eslesmePuani(deger, aranan) {
+    const d = TR_UP(deger);
+    const a = TR_UP(aranan);
+    if (!a || !d)
+        return 0;
+    if (d === a)
+        return 3;
+    if (d.startsWith(a) || d.endsWith(a))
+        return 2;
+    return d.includes(a) ? 1 : 0;
+}
+export async function searchCerceve(params) {
+    const ad = String(params?.ad ?? '').trim();
+    const model = String(params?.model ?? '').trim();
+    const renk = String(params?.renk ?? '').trim();
+    const olcu = String(params?.olcu ?? '').trim();
+    const lokasyon = String(params?.lokasyon ?? '').trim();
+    const sadeceStok = params?.sadeceStok !== false;
+    if (!ad && !model && !renk)
+        return [];
+    return withOdoo('urun-ara-cerceve', async () => {
+        const t0 = Date.now();
+        const companyId = odooLocations.getCompanyIdFromLokasyon(lokasyon);
+        if (!companyId)
+            throw new Error(`Lokasyon şirketi tanımsız: ${lokasyon}`);
+        // Ürün (product.product) üzerinde koşullar
+        const kosul = [];
+        if (ad)
+            kosul.push(['product_tmpl_id.name', 'ilike', ad]);
+        if (model)
+            kosul.push('|', '|',
+                ['product_tmpl_id.name', 'ilike', model],
+                ['default_code', 'ilike', model],
+                ['product_template_attribute_value_ids', 'any', [['attribute_id.name', '=ilike', 'MODEL%'], ['name', 'ilike', model]]]);
+        // Ad ve model boşsa (sadece renk yazılmışsa) renk sıkı filtre olur
+        if (!ad && !model && renk)
+            kosul.push(['product_template_attribute_value_ids', 'any', [['attribute_id.name', '=ilike', 'RENK%'], ['name', 'ilike', renk]]]);
+        const kategoriKosulu = applyKategoriToDomain([], params);
+        const urunAlanlari = ['id', 'display_name', 'name', 'lst_price', 'list_price', 'tracking', 'product_template_attribute_value_ids', 'product_tmpl_id', 'default_code'];
+        let variants = [];
+        if (sadeceStok) {
+            const lokasyonId = await odooLocations.getLokasyonId(lokasyon);
+            if (!lokasyonId)
+                throw new Error(`Lokasyon bulunamadı: ${lokasyon}`);
+            const onekli = (d) => d.map((x) => (Array.isArray(x) ? [`product_id.${x[0]}`, x[1], x[2]] : x));
+            const quantlar = (await odooService.execute('stock.quant', 'search_read', [[
+                    ['location_id', '=', lokasyonId],
+                    ['quantity', '>', 0],
+                    ...onekli(kategoriKosulu),
+                    ...onekli(kosul),
+                ]], { fields: ['product_id'], limit: 3000, context: { allowed_company_ids: [...odooService.ODOO_ALL_COMPANY_IDS] } }, companyId)) ?? [];
+            const ids = [...new Set(quantlar.map((q) => m2oId(q.product_id)).filter((x) => x))].slice(0, 400);
+            if (ids.length) {
+                const rows = (await odooService.execute('product.product', 'read', [ids], {
+                    fields: urunAlanlari,
+                    context: { allowed_company_ids: [...odooService.ODOO_ALL_COMPANY_IDS] },
+                }, companyId)) ?? [];
+                variants = rows.map((v) => ({ ...v, _cid: companyId }));
+            }
+        }
+        else {
+            const domain = [
+                ['type', 'in', ['product', 'consu']],
+                ['active', '=', true],
+                ['sale_ok', '=', true],
+                ...kategoriKosulu,
+                ...kosul,
+            ];
+            const seen = new Set();
+            const batches = await mapWithConcurrency(SIRKET_SEARCH_IDS, 3, async (cid) => {
+                const rows = (await odooService.execute('product.product', 'search_read', [domain], {
+                    fields: urunAlanlari, limit: 400, order: 'display_name asc',
+                }, cid)) ?? [];
+                return rows.map((r) => ({ ...r, _cid: cid }));
+            });
+            for (const b of batches)
+                for (const r of b)
+                    if (!seen.has(r.id)) {
+                        seen.add(r.id);
+                        variants.push(r);
+                    }
+        }
+        const ptavMap = await fetchPtavMapForVariants(variants, companyId);
+        const stokMap = await fetchStokMapForProducts(variants, lokasyon);
+        const sonuc = [];
+        for (const v of variants) {
+            const row = mapVariantToTransferUrun(v, ptavMap, stokMap, true);
+            let vModel = '';
+            let vRenk = '';
+            let vOlcu = '';
+            for (const pid of v.product_template_attribute_value_ids ?? []) {
+                const p = ptavMap.get(pid);
+                if (!p)
+                    continue;
+                const attr = TR_UP(m2oName(p.attribute_id));
+                const deger = ptavValueLabel(p);
+                if (attr.startsWith('MODEL'))
+                    vModel = deger;
+                else if (attr.startsWith('RENK'))
+                    vRenk = deger;
+                else if (attr.startsWith('ÖLÇÜ') || attr.startsWith('OLCU'))
+                    vOlcu = deger;
+            }
+            const sablonAdi = m2oName(v.product_tmpl_id) || row.ad;
+            if (!vModel) {
+                const m = String(sablonAdi).match(/(?:ÇERÇEVE|ÇERCEVE|GÖZLÜĞÜ|GÖZLÜGÜ)\s+(.+)$/i);
+                vModel = m ? m[1].trim() : (v.default_code || '');
+            }
+            const puan = (ad ? Math.max(eslesmePuani(sablonAdi, ad), eslesmePuani(String(sablonAdi).split(' ')[0], ad)) : 0)
+                + (model ? Math.max(eslesmePuani(vModel, model), eslesmePuani(v.default_code, model)) * 2 : 0)
+                + (renk ? eslesmePuani(vRenk, renk) * 2 : 0)
+                + (olcu ? eslesmePuani(vOlcu, olcu) : 0);
+            if (sadeceStok && !(Number(row.stok) > 0))
+                continue;
+            sonuc.push({ ...row, model: vModel || null, renk: vRenk || null, olcu: vOlcu || null, puan });
+        }
+        sonuc.sort((a, b) => b.puan - a.puan || (Number(b.stok) || 0) - (Number(a.stok) || 0) || String(a.ad).localeCompare(String(b.ad), 'tr') || String(a.model ?? '').localeCompare(String(b.model ?? ''), 'tr'));
+        const out = sonuc.slice(0, 150);
+        console.log(`[transfer urun-ara-cerceve] ad="${ad}" model="${model}" renk="${renk}" olcu="${olcu}" stok=${sadeceStok} aday=${variants.length} sonuc=${out.length} ${Date.now() - t0}ms`);
+        return out;
+    });
+}
 export async function searchUrunLotsByProduct(productId, lokasyon) {
     const pid = Number(productId);
     if (!Number.isFinite(pid) || pid <= 0) {
