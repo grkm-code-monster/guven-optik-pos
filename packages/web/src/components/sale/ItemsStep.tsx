@@ -1122,6 +1122,7 @@ export default function ItemsStep({
           cam={ozelIslemPencere.cam}
           camAdi={ozelIslemAdi(ozelIslemPencere.cam)}
           duzenlenen={ozelIslemPencere.duzenlenen}
+          mevcutIslemler={camOzelIslemleri(items, ozelIslemPencere.cam.id)}
           onClose={() => setOzelIslemPencere(null)}
           onSaved={onSaleUpdated}
         />

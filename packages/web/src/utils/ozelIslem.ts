@@ -49,32 +49,47 @@ export type OzelIslemTaraflari = {
 
 export type OzelIslemAlan = { etiket: string; secenekler?: string[]; serbest?: boolean; ipucu?: string }
 
+/** Terapötik filtreler — renklendirmenin içinden seçilir, ayrı ürün (fiyat farkı var) */
+export const TERAPOTIK_FILTRELER = [
+  'TF-450',
+  'TF-480',
+  'TF-500',
+  'TF-540',
+  'TF-550',
+  'TF-600',
+  'TF-R:600, L:460 (STEREO)',
+  'TF-650 (DEEP BLUE)',
+  'YELLOW LIFE (SPORTY-460NM)',
+  'ORANGE LIFE (SPORTY-510NM)',
+  'ANTI-MIGRAINE FL-41 (450-550 NM)',
+]
+
+/** Ayna (mirror) kaplama renkleri — boyama ile birlikte eklenir, ayrı ürün (fiyat farkı var) */
+export const AYNA_RENKLERI = ['SILVER', 'GOLD', 'BLUE', 'FLASH SILVER']
+
+function buyuk(ad: string | null | undefined): string {
+  return String(ad ?? '').toLocaleUpperCase('tr-TR')
+}
+export const isRenklendirmeAdi = (ad: string | null | undefined) => /RENKLEND|BOYA/.test(buyuk(ad))
+export const isTerapotikAdi = (ad: string | null | undefined) => /TERAP/.test(buyuk(ad))
+export const isAynaAdi = (ad: string | null | undefined) => /AYNA|MIRROR/.test(buyuk(ad))
+/** "DİĞER KAPLAMA": Zeiss vb. firma kaplamaları — adı elle yazılır (zorunlu) */
+export const isDigerKaplamaAdi = (ad: string | null | undefined) => /D[İI]ĞER/.test(buyuk(ad))
+export const DIGER_KAPLAMA_ALANI = 'Kaplama'
+
 /** İşlem adına göre her cam için sorulacak alanlar ("Detay" hepsinde en sonda ayrıca var). */
 export function ozelIslemAlanlari(ad: string | null | undefined): OzelIslemAlan[] {
-  const a = String(ad ?? '').toLocaleUpperCase('tr-TR')
-  if (/RENKLEND|BOYA/.test(a)) {
+  if (isAynaAdi(ad)) return [{ etiket: 'Ayna', secenekler: AYNA_RENKLERI }]
+  if (isDigerKaplamaAdi(ad)) {
+    return [{ etiket: DIGER_KAPLAMA_ALANI, serbest: true, ipucu: 'Kaplama adı ve firması (örn. Zeiss DuraVision Platinum)' }]
+  }
+  if (isTerapotikAdi(ad)) return [{ etiket: 'Filtre', secenekler: TERAPOTIK_FILTRELER }]
+  if (isRenklendirmeAdi(ad)) {
     return [
       { etiket: 'Renk', secenekler: ['Kahve', 'Gri', 'Yeşil', 'Mavi', 'Pembe', 'Sarı', 'Mor'], serbest: true, ipucu: 'Renk (örn. G15)' },
       { etiket: 'Yoğunluk', secenekler: ['%10', '%25', '%50', '%75', '%85'], serbest: true, ipucu: '%' },
       { etiket: 'Tip', secenekler: ['Düz', 'Degrade', 'Çift degrade'] },
     ]
-  }
-  if (/ODAK/.test(a)) {
-    return [
-      { etiket: 'Yatay', secenekler: ['İçe', 'Dışa'] },
-      { etiket: 'Yatay mm', serbest: true, ipucu: 'mm' },
-      { etiket: 'Dikey', secenekler: ['Yukarı', 'Aşağı'] },
-      { etiket: 'Dikey mm', serbest: true, ipucu: 'mm' },
-    ]
-  }
-  if (/PR[İI]ZMA/.test(a)) {
-    return [
-      { etiket: 'Prizma', serbest: true, ipucu: 'Δ (dpt)' },
-      { etiket: 'Baz', secenekler: ['Yukarı', 'Aşağı', 'İçe', 'Dışa'], serbest: true, ipucu: 'veya derece' },
-    ]
-  }
-  if (/[İI]NCELT|ÇAP/.test(a)) {
-    return [{ etiket: 'Çap mm', serbest: true, ipucu: 'mm' }]
   }
   return []
 }

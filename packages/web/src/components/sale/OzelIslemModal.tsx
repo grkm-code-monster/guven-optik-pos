@@ -1,16 +1,25 @@
 /**
  * 18.11.2026 — Cam satırındaki "🎨 Özel İşlem" penceresi.
- * Odoo BAKIM / ÖZEL İŞLEM kategorisindeki hizmet ürünlerinden biri seçilir; taraf,
- * sağ ve sol cam için (ikisi aynıysa tek seferde) işleme özel alanlar, detay ve
- * firmaya not girilir. Kayıt,
- * cama bağlı (linkedItemId, linkType'sız) normal bir satış kalemi olarak eklenir.
+ * Odoo BAKIM / ÖZEL İŞLEM kategorisindeki hizmet ürünlerinden biri seçilir (Renklendirme
+ * ve kaplamalar); sağ ve sol cam için (ikisi aynıysa tek seferde) işleme özel alanlar,
+ * detay ve firmaya not girilir. Kayıt, cama bağlı (linkedItemId, linkType'sız) normal
+ * bir satış kalemi olarak eklenir.
+ *
+ * Renklendirme: "Standart renk" veya "Terapötik filtre" (ayrı ürün, fiyat farkı) seçilir;
+ * isteğe bağlı "Ayna kaplama" (ayrı ürün, kendi fiyatı) aynı anda ikinci kalem olarak eklenir.
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { apiClient } from '../../api/client'
 import { addItem, getSaleById, updateItem } from '../../api/sales.api'
 import type { Sale, SaleItem } from '../../api/types'
 import {
+  AYNA_RENKLERI,
+  DIGER_KAPLAMA_ALANI,
   bosTaraflar,
+  isAynaAdi,
+  isDigerKaplamaAdi,
+  isRenklendirmeAdi,
+  isTerapotikAdi,
   nitelikCoz,
   nitelikOlustur,
   ozelIslemAlanlari,
@@ -20,7 +29,6 @@ import {
 } from '../../utils/ozelIslem'
 
 type OzelIslemUrun = { variantId: number; name: string; price: number }
-
 
 function sayi(v: string): number {
   const n = Number(String(v ?? '').replace(',', '.'))
@@ -32,10 +40,12 @@ export default function OzelIslemModal(props: {
   cam: SaleItem
   camAdi: string
   duzenlenen?: SaleItem | null
+  /** Bu cama zaten bağlı özel işlemler (ayna kaplama tekrar eklenmesin diye) */
+  mevcutIslemler?: SaleItem[]
   onClose: () => void
   onSaved: (sale: Sale) => void
 }) {
-  const { saleId, cam, camAdi, duzenlenen, onClose, onSaved } = props
+  const { saleId, cam, camAdi, duzenlenen, mevcutIslemler = [], onClose, onSaved } = props
   const [urunler, setUrunler] = useState<OzelIslemUrun[]>([])
   const [kategoriId, setKategoriId] = useState<number | null>(null)
   const [yukleniyor, setYukleniyor] = useState(true)
@@ -48,6 +58,10 @@ export default function OzelIslemModal(props: {
   const [indirim, setIndirim] = useState(duzenlenen ? String(duzenlenen.discount ?? '0') : '0')
   const [hata, setHata] = useState<string | null>(null)
   const [kaydediliyor, setKaydediliyor] = useState(false)
+  // Renklendirme ile birlikte eklenecek ayna kaplama (ayrı kalem)
+  const [aynaEkle, setAynaEkle] = useState(false)
+  const [aynaRenk, setAynaRenk] = useState('')
+  const [aynaFiyat, setAynaFiyat] = useState('')
 
   useEffect(() => {
     let iptal = false
@@ -82,9 +96,33 @@ export default function OzelIslemModal(props: {
 
   const alanlar = useMemo(() => ozelIslemAlanlari(secili?.name), [secili])
 
+  const renkUrun = urunler.find((u) => isRenklendirmeAdi(u.name))
+  const terapUrun = urunler.find((u) => isTerapotikAdi(u.name))
+  const aynaUrun = urunler.find((u) => isAynaAdi(u.name))
+  /** Üstteki düğmeler: Renklendirme önce, sonra kaplamalar; terapötik filtre ve ayna Renklendirme'nin içinde */
+  const ustUrunler = useMemo(() => {
+    const liste = urunler.filter((u) => !isTerapotikAdi(u.name) && !isAynaAdi(u.name))
+    const sira = (u: OzelIslemUrun) => (isRenklendirmeAdi(u.name) ? 0 : isDigerKaplamaAdi(u.name) ? 2 : 1)
+    return [...liste].sort((a, b) => sira(a) - sira(b) || a.name.localeCompare(b.name, 'tr'))
+  }, [urunler])
+  const renkModu = Boolean(secili && (isRenklendirmeAdi(secili.name) || isTerapotikAdi(secili.name)))
+  const mevcutAyna = mevcutIslemler.find((x) => isAynaAdi(x.odooProductName) && x.id !== duzenlenen?.id)
+  const aynaEklenebilir = renkModu && Boolean(aynaUrun) && !mevcutAyna && !(duzenlenen && isAynaAdi(duzenlenen.odooProductName))
+
+  function ustSeciliMi(u: OzelIslemUrun): boolean {
+    if (!secili) return false
+    if (isRenklendirmeAdi(u.name)) return renkModu
+    return secili.variantId === u.variantId
+  }
+
   function sec(u: OzelIslemUrun) {
     setSecili(u)
     if (!duzenlenen || String(duzenlenen.odooProductId) !== String(u.variantId)) setFiyat(String(u.price ?? 0))
+  }
+
+  function aynaAc(ac: boolean) {
+    setAynaEkle(ac)
+    if (ac && !aynaFiyat && aynaUrun) setAynaFiyat(String(aynaUrun.price ?? 0))
   }
 
   function patch(p: Partial<OzelIslemTaraflari>) {
@@ -93,9 +131,7 @@ export default function OzelIslemModal(props: {
 
   function degerYaz(taraf: 'sag' | 'sol', etiket: string, v: string) {
     setTaraflar((t) =>
-      taraf === 'sag'
-        ? { ...t, sagDeger: { ...t.sagDeger, [etiket]: v } }
-        : { ...t, solDeger: { ...t.solDeger, [etiket]: v } },
+      taraf === 'sag' ? { ...t, sagDeger: { ...t.sagDeger, [etiket]: v } } : { ...t, solDeger: { ...t.solDeger, [etiket]: v } },
     )
   }
 
@@ -134,6 +170,27 @@ export default function OzelIslemModal(props: {
       setHata('İndirim geçersiz.')
       return
     }
+    if (isDigerKaplamaAdi(secili.name)) {
+      const ayniTek = taraflar.sag && taraflar.sol && taraflar.ayni
+      const eksik =
+        (taraflar.sag && !String(taraflar.sagDeger[DIGER_KAPLAMA_ALANI] ?? '').trim()) ||
+        (taraflar.sol && !ayniTek && !String(taraflar.solDeger[DIGER_KAPLAMA_ALANI] ?? '').trim())
+      if (eksik) {
+        setHata('Diğer kaplamada kaplamanın adını yazın (örn. Zeiss DuraVision Platinum).')
+        return
+      }
+    }
+    const aynaF = sayi(aynaFiyat || '0')
+    if (aynaEkle && aynaEklenebilir) {
+      if (!aynaRenk) {
+        setHata('Ayna kaplama rengini seçin ya da ayna kaplamayı kaldırın.')
+        return
+      }
+      if (!Number.isFinite(aynaF) || aynaF < 0) {
+        setHata('Ayna kaplama fiyatı geçersiz.')
+        return
+      }
+    }
     const kayit: OzelIslemTaraflari = {
       ...taraflar,
       sagDeger: sadeAlanlar(taraflar.sagDeger),
@@ -155,10 +212,39 @@ export default function OzelIslemModal(props: {
     try {
       if (duzenlenen) await updateItem(saleId, duzenlenen.id, payload)
       else await addItem(saleId, payload)
+      if (aynaEkle && aynaEklenebilir && aynaUrun) {
+        try {
+          await addItem(saleId, {
+            productId: `odoo_${aynaUrun.variantId}`,
+            odooProductId: String(aynaUrun.variantId),
+            odooProductName: aynaUrun.name,
+            ...(kategoriId != null ? { odooCategoryId: kategoriId } : {}),
+            qty: 1,
+            unitPrice: aynaF.toFixed(2),
+            discount: '0.00',
+            linkedItemId: cam.id,
+            maintenanceNature: nitelikOlustur({
+              sag: taraflar.sag,
+              sol: taraflar.sol,
+              ayni: true,
+              sagDeger: { Ayna: aynaRenk },
+              solDeger: { Ayna: aynaRenk },
+            }),
+            maintenanceDescription: null,
+          })
+        } catch {
+          // Renklendirme kaydedildi; tekrar denemede ikinci kez eklenmesin diye pencere kapanır
+          window.alert(
+            "Renklendirme kaydedildi ama ayna kaplama eklenemedi. Renklendirme satırının Düzenle'sinden ayna kaplamayı tekrar ekleyin.",
+          )
+        }
+      }
       onSaved(await getSaleById(saleId))
       onClose()
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { message?: string; error?: string } } }
+      const err = e as {
+        response?: { data?: { message?: string; error?: string } }
+      }
       setHata(err?.response?.data?.message ?? err?.response?.data?.error ?? 'Özel işlem kaydedilemedi.')
     } finally {
       setKaydediliyor(false)
@@ -168,7 +254,14 @@ export default function OzelIslemModal(props: {
   return (
     <div style={overlay} onClick={onClose}>
       <div style={kutu} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 4,
+          }}
+        >
           <div style={{ fontSize: 16, fontWeight: 900 }}>🎨 Özel İşlem {duzenlenen ? '— Düzenle' : ''}</div>
           <button type="button" onClick={onClose} style={kapatBtn} aria-label="Kapat">
             ✕
@@ -185,16 +278,55 @@ export default function OzelIslemModal(props: {
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {(urunler.some((u) => u.variantId === secili?.variantId) || !secili ? urunler : [secili, ...urunler]).map((u) => (
-              <button key={u.variantId} type="button" onClick={() => sec(u)} style={chip(secili?.variantId === u.variantId)}>
+            {(!secili || renkModu || ustUrunler.some((u) => u.variantId === secili.variantId)
+              ? ustUrunler
+              : [secili, ...ustUrunler]
+            ).map((u) => (
+              <button
+                key={u.variantId}
+                type="button"
+                onClick={() => (isRenklendirmeAdi(u.name) && renkModu ? undefined : sec(u))}
+                style={chip(ustSeciliMi(u))}
+              >
                 {u.name}
               </button>
             ))}
           </div>
         )}
 
+        {renkModu ? (
+          <>
+            <Baslik>Renk türü</Baslik>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => renkUrun && sec(renkUrun)}
+                disabled={!renkUrun}
+                style={chip(Boolean(secili && isRenklendirmeAdi(secili.name)))}
+              >
+                Standart renk
+              </button>
+              <button
+                type="button"
+                onClick={() => terapUrun && sec(terapUrun)}
+                disabled={!terapUrun}
+                style={chip(Boolean(secili && isTerapotikAdi(secili.name)))}
+              >
+                Terapötik filtre
+              </button>
+            </div>
+          </>
+        ) : null}
+
         <Baslik>Hangi cam</Baslik>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            flexWrap: 'wrap',
+            alignItems: 'center',
+          }}
+        >
           <button type="button" onClick={() => tarafAc('sag')} style={chip(taraflar.sag)}>
             {taraflar.sag ? '✓ ' : ''}Sağ
           </button>
@@ -202,7 +334,17 @@ export default function OzelIslemModal(props: {
             {taraflar.sol ? '✓ ' : ''}Sol
           </button>
           {taraflar.sag && taraflar.sol ? (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, marginLeft: 6, cursor: 'pointer' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 700,
+                marginLeft: 6,
+                cursor: 'pointer',
+              }}
+            >
               <input type="checkbox" checked={taraflar.ayni} onChange={(e) => patch({ ayni: e.target.checked })} />
               Sol, Sağ ile aynı
             </label>
@@ -221,6 +363,60 @@ export default function OzelIslemModal(props: {
           <TarafKutusu baslik="SOL" alanlar={alanlar} deger={taraflar.solDeger} onDeger={(k, v) => degerYaz('sol', k, v)} />
         ) : null}
 
+        {renkModu && mevcutAyna ? (
+          <div style={{ marginTop: 12, fontSize: 12, color: '#6b7280' }}>
+            🪞 Bu camda ayna kaplama zaten var ({mevcutAyna.maintenanceNature ?? ''}). Değiştirmek için o satırın Düzenle'sini
+            kullanın.
+          </div>
+        ) : null}
+        {aynaEklenebilir ? (
+          <div
+            style={{
+              marginTop: 12,
+              border: '1px solid #e5e7eb',
+              borderRadius: 10,
+              padding: '10px 12px',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+              }}
+            >
+              <input type="checkbox" checked={aynaEkle} onChange={(e) => aynaAc(e.target.checked)} />
+              🪞 Ayna (mirror) kaplama da ekle
+            </label>
+            {aynaEkle ? (
+              <>
+                <Baslik>Ayna rengi</Baslik>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {AYNA_RENKLERI.map((r) => (
+                    <button key={r} type="button" onClick={() => setAynaRenk(r)} style={chip(aynaRenk === r)}>
+                      {r}
+                    </button>
+                  ))}
+                </div>
+                <Baslik>Ayna kaplama fiyatı (₺)</Baslik>
+                <input
+                  value={aynaFiyat}
+                  onChange={(e) => setAynaFiyat(e.target.value)}
+                  inputMode="decimal"
+                  style={{ ...input, width: 160 }}
+                />
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                  Ayrı satır olarak eklenir; seçili cam(lar)a (
+                  {taraflar.sag && taraflar.sol ? 'Sağ+Sol' : taraflar.sag ? 'Sağ' : 'Sol'}) uygulanır.
+                </div>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+
         <Baslik>Firmaya not</Baslik>
         <textarea
           value={firmaNotu}
@@ -230,9 +426,16 @@ export default function OzelIslemModal(props: {
           style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }}
         />
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 10,
+            marginTop: 4,
+          }}
+        >
           <label>
-            <Baslik>Fiyat (₺)</Baslik>
+            <Baslik>{renkModu ? 'Renklendirme fiyatı (₺)' : 'Fiyat (₺)'}</Baslik>
             <input value={fiyat} onChange={(e) => setFiyat(e.target.value)} inputMode="decimal" style={input} />
           </label>
           <label>
@@ -241,13 +444,36 @@ export default function OzelIslemModal(props: {
           </label>
         </div>
 
-        {hata ? <div style={{ marginTop: 10, color: '#b91c1c', fontSize: 13, fontWeight: 700 }}>{hata}</div> : null}
+        {hata ? (
+          <div
+            style={{
+              marginTop: 10,
+              color: '#b91c1c',
+              fontSize: 13,
+              fontWeight: 700,
+            }}
+          >
+            {hata}
+          </div>
+        ) : null}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            marginTop: 16,
+          }}
+        >
           <button type="button" onClick={onClose} style={ikincilBtn}>
             Vazgeç
           </button>
-          <button type="button" onClick={() => void kaydet()} disabled={kaydediliyor || !secili} style={birincilBtn(kaydediliyor || !secili)}>
+          <button
+            type="button"
+            onClick={() => void kaydet()}
+            disabled={kaydediliyor || !secili}
+            style={birincilBtn(kaydediliyor || !secili)}
+          >
             {kaydediliyor ? 'Kaydediliyor…' : duzenlenen ? 'Güncelle' : 'Ekle'}
           </button>
         </div>
@@ -264,12 +490,36 @@ function TarafKutusu(props: {
 }) {
   const { baslik, alanlar, deger, onDeger } = props
   return (
-    <div style={{ marginTop: 12, border: '1px solid #ddd6fe', borderRadius: 10, padding: '4px 12px 12px', background: '#faf8ff' }}>
-      <div style={{ fontSize: 12, fontWeight: 900, color: '#6d28d9', marginTop: 8 }}>{baslik}</div>
+    <div
+      style={{
+        marginTop: 12,
+        border: '1px solid #ddd6fe',
+        borderRadius: 10,
+        padding: '4px 12px 12px',
+        background: '#faf8ff',
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 900,
+          color: '#6d28d9',
+          marginTop: 8,
+        }}
+      >
+        {baslik}
+      </div>
       {alanlar.map((a) => (
         <div key={a.etiket}>
           <Baslik>{a.etiket}</Baslik>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+              alignItems: 'center',
+            }}
+          >
             {(a.secenekler ?? []).map((o) => (
               <button
                 key={o}
