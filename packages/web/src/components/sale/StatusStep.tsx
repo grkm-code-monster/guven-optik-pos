@@ -5,6 +5,7 @@ import { hasAnyPrescriptionData, isLensMeasurementSaleItem, mergedPrescriptionNu
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import { downloadOzelSiparisKartPdf } from '../../utils/ozelSiparisKartPdf'
+import { isOzelIslemItem, ozelIslemAdi } from '../../utils/ozelIslem'
 
 type ItemStatus = 'DELIVERED' | 'IN_LAB' | 'ORDERED' | 'PENDING'
 
@@ -456,6 +457,23 @@ export default function StatusStep({
                           <span>SPH {rx.l_sph ?? '—'} / CYL {rx.l_cyl ?? '—'} / AKS {rx.l_aks ?? '—'} / PD {rx.l_pd ?? '—'}</span>
                         </div>
                       )}
+                      {/* 18.11.2026 — Özel işlem / bakım notları PDF'te de yazılsın */}
+                      {isOzelIslemItem(it) ? (
+                        <div style={{ marginTop: 4, fontSize: 11, color: '#374151' }}>
+                          <span style={{ color: '#6d28d9', fontWeight: 700 }}>Özel işlem</span>
+                          {(() => {
+                            const cam = items.find((x) => x.id === it.linkedItemId)
+                            return cam ? ` — Cam: ${ozelIslemAdi(cam)}` : ''
+                          })()}
+                          {it.maintenanceNature ? <div>{it.maintenanceNature}</div> : null}
+                          {it.maintenanceDescription ? <div>Firmaya not: {it.maintenanceDescription}</div> : null}
+                        </div>
+                      ) : it.maintenanceNature || it.maintenanceDescription ? (
+                        <div style={{ marginTop: 4, fontSize: 11, color: '#374151' }}>
+                          {it.maintenanceNature ? <div>Niteliği: {it.maintenanceNature}</div> : null}
+                          {it.maintenanceDescription ? <div>Açıklama: {it.maintenanceDescription}</div> : null}
+                        </div>
+                      ) : null}
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontWeight: 700 }}>{para(Number(it.lineTotal))}</div>

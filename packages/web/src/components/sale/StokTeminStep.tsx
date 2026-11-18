@@ -6,6 +6,7 @@ import { getAktifLokasyon } from '../../utils/aktifLokasyon'
 import type { LensOrderMeasurementPayload } from '../../utils/saleMeasurements'
 import { buildOzelSiparisReceteFields } from '../../utils/ozelSiparisRecete'
 import { BAKIM_KATEGORI_ID } from './saleKategoriTree'
+import { camOzelIslemleri, isOzelIslemItem, ozelIslemOzeti } from '../../utils/ozelIslem'
 
 type StokDurum = 'YUKLENIYOR' | 'MEVCUT' | 'BASKA_LOKASYON' | 'TRANSFER_YOLDA' | 'YOK'
 type TransferDurum = 'islemde' | 'bekliyor' | 'gonderildi' | 'hata' | 'kismi'
@@ -46,8 +47,9 @@ const LOKASYON_ID_MAP: Record<string, number> = {
   'ANADEPO': 61, 'GVN5': 62, 'GVN7': 64, 'ETICARET': 65, 'GVNP': 66, 'GUVENP2': 67,
 }
 
-function isBakimHizmetItem(item: { odooCategoryId?: number | null }): boolean {
-  return item.odooCategoryId === BAKIM_KATEGORI_ID
+function isBakimHizmetItem(item: Parameters<typeof isOzelIslemItem>[0] & { odooCategoryId?: number | null }): boolean {
+  // 18.11.2026 — cama bağlı "Özel İşlem" (renklendirme vb.) de hizmettir, stok istemez
+  return item.odooCategoryId === BAKIM_KATEGORI_ID || isOzelIslemItem(item)
 }
 
 function stokKontrolKalemleri(items: any[]): any[] {
@@ -546,6 +548,12 @@ export default function StokTeminStep({
 
       const olcum = lensOrderMeasurements?.find((m) => m.saleItemId === urun.saleItemId)
       if (olcum) payload.olcumBilgisi = [olcum]
+
+      // 18.11.2026 — bu cama bağlı özel işlemler firmaya giden sipariş notuna yazılır
+      const ozelIslemler = camOzelIslemleri(sale?.items ?? [], urun.saleItemId)
+      if (ozelIslemler.length) {
+        payload.notlar = ozelIslemler.map((oi) => `ÖZEL İŞLEM: ${ozelIslemOzeti(oi)}`).join(' | ')
+      }
 
       const res = await apiClient.post('/admin/ozel-siparis-ekle', payload)
       if (res.data?.success || res.data?.zatenVar) {

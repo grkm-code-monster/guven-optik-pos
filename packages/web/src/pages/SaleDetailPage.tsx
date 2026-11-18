@@ -14,8 +14,9 @@ import {
   duzenleSaleItemKdv,
   duzenleSaleItemPrescription,
 } from '../api/sales.api'
-import type { Sale } from '../api/types'
+import type { Sale, SaleItem } from '../api/types'
 import { getMountFrameItems, isLensMeasurementSaleItem } from '../utils/saleMeasurements'
+import { camOzelIslemleri, isOzelIslemItem, ozelIslemAdi } from '../utils/ozelIslem'
 import { useAuthStore } from '../store/auth.store'
 
 const cardStyle: CSSProperties = {
@@ -276,7 +277,7 @@ function LensOrderMeasurementGrid({ m }: { m: Record<string, unknown> }) {
 
 /** Satış PDF'inde tek bir ürün kartı (çerçeve veya cam). `indent`: çerçeveye bağlı
  *  cam kalemleri, üstündeki çerçevenin altında girintili gösterilir. */
-function PdfItemCard({ it, indent = false }: { it: any; indent?: boolean }) {
+function PdfItemCard({ it, indent = false, ozelIslemler = [] }: { it: any; indent?: boolean; ozelIslemler?: SaleItem[] }) {
   const durum = String(it.status).toUpperCase()
   const urunAdi =
     it.odooProductName && !it.odooProductName.includes('PLACEHOLDER')
@@ -333,6 +334,18 @@ function PdfItemCard({ it, indent = false }: { it: any; indent?: boolean }) {
               <span>
                 SPH {rx.l_sph ?? '—'} / CYL {rx.l_cyl ?? '—'} / AKS {rx.l_aks ?? '—'} / PD {rx.l_pd ?? '—'}
               </span>
+            </div>
+          ) : null}
+          {ozelIslemler.length ? (
+            <div style={{ marginTop: 6, fontSize: 11, color: '#374151' }}>
+              {ozelIslemler.map((oi) => (
+                <div key={oi.id} style={{ marginTop: 2 }}>
+                  <span style={{ color: '#6d28d9', fontWeight: 700 }}>Özel işlem:</span> {ozelIslemAdi(oi)}
+                  {oi.maintenanceNature ? ` (${oi.maintenanceNature})` : ''}
+                  {oi.maintenanceDescription ? ` — Firmaya not: ${oi.maintenanceDescription}` : ''}
+                  {` · ${pdfPara(Number(oi.lineTotal))}`}
+                </div>
+              ))}
             </div>
           ) : null}
           {it.maintenanceNature || it.maintenanceDescription ? (
@@ -521,6 +534,12 @@ export default function SaleDetailPage() {
         consumed.add(p.id)
       })
       groups.push({ kind: 'customerFrame', lenses: pair })
+    }
+
+    // 18.11.2026 — cama bağlı özel işlemler camın kartında yazılır, ayrıca listelenmez
+    const lensIds = new Set(lensLike.map((l) => l.id))
+    for (const it of items) {
+      if (isOzelIslemItem(it) && it.linkedItemId && lensIds.has(it.linkedItemId)) consumed.add(it.id)
     }
 
     for (const it of items as any[]) {
@@ -1043,6 +1062,32 @@ export default function SaleDetailPage() {
                 Satır toplamı:{' '}
                 <span style={{ color: '#111', fontWeight: 900, fontSize: 14 }}>{money(it.lineTotal)}</span>
               </div>
+              {/* 18.11.2026 — Özel işlem / bakım notları */}
+              {isOzelIslemItem(it) ? (
+                <div style={{ marginTop: 8, padding: '8px 10px', borderLeft: '3px solid #7c3aed', background: '#f5f3ff', borderRadius: 8, fontSize: 12 }}>
+                  <div style={{ fontWeight: 800, color: '#6d28d9' }}>
+                    🎨 Özel işlem
+                    {(() => {
+                      const cam = items.find((x) => x.id === it.linkedItemId)
+                      return cam ? ` — Cam: ${ozelIslemAdi(cam)}` : ''
+                    })()}
+                  </div>
+                  {it.maintenanceNature ? <div style={{ color: '#374151' }}>{it.maintenanceNature}</div> : null}
+                  {it.maintenanceDescription ? (
+                    <div style={{ color: '#6b7280', fontStyle: 'italic' }}>Firmaya not: {it.maintenanceDescription}</div>
+                  ) : null}
+                </div>
+              ) : it.maintenanceNature || it.maintenanceDescription ? (
+                <div style={{ marginTop: 8, fontSize: 12, color: '#374151' }}>
+                  {it.maintenanceNature ? <div><span style={{ color: '#6b7280', fontWeight: 700 }}>Nitelik:</span> {it.maintenanceNature}</div> : null}
+                  {it.maintenanceDescription ? <div><span style={{ color: '#6b7280', fontWeight: 700 }}>Açıklama:</span> {it.maintenanceDescription}</div> : null}
+                </div>
+              ) : null}
+              {isLensMeasurementSaleItem(it) && camOzelIslemleri(items, it.id).length ? (
+                <div style={{ marginTop: 8, fontSize: 12, color: '#6d28d9', fontWeight: 700 }}>
+                  🎨 Bu camda özel işlem var: {camOzelIslemleri(items, it.id).map((oi) => ozelIslemAdi(oi)).join(', ')}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -1355,7 +1400,7 @@ export default function SaleDetailPage() {
                       <div key={`frame-${g.frame.id}`} style={{ marginBottom: 12 }}>
                         <PdfItemCard it={g.frame} />
                         {g.lenses.map((l: any) => (
-                          <PdfItemCard key={l.id} it={l} indent />
+                          <PdfItemCard key={l.id} it={l} indent ozelIslemler={camOzelIslemleri(items, l.id)} />
                         ))}
                       </div>
                     )
@@ -1367,12 +1412,18 @@ export default function SaleDetailPage() {
                           MÜŞTERİNİN KENDİ ÇERÇEVESİ
                         </div>
                         {g.lenses.map((l: any) => (
-                          <PdfItemCard key={l.id} it={l} />
+                          <PdfItemCard key={l.id} it={l} ozelIslemler={camOzelIslemleri(items, l.id)} />
                         ))}
                       </div>
                     )
                   }
-                  return <PdfItemCard key={g.item.id} it={g.item} />
+                  return (
+                    <PdfItemCard
+                      key={g.item.id}
+                      it={g.item}
+                      ozelIslemler={isLensMeasurementSaleItem(g.item) ? camOzelIslemleri(items, g.item.id) : []}
+                    />
+                  )
                 })}
               </div>
 

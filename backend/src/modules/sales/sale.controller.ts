@@ -17,6 +17,7 @@ import {
 } from './sale.types';
 import * as saleService from './sale.service';
 import * as labIncidentService from './lab-incident.service';
+import { listOzelIslemUrunleri } from './ozel-islem';
 import { subeToSirketAyarId } from '../efatura/uyumsoft-efatura.service';
 import { getOutboxInvoicePdf } from '../uyumsoft/uyumsoft.service';
 
@@ -202,6 +203,16 @@ router.get('/urun-kdv-orani', async (req: Request, res: Response, next: NextFunc
     return res.status(200).json({ kdvOrani });
   } catch (err) {
     if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+// 18.11.2026 — Cam "Özel İşlem" butonu: Odoo BAKIM / ÖZEL İŞLEM kategorisindeki
+// hizmet ürünleri (renklendirme, odak kaydırma…). Bkz. ozel-islem.ts.
+router.get('/ozel-islem-urunleri', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    return res.status(200).json(await listOzelIslemUrunleri());
+  } catch (err) {
     next(err);
   }
 });

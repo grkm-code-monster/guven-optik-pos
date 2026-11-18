@@ -514,6 +514,12 @@ export async function removeSaleItem(saleItemId: string) {
     where: { id: saleItemId },
     data: { status: ItemStatus.VOID },
   });
+  // 18.11.2026 — cama bağlı "Özel İşlem" kalemleri (linkedItemId = cam, linkType yok)
+  // cam silinince onunla birlikte silinir (çerçeveye bağlı camlara dokunulmaz).
+  await prisma.saleItem.updateMany({
+    where: { saleId: saleItem.saleId, linkedItemId: saleItemId, linkType: null, status: { not: ItemStatus.VOID } },
+    data: { status: ItemStatus.VOID },
+  });
 
   await recalcSaleTotals(prisma, saleItem.saleId);
   return { ok: true };

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import * as odooService from '../odoo/odoo.service';
 import * as odooLocations from '../odoo/odooLocations';
+import { getOzelIslemKategoriId, ozelIslemKategoriIdOnbellek } from '../sales/ozel-islem';
 import { normalizeTransferSearchTerm } from '../odoo/gs1-parser.util';
 import { kabulEtTransfer, baslatTransfer } from './transfer-core.service';
 import { isDevMockEnabled } from './transfer.mock';
@@ -561,6 +562,13 @@ function applyKategoriToDomain(domain, options) {
     else if (kategoriId != null) {
         domain.push(['categ_id', 'child_of', kategoriId]);
     }
+    // 18.11.2026 — BAKIM araması, alt kategori ÖZEL İŞLEM'i (renklendirme vb.)
+    // göstermesin: bunlar sadece cam satırındaki "Özel İşlem" butonundan seçilir.
+    const tekBakim = ids?.length ? (ids.length === 1 && ids[0] === BAKIM_KATEGORI_ID) : kategoriId === BAKIM_KATEGORI_ID;
+    const ozelId = ozelIslemKategoriIdOnbellek();
+    if (tekBakim && ozelId) {
+        domain.push(['categ_id', '!=', ozelId]);
+    }
     return domain;
 }
 async function searchVariantsByPtav(term, options, limit) {
@@ -857,6 +865,7 @@ async function mapProductsKatalog(productIds, lotRows, companyId, lokasyon) {
     return dedupeTransferUrunResults(withCid.map((v) => mapVariantToTransferUrun(v, undefined, stokMap, Boolean(lokasyon))));
 }
 export async function searchUrun(q, yontem, lokasyon, options) {
+    await getOzelIslemKategoriId();
     const rawTerm = q.trim();
     const term = normalizeTransferSearchTerm(rawTerm, yontem);
     const katalog = options?.katalog === true;

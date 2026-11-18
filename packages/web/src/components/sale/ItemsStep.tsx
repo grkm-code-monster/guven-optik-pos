@@ -4,6 +4,10 @@ import { addItem, deleteItem, getSaleById, hesaplaPersonelFiyati, updateItem } f
 import { apiClient } from '../../api/client'
 import { useAuthStore } from '../../store/auth.store'
 import BarkodKameraInput from '../BarkodKameraInput'
+import OzelIslemModal from './OzelIslemModal'
+import type { SaleItem } from '../../api/types'
+import { camOzelIslemleri, ozelIslemAdi, ustSeviyeKalemler } from '../../utils/ozelIslem'
+import { isLensMeasurementSaleItem } from '../../utils/saleMeasurements'
 import { getAktifLokasyon } from '../../utils/aktifLokasyon'
 import { isGs1DataMatrix, parseGs1DataMatrix } from '../../utils/parseGs1DataMatrix'
 import {
@@ -337,6 +341,8 @@ export default function ItemsStep({
   customerPrescription?: Record<string, unknown> | null
 }) {
   const [modalOpen, setModalOpen] = useState(false)
+  // 18.11.2026 — cam satırındaki "Özel İşlem" penceresi
+  const [ozelIslemPencere, setOzelIslemPencere] = useState<{ cam: SaleItem; duzenlenen: SaleItem | null } | null>(null)
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [pickedType, setPickedType] = useState<(typeof typeCards)[number] | null>(null)
   const [pickedKategoriId, setPickedKategoriId] = useState<number | null>(null)
@@ -946,8 +952,7 @@ export default function ItemsStep({
 
       <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {items.length === 0 ? <div style={{ fontSize: '13px', color: '#6b7280' }}>Henüz kalem yok.</div> : null}
-        {items
-          .filter((it) => String(it.status).toUpperCase() !== 'VOID')
+        {ustSeviyeKalemler(items.filter((it) => String(it.status).toUpperCase() !== 'VOID'))
           .map((it) => (
           <div
             key={it.id}
@@ -1000,13 +1005,36 @@ export default function ItemsStep({
                     + Cam Ekle
                   </button>
                 ) : null}
+                {isLensMeasurementSaleItem(it) ? (
+                  <button
+                    type="button"
+                    onClick={() => setOzelIslemPencere({ cam: it, duzenlenen: null })}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      border: '1px solid #7c3aed',
+                      backgroundColor: 'white',
+                      color: '#7c3aed',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🎨 Özel İşlem
+                  </button>
+                ) : null}
                 <button type="button" onClick={() => openEdit(it)} style={editBtnStyle}>
                   Düzenle
                 </button>
                 <button
                   type="button"
                   onClick={async () => {
-                    const ok = window.confirm('Bu kalemi silmek istediğinize emin misiniz?')
+                    const bagliIslem = camOzelIslemleri(items, it.id).length
+                    const ok = window.confirm(
+                      bagliIslem
+                        ? `Bu kalemi ve ona bağlı ${bagliIslem} özel işlemi silmek istediğinize emin misiniz?`
+                        : 'Bu kalemi silmek istediğinize emin misiniz?',
+                    )
                     if (!ok) return
                     try {
                       await deleteItem(saleId, it.id)
@@ -1036,10 +1064,66 @@ export default function ItemsStep({
                 <span style={{ fontWeight: 900, fontSize: 16 }}>Tutar: {money(it.lineTotal)}</span>
               </div>
             </div>
+            {camOzelIslemleri(items, it.id).map((oi) => (
+              <div
+                key={oi.id}
+                style={{
+                  marginLeft: 14,
+                  padding: '8px 10px',
+                  borderLeft: '3px solid #7c3aed',
+                  background: '#f5f3ff',
+                  borderRadius: 8,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
+                <div style={{ minWidth: 0, fontSize: 12, color: '#111' }}>
+                  <div style={{ fontWeight: 800, fontSize: 13 }}>🎨 {ozelIslemAdi(oi)}</div>
+                  {oi.maintenanceNature ? <div style={{ color: '#4b5563' }}>{oi.maintenanceNature}</div> : null}
+                  {oi.maintenanceDescription ? (
+                    <div style={{ color: '#6b7280', fontStyle: 'italic' }}>Firmaya not: {oi.maintenanceDescription}</div>
+                  ) : null}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontWeight: 800, fontSize: 13 }}>{money(oi.lineTotal)}</span>
+                  <button type="button" onClick={() => setOzelIslemPencere({ cam: it, duzenlenen: oi })} style={editBtnStyle}>
+                    Düzenle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!window.confirm('Bu özel işlemi silmek istediğinize emin misiniz?')) return
+                      try {
+                        await deleteItem(saleId, oi.id)
+                        onSaleUpdated(await getSaleById(saleId))
+                      } catch (e: unknown) {
+                        const err = e as { response?: { data?: { message?: string } } }
+                        setError(err?.response?.data?.message ?? 'Özel işlem silinemedi')
+                      }
+                    }}
+                    style={deleteBtnStyle}
+                  >
+                    Sil
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         ))}
       </div>
 
+      {ozelIslemPencere ? (
+        <OzelIslemModal
+          saleId={saleId}
+          cam={ozelIslemPencere.cam}
+          camAdi={ozelIslemAdi(ozelIslemPencere.cam)}
+          duzenlenen={ozelIslemPencere.duzenlenen}
+          onClose={() => setOzelIslemPencere(null)}
+          onSaved={onSaleUpdated}
+        />
+      ) : null}
       {modalOpen ? (
         <div style={overlayStyle}>
           <div style={modalStyle}>
