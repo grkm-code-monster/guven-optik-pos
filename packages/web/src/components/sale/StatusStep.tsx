@@ -5,7 +5,7 @@ import { hasAnyPrescriptionData, isLensMeasurementSaleItem, mergedPrescriptionNu
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import { downloadOzelSiparisKartPdf } from '../../utils/ozelSiparisKartPdf'
-import { isOzelIslemItem, ozelIslemAdi } from '../../utils/ozelIslem'
+import { isOzelIslemItem, nitelikSatirlari, ozelIslemAdi } from '../../utils/ozelIslem'
 
 type ItemStatus = 'DELIVERED' | 'IN_LAB' | 'ORDERED' | 'PENDING'
 
@@ -465,7 +465,7 @@ export default function StatusStep({
                             const cam = items.find((x) => x.id === it.linkedItemId)
                             return cam ? ` — Cam: ${ozelIslemAdi(cam)}` : ''
                           })()}
-                          {it.maintenanceNature ? <div>{it.maintenanceNature}</div> : null}
+                          {nitelikSatirlari(it.maintenanceNature).map((satir) => <div key={satir}>{satir}</div>)}
                           {it.maintenanceDescription ? <div>Firmaya not: {it.maintenanceDescription}</div> : null}
                         </div>
                       ) : it.maintenanceNature || it.maintenanceDescription ? (

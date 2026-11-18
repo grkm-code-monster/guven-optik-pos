@@ -6,7 +6,7 @@ import { useAuthStore } from '../../store/auth.store'
 import BarkodKameraInput from '../BarkodKameraInput'
 import OzelIslemModal from './OzelIslemModal'
 import type { SaleItem } from '../../api/types'
-import { camOzelIslemleri, ozelIslemAdi, ustSeviyeKalemler } from '../../utils/ozelIslem'
+import { camOzelIslemleri, nitelikSatirlari, ozelIslemAdi, ustSeviyeKalemler } from '../../utils/ozelIslem'
 import { isLensMeasurementSaleItem } from '../../utils/saleMeasurements'
 import { getAktifLokasyon } from '../../utils/aktifLokasyon'
 import { isGs1DataMatrix, parseGs1DataMatrix } from '../../utils/parseGs1DataMatrix'
@@ -1081,7 +1081,9 @@ export default function ItemsStep({
               >
                 <div style={{ minWidth: 0, fontSize: 12, color: '#111' }}>
                   <div style={{ fontWeight: 800, fontSize: 13 }}>🎨 {ozelIslemAdi(oi)}</div>
-                  {oi.maintenanceNature ? <div style={{ color: '#4b5563' }}>{oi.maintenanceNature}</div> : null}
+                  {nitelikSatirlari(oi.maintenanceNature).map((satir) => (
+                    <div key={satir} style={{ color: '#4b5563' }}>{satir}</div>
+                  ))}
                   {oi.maintenanceDescription ? (
                     <div style={{ color: '#6b7280', fontStyle: 'italic' }}>Firmaya not: {oi.maintenanceDescription}</div>
                   ) : null}

@@ -1,7 +1,8 @@
 /**
  * 18.11.2026 — Cam satırındaki "🎨 Özel İşlem" penceresi.
  * Odoo BAKIM / ÖZEL İŞLEM kategorisindeki hizmet ürünlerinden biri seçilir; taraf,
- * (renklendirmede) renk / yoğunluk / tip, detay ve firmaya not girilir. Kayıt,
+ * sağ ve sol cam için (ikisi aynıysa tek seferde) işleme özel alanlar, detay ve
+ * firmaya not girilir. Kayıt,
  * cama bağlı (linkedItemId, linkType'sız) normal bir satış kalemi olarak eklenir.
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
@@ -9,20 +10,17 @@ import { apiClient } from '../../api/client'
 import { addItem, getSaleById, updateItem } from '../../api/sales.api'
 import type { Sale, SaleItem } from '../../api/types'
 import {
-  bosOzelIslemDetay,
-  isRenklendirme,
+  bosTaraflar,
   nitelikCoz,
   nitelikOlustur,
-  type OzelIslemDetay,
-  type OzelIslemTaraf,
+  ozelIslemAlanlari,
+  type OzelIslemAlan,
+  type OzelIslemTaraflari,
+  type TarafDegerleri,
 } from '../../utils/ozelIslem'
 
 type OzelIslemUrun = { variantId: number; name: string; price: number }
 
-const RENKLER = ['Kahve', 'Gri', 'Yeşil', 'Mavi', 'Pembe', 'Sarı', 'Mor']
-const YOGUNLUKLAR = ['10', '25', '50', '75', '85']
-const TIPLER = ['Düz', 'Degrade', 'Çift degrade']
-const TARAFLAR: OzelIslemTaraf[] = ['Sağ', 'Sol', 'Sağ+Sol']
 
 function sayi(v: string): number {
   const n = Number(String(v ?? '').replace(',', '.'))
@@ -42,8 +40,8 @@ export default function OzelIslemModal(props: {
   const [kategoriId, setKategoriId] = useState<number | null>(null)
   const [yukleniyor, setYukleniyor] = useState(true)
   const [secili, setSecili] = useState<OzelIslemUrun | null>(null)
-  const [detay, setDetay] = useState<OzelIslemDetay>(() =>
-    duzenlenen ? nitelikCoz(duzenlenen.maintenanceNature) : bosOzelIslemDetay(),
+  const [taraflar, setTaraflar] = useState<OzelIslemTaraflari>(() =>
+    duzenlenen ? nitelikCoz(duzenlenen.maintenanceNature) : bosTaraflar(),
   )
   const [firmaNotu, setFirmaNotu] = useState(duzenlenen?.maintenanceDescription ?? '')
   const [fiyat, setFiyat] = useState(duzenlenen ? String(duzenlenen.unitPrice ?? '') : '')
@@ -82,15 +80,42 @@ export default function OzelIslemModal(props: {
     }
   }, [duzenlenen])
 
-  const renkMi = useMemo(() => isRenklendirme(secili?.name), [secili])
+  const alanlar = useMemo(() => ozelIslemAlanlari(secili?.name), [secili])
 
   function sec(u: OzelIslemUrun) {
     setSecili(u)
     if (!duzenlenen || String(duzenlenen.odooProductId) !== String(u.variantId)) setFiyat(String(u.price ?? 0))
   }
 
-  function patch(p: Partial<OzelIslemDetay>) {
-    setDetay((d) => ({ ...d, ...p }))
+  function patch(p: Partial<OzelIslemTaraflari>) {
+    setTaraflar((t) => ({ ...t, ...p }))
+  }
+
+  function degerYaz(taraf: 'sag' | 'sol', etiket: string, v: string) {
+    setTaraflar((t) =>
+      taraf === 'sag'
+        ? { ...t, sagDeger: { ...t.sagDeger, [etiket]: v } }
+        : { ...t, solDeger: { ...t.solDeger, [etiket]: v } },
+    )
+  }
+
+  /** Sadece bu işlemin alanları + Detay kaydedilir (önce başka işlem seçilip doldurulduysa artıklar atılır) */
+  function sadeAlanlar(d: TarafDegerleri): TarafDegerleri {
+    const izinli = new Set([...alanlar.map((a) => a.etiket), 'Detay'])
+    const out: TarafDegerleri = {}
+    for (const [k, v] of Object.entries(d)) if (izinli.has(k) && String(v ?? '').trim()) out[k] = v
+    return out
+  }
+
+  function tarafAc(taraf: 'sag' | 'sol') {
+    setTaraflar((t) => {
+      const yeni = { ...t, [taraf]: !t[taraf] }
+      if (!yeni.sag && !yeni.sol) return t // en az bir cam seçili kalsın
+      // tek cam kaldıysa onun değerleri ekranda kalsın
+      if (!yeni.sag && yeni.sol && t.ayni) yeni.solDeger = { ...t.sagDeger }
+      if (yeni.sag && !yeni.sol && !t.sag) yeni.sagDeger = { ...t.solDeger }
+      return yeni
+    })
   }
 
   async function kaydet() {
@@ -109,7 +134,11 @@ export default function OzelIslemModal(props: {
       setHata('İndirim geçersiz.')
       return
     }
-    const kayitDetay: OzelIslemDetay = renkMi ? detay : { ...detay, renk: '', yogunluk: '', tip: '' }
+    const kayit: OzelIslemTaraflari = {
+      ...taraflar,
+      sagDeger: sadeAlanlar(taraflar.sagDeger),
+      solDeger: sadeAlanlar(taraflar.sol && taraflar.sag && taraflar.ayni ? taraflar.sagDeger : taraflar.solDeger),
+    }
     const payload = {
       productId: `odoo_${secili.variantId}`,
       odooProductId: String(secili.variantId),
@@ -119,7 +148,7 @@ export default function OzelIslemModal(props: {
       unitPrice: f.toFixed(2),
       discount: ind.toFixed(2),
       linkedItemId: cam.id,
-      maintenanceNature: nitelikOlustur(kayitDetay) || null,
+      maintenanceNature: nitelikOlustur(kayit) || null,
       maintenanceDescription: firmaNotu.trim() || null,
     }
     setKaydediliyor(true)
@@ -165,60 +194,32 @@ export default function OzelIslemModal(props: {
         )}
 
         <Baslik>Hangi cam</Baslik>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {TARAFLAR.map((t) => (
-            <button key={t} type="button" onClick={() => patch({ taraf: t })} style={chip(detay.taraf === t)}>
-              {t === 'Sağ+Sol' ? 'İkisi (Sağ+Sol)' : t}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" onClick={() => tarafAc('sag')} style={chip(taraflar.sag)}>
+            {taraflar.sag ? '✓ ' : ''}Sağ
+          </button>
+          <button type="button" onClick={() => tarafAc('sol')} style={chip(taraflar.sol)}>
+            {taraflar.sol ? '✓ ' : ''}Sol
+          </button>
+          {taraflar.sag && taraflar.sol ? (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, marginLeft: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={taraflar.ayni} onChange={(e) => patch({ ayni: e.target.checked })} />
+              Sol, Sağ ile aynı
+            </label>
+          ) : null}
         </div>
 
-        {renkMi ? (
-          <>
-            <Baslik>Renk</Baslik>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-              {RENKLER.map((r) => (
-                <button key={r} type="button" onClick={() => patch({ renk: r })} style={chip(detay.renk === r)}>
-                  {r}
-                </button>
-              ))}
-            </div>
-            <input value={detay.renk} onChange={(e) => patch({ renk: e.target.value })} placeholder="Renk (örn. Kahve, G15…)" style={input} />
-
-            <Baslik>Yoğunluk %</Baslik>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-              {YOGUNLUKLAR.map((y) => (
-                <button key={y} type="button" onClick={() => patch({ yogunluk: y })} style={chip(detay.yogunluk === y)}>
-                  %{y}
-                </button>
-              ))}
-              <input
-                value={detay.yogunluk}
-                onChange={(e) => patch({ yogunluk: e.target.value.replace(/[^\d]/g, '').slice(0, 3) })}
-                placeholder="%"
-                inputMode="numeric"
-                style={{ ...input, width: 70 }}
-              />
-            </div>
-
-            <Baslik>Tip</Baslik>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {TIPLER.map((t) => (
-                <button key={t} type="button" onClick={() => patch({ tip: detay.tip === t ? '' : t })} style={chip(detay.tip === t)}>
-                  {t}
-                </button>
-              ))}
-            </div>
-          </>
+        {taraflar.sag ? (
+          <TarafKutusu
+            baslik={taraflar.sol && taraflar.ayni ? 'SAĞ + SOL' : 'SAĞ'}
+            alanlar={alanlar}
+            deger={taraflar.sagDeger}
+            onDeger={(k, v) => degerYaz('sag', k, v)}
+          />
         ) : null}
-
-        <Baslik>Detay</Baslik>
-        <input
-          value={detay.detay}
-          onChange={(e) => patch({ detay: e.target.value })}
-          placeholder={renkMi ? 'Ek detay (isteğe bağlı)' : 'Örn. Sağ 2 mm içe / Prizma 1 dpt baz aşağı / 65 çap'}
-          style={input}
-        />
+        {taraflar.sol && !(taraflar.sag && taraflar.ayni) ? (
+          <TarafKutusu baslik="SOL" alanlar={alanlar} deger={taraflar.solDeger} onDeger={(k, v) => degerYaz('sol', k, v)} />
+        ) : null}
 
         <Baslik>Firmaya not</Baslik>
         <textarea
@@ -251,6 +252,52 @@ export default function OzelIslemModal(props: {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function TarafKutusu(props: {
+  baslik: string
+  alanlar: OzelIslemAlan[]
+  deger: TarafDegerleri
+  onDeger: (etiket: string, v: string) => void
+}) {
+  const { baslik, alanlar, deger, onDeger } = props
+  return (
+    <div style={{ marginTop: 12, border: '1px solid #ddd6fe', borderRadius: 10, padding: '4px 12px 12px', background: '#faf8ff' }}>
+      <div style={{ fontSize: 12, fontWeight: 900, color: '#6d28d9', marginTop: 8 }}>{baslik}</div>
+      {alanlar.map((a) => (
+        <div key={a.etiket}>
+          <Baslik>{a.etiket}</Baslik>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            {(a.secenekler ?? []).map((o) => (
+              <button
+                key={o}
+                type="button"
+                onClick={() => onDeger(a.etiket, deger[a.etiket] === o ? '' : o)}
+                style={chip(deger[a.etiket] === o)}
+              >
+                {o}
+              </button>
+            ))}
+            {a.serbest ? (
+              <input
+                value={deger[a.etiket] ?? ''}
+                onChange={(e) => onDeger(a.etiket, e.target.value)}
+                placeholder={a.ipucu ?? ''}
+                style={{ ...input, width: a.secenekler?.length ? 130 : '100%' }}
+              />
+            ) : null}
+          </div>
+        </div>
+      ))}
+      <Baslik>Detay</Baslik>
+      <input
+        value={deger.Detay ?? ''}
+        onChange={(e) => onDeger('Detay', e.target.value)}
+        placeholder="Ek detay (isteğe bağlı)"
+        style={input}
+      />
     </div>
   )
 }

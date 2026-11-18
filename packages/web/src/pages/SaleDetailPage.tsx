@@ -16,7 +16,7 @@ import {
 } from '../api/sales.api'
 import type { Sale, SaleItem } from '../api/types'
 import { getMountFrameItems, isLensMeasurementSaleItem } from '../utils/saleMeasurements'
-import { camOzelIslemleri, isOzelIslemItem, ozelIslemAdi } from '../utils/ozelIslem'
+import { camOzelIslemleri, isOzelIslemItem, nitelikSatirlari, ozelIslemAdi } from '../utils/ozelIslem'
 import { useAuthStore } from '../store/auth.store'
 
 const cardStyle: CSSProperties = {
@@ -1072,7 +1072,9 @@ export default function SaleDetailPage() {
                       return cam ? ` — Cam: ${ozelIslemAdi(cam)}` : ''
                     })()}
                   </div>
-                  {it.maintenanceNature ? <div style={{ color: '#374151' }}>{it.maintenanceNature}</div> : null}
+                  {nitelikSatirlari(it.maintenanceNature).map((satir) => (
+                    <div key={satir} style={{ color: '#374151' }}>{satir}</div>
+                  ))}
                   {it.maintenanceDescription ? (
                     <div style={{ color: '#6b7280', fontStyle: 'italic' }}>Firmaya not: {it.maintenanceDescription}</div>
                   ) : null}
