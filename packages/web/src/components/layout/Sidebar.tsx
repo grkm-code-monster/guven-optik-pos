@@ -113,6 +113,19 @@ export default function Sidebar({ acik, mobil, onKapat }: Props) {
             ＋ Yeni Satış
           </NavLink>
           <NavLink
+            to="/musteri-satis-detaylari"
+            onClick={linkKapat}
+            style={({ isActive }) => ({
+              display: 'flex', alignItems: 'center', gap: '10px',
+              padding: '8px 12px 8px 28px', borderRadius: '8px', marginTop: '4px',
+              backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.04)',
+              color: 'rgba(255,255,255,0.85)', textDecoration: 'none',
+              fontSize: '13px', fontWeight: '500',
+            })}
+          >
+            📋 Müşteri Satış Detayları
+          </NavLink>
+          <NavLink
             to="/musteriler"
             onClick={linkKapat}
             style={({ isActive }) => ({

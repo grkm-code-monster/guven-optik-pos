@@ -28,6 +28,8 @@ export default function AppLayout() {
         ? 'Yeni Satış'
         : pathname.startsWith('/sales')
           ? 'Satışlar'
+          : pathname.startsWith('/musteri-satis-detaylari')
+            ? 'Müşteri Satış Detayları'
           : pathname.startsWith('/musteriler')
             ? 'Müşteriler'
             : pathname.startsWith('/transferler')

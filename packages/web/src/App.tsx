@@ -38,6 +38,7 @@ import SatisYonetimPage from './pages/admin/SatisYonetimPage'
 import BelgeYuklePage from './pages/BelgeYuklePage'
 import SatislarPage from './pages/SatislarPage'
 import MusterilerPage from './pages/MusterilerPage'
+import MusteriSatisDetaylariPage from './pages/MusteriSatisDetaylariPage'
 import RaporlarimPage from './pages/RaporlarimPage'
 import { canAccessAtolye } from './utils/atolyeAccess'
 import { canSeeAdminMenuItem, type AdminUserLite } from './constants/ekYetki'
@@ -170,6 +171,7 @@ export default function App() {
         >
           <Route index element={<DashboardPage />} />
           <Route path="musteriler" element={<MusterilerPage />} />
+          <Route path="musteri-satis-detaylari" element={<MusteriSatisDetaylariPage />} />
           <Route path="sales" element={<SatislarPage />} />
           <Route path="sales/new" element={<NewSalePage />} />
           <Route path="sales/:id" element={<SaleDetailPage />} />

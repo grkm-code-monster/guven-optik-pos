@@ -18,6 +18,7 @@ import {
 import * as saleService from './sale.service';
 import * as labIncidentService from './lab-incident.service';
 import { listHazirGunesCamlari, listOzelIslemUrunleri } from './ozel-islem';
+import { getMusteriSatisDetaylari } from './musteri-satis-detay.service';
 import { subeToSirketAyarId } from '../efatura/uyumsoft-efatura.service';
 import { getOutboxInvoicePdf } from '../uyumsoft/uyumsoft.service';
 
@@ -571,6 +572,27 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       satisUserId: canCrossBranch ? req.query.satisUserId : undefined,
     });
     return res.status(200).json(sales);
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+
+// 18.11.2026 — Müşteri Satış Detayları: satış kalemleri + firma tarafı (firma, firma ürün adı,
+// sipariş/fatura, lot girişi). Kapsam Satışlar listesiyle aynı (GET '/'). Maliyet dönmez.
+router.get('/musteri-satis-detaylari', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const canCrossBranch = CROSS_BRANCH_SALE_ROLES.includes(req.user!.role);
+    const branchIdFilter = canCrossBranch
+      ? (typeof req.query.branchId === 'string' && req.query.branchId ? req.query.branchId : null)
+      : req.user!.branchId;
+    const sonuc = await getMusteriSatisDetaylari({
+      branchId: branchIdFilter,
+      dateFrom: typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined,
+      dateTo: typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined,
+      q: typeof req.query.q === 'string' ? req.query.q : undefined,
+    });
+    return res.status(200).json(sonuc);
   } catch (err) {
     if (handleSaleError(err, res)) return;
     next(err);
