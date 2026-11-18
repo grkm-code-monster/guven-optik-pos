@@ -1,4 +1,5 @@
 import type { ItemType } from './saleKategoriTree.types'
+import { GUNES_CAMLARI_KATEGORI_ID } from '../../utils/hazirGunesCami'
 
 export type KategoriLeaf = { label: string; kategoriId: number }
 export type KategoriBranch = { label: string; children: KategoriNode[] }
@@ -16,7 +17,7 @@ export const DIREKT_KATEGORI_ID: Partial<Record<ItemType, number>> = {
   FRAME: 6,
   SUN: 7,
   ACCESSORY: 8,
-  MAINTENANCE: BAKIM_KATEGORI_ID,
+  // 18.11.2026 — Bakım artık önce alt kategorileri gösteriyor (KATEGORI_TREE.MAINTENANCE)
 }
 
 /** Tek tıkta tüm alt kategorileri birlikte ara */
@@ -133,4 +134,9 @@ const KATEGORI_TREE: Partial<Record<ItemType, KategoriNode[]>> = {
     { label: 'Renkli', kategoriId: 50 },
   ],
   LENS: LENS_TREE,
+  // 18.11.2026 — Bakım → Bakım / Onarım (eski doğrudan arama) | Güneş Camları (Hazır Güneş Camı seçicisi açılır)
+  MAINTENANCE: [
+    { label: 'Bakım / Onarım', kategoriId: BAKIM_KATEGORI_ID },
+    { label: 'Güneş Camları', kategoriId: GUNES_CAMLARI_KATEGORI_ID },
+  ],
 }

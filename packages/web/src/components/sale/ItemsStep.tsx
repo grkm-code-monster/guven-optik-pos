@@ -6,7 +6,7 @@ import { useAuthStore } from '../../store/auth.store'
 import BarkodKameraInput from '../BarkodKameraInput'
 import OzelIslemModal from './OzelIslemModal'
 import HazirGunesCamiModal from './HazirGunesCamiModal'
-import { isHazirGunesCamiItem } from '../../utils/hazirGunesCami'
+import { GUNES_CAMLARI_KATEGORI_ID, isHazirGunesCamiItem } from '../../utils/hazirGunesCami'
 import type { SaleItem } from '../../api/types'
 import { camOzelIslemleri, nitelikSatirlari, ozelIslemAdi, ustSeviyeKalemler } from '../../utils/ozelIslem'
 import { isLensMeasurementSaleItem } from '../../utils/saleMeasurements'
@@ -671,6 +671,12 @@ export default function ItemsStep({
       setStep(3)
       return
     }
+    if (isKategoriLeaf(node) && node.kategoriId === GUNES_CAMLARI_KATEGORI_ID) {
+      // Bakım → Güneş Camları: kombinasyon seçicisi açılır (arama ekranı yerine)
+      close()
+      setGunesPencere({ duzenlenen: null })
+      return
+    }
     if (isKategoriLeaf(node)) {
       setPickedKategoriId(node.kategoriId)
       setPickedKategoriIds(null)
@@ -937,22 +943,6 @@ export default function ItemsStep({
     <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
         <div style={{ fontWeight: 800 }}>Kalemler</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={() => setGunesPencere({ duzenlenen: null })}
-          style={{
-            backgroundColor: 'white',
-            color: '#111827',
-            border: '1px solid #111827',
-            borderRadius: '10px',
-            padding: '10px 14px',
-            cursor: 'pointer',
-            fontWeight: 800,
-          }}
-        >
-          🕶️ Hazır Güneş Camı
-        </button>
         <button
           type="button"
           onClick={open}
@@ -968,7 +958,6 @@ export default function ItemsStep({
         >
           + Kalem Ekle
         </button>
-        </div>
       </div>
 
       <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
