@@ -61,7 +61,7 @@ import envanterImportRouter from './envanter-import.controller';
 import etiketMerkeziRouter from './etiket-merkezi.controller';
 import hazirRaporlarRouter from '../hazir-raporlar/hazir-raporlar.controller';
 import ikmalRouter from './ikmal.controller';
-import { bekleyenMusteriSiparisleri, girisSonrasiDagit, type GirisLotBilgi } from './urun-giris-siparis.service';
+import { bekleyenMusteriSiparisleri, girisSonrasiDagit, kalemSiparisleriniAc, type GirisLotBilgi } from './urun-giris-siparis.service';
 import { fizikiTedarikciBul, hafizayaYaz, oneriler } from './urun-giris-oneri.service';
 import {
   belgeTumSubelerde,
@@ -3724,6 +3724,22 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
         } catch (markErr) {
           console.warn('[urun-giris] UTS ürün girişi işaretleme:', markErr);
         }
+      }
+    }
+
+    // 19.11.2026 — "kalem:<saleItemId>" ile bağlanan (sipariş kaydı olmayan "Cam Bekleniyor") satırlar için
+    // özel sipariş kaydını şimdi aç; sonraki dağıtım/UTS adımları gerçek sipariş id'siyle çalışsın.
+    if (success && lotList.some((l: any) => typeof l?.siparisId === 'string' && l.siparisId.startsWith('kalem:'))) {
+      try {
+        const esle = await kalemSiparisleriniAc(lotList.map((l: any) => String(l?.siparisId ?? '')), (req as any).user?.userId ?? null);
+        for (const l of lotList as any[]) {
+          if (typeof l?.siparisId === 'string' && l.siparisId.startsWith('kalem:')) l.siparisId = esle.get(l.siparisId) ?? null;
+        }
+      } catch (ke) {
+        const msg = ke instanceof Error ? ke.message : String(ke);
+        console.error('[urun-giris] sipariş kaydı açılamadı:', msg);
+        hatalar.push(`Müşteri siparişi kaydı açılamadı (ürünler depoda): ${msg.slice(0, 200)}`);
+        for (const l of lotList as any[]) if (typeof l?.siparisId === 'string' && l.siparisId.startsWith('kalem:')) l.siparisId = null;
       }
     }
 

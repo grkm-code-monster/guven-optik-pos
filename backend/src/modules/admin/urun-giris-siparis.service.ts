@@ -13,7 +13,7 @@ import { prisma } from '../../database/prisma';
 import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 import { LOKASYON_ID_MAP, getAnaDepoLocationId } from '../odoo/odooLocations';
 import { olusturTransfer } from './transfer-olustur.service';
-import { updateOzelSiparisDurum } from '../ozel-siparis/ozel-siparis.service';
+import { createOzelSiparis, updateOzelSiparisDurum } from '../ozel-siparis/ozel-siparis.service';
 
 const CTX = { context: { active_test: false, allowed_company_ids: ODOO_ALL_COMPANY_IDS } };
 /**
@@ -56,6 +56,92 @@ function m2oAd(v: unknown): string {
   return Array.isArray(v) && typeof v[1] === 'string' ? v[1] : '';
 }
 
+/** 19.11.2026 — Satışta "Cam Bekleniyor" (ORDERED) yapılmış ama özel sipariş kaydı açılmamış kalemler
+ *  (stokta görünen cam/çerçeve firmadan istenince). Listeye `kalem:<saleItemId>` id'siyle girer; ürün
+ *  girişinde bağlanınca sipariş kaydı otomatik açılır (kalemSiparisleriniAc). Son 180 gün. */
+const SIPARISSIZ_GUN = 180;
+const HIZMET_KATEGORILERI = [63, 82];
+
+async function siparissizBekleyenKalemler() {
+  const kalemler = await prisma.saleItem.findMany({
+    where: {
+      status: 'ORDERED',
+      sale: { status: { notIn: ['DRAFT', 'VOID'] }, createdAt: { gte: new Date(Date.now() - SIPARISSIZ_GUN * 86400000) } },
+    },
+    select: {
+      id: true,
+      qty: true,
+      odooProductId: true,
+      odooProductName: true,
+      odooCategoryId: true,
+      linkedItemId: true,
+      linkType: true,
+      product: { select: { category: true, name: true } },
+      prescription: { select: { r_sph: true, r_cyl: true, r_aks: true, r_add: true, l_sph: true, l_cyl: true, l_aks: true, l_add: true } },
+      sale: { select: { id: true, createdAt: true, branchId: true, customer: { select: { id: true, name: true, phone: true } }, user: { select: { name: true } } } },
+    },
+    orderBy: { sale: { createdAt: 'desc' } },
+    take: 1000,
+  });
+  const hizmetDisi = kalemler.filter(
+    (k) => !(k.odooCategoryId != null && HIZMET_KATEGORILERI.includes(k.odooCategoryId)) && !(k.linkedItemId && !k.linkType),
+  );
+  if (!hizmetDisi.length) return [];
+  const varolan = await prisma.ozelSiparis.findMany({
+    where: { saleItemId: { in: hizmetDisi.map((k) => k.id) }, durum: { not: 'IPTAL' } },
+    select: { saleItemId: true },
+  });
+  const sipli = new Set(varolan.map((v) => v.saleItemId));
+  const subeler = new Map((await prisma.branch.findMany({ select: { id: true, code: true } })).map((b) => [b.id, b.code]));
+  return hizmetDisi.filter((k) => !sipli.has(k.id)).map((k) => ({ ...k, subeKodu: subeler.get(k.sale.branchId) ?? null }));
+}
+
+/** Ürün girişinde `kalem:<saleItemId>` ile bağlanan satırlar için özel sipariş kaydını aç; eski id → yeni id */
+export async function kalemSiparisleriniAc(ids: string[], userId: string | null): Promise<Map<string, string>> {
+  const sonuc = new Map<string, string>();
+  const itemIds = [...new Set(ids.filter((x) => x.startsWith('kalem:')).map((x) => x.slice(6)))];
+  if (!itemIds.length) return sonuc;
+  const kalemler = await prisma.saleItem.findMany({
+    where: { id: { in: itemIds } },
+    select: {
+      id: true,
+      qty: true,
+      odooProductName: true,
+      product: { select: { name: true } },
+      prescription: { select: { r_sph: true, r_cyl: true, r_aks: true, r_add: true, l_sph: true, l_cyl: true, l_aks: true, l_add: true } },
+      sale: { select: { id: true, branchId: true, customer: { select: { id: true, name: true, phone: true } }, user: { select: { name: true } } } },
+    },
+  });
+  const subeler = new Map((await prisma.branch.findMany({ select: { id: true, code: true } })).map((b) => [b.id, b.code]));
+  for (const k of kalemler) {
+    const rx = k.prescription;
+    const n = (v: unknown) => (v == null || v === '' ? undefined : Number(v));
+    const sube = subeler.get(k.sale.branchId) ?? undefined;
+    const r = await createOzelSiparis(
+      {
+        musteriAdi: k.sale.customer?.name || 'Müşteri',
+        musteriTelefon: k.sale.customer?.phone ?? '',
+        musteriId: k.sale.customer?.id,
+        satisSiparisId: k.sale.id,
+        saleItemId: k.id,
+        subeId: sube,
+        subeAdi: sube,
+        tip: 'RECETELI',
+        urunAdi: k.odooProductName || k.product?.name || 'Ürün',
+        miktar: k.qty ?? 1,
+        sagSph: n(rx?.r_sph), sagCyl: n(rx?.r_cyl), sagAks: n(rx?.r_aks), sagAdd: n(rx?.r_add),
+        solSph: n(rx?.l_sph), solCyl: n(rx?.l_cyl), solAks: n(rx?.l_aks), solAdd: n(rx?.l_add),
+        satisTemsilcisi: k.sale.user?.name ?? undefined,
+        notlar: 'Ürün girişinde otomatik açıldı (satışta "Cam Bekleniyor" yapılmış, sipariş kaydı yoktu)',
+      } as any,
+      userId,
+    );
+    const id = (r as any)?.data?.id ?? (r as any)?.mevcutSiparis?.id;
+    if (id) sonuc.set(`kalem:${k.id}`, id);
+  }
+  return sonuc;
+}
+
 export async function bekleyenMusteriSiparisleri(): Promise<SiparisAday[]> {
   const siparisler = await prisma.ozelSiparis.findMany({
     where: { durum: { in: BEKLEYEN_SIPARIS_DURUMLARI } },
@@ -63,6 +149,10 @@ export async function bekleyenMusteriSiparisleri(): Promise<SiparisAday[]> {
     take: 1000,
   });
   const acik = siparisler.filter((s) => (s.gelenAdet ?? 0) < Math.max(1, s.miktar ?? 1));
+  const siparissiz = await siparissizBekleyenKalemler().catch((e) => {
+    console.error('[bekleyen-siparis] siparişsiz kalemler okunamadı:', e instanceof Error ? e.message : e);
+    return [] as Awaited<ReturnType<typeof siparissizBekleyenKalemler>>;
+  });
   const itemIds = acik.map((s) => s.saleItemId).filter((x): x is string => !!x);
   const kalemler = itemIds.length
     ? await prisma.saleItem.findMany({
@@ -72,14 +162,46 @@ export async function bekleyenMusteriSiparisleri(): Promise<SiparisAday[]> {
     : [];
   const kalemMap = new Map(kalemler.map((k) => [k.id, k]));
 
-  const pids = [...new Set(kalemler.map((k) => Number(k.odooProductId)).filter((x) => Number.isFinite(x) && x > 0))];
+  const pids = [...new Set([...kalemler, ...siparissiz].map((k) => Number(k.odooProductId)).filter((x) => Number.isFinite(x) && x > 0))];
   type P = { id: number; product_tmpl_id: [number, string] | false; display_name: string; barcode: string | false; categ_id: [number, string] | false };
   const urunler = pids.length
     ? ((await execute('product.product', 'read', [pids], { fields: ['id', 'product_tmpl_id', 'display_name', 'barcode', 'categ_id'], ...CTX })) as P[])
     : [];
   const urunMap = new Map(urunler.map((u) => [u.id, u]));
 
-  return acik.map((s) => {
+  const sanal: SiparisAday[] = siparissiz.map((k) => {
+    const pid = k.odooProductId ? Number(k.odooProductId) : null;
+    const u = pid ? urunMap.get(pid) : undefined;
+    const kategori = m2oAd(u?.categ_id).toLocaleUpperCase('tr-TR');
+    const rx = k.prescription;
+    const n = (v: unknown) => (v == null ? null : Number(v));
+    const miktar = Math.max(1, k.qty ?? 1);
+    return {
+      id: `kalem:${k.id}`,
+      musteriAdi: k.sale.customer?.name || 'Müşteri',
+      musteriTelefon: k.sale.customer?.phone ?? null,
+      subeId: k.subeKodu,
+      urunAdi: k.odooProductName || k.product?.name || 'Ürün',
+      miktar,
+      gelenAdet: 0,
+      kalan: miktar,
+      durum: 'SIPARIS_KAYDI_YOK',
+      tedarikciAdi: null,
+      olusturma: k.sale.createdAt.toISOString(),
+      satisTemsilcisi: k.sale.user?.name ?? null,
+      optikCam: k.product?.category === 'LENS_RX' || Boolean(k.linkType) || (kategori.includes('OPTİK CAM') && !kategori.includes('KONTAKT')),
+      recete: {
+        sagSph: n(rx?.r_sph), sagCyl: n(rx?.r_cyl), sagAks: n(rx?.r_aks), sagAdd: n(rx?.r_add),
+        solSph: n(rx?.l_sph), solCyl: n(rx?.l_cyl), solAks: n(rx?.l_aks), solAdd: n(rx?.l_add),
+      },
+      odooProductId: u ? u.id : null,
+      odooTmplId: u ? m2oId(u.product_tmpl_id) : null,
+      odooUrunAdi: u ? u.display_name : (k.odooProductName ?? null),
+      odooBarkod: u && typeof u.barcode === 'string' && u.barcode.trim() ? u.barcode.trim() : null,
+    };
+  });
+
+  const gercek: SiparisAday[] = acik.map((s) => {
     const k = s.saleItemId ? kalemMap.get(s.saleItemId) : undefined;
     const pid = k?.odooProductId ? Number(k.odooProductId) : null;
     const u = pid ? urunMap.get(pid) : undefined;
@@ -111,6 +233,8 @@ export async function bekleyenMusteriSiparisleri(): Promise<SiparisAday[]> {
       odooBarkod: u && typeof u.barcode === 'string' && u.barcode.trim() ? u.barcode.trim() : null,
     };
   });
+  // en yeni önce
+  return [...gercek, ...sanal].sort((a, b) => b.olusturma.localeCompare(a.olusturma));
 }
 
 export type GirisLotBilgi = {
