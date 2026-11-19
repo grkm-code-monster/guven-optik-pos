@@ -540,7 +540,7 @@ export default function UrunYapilandirmaPage() {
       return
     }
     const onay = window.confirm(
-      `${adlar.length} ürün adı, seçili kategoride STOKSUZ ve BARKODSUZ şablon olarak açılacak (fiyat 0, sonra düzenlenebilir). Devam?`,
+      `${adlar.length} ürün adı, seçili kategoride BARKODSUZ şablon olarak açılacak (fiyat 0, sonra düzenlenebilir).\n\nOPTİK CAM ve LENS kategorilerinde kartlar STOKLU (seri takipli) açılır; diğer kategorilerde stoksuz. Devam?`,
     )
     if (!onay) return
 

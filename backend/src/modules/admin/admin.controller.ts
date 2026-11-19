@@ -6726,6 +6726,14 @@ router.post('/odoo-sablon-toplu-olustur', async (req, res, next) => {
     )) as { id: number; name: string }[];
     const mevcutAdSet = new Set(mevcutlar.map((m) => m.name.trim().toLocaleLowerCase('tr-TR')));
 
+    // 19.11.2026 — OPTİK CAM / LENS kategorilerine açılan kartlar STOKLU + seri takipli açılır
+    // (sarf açılınca stok tutulmuyor, sipariş transferleri "stok yok" ile düşüyordu).
+    const [kat] = (await execute('product.category', 'read', [[katId]], { fields: ['complete_name'] })) as Array<{ complete_name: string }>;
+    const katAdi = String(kat?.complete_name ?? '').toLocaleUpperCase('tr-TR');
+    const stokluKategori = katAdi.startsWith('ALL / OPTİK CAM') || katAdi.startsWith('ALL / LENS');
+    const varsayilanTur = stokluKategori ? 'product' : 'consu';
+    const varsayilanIzleme = stokluKategori ? 'serial' : 'none';
+
     const olusturulan: { ad: string; tmplId: number }[] = [];
     const atlanan: string[] = [];
     const hatalar: { ad: string; sebep: string }[] = [];
@@ -6736,13 +6744,14 @@ router.post('/odoo-sablon-toplu-olustur', async (req, res, next) => {
       try {
         const tmplId = Number(await execute('product.template', 'create', [{
           name: ad,
-          type: tur || 'consu',
+          type: tur || varsayilanTur,
+          detailed_type: tur || varsayilanTur,
           categ_id: katId,
           list_price: Number(satisFiyati) || 0,
           standard_price: 0,
           sale_ok: true,
           purchase_ok: satinAlinabilir !== false,
-          tracking: izleme || 'none',
+          tracking: izleme || varsayilanIzleme,
         }]));
         olusturulan.push({ ad, tmplId });
         mevcutAdSet.add(key);
@@ -6753,6 +6762,7 @@ router.post('/odoo-sablon-toplu-olustur', async (req, res, next) => {
 
     return res.json({
       success: true,
+      stoklu: !tur && stokluKategori,
       olusturulan: olusturulan.length,
       atlanan: atlanan.length,
       hata: hatalar.length,
