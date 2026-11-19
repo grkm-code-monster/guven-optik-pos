@@ -5,7 +5,7 @@ import { PaymentType, SaleStatus, Prisma, CashMovementType, ShiftStatus, Role } 
 import { authorize } from '../../middleware/authorize';
 import { calculateCommission } from '../payments/commission.service';
 import { execute } from '../odoo/odoo.service';
-import { faturaSirketi, odooTahsilatOlustur, odooTahsilatiFaturayaBagla, tahsilatYevmiyesi } from '../odoo/odoo-tahsilat';
+import { faturaAlacakHesabi, faturaSirketi, odooTahsilatOlustur, odooTahsilatiFaturayaBagla, tahsilatYevmiyesi } from '../odoo/odoo-tahsilat';
 import { createManuelTahsilat, listManuelTahsilat } from './manuel-tahsilat.service';
 
 // 05.11.2026 — CİRO DÜZELTME: açık hesap borcundan sonradan verilen indirim. Nakit/kart/kurum
@@ -138,6 +138,7 @@ async function syncPaymentToOdoo(
     partnerId: odooPartnerId,
     amount,
     ref: `POS OPEN_ACCOUNT ${paymentType} - ${saleId}`,
+    alacakHesapId: yev.yedek ? null : await faturaAlacakHesabi(invoiceId),
   });
   const sonuc = await odooTahsilatiFaturayaBagla(paymentId, invoiceId, yev.companyId);
   if (!sonuc.ok) {

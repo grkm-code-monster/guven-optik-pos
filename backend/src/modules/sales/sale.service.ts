@@ -12,7 +12,7 @@ import {
 } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import { appendPartnerNote, execute } from '../odoo/odoo.service';
-import { faturaSirketi, odooTahsilatOlustur, odooTahsilatiFaturayaBagla, tahsilatYevmiyesi } from '../odoo/odoo-tahsilat';
+import { faturaAlacakHesabi, faturaSirketi, odooTahsilatOlustur, odooTahsilatiFaturayaBagla, tahsilatYevmiyesi } from '../odoo/odoo-tahsilat';
 import { getCompanyIdFromLokasyon, resolveBranchStockLocationId } from '../odoo/odooLocations';
 import { resolveWarehouseIdForCompany, validateSalePickingsFromBranch } from '../odoo/odoo-delivery.util';
 import { ODOO_TAX_CHART_COMPANY_ID, readProductSaleTaxRate, resolvePosLineTax } from '../odoo/odoo-tax.util';
@@ -1176,6 +1176,7 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
 
         // 19.11.2026 — tahsilat faturanın şirketinde açılır (bkz. odoo-tahsilat.ts)
         const faturaSirketId = await faturaSirketi(invoiceId);
+        const faturaAlacak = await faturaAlacakHesabi(invoiceId);
         const createdPaymentIds: Array<{ id: number; companyId: number; tip: string; tutar: number }> = [];
         for (let i = 0; i < result.payments.length; i++) {
           const payment = result.payments[i];
@@ -1195,6 +1196,7 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
               journalId: yev.journalId,
               partnerId: odooPartnerId ?? 1,
               amount: Number(payment.grossAmount),
+              alacakHesapId: yev.yedek ? null : faturaAlacak,
               ref:
                 payment.paymentType === PaymentType.TRANSFER && bankName
                   ? `POS HAVALE ${bankName} - ${saleId}`

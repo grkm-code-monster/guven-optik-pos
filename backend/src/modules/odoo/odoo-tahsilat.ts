@@ -51,6 +51,17 @@ export async function faturaSirketi(invoiceId: number): Promise<number | null> {
   }
 }
 
+/** Faturanın alacak satırının hesabı (ör. NG "120 Alıcılar"). Tahsilata açıkça verilir: NG/ADESE'de
+ *  carilerin şirket varsayılan alacak hesabı boş olabildiği için Odoo hesabı kendisi bulamıyordu. */
+export async function faturaAlacakHesabi(invoiceId: number): Promise<number | null> {
+  try {
+    const r = (await execute('account.move.line', 'search_read', [[['move_id', '=', invoiceId], ['account_type', '=', 'asset_receivable']]], { fields: ['account_id'], limit: 1, context: TUM })) as Array<{ account_id: [number, string] | false }>;
+    return r[0]?.account_id ? r[0].account_id[0] : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Şirketteki POS yevmiyesi; yoksa eski 1959 yevmiyesi. */
 export async function tahsilatYevmiyesi(companyId: number | null, paymentType: string): Promise<{ journalId: number; companyId: number; yedek: boolean }> {
   const ad = YEVMIYE_ADI[paymentType];
@@ -84,6 +95,8 @@ export async function odooTahsilatOlustur(p: {
   amount: number;
   ref: string;
   date?: string;
+  /** faturanın alacak hesabı — verilirse ödemenin karşı hesabı bu olur (faturayla aynı hesap) */
+  alacakHesapId?: number | null;
 }): Promise<number> {
   const ctx = { context: sirketCtx(p.companyId) };
   const paymentId = (await execute(
@@ -99,6 +112,7 @@ export async function odooTahsilatOlustur(p: {
         company_id: p.companyId,
         ref: p.ref,
         date: p.date ?? new Date().toISOString().split('T')[0],
+        ...(p.alacakHesapId ? { destination_account_id: p.alacakHesapId } : {}),
       },
     ],
     ctx,
@@ -108,7 +122,11 @@ export async function odooTahsilatOlustur(p: {
   } catch (e) {
     // action_post None döner → XML-RPC "cannot marshal None" işlem yapıldıktan sonra gelir
     const m = e instanceof Error ? e.message : String(e);
-    if (!/marshal None/i.test(m)) throw e;
+    if (!/marshal None/i.test(m)) {
+      // onaylanamadıysa taslak bırakma
+      await execute('account.payment', 'unlink', [[paymentId]], ctx).catch(() => {});
+      throw e;
+    }
   }
   return paymentId;
 }

@@ -22,7 +22,7 @@ import 'dotenv/config';
 import * as fs from 'fs';
 import { prisma } from '../src/database/prisma';
 import { execute, ODOO_ALL_COMPANY_IDS } from '../src/modules/odoo/odoo.service';
-import { odooTahsilatiFaturayaBagla, odooTahsilatOlustur } from '../src/modules/odoo/odoo-tahsilat';
+import { faturaAlacakHesabi, odooTahsilatiFaturayaBagla, odooTahsilatOlustur } from '../src/modules/odoo/odoo-tahsilat';
 
 const confirm = process.argv.includes('--confirm');
 const testIptal = process.argv.includes('--test-iptal');
@@ -170,6 +170,7 @@ async function main() {
         amount: p.o.amount,
         ref: p.o.ref,
         date: p.o.date,
+        alacakHesapId: await faturaAlacakHesabi(f.id),
       });
       const r = await odooTahsilatiFaturayaBagla(yeni, f.id, p.hedef!);
       if (!r.ok) {
