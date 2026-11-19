@@ -5,6 +5,7 @@ import { PaymentType, SaleStatus, Prisma, CashMovementType, ShiftStatus, Role } 
 import { authorize } from '../../middleware/authorize';
 import { calculateCommission } from '../payments/commission.service';
 import { execute } from '../odoo/odoo.service';
+import { faturaSirketi, odooTahsilatOlustur, odooTahsilatiFaturayaBagla, tahsilatYevmiyesi } from '../odoo/odoo-tahsilat';
 import { createManuelTahsilat, listManuelTahsilat } from './manuel-tahsilat.service';
 
 // 05.11.2026 — CİRO DÜZELTME: açık hesap borcundan sonradan verilen indirim. Nakit/kart/kurum
@@ -128,59 +129,19 @@ async function syncPaymentToOdoo(
 
   const invoiceId = openInvoice.id;
 
-  const paymentId = await execute('account.payment', 'create', [
-    {
-      payment_type: 'inbound',
-      partner_type: 'customer',
-      partner_id: odooPartnerId,
-      amount,
-      journal_id: journalId,
-      ref: `POS OPEN_ACCOUNT ${paymentType} - ${saleId}`,
-      date: new Date().toISOString().split('T')[0],
-    },
-  ]);
-
-  await execute('account.payment', 'action_post', [[paymentId]]).catch(() => {});
-
-  const paymentMoves = await execute('account.payment', 'read', [[paymentId]], {
-    fields: ['move_id'],
+  // 19.11.2026 — tahsilat faturanın şirketinde (NG/ADESE…) açılır, faturaya bağlanır (bkz. odoo-tahsilat.ts)
+  const yev = await tahsilatYevmiyesi(await faturaSirketi(invoiceId), journalKey);
+  if (yev.yedek) console.warn(`[Odoo] Açık hesap tahsilatı için faturanın şirketinde ${journalKey} yevmiyesi yok — eski yevmiye (#${journalId}) kullanıldı`);
+  const paymentId = await odooTahsilatOlustur({
+    companyId: yev.companyId,
+    journalId: yev.yedek ? journalId : yev.journalId,
+    partnerId: odooPartnerId,
+    amount,
+    ref: `POS OPEN_ACCOUNT ${paymentType} - ${saleId}`,
   });
-
-  if (paymentMoves?.[0]?.move_id?.[0]) {
-    const paymentMoveId = paymentMoves[0].move_id[0];
-    const invoiceLines = await execute(
-      'account.move.line',
-      'search_read',
-      [
-        [
-          ['move_id', '=', invoiceId],
-          ['account_type', 'in', ['asset_receivable']],
-          ['reconciled', '=', false],
-        ],
-      ],
-      { fields: ['id'], limit: 1 },
-    );
-    const paymentLines = await execute(
-      'account.move.line',
-      'search_read',
-      [
-        [
-          ['move_id', '=', paymentMoveId],
-          ['account_type', 'in', ['asset_receivable']],
-          ['reconciled', '=', false],
-        ],
-      ],
-      { fields: ['id'], limit: 1 },
-    );
-    if (invoiceLines?.[0] && paymentLines?.[0]) {
-      try {
-        await execute('account.move.line', 'reconcile', [
-          [invoiceLines[0].id, paymentLines[0].id],
-        ]);
-      } catch (e: any) {
-        throw new Error(`Mutabakat hatası (saleId=${saleId}): ${e?.message ?? e}`);
-      }
-    }
+  const sonuc = await odooTahsilatiFaturayaBagla(paymentId, invoiceId, yev.companyId);
+  if (!sonuc.ok) {
+    throw new Error(`Mutabakat hatası (saleId=${saleId}, ödeme ${paymentId}): ${sonuc.hata}`);
   }
 }
 

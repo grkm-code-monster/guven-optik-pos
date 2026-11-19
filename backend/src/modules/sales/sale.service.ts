@@ -12,6 +12,7 @@ import {
 } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import { appendPartnerNote, execute } from '../odoo/odoo.service';
+import { faturaSirketi, odooTahsilatOlustur, odooTahsilatiFaturayaBagla, tahsilatYevmiyesi } from '../odoo/odoo-tahsilat';
 import { getCompanyIdFromLokasyon, resolveBranchStockLocationId } from '../odoo/odooLocations';
 import { resolveWarehouseIdForCompany, validateSalePickingsFromBranch } from '../odoo/odoo-delivery.util';
 import { ODOO_TAX_CHART_COMPANY_ID, readProductSaleTaxRate, resolvePosLineTax } from '../odoo/odoo-tax.util';
@@ -1173,7 +1174,9 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
           );
         }
 
-        const createdPaymentIds: number[] = [];
+        // 19.11.2026 — tahsilat faturanın şirketinde açılır (bkz. odoo-tahsilat.ts)
+        const faturaSirketId = await faturaSirketi(invoiceId);
+        const createdPaymentIds: Array<{ id: number; companyId: number; tip: string; tutar: number }> = [];
         for (let i = 0; i < result.payments.length; i++) {
           const payment = result.payments[i];
           const inputPayment = input.payments[i];
@@ -1182,79 +1185,44 @@ export async function confirmSale(saleId: string, userId: string, role: Role, in
           // OPEN_ACCOUNT Odoo'ya ödeme olarak gönderilmez — borç kaydıdır
           if (payment.paymentType === PaymentType.OPEN_ACCOUNT) continue;
 
-          const JOURNAL_MAP: Record<string, number> = {
-            CASH: 17,
-            CARD: 18,
-            BANK_TRANSFER: 19,
-            TRANSFER: 19,
-            HAVALE: 19,
-            SGK: 20,
-            VAKIF: 21,
-            OPEN_ACCOUNT: 15,
-          };
-          const journalId = JOURNAL_MAP[payment.paymentType] ?? 17;
+          const yev = await tahsilatYevmiyesi(faturaSirketId, payment.paymentType);
+          if (yev.yedek && faturaSirketId && faturaSirketId !== 1) {
+            console.warn(`[Odoo] Şirket ${faturaSirketId} için ${payment.paymentType} yevmiyesi yok — eski (1959) yevmiye kullanıldı, faturaya bağlanamayabilir`);
+          }
           try {
-            const paymentId = await execute('account.payment', 'create', [
-              {
-                payment_type: 'inbound',
-                partner_type: 'customer',
-                partner_id: odooPartnerId ?? 1,
-                amount: Number(payment.grossAmount),
-                journal_id: journalId,
-                ref:
-                  payment.paymentType === PaymentType.TRANSFER && bankName
-                    ? `POS HAVALE ${bankName} - ${saleId}`
-                    : `POS ${payment.paymentType} - ${saleId}`,
-                date: new Date().toISOString().split('T')[0],
-              },
-            ]);
-            await execute('account.payment', 'action_post', [[paymentId]]).catch(() => {});
-            createdPaymentIds.push(paymentId);
-            console.log('[Odoo] Ödeme oluşturuldu:', paymentId, payment.paymentType);
+            const paymentId = await odooTahsilatOlustur({
+              companyId: yev.companyId,
+              journalId: yev.journalId,
+              partnerId: odooPartnerId ?? 1,
+              amount: Number(payment.grossAmount),
+              ref:
+                payment.paymentType === PaymentType.TRANSFER && bankName
+                  ? `POS HAVALE ${bankName} - ${saleId}`
+                  : `POS ${payment.paymentType} - ${saleId}`,
+            });
+            createdPaymentIds.push({ id: paymentId, companyId: yev.companyId, tip: payment.paymentType, tutar: Number(payment.grossAmount) });
+            console.log('[Odoo] Ödeme oluşturuldu:', paymentId, payment.paymentType, 'şirket', yev.companyId);
           } catch (e) {
             console.error('[Odoo] Ödeme hatası:', e);
           }
         }
 
-        for (const paymentId of createdPaymentIds) {
-          try {
-            const paymentMoves = await execute('account.payment', 'read', [[paymentId]], {
-              fields: ['move_id'],
-            });
-            if (paymentMoves?.[0]?.move_id?.[0]) {
-              const paymentMoveId = paymentMoves[0].move_id[0];
-              const invoiceLines = await execute(
-                'account.move.line',
-                'search_read',
-                [
-                  [
-                    ['move_id', '=', invoiceId],
-                    ['account_type', 'in', ['asset_receivable']],
-                    ['reconciled', '=', false],
-                  ],
-                ],
-                { fields: ['id'], limit: 1 },
-              );
-              const paymentLines = await execute(
-                'account.move.line',
-                'search_read',
-                [
-                  [
-                    ['move_id', '=', paymentMoveId],
-                    ['account_type', 'in', ['asset_receivable']],
-                    ['reconciled', '=', false],
-                  ],
-                ],
-                { fields: ['id'], limit: 1 },
-              );
-              if (invoiceLines?.[0] && paymentLines?.[0]) {
-                await execute('account.move.line', 'reconcile', [
-                  [invoiceLines[0].id, paymentLines[0].id],
-                ]).catch((e) => console.error('[Odoo] Mutabakat hatası:', e));
-              }
-            }
-          } catch (e) {
-            console.error('[Odoo] Bağlama hatası:', e);
+        for (const p of createdPaymentIds) {
+          const sonuc = await odooTahsilatiFaturayaBagla(p.id, invoiceId, p.companyId);
+          if (!sonuc.ok) {
+            // 19.11.2026 — artık yutulmaz: kayda düşer (Muhasebe → bağlanmamış tahsilatlar)
+            console.error(`[Odoo] Tahsilat faturaya bağlanamadı (ödeme ${p.id}, fatura ${invoiceId}):`, sonuc.hata);
+            await prisma.auditLog
+              .create({
+                data: {
+                  userId,
+                  action: 'ODOO_TAHSILAT_BAGLANAMADI',
+                  entity: 'Sale',
+                  entityId: saleId,
+                  payload: { odooOdemeId: p.id, odooFaturaId: invoiceId, sirketId: p.companyId, tip: p.tip, tutar: p.tutar, hata: sonuc.hata ?? null },
+                },
+              })
+              .catch(() => {});
           }
         }
       }
