@@ -98,7 +98,16 @@ async function main() {
   for (const o of [...kartOdoo, ...nakitOdoo]) console.log(`  ödeme #${o.id} ${o.name} | ${o.amount} | ${o.state} | ${m2o(o.journal_id)} | fatura ${o.reconciled_invoice_ids.join(',') || '—'} | ${o.date}`);
   const kartPlan = kartOdoo.length === 1 && kartOdoo[0].state === 'posted' && Math.abs(kartOdoo[0].amount - Number(k.grossAmount)) < 0.05 ? kartOdoo[0] : null;
   const nakitPlan = nakitOdoo.length === 1 && nakitOdoo[0].state === 'cancel' && Math.abs(nakitOdoo[0].amount - Number(n.grossAmount)) < 0.05 ? nakitOdoo[0] : null;
-  const faturaIds = kartPlan?.reconciled_invoice_ids ?? [];
+  let faturaIds = kartPlan?.reconciled_invoice_ids ?? [];
+  // Ödemeler faturaya bağlı değilse (kuru çıktı: "fatura —") faturayı satış siparişinden bul
+  if (!faturaIds.length && s.odooSaleOrderId) {
+    const [so] = (await execute('sale.order', 'read', [[s.odooSaleOrderId]], { fields: ['name', 'invoice_ids'], ...CTX })) as { name: string; invoice_ids: number[] }[];
+    const fts = so?.invoice_ids?.length
+      ? ((await execute('account.move', 'search_read', [[['id', 'in', so.invoice_ids], ['move_type', '=', 'out_invoice'], ['state', '=', 'posted']]], { fields: ['id'], ...CTX })) as { id: number }[])
+      : [];
+    faturaIds = fts.map((f) => f.id);
+    console.log(`  Ödemeler faturaya bağlı değil → sipariş ${so?.name ?? s.odooSaleOrderId} faturası: ${faturaIds.join(',') || 'bulunamadı'}`);
+  }
   if (faturaIds.length) {
     const fat = (await execute('account.move', 'read', [faturaIds], { fields: ['name', 'amount_total', 'amount_residual', 'payment_state'], ...CTX })) as { name: string; amount_total: number; amount_residual: number; payment_state: string }[];
     for (const f of fat) console.log(`  fatura ${f.name} | toplam ${f.amount_total} | kalan ${f.amount_residual} | ${f.payment_state}`);
