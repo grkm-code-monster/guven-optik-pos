@@ -10,6 +10,8 @@
  * Fatura 1959'daysa sadece bağlama denenir (taşıma yok).
  *
  * --test-iptal : POS'ta karşılığı olmayan (silinmiş test satışı) tahsilatları sadece İPTAL eder.
+ * --sirket-ici : NG/ADESE/POTENTIAL'da zaten açılmış ama faturaya bağlanmamış POS tahsilatlarını
+ *                (taşımadan) aynı şirketteki faturasına bağlar.
  *
  * GÜVENLİK: varsayılan KURU. --confirm ile uygular. Önce Odoo yedeği alın. Her işlem
  * /root/odoo-tahsilat-tasi-<zaman>.json'a yazılır (eski id → yeni id → fatura).
@@ -26,6 +28,8 @@ import { faturaAlacakHesabi, odooTahsilatiFaturayaBagla, odooTahsilatOlustur } f
 
 const confirm = process.argv.includes('--confirm');
 const testIptal = process.argv.includes('--test-iptal');
+const sirketIci = process.argv.includes('--sirket-ici');
+const KAYNAK_SIRKETLER = sirketIci ? [2, 3, 4] : [1];
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split('=').slice(1).join('=');
 const SUBE = arg('sube')?.toUpperCase();
 const LIMIT = Number(arg('limit') ?? 0) || 0;
@@ -64,7 +68,7 @@ async function yevmiye(companyId: number, ad: string): Promise<number | null> {
 
 async function main() {
   console.log(confirm ? '=== UYGULA ===' : '=== KURU (hiçbir şey değişmez) ===');
-  const odemeler = (await execute('account.payment', 'search_read', [[['ref', '=like', 'POS %'], ['state', '=', 'posted'], ['payment_type', '=', 'inbound'], ['is_reconciled', '=', false], ['company_id', '=', 1]]], {
+  const odemeler = (await execute('account.payment', 'search_read', [[['ref', '=like', 'POS %'], ['state', '=', 'posted'], ['payment_type', '=', 'inbound'], ['is_reconciled', '=', false], ['company_id', 'in', KAYNAK_SIRKETLER]]], {
     fields: ['id', 'name', 'ref', 'amount', 'date', 'partner_id', 'journal_id', 'company_id'],
     order: 'date asc, id asc',
     ...TUM,
@@ -113,30 +117,32 @@ async function main() {
     if (SUBE && sube !== SUBE) continue;
     const f = s.odooSaleOrderId ? sipFatura.get(s.odooSaleOrderId) ?? null : null;
     const hedef = f ? f.company_id[0] : null;
-    const yev = hedef && hedef !== 1 ? await yevmiye(hedef, o.journal_id[1]) : null;
+    const ayniSirket = hedef === o.company_id[0];
+    const yev = hedef && !ayniSirket ? await yevmiye(hedef, o.journal_id[1]) : null;
     let not = '';
     if (!f) not = 'FATURA YOK — atlanır';
     else if (f.amount_residual <= 0.01) not = 'fatura zaten kapalı — atlanır';
-    else if (hedef === 1) not = '1959 faturası — sadece bağlanır';
+    else if (sirketIci && !ayniSirket) not = `fatura başka şirkette (${f.company_id[1]}) — atlanır`;
+    else if (ayniSirket) not = 'aynı şirket — sadece bağlanır';
     else if (!yev) not = `şirket ${hedef}'de "${o.journal_id[1]}" yevmiyesi YOK — önce kurulum (atlanır)`;
     planlar.push({ o, sube, satisNo: s.referansNo ?? s.id, fatura: f, hedef, yev, not });
   }
-  const isle = planlar.filter((p) => p.fatura && p.fatura.amount_residual > 0.01 && (p.hedef === 1 || p.yev));
+  const isle = planlar.filter((p) => p.fatura && p.fatura.amount_residual > 0.01 && (p.hedef === p.o.company_id[0] || (!sirketIci && p.yev)));
   const secilen = LIMIT ? isle.slice(0, LIMIT) : isle;
 
   const ozet = new Map<string, { n: number; t: number }>();
   for (const p of planlar) {
-    const k = `${p.sube} → ${p.fatura ? p.fatura.company_id[1] : '—'} | ${p.not || 'TAŞINACAK + BAĞLANACAK'}`;
+    const k = `${p.sube} | ${p.o.company_id[1]} → ${p.fatura ? p.fatura.company_id[1] : '—'} | ${p.not || 'TAŞINACAK + BAĞLANACAK'}`;
     const x = ozet.get(k) ?? { n: 0, t: 0 };
     x.n++;
     x.t += p.o.amount;
     ozet.set(k, x);
   }
-  console.log(`\nBağlanmamış POS tahsilatı (1959): ${planlar.length}${SUBE ? ` (şube ${SUBE})` : ''}`);
+  console.log(`\nBağlanmamış POS tahsilatı (${sirketIci ? 'NG/ADESE/POTENTIAL' : '1959'}): ${planlar.length}${SUBE ? ` (şube ${SUBE})` : ''}`);
   for (const [k, x] of [...ozet.entries()].sort()) console.log(`  ${x.n} adet ${tl(x.t)} TL | ${k}`);
   console.log(`\nBu çalıştırmada işlenecek: ${secilen.length}${LIMIT ? ` (limit ${LIMIT})` : ''}`);
   for (const p of secilen.slice(0, 25)) {
-    console.log(`  #${p.o.id} ${p.o.name} | ${p.o.date} | ${tl(p.o.amount)} | ${p.o.journal_id[1]} | ${p.satisNo} | fatura ${p.fatura!.name} (kalan ${tl(p.fatura!.amount_residual)}) → ${p.hedef === 1 ? 'bağla' : `${p.fatura!.company_id[1]} yevmiye #${p.yev}`}`);
+    console.log(`  #${p.o.id} ${p.o.name} | ${p.o.date} | ${tl(p.o.amount)} | ${p.o.journal_id[1]} | ${p.satisNo} | fatura ${p.fatura!.name} (kalan ${tl(p.fatura!.amount_residual)}) → ${p.hedef === p.o.company_id[0] ? 'bağla' : `${p.fatura!.company_id[1]} yevmiye #${p.yev}`}`);
   }
   if (secilen.length > 25) console.log(`  … (+${secilen.length - 25})`);
 
@@ -152,11 +158,13 @@ async function main() {
   for (const p of secilen) {
     const f = p.fatura!;
     try {
-      if (p.hedef === 1) {
-        const r = await odooTahsilatiFaturayaBagla(p.o.id, f.id, 1);
+      if (p.hedef === p.o.company_id[0]) {
+        const r = await odooTahsilatiFaturayaBagla(p.o.id, f.id, p.hedef!);
         kayit.push({ islem: 'BAGLA', odeme: p.o.id, fatura: f.id, ok: r.ok, hata: r.hata ?? null });
-        if (r.ok) baglanan++;
-        else {
+        if (r.ok) {
+          baglanan++;
+          console.log(`  ✓ #${p.o.id} bağlandı | ${f.name} (${f.company_id[1]})`);
+        } else {
           hata++;
           console.log(`  ✗ #${p.o.id} bağlanamadı: ${r.hata}`);
         }
