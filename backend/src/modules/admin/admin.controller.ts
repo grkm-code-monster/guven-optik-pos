@@ -61,7 +61,7 @@ import envanterImportRouter from './envanter-import.controller';
 import etiketMerkeziRouter from './etiket-merkezi.controller';
 import hazirRaporlarRouter from '../hazir-raporlar/hazir-raporlar.controller';
 import ikmalRouter from './ikmal.controller';
-import { bekleyenMusteriSiparisleri, girisSonrasiDagit, kalemSiparisleriniAc, type GirisLotBilgi } from './urun-giris-siparis.service';
+import { bekleyenMusteriSiparisleri, girisSonrasiDagit, kalemSiparisleriniAc, siparisYenidenAc, type GirisLotBilgi } from './urun-giris-siparis.service';
 import { fizikiTedarikciBul, hafizayaYaz, oneriler } from './urun-giris-oneri.service';
 import {
   belgeTumSubelerde,
@@ -3211,6 +3211,14 @@ router.get('/urun-giris-siparisler', async (_req: Request, res: Response) => {
     return res.json({ data: await bekleyenMusteriSiparisleri() });
   } catch (e) {
     return res.status(500).json({ error: e instanceof Error ? e.message : 'Siparişler okunamadı' });
+  }
+});
+// 19.11.2026 — yanlış ürün girişine bağlanmış siparişi yeniden aç (stok hareketine dokunmaz)
+router.post('/urun-giris-siparisler/:id/yeniden-ac', async (req: Request, res: Response) => {
+  try {
+    return res.json({ data: await siparisYenidenAc(String(req.params.id), (req as any).user?.userId ?? null, String(req.body?.neden ?? '')) });
+  } catch (e) {
+    return res.status(400).json({ error: e instanceof Error ? e.message : 'Sipariş yeniden açılamadı' });
   }
 });
 

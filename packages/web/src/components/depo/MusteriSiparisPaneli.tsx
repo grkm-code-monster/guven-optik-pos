@@ -67,6 +67,7 @@ export default function MusteriSiparisPaneli({
   onSatiraBagla,
   onTumune,
   onYenile,
+  onYenidenAc,
 }: {
   siparisler: SiparisAday[]
   yukleniyor: boolean
@@ -79,6 +80,8 @@ export default function MusteriSiparisPaneli({
   onSatiraBagla: (s: SiparisAday) => void
   onTumune: (musteriSiparisleri: SiparisAday[]) => void
   onYenile: () => void
+  /** 19.11.2026 — yanlış girişe bağlanmış siparişi yeniden aç */
+  onYenidenAc?: (s: SiparisAday) => void
 }) {
   const [acik, setAcik] = useState(true)
   const [ara, setAra] = useState('')
@@ -132,13 +135,19 @@ export default function MusteriSiparisPaneli({
                     <div style={{ flex: 1, minWidth: 0, opacity: 0.75 }}>
                       <div style={{ fontSize: 12 }}>
                         <b>{s.musteriAdi}</b> · 🏪 {s.subeId ?? '—'}
-                        <span style={{ marginLeft: 6, fontSize: 10, color: '#047857', fontWeight: 800 }}>✅ ZATEN GELDİ</span>
+                        <span style={{ marginLeft: 6, fontSize: 10, color: '#047857', fontWeight: 800 }}>✅ DAHA ÖNCE GELDİ OLARAK GİRİLDİ</span>
                       </div>
                       <div style={{ fontSize: 11, color: '#374151' }}>{s.urunAdi}</div>
                       <div style={{ fontSize: 11, color: '#047857' }}>
-                        {t} · {s.girisNo ?? 'ürün girişi'}{s.girisFaturaNo ? ` · fatura ${s.girisFaturaNo}` : ' · faturasız'} ile {s.gelenAdet}/{s.miktar} adet girildi — tekrar stoğa girmeyin
+                        {t} · {s.girisNo ?? 'ürün girişi'}{s.girisFaturaNo ? ` · fatura ${s.girisFaturaNo}` : ' · faturasız'} ile {s.gelenAdet}/{s.miktar} adet bu siparişe bağlandı
                       </div>
+                      <div style={{ fontSize: 10, color: '#6b7280' }}>Aynı ürün ise tekrar girmeyin. O giriş yanlış bağlandıysa "Yeniden aç" deyin.</div>
                     </div>
+                    {onYenidenAc ? (
+                      <div style={{ textAlign: 'right' }}>
+                        <button type="button" style={{ ...btn, borderColor: '#fca5a5', color: '#991b1b' }} onClick={() => onYenidenAc(s)}>↺ Yeniden aç</button>
+                      </div>
+                    ) : null}
                   </div>
                 )
               }

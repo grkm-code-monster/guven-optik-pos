@@ -281,6 +281,27 @@ export async function bekleyenMusteriSiparisleri(): Promise<SiparisAday[]> {
   return [...[...gercek, ...sanal].sort((a, b) => b.olusturma.localeCompare(a.olusturma)), ...gelmis];
 }
 
+/** 19.11.2026 — Ürün girişinde yanlış satırlar bağlanıp "geldi" yapılmış siparişi yeniden açar.
+ *  Sipariş bekleyene döner (gelen 0, giriş bilgisi ve karekodlar siparişten çıkar). Stok hareketlerine
+ *  DOKUNMAZ: o girişle gelen ürünler girildiği yerde kalır. Eski değerler sipariş geçmişine yazılır. */
+export async function siparisYenidenAc(siparisId: string, userId: string | null, neden: string) {
+  const s = await prisma.ozelSiparis.findUnique({ where: { id: siparisId }, include: { karekodlar: true } });
+  if (!s) throw new Error('Sipariş bulunamadı');
+  if (!s.urunGirisNo && !(s.gelenAdet > 0)) throw new Error('Bu sipariş bir ürün girişine bağlı değil');
+  if (['TESLIM_EDILDI', 'MUSTERIYE_TESLIM', 'IPTAL'].includes(s.durum)) throw new Error('Müşteriye teslim edilmiş / iptal sipariş yeniden açılamaz');
+  const not = `Yeniden açıldı (yanlış bağ): ${s.urunGirisNo ?? '-'}${s.urunGirisFaturaNo ? ` · fatura ${s.urunGirisFaturaNo}` : ''} girişindeki ${s.gelenAdet} adet bağı kaldırıldı. `
+    + `Çıkarılan karekodlar: ${s.karekodlar.map((k) => k.karekod).join(', ') || '-'}. Stok hareketine dokunulmadı.${neden.trim() ? ` Neden: ${neden.trim().slice(0, 300)}` : ''}`;
+  await prisma.$transaction([
+    prisma.ozelSiparisKarekod.deleteMany({ where: { siparisId } }),
+    prisma.ozelSiparis.update({
+      where: { id: siparisId },
+      data: { durum: 'BEKLIYOR', gelenAdet: 0, urunGirisNo: null, urunGirisFaturaNo: null, urunGirisTarihi: null, gercekGelisTarihi: null },
+    }),
+    prisma.ozelSiparisLog.create({ data: { siparisId, eskiDurum: s.durum, yeniDurum: 'BEKLIYOR', userId, notlar: not } }),
+  ]);
+  return { ok: true, eskiGirisNo: s.urunGirisNo, karekodSayisi: s.karekodlar.length };
+}
+
 export type GirisLotBilgi = {
   lotId: number | null; // Odoo stock.lot id (bu girişte oluşan)
   productId: number | null; // Odoo product.product id

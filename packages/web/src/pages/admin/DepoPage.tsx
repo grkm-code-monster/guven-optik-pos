@@ -3642,12 +3642,30 @@ function UrunGirisTab() {
     return sp.kalan - kul
   }
 
+  /** 19.11.2026 — satır başka bir ürüne eşleşmişse sipariş bağı ürünü sessizce DEĞİŞTİRMESİN */
+  function urunFarkli(satir: FaturaSatiri, sp: SiparisAday): boolean {
+    return Boolean(satir.eslesti && satir.bizimUrunOdooId && sp.odooTmplId && Number(satir.bizimUrunOdooId) !== Number(sp.odooTmplId))
+  }
+
   function satiraSiparisBagla(sp: SiparisAday) {
     const satir = satirlar.find((x) => x.id === bagSatirId)
     if (!satir) return
+    if (sp.geldi) return
     const kalan = siparisKalan(sp, satir.id)
     if ((satir.miktar || 1) > kalan) {
       setEslestirmeMesaj({ tip: 'warn', text: `${sp.musteriAdi} siparişinde kalan ${Math.max(0, kalan)} adet var, satır ${satir.miktar} adet. Satırın adedini düşürüp kalanı ayrı satır yapın.` })
+      return
+    }
+    if (urunFarkli(satir, sp)) {
+      const ok = window.confirm(
+        `DİKKAT — ürünler farklı:\n\nFaturadaki satır: ${satir.tedarikciUrunAdi}\nBizim ürün: ${satir.bizimUrunAdi}\n\n${sp.musteriAdi} siparişindeki ürün: ${sp.odooUrunAdi ?? sp.urunAdi}\n\nBu satır gerçekten bu müşterinin ürünü mü? Tamam derseniz bağlanır, ürün FATURADAKİ GİBİ kalır.`,
+      )
+      if (!ok) return
+      setSatirlar((prev) => prev.map((x) => (x.id === satir.id
+        ? { ...x, siparisBag: { siparisId: sp.id, musteriAdi: sp.musteriAdi, subeId: sp.subeId, urunAdi: sp.urunAdi, optikCam: sp.optikCam, bagdanEslesti: false } }
+        : x)))
+      setEslestirmeMesaj({ tip: 'warn', text: `Satır ${sp.musteriAdi} siparişine bağlandı; ürün faturadaki gibi bırakıldı (${satir.bizimUrunAdi}).` })
+      setBagSatirId(null)
       return
     }
     setSatirlar((prev) => prev.map((x) => (x.id === satir.id ? siparisBagUygula(x, sp) : x)))
@@ -3660,13 +3678,31 @@ function UrunGirisTab() {
     setBagSatirId(null)
   }
 
+  async function siparisiYenidenAc(sp: SiparisAday) {
+    const neden = window.prompt(
+      `${sp.musteriAdi} — ${sp.urunAdi}\n\nBu sipariş ${sp.girisNo ?? 'bir ürün girişi'} ile "geldi" yapılmış. O bağ YANLIŞSA sipariş yeniden açılır ve bekleyenlere döner.\n`
+      + `O girişle gelen ürünler girildikleri yerde (stokta) kalır; stok hareketi değişmez.\n\nKısa neden yazıp Tamam deyin:`,
+      'Yanlış bağlanmıştı, asıl ürün bu faturayla geldi',
+    )
+    if (neden === null) return
+    try {
+      await adminApi.post(`/admin/urun-giris-siparisler/${encodeURIComponent(sp.id)}/yeniden-ac`, { neden })
+      setEslestirmeMesaj({ tip: 'ok', text: `${sp.musteriAdi} siparişi yeniden açıldı; şimdi faturadaki satıra bağlayabilirsiniz.` })
+      await musteriSiparisleriniYukle()
+    } catch (e: any) {
+      setEslestirmeMesaj({ tip: 'warn', text: e?.response?.data?.error ?? 'Sipariş yeniden açılamadı' })
+    }
+  }
+
   function tumSatirlariMusteriyeBagla(grup: SiparisAday[]) {
     const yerel = new Map(grup.map((g) => [g.id, siparisKalan(g)]))
     let baglanan = 0
     let kalanSatir = 0
+    // 19.11.2026 — yalnızca siparişteki ürünle AYNI ürüne eşleşmiş satırlar bağlanır (eskiden boştaki her satır
+    // bağlanıp ürünü siparişin ürünüyle değiştiriliyordu → başka ürün yanlış müşteriye/ürüne girdi)
     const yeni = satirlar.map((x) => {
       if (x.siparisBag) return x
-      const sp = grup.find((g) => (yerel.get(g.id) ?? 0) >= (x.miktar || 1))
+      const sp = grup.find((g) => !g.geldi && g.odooTmplId && x.eslesti && Number(x.bizimUrunOdooId) === Number(g.odooTmplId) && (yerel.get(g.id) ?? 0) >= (x.miktar || 1))
       if (!sp) { kalanSatir++; return x }
       yerel.set(sp.id, (yerel.get(sp.id) ?? 0) - (x.miktar || 1))
       baglanan++
@@ -3676,7 +3712,7 @@ function UrunGirisTab() {
     setBagSatirId(null)
     setEslestirmeMesaj({
       tip: kalanSatir ? 'warn' : 'ok',
-      text: `${grup[0]?.musteriAdi ?? 'Müşteri'}: ${baglanan} satır bağlandı.${kalanSatir ? ` ${kalanSatir} satır bağlanamadı (siparişte kalan adet yetmedi) — bunlar stok girişi olarak kalır ya da başka müşteriye bağlayın.` : ''}`,
+      text: `${grup[0]?.musteriAdi ?? 'Müşteri'}: ${baglanan} satır bağlandı.${kalanSatir ? ` ${kalanSatir} satır bağlanmadı (ürünü siparişteki ürünle aynı değil, henüz eşleşmemiş ya da kalan adet yetmedi). Gerekirse "👤 Kime?" ile tek tek bağlayın.` : ''}`,
     })
   }
 
@@ -5384,6 +5420,7 @@ function UrunGirisTab() {
             onSatiraBagla={satiraSiparisBagla}
             onTumune={tumSatirlariMusteriyeBagla}
             onYenile={() => void musteriSiparisleriniYukle()}
+            onYenidenAc={(sp) => void siparisiYenidenAc(sp)}
           />
 
           <div style={{ overflowX: 'auto', marginBottom: 12 }}>
