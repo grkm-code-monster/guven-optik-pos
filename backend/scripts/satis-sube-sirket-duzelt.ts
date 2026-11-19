@@ -106,14 +106,16 @@ async function main() {
 
   // --- POS hedef vardiya
   const gun = odooGun(zaman);
-  const vardiya = await prisma.shift.findFirst({
+  const ayniSube = eskiSube.id === hedef.id && !tarih;
+  const vardiya = ayniSube ? await prisma.shift.findUnique({ where: { id: s.shiftId }, include: { user: { select: { name: true } } } }) : await prisma.shift.findFirst({
     where: { branchId: hedef.id, openedAt: { gte: new Date(`${gun}T00:00:00+03:00`), lte: new Date(`${gun}T23:59:59+03:00`) } },
     orderBy: { openedAt: 'asc' },
     include: { user: { select: { name: true } } },
   });
   if (!vardiya) throw new Error(`${hedef.code} şubesinde ${gun} günü vardiya yok`);
   log(`POS vardiya: ${vardiya.id} (${vardiya.user.name}, ${z(vardiya.openedAt)} → ${z(vardiya.closedAt)}, ${vardiya.status})`);
-  if (zaman < vardiya.openedAt) throw new Error(`Saat vardiya açılışından (${z(vardiya.openedAt)}) önce — daha geç bir saat verin`);
+  if (ayniSube) log('   POS zaten doğru şubede/vardiyada — POS tarafı değişmeyecek');
+  if (!ayniSube && zaman < vardiya.openedAt) throw new Error(`Saat vardiya açılışından (${z(vardiya.openedAt)}) önce — daha geç bir saat verin`);
   const nakitHar = await prisma.cashMovement.findMany({ where: { description: { contains: s.id } } });
   log(`POS nakit hareketi: ${nakitHar.length}`);
 
