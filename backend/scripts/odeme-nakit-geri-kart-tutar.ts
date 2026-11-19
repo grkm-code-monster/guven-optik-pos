@@ -57,8 +57,15 @@ async function faturayaBagla(odemeId: number, faturaIds: number[]) {
   const fl = (await execute('account.move.line', 'search_read', [[['move_id', 'in', faturaIds], ['account_type', '=', 'asset_receivable'], ['reconciled', '=', false]]], { fields: ['id'], limit: 1, ...CTX })) as { id: number }[];
   const pl = (await execute('account.move.line', 'search_read', [[['move_id', '=', pm.move_id[0]], ['account_type', '=', 'asset_receivable'], ['reconciled', '=', false]]], { fields: ['id'], limit: 1, ...CTX })) as { id: number }[];
   if (!fl[0] || !pl[0]) return `⚠ eşleştirme satırı yok (fatura ${fl.length}, ödeme ${pl.length})`;
-  await execute('account.move.line', 'reconcile', [[fl[0].id, pl[0].id]], CTX);
-  return 'faturayla eşleşti';
+  try {
+    await execute('account.move.line', 'reconcile', [[fl[0].id, pl[0].id]], CTX);
+    return 'faturayla eşleşti';
+  } catch (e) {
+    // 19.11.2026: fatura "120 Alıcılar", POS ödemesi "120000 Customers" hesabında → Odoo eşleştirmiyor.
+    // Ödeme tutarı/durumu doğru kalır; eşleştirme muhasebede ayrıca çözülecek.
+    const m = e instanceof Error ? e.message : String(e);
+    return `⚠ faturayla EŞLEŞTİRİLEMEDİ (${m.replace(/^.*fault:\s*/i, '').slice(0, 90)}) — ödeme onaylı, muhasebede bağlanacak`;
+  }
 }
 
 async function main() {
@@ -97,8 +104,10 @@ async function main() {
   console.log('\nODOO:');
   for (const o of [...kartOdoo, ...nakitOdoo]) console.log(`  ödeme #${o.id} ${o.name} | ${o.amount} | ${o.state} | ${m2o(o.journal_id)} | fatura ${o.reconciled_invoice_ids.join(',') || '—'} | ${o.date}`);
   const kartPlan = kartOdoo.length === 1 && kartOdoo[0].state === 'posted' && Math.abs(kartOdoo[0].amount - Number(k.grossAmount)) < 0.05 ? kartOdoo[0] : null;
+  // 19.11.2026: ilk denemede Odoo kart ödemesi 4000'e indirildi, sonra eşleştirmede durdu → bu adım tamam sayılır
+  const kartOdooTamam = !kartPlan && kartOdoo.length === 1 && kartOdoo[0].state === 'posted' && Math.abs(kartOdoo[0].amount - Number(kart)) < 0.05 ? kartOdoo[0] : null;
   const nakitPlan = nakitOdoo.length === 1 && nakitOdoo[0].state === 'cancel' && Math.abs(nakitOdoo[0].amount - Number(n.grossAmount)) < 0.05 ? nakitOdoo[0] : null;
-  let faturaIds = kartPlan?.reconciled_invoice_ids ?? [];
+  let faturaIds = (kartPlan ?? kartOdooTamam)?.reconciled_invoice_ids ?? [];
   // Ödemeler faturaya bağlı değilse (kuru çıktı: "fatura —") faturayı satış siparişinden bul
   if (!faturaIds.length && s.odooSaleOrderId) {
     const [so] = (await execute('sale.order', 'read', [[s.odooSaleOrderId]], { fields: ['name', 'invoice_ids'], ...CTX })) as { name: string; invoice_ids: number[] }[];
@@ -112,19 +121,21 @@ async function main() {
     const fat = (await execute('account.move', 'read', [faturaIds], { fields: ['name', 'amount_total', 'amount_residual', 'payment_state'], ...CTX })) as { name: string; amount_total: number; amount_residual: number; payment_state: string }[];
     for (const f of fat) console.log(`  fatura ${f.name} | toplam ${f.amount_total} | kalan ${f.amount_residual} | ${f.payment_state}`);
   }
-  console.log(kartPlan ? `  PLAN: kart ödemesi #${kartPlan.id} ${kartPlan.amount} → ${kart}, yeniden onay + faturayla eşleştirme` : '  ⚠️ Kart ödemesi beklenen gibi değil (tek, onaylı, 4500) → Odoo’ya DOKUNULMAYACAK');
+  console.log(kartPlan ? `  PLAN: kart ödemesi #${kartPlan.id} ${kartPlan.amount} → ${kart}, yeniden onay + faturayla eşleştirme` : kartOdooTamam ? `  Kart ödemesi #${kartOdooTamam.id} Odoo'da zaten ${kart} (önceki denemede yapıldı) → atlanacak` : '  ⚠️ Kart ödemesi beklenen gibi değil (tek, onaylı, 4500) → Odoo’ya DOKUNULMAYACAK');
   console.log(nakitPlan ? `  PLAN: iptal edilmiş nakit ödemesi #${nakitPlan.id} (${nakitPlan.amount}) yeniden onay + faturayla eşleştirme` : '  ⚠️ İptal edilmiş nakit ödemesi bulunamadı → Odoo’ya DOKUNULMAYACAK');
-  if (!kartPlan || !nakitPlan) { console.log('\n⚠️ DURDU: Odoo tarafı beklenen gibi değil — hiçbir şey değiştirilmeyecek, çıktıyı gönderin.'); return; }
+  if ((!kartPlan && !kartOdooTamam) || !nakitPlan) { console.log('\n⚠️ DURDU: Odoo tarafı beklenen gibi değil — hiçbir şey değiştirilmeyecek, çıktıyı gönderin.'); return; }
 
   if (!UYGULA) { console.log('\nKURU ÇALIŞMA — sorun yok. Uygulamak için --uygula ekleyin.'); return; }
 
   // 1) Odoo kart: tutar düşür (önce, fatura üzerinde 500 boşalsın)
+  if (kartPlan) {
   const d1 = await islem('action_draft', kartPlan.id);
   if (d1 !== 'draft') throw new Error(`Odoo kart ödemesi #${kartPlan.id} taslağa alınamadı (${d1}) — hiçbir şey değişmedi`);
   await execute('account.payment', 'write', [[kartPlan.id], { amount: Number(kart) }], CTX);
   const d2 = await islem('action_post', kartPlan.id);
   if (d2 !== 'posted') throw new Error(`Odoo kart ödemesi #${kartPlan.id} yeniden onaylanamadı (${d2}) — POS'a dokunulmadı, haber verin`);
   console.log(`✓ Odoo kart ödemesi #${kartPlan.id}: ${kart} | ${await faturayaBagla(kartPlan.id, faturaIds)}`);
+  }
 
   // 2) Odoo nakit: iptalden geri al
   const d3 = await islem('action_draft', nakitPlan.id);
@@ -150,7 +161,7 @@ async function main() {
     prisma.auditLog.create({
       data: {
         userId: k.createdByUserId ?? s.userId, action: 'ODEME_NAKIT_GERI_KART_TUTAR', entity: 'Sale', entityId: s.id,
-        payload: { nakitOdemeId: n.id, nakit: n.grossAmount.toString(), kartOdemeId: k.id, eskiKart: k.grossAmount.toString(), yeniKart: kart.toString(), eskiKomisyon: k.commissionAmount?.toString() ?? null, yeniKomisyon: yeniKom.commissionAmount, odooKart: kartPlan.id, odooNakit: nakitPlan.id, script: true },
+        payload: { nakitOdemeId: n.id, nakit: n.grossAmount.toString(), kartOdemeId: k.id, eskiKart: k.grossAmount.toString(), yeniKart: kart.toString(), eskiKomisyon: k.commissionAmount?.toString() ?? null, yeniKomisyon: yeniKom.commissionAmount, odooKart: (kartPlan ?? kartOdooTamam)?.id ?? null, odooNakit: nakitPlan.id, script: true },
       },
     }),
   ]);
