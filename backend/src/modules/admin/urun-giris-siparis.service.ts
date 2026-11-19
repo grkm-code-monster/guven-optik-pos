@@ -47,6 +47,11 @@ export type SiparisAday = {
   odooTmplId: number | null;
   odooUrunAdi: string | null;
   odooBarkod: string | null;
+  /** 19.11.2026 — son 30 günde ürün girişiyle tamamı gelmiş sipariş (bilgi amaçlı; bağlanamaz) */
+  geldi?: boolean;
+  girisNo?: string | null;
+  girisFaturaNo?: string | null;
+  girisTarihi?: string | null;
 };
 
 function m2oId(v: unknown): number | null {
@@ -61,6 +66,7 @@ function m2oAd(v: unknown): string {
  *  girişinde bağlanınca sipariş kaydı otomatik açılır (kalemSiparisleriniAc). Son 180 gün. */
 const SIPARISSIZ_GUN = 180;
 const HIZMET_KATEGORILERI = [63, 82];
+const GELMIS_GUN = 30;
 
 async function siparissizBekleyenKalemler() {
   const kalemler = await prisma.saleItem.findMany({
@@ -149,6 +155,14 @@ export async function bekleyenMusteriSiparisleri(): Promise<SiparisAday[]> {
     take: 1000,
   });
   const acik = siparisler.filter((s) => (s.gelenAdet ?? 0) < Math.max(1, s.miktar ?? 1));
+  // 19.11.2026 — tamamı gelmiş siparişler listeden düşünce "gelmedi" sanılıyordu: son 30 günde gelenleri
+  // bilgi olarak (gri, bağlanamaz) ekle; panelde aramada görünür.
+  const gelmisler = await prisma.ozelSiparis.findMany({
+    where: { urunGirisTarihi: { gte: new Date(Date.now() - GELMIS_GUN * 86400000) }, durum: { not: 'IPTAL' } },
+    orderBy: { urunGirisTarihi: 'desc' },
+    take: 1000,
+  });
+  const tamGelen = gelmisler.filter((s) => (s.gelenAdet ?? 0) >= Math.max(1, s.miktar ?? 1));
   const siparissiz = await siparissizBekleyenKalemler().catch((e) => {
     console.error('[bekleyen-siparis] siparişsiz kalemler okunamadı:', e instanceof Error ? e.message : e);
     return [] as Awaited<ReturnType<typeof siparissizBekleyenKalemler>>;
@@ -233,8 +247,38 @@ export async function bekleyenMusteriSiparisleri(): Promise<SiparisAday[]> {
       odooBarkod: u && typeof u.barcode === 'string' && u.barcode.trim() ? u.barcode.trim() : null,
     };
   });
-  // en yeni önce
-  return [...gercek, ...sanal].sort((a, b) => b.olusturma.localeCompare(a.olusturma));
+  const gelmis: SiparisAday[] = tamGelen.map((s) => {
+    const miktar = Math.max(1, s.miktar ?? 1);
+    return {
+      id: s.id,
+      musteriAdi: s.musteriAdi,
+      musteriTelefon: s.musteriTelefon ?? null,
+      subeId: s.subeId ?? null,
+      urunAdi: s.urunAdi,
+      miktar,
+      gelenAdet: s.gelenAdet ?? 0,
+      kalan: 0,
+      durum: s.durum,
+      tedarikciAdi: s.tedarikciAdi ?? null,
+      olusturma: s.createdAt.toISOString(),
+      satisTemsilcisi: s.satisTemsilcisi ?? null,
+      optikCam: false,
+      recete: {
+        sagSph: s.sagSph, sagCyl: s.sagCyl, sagAks: s.sagAks, sagAdd: s.sagAdd,
+        solSph: s.solSph, solCyl: s.solCyl, solAks: s.solAks, solAdd: s.solAdd,
+      },
+      odooProductId: null,
+      odooTmplId: null,
+      odooUrunAdi: null,
+      odooBarkod: null,
+      geldi: true,
+      girisNo: s.urunGirisNo ?? null,
+      girisFaturaNo: s.urunGirisFaturaNo ?? null,
+      girisTarihi: s.urunGirisTarihi ? s.urunGirisTarihi.toISOString() : null,
+    };
+  });
+  // en yeni önce; gelmişler en sonda
+  return [...[...gercek, ...sanal].sort((a, b) => b.olusturma.localeCompare(a.olusturma)), ...gelmis];
 }
 
 export type GirisLotBilgi = {

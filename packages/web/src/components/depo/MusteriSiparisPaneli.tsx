@@ -28,6 +28,11 @@ export type SiparisAday = {
   odooTmplId: number | null
   odooUrunAdi: string | null
   odooBarkod: string | null
+  /** 19.11.2026 — son 30 günde tamamı gelmiş (bilgi amaçlı, bağlanamaz) */
+  geldi?: boolean
+  girisNo?: string | null
+  girisFaturaNo?: string | null
+  girisTarihi?: string | null
 }
 
 export type SiparisBag = {
@@ -78,23 +83,28 @@ export default function MusteriSiparisPaneli({
   const [acik, setAcik] = useState(true)
   const [ara, setAra] = useState('')
 
+  // 19.11.2026 — tamamı gelmiş siparişler yalnızca aramada (gri, bağlanamaz) görünür
+  const bekleyenler = useMemo(() => siparisler.filter((s) => !s.geldi), [siparisler])
   const liste = useMemo(() => {
     const q = fold(ara).trim()
     const firma = fold(firmaIpucu).split(/\s+/).filter((w) => w.length >= 3)
     const uyar = (s: SiparisAday) => !!s.tedarikciAdi && firma.some((w) => fold(s.tedarikciAdi ?? '').includes(w))
-    return siparisler
-      .filter((s) => !q || fold(`${s.musteriAdi} ${s.urunAdi} ${s.subeId ?? ''} ${s.musteriTelefon ?? ''} ${s.tedarikciAdi ?? ''}`).includes(q))
+    const uyan = (s: SiparisAday) => !q || fold(`${s.musteriAdi} ${s.urunAdi} ${s.subeId ?? ''} ${s.musteriTelefon ?? ''} ${s.tedarikciAdi ?? ''} ${s.girisNo ?? ''} ${s.girisFaturaNo ?? ''}`).includes(q)
+    const acik = bekleyenler
+      .filter(uyan)
       .map((s) => ({ s, firma: uyar(s) }))
       .sort((a, b) => Number(b.firma) - Number(a.firma) || b.s.olusturma.localeCompare(a.s.olusturma))
-  }, [siparisler, ara, firmaIpucu])
+    const gelmis = q ? siparisler.filter((s) => s.geldi && uyan(s)).map((s) => ({ s, firma: false })) : []
+    return [...acik, ...gelmis]
+  }, [siparisler, bekleyenler, ara, firmaIpucu])
 
   const musteriGrubu = (s: SiparisAday) =>
-    siparisler.filter((x) => fold(x.musteriAdi) === fold(s.musteriAdi) && x.subeId === s.subeId)
+    bekleyenler.filter((x) => fold(x.musteriAdi) === fold(s.musteriAdi) && x.subeId === s.subeId)
 
   return (
     <div style={{ border: '2px solid #c4b5fd', borderRadius: 12, backgroundColor: '#faf5ff', marginBottom: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer' }} onClick={() => setAcik((x) => !x)}>
-        <b style={{ fontSize: 13, color: '#5b21b6' }}>👤 Bekleyen müşteri siparişleri ({siparisler.length})</b>
+        <b style={{ fontSize: 13, color: '#5b21b6' }}>👤 Bekleyen müşteri siparişleri ({bekleyenler.length})</b>
         <span style={{ fontSize: 11, color: '#6b7280' }}>
           {aktifSatirAdi ? <>Seçili satır: <b style={{ color: '#1a1a2e' }}>{aktifSatirAdi}</b> — aşağıdan müşteriyi seçin</> : 'Bir satırda "👤 Kime?" deyin, sonra müşteriyi seçin. Bağlanmayan satır normal stok girişidir.'}
         </span>
@@ -106,7 +116,7 @@ export default function MusteriSiparisPaneli({
             <input
               value={ara}
               onChange={(e) => setAra(e.target.value)}
-              placeholder="Müşteri, ürün, mağaza, telefon ara…"
+              placeholder="Müşteri, ürün, mağaza, telefon ara… (son 30 günde gelmiş olanlar da aranır)"
               style={{ flex: 1, padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12 }}
             />
             <button type="button" style={btn} onClick={onYenile}>↻</button>
@@ -115,6 +125,23 @@ export default function MusteriSiparisPaneli({
           {yukleniyor ? <div style={{ fontSize: 12, color: '#6b7280' }}>Siparişler okunuyor…</div> : null}
           <div style={{ maxHeight: 300, overflowY: 'auto', backgroundColor: 'white', borderRadius: 8, border: '1px solid #ede9fe' }}>
             {liste.map(({ s, firma }) => {
+              if (s.geldi) {
+                const t = s.girisTarihi ? new Date(s.girisTarihi).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+                return (
+                  <div key={s.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '7px 10px', borderBottom: '1px solid #f3f4f6', backgroundColor: '#f9fafb' }}>
+                    <div style={{ flex: 1, minWidth: 0, opacity: 0.75 }}>
+                      <div style={{ fontSize: 12 }}>
+                        <b>{s.musteriAdi}</b> · 🏪 {s.subeId ?? '—'}
+                        <span style={{ marginLeft: 6, fontSize: 10, color: '#047857', fontWeight: 800 }}>✅ ZATEN GELDİ</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#374151' }}>{s.urunAdi}</div>
+                      <div style={{ fontSize: 11, color: '#047857' }}>
+                        {t} · {s.girisNo ?? 'ürün girişi'}{s.girisFaturaNo ? ` · fatura ${s.girisFaturaNo}` : ' · faturasız'} ile {s.gelenAdet}/{s.miktar} adet girildi — tekrar stoğa girmeyin
+                      </div>
+                    </div>
+                  </div>
+                )
+              }
               const kul = kullanilan.get(s.id) ?? 0
               const kalan = s.kalan - kul
               const grup = musteriGrubu(s)
