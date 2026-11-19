@@ -1177,7 +1177,7 @@ router.get('/branches', async (_req: Request, res: Response) => {
 
 router.get('/stock', async (req: Request, res: Response) => {
   try {
-    const { locationId, search } = req.query;
+    const { locationId, search, model } = req.query;
     const inStockOnly = req.query.inStockOnly !== '0';
 
     const domain: any[] = [['location_id.usage', '=', 'internal']];
@@ -1189,35 +1189,59 @@ router.get('/stock', async (req: Request, res: Response) => {
       domain.push(['location_id', '=', Number(locationId)]);
     }
 
+    // 19.11.2026 — Stok Yönetimi gibi: arama kelime kelime (hepsi geçmeli); her kelime ürün adı,
+    // iç ref/model, barkod, nitelik (model/renk/ölçü), lot no ya da UTS karekodunda aranır.
+    // GS1 karekod okutulursa içindeki ürün barkodu (GTIN) ile de aranır. "Model" ayrı kutu.
+    const trBicimler = (k: string) => [...new Set([k, k.toLocaleUpperCase('tr-TR'), k.toLocaleLowerCase('tr-TR')])];
+    const orla = (kosullar: unknown[]) => (kosullar.length > 1 ? [...Array(kosullar.length - 1).fill('|'), ...kosullar] : kosullar);
+    const ptavUrunleri = async (k: string): Promise<number[]> => {
+      const ptavs = (await execute('product.template.attribute.value', 'search_read',
+        [orla(trBicimler(k).map((b) => ['name', 'ilike', b]))],
+        { fields: ['id'], limit: 500, ...ODOO_ALL_COMPANIES_KWARGS })) ?? [];
+      const ids = ptavs.map((p: { id: number }) => p.id).filter(Boolean);
+      if (!ids.length) return [];
+      const prods = (await execute('product.product', 'search_read',
+        [[['product_template_attribute_value_ids', 'in', ids]]],
+        { fields: ['id'], limit: 5000, ...ODOO_ALL_COMPANIES_KWARGS })) ?? [];
+      return prods.map((p: { id: number }) => p.id);
+    };
+    const eslesenLotlar = new Set<number>();
+    const lotAra = async (k: string): Promise<number[]> => {
+      // kısa / harfsiz kelimelerde lot taraması yapılmaz (çok geniş sonuç)
+      if (k.length < 4 || !/\d/.test(k)) return [];
+      const lots = (await execute('stock.lot', 'search_read',
+        [['|', '|', ['name', 'ilike', k], ['ref', 'ilike', k], ['x_uts_kodu', 'ilike', k]]],
+        { fields: ['id'], limit: 2000, ...ODOO_ALL_COMPANIES_KWARGS })) ?? [];
+      const ids = lots.map((l: { id: number }) => l.id);
+      ids.forEach((id: number) => eslesenLotlar.add(id));
+      return ids;
+    };
+
     const searchTerm = search ? String(search).trim() : '';
-    if (searchTerm) {
-      // Ürün adı + model (default_code) + nitelik/varyant değeri (ör. "C1", renk kodu)
-      // hepsini kapsayan tek arama kutusu. Nitelik eşleşmesi için önce eşleşen
-      // product.template.attribute.value id'lerini bulup, o değerlere sahip
-      // varyantların id'lerini domain'e ekliyoruz.
-      const ptavs = (await execute(
-        'product.template.attribute.value',
-        'search_read',
-        [[['name', 'ilike', searchTerm]]],
-        { fields: ['id'], limit: 200, ...ODOO_ALL_COMPANIES_KWARGS },
-      )) ?? [];
-      const ptavIds = ptavs.map((p: { id: number }) => p.id).filter(Boolean);
-      let ptavProductIds: number[] = [];
-      if (ptavIds.length) {
-        const prods = (await execute(
-          'product.product',
-          'search_read',
-          [[['product_template_attribute_value_ids', 'in', ptavIds]]],
-          { fields: ['id'], limit: 3000, ...ODOO_ALL_COMPANIES_KWARGS },
-        )) ?? [];
-        ptavProductIds = prods.map((p: { id: number }) => p.id);
+    const kelimeler = [...new Set(searchTerm.split(/\s+/).filter(Boolean))].slice(0, 8);
+    for (const k of kelimeler) {
+      const kosullar: unknown[] = [];
+      for (const b of trBicimler(k)) {
+        kosullar.push(['product_id.name', 'ilike', b], ['product_id.default_code', 'ilike', b]);
       }
-      domain.push(
-        '|', '|',
-        ['product_id.name', 'ilike', searchTerm],
-        ['product_id.default_code', 'ilike', searchTerm],
-        ['product_id', 'in', ptavProductIds.length ? ptavProductIds : [-1]],
-      );
+      kosullar.push(['product_id.barcode', 'ilike', k]);
+      const gs1 = k.match(/^\(?01\)?(\d{14})/);
+      if (gs1) {
+        const gtin = gs1[1];
+        kosullar.push(['product_id.barcode', 'in', [gtin, gtin.replace(/^0+/, '')]]);
+      }
+      const ptav = await ptavUrunleri(k);
+      if (ptav.length) kosullar.push(['product_id', 'in', ptav]);
+      const lotlar = await lotAra(k);
+      if (lotlar.length) kosullar.push(['lot_id', 'in', lotlar]);
+      domain.push(...orla(kosullar));
+    }
+    const modelTerm = model ? String(model).trim() : '';
+    if (modelTerm) {
+      const kosullar: unknown[] = trBicimler(modelTerm).map((b) => ['product_id.default_code', 'ilike', b]);
+      const ptav = await ptavUrunleri(modelTerm);
+      if (ptav.length) kosullar.push(['product_id', 'in', ptav]);
+      domain.push(...orla(kosullar));
     }
 
     const quants = (await execute(
@@ -1252,6 +1276,40 @@ router.get('/stock', async (req: Request, res: Response) => {
       }
     }
 
+    // Ürün bilgisi: model / renk / diğer nitelikler / barkod
+    const pids = [...new Set(quants.map((q: { product_id: [number, string] | false }) => (Array.isArray(q.product_id) ? q.product_id[0] : null)).filter(Boolean))] as number[];
+    const urunBilgi = new Map<number, { model: string | null; renk: string | null; nitelik: string | null; barkod: string | null }>();
+    if (pids.length) {
+      const prods = (await execute('product.product', 'read', [pids],
+        { fields: ['id', 'default_code', 'barcode', 'product_template_attribute_value_ids'], ...ODOO_ALL_COMPANIES_KWARGS })) as Array<{ id: number; default_code: string | false; barcode: string | false; product_template_attribute_value_ids: number[] }>;
+      const ptavIds = [...new Set(prods.flatMap((p) => p.product_template_attribute_value_ids ?? []))];
+      const ptavMap = new Map<number, { ad: string; nitelik: string }>();
+      for (let i = 0; i < ptavIds.length; i += 2000) {
+        const rows = (await execute('product.template.attribute.value', 'read', [ptavIds.slice(i, i + 2000)],
+          { fields: ['id', 'name', 'attribute_id'], ...ODOO_ALL_COMPANIES_KWARGS })) as Array<{ id: number; name: string; attribute_id: [number, string] | false }>;
+        for (const r of rows) ptavMap.set(r.id, { ad: r.name, nitelik: Array.isArray(r.attribute_id) ? r.attribute_id[1] : '' });
+      }
+      for (const p of prods) {
+        let modelAd: string | null = null;
+        let renk: string | null = null;
+        const diger: string[] = [];
+        for (const id of p.product_template_attribute_value_ids ?? []) {
+          const v = ptavMap.get(id);
+          if (!v) continue;
+          const n = v.nitelik.toLocaleUpperCase('tr-TR');
+          if (!modelAd && n.includes('MODEL')) modelAd = v.ad;
+          else if (!renk && n.includes('RENK')) renk = v.ad;
+          else diger.push(v.ad);
+        }
+        urunBilgi.set(p.id, {
+          model: modelAd ?? (p.default_code || null),
+          renk,
+          nitelik: diger.length ? diger.join(' / ') : null,
+          barkod: p.barcode || null,
+        });
+      }
+    }
+
     type Loc = {
       quantId: number;
       locationId: number | null;
@@ -1260,13 +1318,19 @@ router.get('/stock', async (req: Request, res: Response) => {
       reservedQuantity: number;
       lotNo?: string;
       utsKodu?: string;
+      eslesen?: boolean;
     };
     type Grp = {
       productId: number;
       productName: string;
       categName: string | null;
+      model: string | null;
+      renk: string | null;
+      nitelik: string | null;
+      barkod: string | null;
       totalQuantity: number;
       totalReserved: number;
+      lotEslesti: boolean;
       locations: Loc[];
     };
     const groups = new Map<number, Grp>();
@@ -1282,12 +1346,18 @@ router.get('/stock', async (req: Request, res: Response) => {
       if (!Array.isArray(q.product_id)) continue;
       const pid = q.product_id[0];
       if (!groups.has(pid)) {
+        const b = urunBilgi.get(pid);
         groups.set(pid, {
           productId: pid,
           productName: q.product_id[1],
           categName: Array.isArray(q.product_categ_id) ? q.product_categ_id[1] : null,
+          model: b?.model ?? null,
+          renk: b?.renk ?? null,
+          nitelik: b?.nitelik ?? null,
+          barkod: b?.barkod ?? null,
           totalQuantity: 0,
           totalReserved: 0,
+          lotEslesti: false,
           locations: [],
         });
       }
@@ -1298,6 +1368,8 @@ router.get('/stock', async (req: Request, res: Response) => {
       g.totalReserved += reserved;
       const lotId = Array.isArray(q.lot_id) ? q.lot_id[0] : null;
       const lotInfo = lotId != null ? lotMap.get(lotId) : undefined;
+      const eslesen = lotId != null && eslesenLotlar.has(lotId);
+      if (eslesen) g.lotEslesti = true;
       g.locations.push({
         quantId: q.id,
         locationId: Array.isArray(q.location_id) ? q.location_id[0] : null,
@@ -1306,10 +1378,11 @@ router.get('/stock', async (req: Request, res: Response) => {
         reservedQuantity: reserved,
         lotNo: lotInfo?.name || undefined,
         utsKodu: lotInfo?.utsKodu,
+        eslesen,
       });
     }
 
-    const data = Array.from(groups.values()).sort((a, b) => b.totalQuantity - a.totalQuantity);
+    const data = Array.from(groups.values()).sort((a, b) => Number(b.lotEslesti) - Number(a.lotEslesti) || b.totalQuantity - a.totalQuantity);
 
     return res.json({ success: true, data, truncated: quants.length >= 3000 });
   } catch (err: any) {

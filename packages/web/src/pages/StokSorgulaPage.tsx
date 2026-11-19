@@ -33,12 +33,19 @@ type StockLocationRow = {
   reservedQuantity: number
   lotNo?: string
   utsKodu?: string
+  /** aranan lot / UTS karekodu bu satır */
+  eslesen?: boolean
 }
 
 type StockGroupRow = {
   productId: number
   productName: string
   categName: string | null
+  model?: string | null
+  renk?: string | null
+  nitelik?: string | null
+  barkod?: string | null
+  lotEslesti?: boolean
   totalQuantity: number
   totalReserved: number
   locations: StockLocationRow[]
@@ -91,6 +98,7 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
   const [locations, setLocations] = useState<OdooLocation[]>([])
   const [locationId, setLocationId] = useState('')
   const [search, setSearch] = useState('')
+  const [modelSearch, setModelSearch] = useState('')
   const [selectedCategories, setSelectedCategories] = useState<CategoryLabel[]>([])
   const [onlyInStock, setOnlyInStock] = useState(true)
   const [includeReserved, setIncludeReserved] = useState(false)
@@ -161,6 +169,7 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
       const params: Record<string, string> = {}
       if (locationId) params.locationId = locationId
       if (search.trim()) params.search = search.trim()
+      if (modelSearch.trim()) params.model = modelSearch.trim()
       if (selectedCategories.length > 0) params.categories = selectedCategories.join(',')
       if (!onlyInStock) params.inStockOnly = '0'
       const res = await api.get('/admin/stock', { params })
@@ -170,8 +179,11 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
         setTruncated(false)
         return
       }
-      setRows(res.data.data ?? [])
+      const gelen: StockGroupRow[] = res.data.data ?? []
+      setRows(gelen)
       setTruncated(!!res.data.truncated)
+      // karekod / lot ile bulunan ürünler açık gelsin
+      setExpandedIds(new Set(gelen.filter((r) => r.lotEslesti).map((r) => r.productId)))
     } catch (e: any) {
       setError(e?.response?.data?.message ?? e?.response?.data?.error ?? 'Stok yüklenemedi')
       setRows([])
@@ -179,10 +191,11 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
     } finally {
       setLoadingStock(false)
     }
-  }, [api, locationId, search, selectedCategories, onlyInStock])
+  }, [api, locationId, search, modelSearch, selectedCategories, onlyInStock])
 
   function clearFilters() {
     setSearch('')
+    setModelSearch('')
     setLocationId('')
     setSelectedCategories([])
     setOnlyInStock(true)
@@ -247,12 +260,23 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Ürün adı, model kodu veya nitelik (C1, renk...) ara..."
+            onKeyDown={(e) => { if (e.key === 'Enter') void fetchStock() }}
+            placeholder="Ürün adı, renk, barkod, UTS, lot no…"
             style={inputStyle}
           />
           <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, lineHeight: 1.4 }}>
-            Ürün adı, model/referans kodu ve nitelik (varyant) değerlerinde birlikte arar.
+            Kelime kelime arar (hepsi geçmeli): ürün adı, model, renk/nitelik, barkod, lot no, UTS karekodu.
+            Karekodu okutabilirsiniz.
           </div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginTop: 12, marginBottom: 4 }}>MODEL ARA</div>
+          <input
+            type="text"
+            value={modelSearch}
+            onChange={(e) => setModelSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void fetchStock() }}
+            placeholder="Örn. MU2237"
+            style={inputStyle}
+          />
         </AccordionSection>
 
         <AccordionSection
@@ -468,8 +492,17 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
                           {row.productName}
                         </span>
                       </div>
+                      {row.model || row.renk || row.nitelik || row.barkod ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 12, color: '#374151', marginTop: 4, marginLeft: 20 }}>
+                          {row.model ? <span><b style={{ color: '#9ca3af', fontWeight: 700 }}>Model</b> {row.model}</span> : null}
+                          {row.renk ? <span><b style={{ color: '#9ca3af', fontWeight: 700 }}>Renk</b> {row.renk}</span> : null}
+                          {row.nitelik ? <span><b style={{ color: '#9ca3af', fontWeight: 700 }}>Nitelik</b> {row.nitelik}</span> : null}
+                          {row.barkod ? <span><b style={{ color: '#9ca3af', fontWeight: 700 }}>Barkod</b> {row.barkod}</span> : null}
+                        </div>
+                      ) : null}
                       <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4, marginLeft: 20 }}>
                         {locCount} lokasyonda kayıt
+                        {row.lotEslesti ? <span style={{ marginLeft: 8, color: '#b45309', fontWeight: 800 }}>★ aranan lot / karekod bu üründe</span> : null}
                       </div>
                       {includeReserved && reserved > 0 ? (
                         <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4, marginLeft: 20 }}>
@@ -501,7 +534,7 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
                     <div style={{ borderTop: '1px solid #e5e7eb', backgroundColor: '#fafafa' }}>
                       {row.locations
                         .slice()
-                        .sort((a, b) => b.quantity - a.quantity)
+                        .sort((a, b) => Number(!!b.eslesen) - Number(!!a.eslesen) || b.quantity - a.quantity)
                         .map((loc) => {
                           const locAvailable = includeReserved
                             ? loc.quantity
@@ -517,14 +550,20 @@ export function StockQueryPanel({ variant = 'pos' }: { variant?: 'pos' | 'admin'
                                 padding: '10px 16px 10px 40px',
                                 borderTop: '1px solid #eee',
                                 fontSize: 13,
+                                backgroundColor: loc.eslesen ? '#fffbeb' : undefined,
+                                opacity: row.lotEslesti && !loc.eslesen ? 0.55 : 1,
                               }}
                             >
                               <div>
-                                <div style={{ fontWeight: 700, color: '#374151' }}>{loc.locationName}</div>
-                                {loc.utsKodu || loc.lotNo ? (
-                                  <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
-                                    {loc.utsKodu ? `UTS: ${loc.utsKodu}` : `Lot/Seri: ${loc.lotNo}`}
-                                  </div>
+                                <div style={{ fontWeight: 700, color: '#374151' }}>
+                                  {loc.eslesen ? <span style={{ color: '#b45309' }}>★ </span> : null}
+                                  {loc.locationName}
+                                </div>
+                                {loc.lotNo ? (
+                                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Lot/Seri: {loc.lotNo}</div>
+                                ) : null}
+                                {loc.utsKodu ? (
+                                  <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 1, wordBreak: 'break-all' }}>UTS: {loc.utsKodu}</div>
                                 ) : null}
                               </div>
                               <div style={{ textAlign: 'right', fontWeight: 700, color: '#374151' }}>
