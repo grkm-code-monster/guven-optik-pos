@@ -324,6 +324,19 @@ export type SiparisBagSonuc = {
 };
 export type LokasyonTransferSonuc = { lokasyon: string; adet: number; basarili: boolean; mesaj: string };
 
+/** 19.11.2026 — Odoo'da stok takipsiz ("sarf"/hizmet) ürünler: depoda adet tutulmaz, transfer edilemez. */
+export async function sarfUrunleriBul(productIds: Array<number | null | undefined>): Promise<Set<number>> {
+  const ids = [...new Set(productIds.filter((x): x is number => typeof x === 'number' && x > 0))];
+  if (!ids.length) return new Set();
+  try {
+    const r = (await execute('product.product', 'read', [ids], { fields: ['id', 'type'], ...CTX })) as Array<{ id: number; type: string }>;
+    return new Set(r.filter((p) => p.type !== 'product').map((p) => p.id));
+  } catch (e) {
+    console.warn('[urun-giris] ürün tipi okunamadı:', e instanceof Error ? e.message : e);
+    return new Set();
+  }
+}
+
 export async function girisSonrasiDagit(input: {
   cid?: number;
   girisNo: string;
@@ -343,6 +356,7 @@ export async function girisSonrasiDagit(input: {
     g.push(l);
     gruplar.set(l.siparisId, g);
   }
+  const sarfUrunler = await sarfUrunleriBul([...gruplar.values()].flat().map((l) => l.productId));
   for (const [siparisId, lotlar] of gruplar) {
     const s = await prisma.ozelSiparis.findUnique({ where: { id: siparisId } });
     if (!s) {
@@ -353,18 +367,28 @@ export async function girisSonrasiDagit(input: {
     const hedefId = LOKASYON_ID_MAP[hedefKod];
     let transfer: SiparisBagSonuc['transfer'] = 'GEREKMEDI';
     let mesaj = '';
-    if (!hedefId) {
+    // 19.11.2026 — Odoo kartı "sarf" (stok takipsiz) olan ürünlerin depoda adedi tutulmaz; transfer motoru
+    // stok bulamayıp "yeterli stok yok" diyordu ve sipariş "geldi" olamıyordu. Bunlar Odoo transferine girmez,
+    // sipariş yine "geldi" olur, mağazaya fiziki gönderim notu düşülür.
+    const takipsiz = lotlar.filter((l) => l.productId && sarfUrunler.has(l.productId));
+    const stoklu = lotlar.filter((l) => !(l.productId && sarfUrunler.has(l.productId)));
+    const takipsizNot = takipsiz.length
+      ? `${takipsiz.length} adet stok takipsiz (Odoo kartı "sarf") — sistem transferi yapılmadı, ürünü fiziki olarak ${hedefKod || 'mağazaya'} gönderin`
+      : '';
+    if (!stoklu.length) {
+      mesaj = takipsizNot;
+    } else if (!hedefId) {
       transfer = 'HATA';
       mesaj = `Siparişin mağazası (${hedefKod || 'boş'}) tanımsız — ürün depoda kaldı`;
     } else if (hedefId !== kaynak) {
-      const eksik = lotlar.filter((l) => !l.lotId || !l.productId);
+      const eksik = stoklu.filter((l) => !l.lotId || !l.productId);
       if (eksik.length) {
         transfer = 'HATA';
         mesaj = `${eksik.length} lot Odoo'da bulunamadı — mağazaya transfer yapılamadı, ürün depoda`;
       } else {
         try {
           const r = await olusturTransfer({
-            kalemler: lotlar.map((l) => ({
+            kalemler: stoklu.map((l) => ({
               kaynak,
               hedef: hedefId,
               productId: l.productId!,
@@ -387,6 +411,7 @@ export async function girisSonrasiDagit(input: {
     } else {
       mesaj = `${hedefKod} stoğuna girdi`;
     }
+    if (stoklu.length && takipsizNot) mesaj = `${mesaj} · ${takipsizNot}`;
 
     // Karekod/lot kayıtları siparişe
     const kodlar = lotlar.map((l) => (l.utsKodu || l.lotNo || '').trim()).filter(Boolean);
@@ -413,6 +438,7 @@ export async function girisSonrasiDagit(input: {
         durum: 'TESLIM_ALINDI',
         userId: input.userId,
         notlar: not,
+        notSadeceGecmise: true,
         bildirimGonder: true,
         bildirimOzel: {
           baslik: `Müşteri ürünü geldi — ${s.musteriAdi}`,
@@ -438,7 +464,14 @@ export async function girisSonrasiDagit(input: {
     g.push(l);
     lokGrup.set(l.lokasyon, g);
   }
-  for (const [lok, lotlar] of lokGrup) {
+  const sarfLok = await sarfUrunleriBul([...lokGrup.values()].flat().map((l) => l.productId));
+  for (const [lok, tumLotlar] of lokGrup) {
+    const sarf = tumLotlar.filter((l) => l.productId && sarfLok.has(l.productId));
+    const lotlar = tumLotlar.filter((l) => !(l.productId && sarfLok.has(l.productId)));
+    if (sarf.length) {
+      lokasyonSonuc.push({ lokasyon: lok, adet: sarf.length, basarili: true, mesaj: `stok takipsiz (Odoo kartı "sarf") — sistem transferi gerekmez, ürünü fiziki olarak ${lok} gönderin` });
+    }
+    if (!lotlar.length) continue;
     const eksik = lotlar.filter((l) => !l.lotId || !l.productId);
     if (eksik.length) {
       lokasyonSonuc.push({ lokasyon: lok, adet: lotlar.length, basarili: false, mesaj: `${eksik.length} lot Odoo'da bulunamadı — transfer yapılmadı, ürünler depoda` });

@@ -94,6 +94,8 @@ export async function updateOzelSiparisDurum(
     teslimTarihi?: string | Date | null
     bildirimGonder?: boolean
     bildirimOzel?: { baslik?: string; mesaj?: string }
+    /** 19.11.2026 — not yalnızca sipariş geçmişine (log) yazılır; siparişin kendi not alanı korunur */
+    notSadeceGecmise?: boolean
   },
 ) {
   const mevcut = await prisma.ozelSiparis.findUnique({ where: { id } })
@@ -110,7 +112,7 @@ export async function updateOzelSiparisDurum(
 
   const data: Record<string, unknown> = { durum: yeniDurum }
   if (input.tedarikciSiparisNo !== undefined) data.tedarikciSiparisNo = input.tedarikciSiparisNo || null
-  if (input.notlar !== undefined) data.notlar = input.notlar || null
+  if (input.notlar !== undefined && !input.notSadeceGecmise) data.notlar = input.notlar || null
   if (input.gercekGelisTarihi) data.gercekGelisTarihi = new Date(input.gercekGelisTarihi)
   if (input.teslimTarihi) data.teslimTarihi = new Date(input.teslimTarihi)
   if (yeniDurum === 'TESLIM_EDILDI' && !input.teslimTarihi) {
@@ -195,6 +197,7 @@ export async function processLaboratuvarCron() {
       durum: 'LABORATUVARDA',
       userId: null,
       notlar: 'Otomatik: Teslim alındıktan 15 dk sonra',
+      notSadeceGecmise: true,
       bildirimGonder: true,
     })
     count += 1
