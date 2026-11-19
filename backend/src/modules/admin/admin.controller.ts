@@ -61,6 +61,7 @@ import envanterImportRouter from './envanter-import.controller';
 import etiketMerkeziRouter from './etiket-merkezi.controller';
 import hazirRaporlarRouter from '../hazir-raporlar/hazir-raporlar.controller';
 import ikmalRouter from './ikmal.controller';
+import { tahsilatKontrol, tahsilatiBagla } from './tahsilat-kontrol.service';
 import { bekleyenMusteriSiparisleri, girisSonrasiDagit, kalemSiparisleriniAc, siparisYenidenAc, type GirisLotBilgi } from './urun-giris-siparis.service';
 import { fizikiTedarikciBul, hafizayaYaz, oneriler } from './urun-giris-oneri.service';
 import {
@@ -4626,6 +4627,23 @@ router.get('/finans-ozet', async (req, res) => {
 })
 
 // ── MUHASEBE - FATURA LİSTESİ ─────────────────────────────────────
+// 19.11.2026 — Muhasebe > Tahsilat Kontrol
+router.get('/muhasebe-tahsilat-kontrol', async (req, res) => {
+  try {
+    const q = req.query as Record<string, string | undefined>;
+    return res.json({ success: true, data: await tahsilatKontrol({ sirketId: q.sirketId ? Number(q.sirketId) : undefined, baslangic: q.baslangic || undefined, bitis: q.bitis || undefined, hepsi: q.hepsi === '1' }) });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message ?? 'Okunamadı' });
+  }
+});
+router.post('/muhasebe-tahsilat-bagla', async (req, res) => {
+  try {
+    return res.json({ success: true, ...(await tahsilatiBagla(Number(req.body?.paymentId))) });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message ?? 'Bağlanamadı' });
+  }
+});
+
 router.get('/muhasebe-faturalar', async (req, res) => {
   try {
     const { sirketId, tip, durum, baslangic, bitis, limit } = req.query
