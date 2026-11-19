@@ -240,6 +240,7 @@ async function main() {
   }
   // 5) Eski sipariş iptal
   try {
+    await sessiz('sale.order', 'action_unlock', [eski.id], ec).catch(() => null); // kilitli (onaylı) sipariş iptal edilemiyor
     await sessiz('sale.order', 'action_cancel', [eski.id], ec, { disable_cancel_warning: true });
     log(`✓ eski sipariş iptal: ${eski.name}`);
   } catch (e) {
