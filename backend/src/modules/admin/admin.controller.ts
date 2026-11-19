@@ -3295,6 +3295,96 @@ router.post('/urun-giris-siparisler/:id/yeniden-ac', async (req: Request, res: R
   }
 });
 
+/** 19.11.2026 — Odoo'ya zaten yazılmış bir ürün girişinin yarım kalan adımları (sipariş bağı, mağaza dağıtımı).
+ *  Daha önce bu girişle bağlanmış siparişler ve artık ana depoda olmayan lotlar atlanır (çift işlem olmaz). */
+async function urunGirisiTamamla(input: {
+  cid?: number;
+  girisNo: string;
+  faturaNo: string;
+  userId: string | null;
+  lotList: any[];
+  lotIdBul: (lotAdi: string) => { lotId: number; productId: number } | null;
+}) {
+  const hatalar: string[] = [];
+  const sonuclar: Record<string, any> = {};
+  const kaynak = getAnaDepoLocationId(input.cid ?? 1);
+  // Odoo kayıtlarını ekrana göster
+  const ilk = input.lotList.map((l: any) => input.lotIdBul(String(l?.lotNo ?? '').trim())).find(Boolean);
+  if (ilk) {
+    try {
+      const ml = (await execute('stock.move.line', 'search_read', [[['lot_id', '=', ilk.lotId], ['state', '=', 'done'], ['picking_id.picking_type_code', '=', 'incoming']]], { fields: ['picking_id'], limit: 1, ...ODOO_ALL_COMPANIES_KWARGS })) as any[];
+      if (ml[0]?.picking_id) {
+        const [pk] = (await execute('stock.picking', 'read', [[ml[0].picking_id[0]]], { fields: ['name', 'state', 'purchase_id'], ...ODOO_ALL_COMPANIES_KWARGS })) as any[];
+        sonuclar.picking = { name: pk?.name, state: pk?.state };
+        if (pk?.purchase_id) {
+          sonuclar.purchaseOrder = { name: pk.purchase_id[1] };
+          const [po] = (await execute('purchase.order', 'read', [[pk.purchase_id[0]]], { fields: ['invoice_ids'], ...ODOO_ALL_COMPANIES_KWARGS })) as any[];
+          if (po?.invoice_ids?.length) {
+            const [inv] = (await execute('account.move', 'read', [[po.invoice_ids[0]]], { fields: ['name', 'state'], ...ODOO_ALL_COMPANIES_KWARGS })) as any[];
+            sonuclar.faturaOnay = inv?.state === 'posted' ? { ok: true, name: inv.name } : { ok: false, error: `fatura ${inv?.name ?? ''} taslakta` };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[urun-giris-tamamla] Odoo kayıtları okunamadı:', e instanceof Error ? e.message : e);
+    }
+  }
+  // Bu girişle zaten bağlanmış siparişler
+  const bagliSiparisler = new Set((await prisma.ozelSiparis.findMany({ where: { urunGirisNo: input.girisNo }, select: { id: true, saleItemId: true } })).flatMap((o) => [o.id, `kalem:${o.saleItemId}`]));
+  const lotList = input.lotList.map((l: any) => ({ ...l }));
+  const kalemIds = lotList.map((l: any) => String(l?.siparisId ?? '')).filter((x: string) => x.startsWith('kalem:') && !bagliSiparisler.has(x));
+  if (kalemIds.length) {
+    try {
+      const esle = await kalemSiparisleriniAc(kalemIds, input.userId);
+      for (const l of lotList) if (typeof l?.siparisId === 'string' && l.siparisId.startsWith('kalem:') && !bagliSiparisler.has(l.siparisId)) l.siparisId = esle.get(l.siparisId) ?? null;
+    } catch (ke) {
+      hatalar.push(`Müşteri siparişi kaydı açılamadı: ${ke instanceof Error ? ke.message : String(ke)}`);
+    }
+  }
+  const lotBilgi: GirisLotBilgi[] = [];
+  for (const l of lotList) {
+    const ad = String(l?.lotNo ?? '').trim();
+    const bul = input.lotIdBul(ad);
+    const siparisId = typeof l.siparisId === 'string' && l.siparisId ? l.siparisId : null;
+    const subeyeGider = l?.lokasyonTip === 'sube' && l?.lokasyon && l.lokasyon !== 'ANADEPO';
+    if (!siparisId && !subeyeGider) continue;
+    if (siparisId && bagliSiparisler.has(siparisId)) continue; // önceki gönderimde bağlanmış
+    if (!bul) continue;
+    // lot artık ana depoda değilse (önceki gönderimde transfer edilmiş) atla
+    try {
+      const q = (await execute('stock.quant', 'search_read', [[['lot_id', '=', bul.lotId], ['location_id', '=', kaynak], ['quantity', '>', 0]]], { fields: ['id'], limit: 1, ...ODOO_ALL_COMPANIES_KWARGS })) as any[];
+      const [pr] = (await execute('product.product', 'read', [[bul.productId]], { fields: ['type'], ...ODOO_ALL_COMPANIES_KWARGS })) as any[];
+      if (pr?.type === 'product' && !q.length && !siparisId) continue;
+    } catch { /* kontrol edilemezse devam */ }
+    lotBilgi.push({
+      lotId: bul.lotId,
+      productId: bul.productId,
+      lotNo: ad,
+      utsKodu: String(l.utsKodu ?? ''),
+      urunAdi: String(l.urunAdi ?? l.bizimUrunAdi ?? ''),
+      lokasyon: String(l.lokasyon ?? ''),
+      lokasyonTip: String(l.lokasyonTip ?? ''),
+      siparisId,
+    });
+  }
+  if (lotBilgi.length) {
+    try {
+      const d = await girisSonrasiDagit({ cid: input.cid, girisNo: input.girisNo, faturaNo: input.faturaNo, userId: input.userId, lotlar: lotBilgi });
+      sonuclar.siparisBaglari = d.siparisler;
+      sonuclar.lokasyonTransferleri = d.lokasyonlar;
+      for (const x of d.siparisler) if (x.transfer === 'HATA') hatalar.push(`Sipariş ${x.musteriAdi}: ${x.mesaj}`);
+      for (const x of d.lokasyonlar) if (!x.basarili) hatalar.push(`${x.lokasyon} transferi: ${x.mesaj}`);
+    } catch (de) {
+      hatalar.push(`Mağaza/sipariş dağıtımı yapılamadı: ${de instanceof Error ? de.message : String(de)}`);
+    }
+  }
+  if (input.lotList.some((l: any) => String(l?.utsKodu ?? '').trim())) {
+    hatalar.push('UTS kabul adımı tekrar gönderimde yapılmaz — UTS Yönetimi > Bekleyenler\'den kontrol edin.');
+  }
+  sonuclar.lotSayisi = 0;
+  return { sonuclar, hatalar };
+}
+
 router.post('/urun-giris', async (req: Request, res: Response) => {
   try {
     const {
@@ -3353,14 +3443,39 @@ router.post('/urun-giris', async (req: Request, res: Response) => {
         urunLotlari.get(pid)!.add(ad);
       }
       const cakisanlar: string[] = [];
+      const cakisanLotlar = new Map<string, { lotId: number; productId: number }>();
       for (const [pid, adlar] of urunLotlari) {
         const domain: unknown[] = [['name', 'in', [...adlar]], ['product_id', '=', pid]];
         if (cid) domain.push(['company_id', '=', cid]);
         const mevcut = await execute('stock.lot', 'search_read', [domain], { fields: ['id', 'name'] }, cid);
         for (const m of mevcut ?? []) {
           const durum = await isLotAvailableForReceipt(m.id, cid);
-          if (!durum.available) cakisanlar.push(`${m.name}: ${durum.reason}`);
+          if (!durum.available) {
+            cakisanlar.push(`${m.name}: ${durum.reason}`);
+            cakisanLotlar.set(String(m.name), { lotId: m.id, productId: pid });
+          }
         }
+      }
+      // 19.11.2026 — AYNI giriş ikinci kez gönderildiyse (ilk gönderim Odoo'ya yazıldı ama cevap ekrana
+      // ulaşmadı: sunucu yeniden başlatma / bağlantı kopması) hata verip "yeni numarayla tekrar deneyin"
+      // dememek gerekir — o çift stok + çift fatura demek. Tüm lotlar bu giriş numarasıyla zaten
+      // teslim alınmışsa: Odoo'ya hiçbir şey yazmadan yarım kalan sipariş/mağaza dağıtımını tamamla.
+      const girisOnEk = `${String(girisNo ?? '').trim()}-`;
+      const lotluSatirlar = lotList.filter((l: any) => String(l?.lotNo ?? '').trim());
+      const ayniGiris = cakisanlar.length > 0
+        && girisOnEk.length > 5
+        && lotluSatirlar.length > 0
+        && lotluSatirlar.every((l: any) => String(l.lotNo).trim().startsWith(girisOnEk) && cakisanLotlar.has(String(l.lotNo).trim()));
+      if (ayniGiris) {
+        const tamam = await urunGirisiTamamla({
+          cid,
+          girisNo: String(girisNo ?? ''),
+          faturaNo: String(faturaNo ?? ''),
+          userId: (req as any).user?.userId ?? null,
+          lotList,
+          lotIdBul: (ad: string) => cakisanLotlar.get(ad) ?? null,
+        });
+        return res.json({ success: true, stokGirisiBasarili: true, zatenVardi: true, sonuclar: tamam.sonuclar, hatalar: tamam.hatalar });
       }
       if (cakisanlar.length) {
         return res.status(400).json({

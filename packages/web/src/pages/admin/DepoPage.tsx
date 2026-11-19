@@ -4245,6 +4245,9 @@ function UrunGirisTab() {
         setGirisNo(yeniGirisNo())
         taslakListesiniYenile()
         setTaslakUyari(null)
+        if (res.data?.zatenVardi) {
+          mesajlar.push('ℹ️ Bu giriş daha önce kaydedilmişti (ilk gönderimin cevabı ekrana ulaşmamış). Odoo\'ya TEKRAR yazılmadı — çift stok/fatura yok. Yarım kalan sipariş/mağaza adımları tamamlandı.')
+        }
         if (s.purchaseOrder) mesajlar.push(`✓ Satın alma siparişi: ${s.purchaseOrder.name}${s.purchaseOrder.satirSayisi ? ` (${s.purchaseOrder.satirSayisi} satır)` : ''}`)
         mesajlar.push(`✓ Stok girişi tamamlandı: ${s.picking?.name ?? 'picking'}`)
         if (s.faturaOnay?.ok) mesajlar.push(`✓ Fatura onaylandı: ${s.faturaOnay.name ?? s.vendorBill?.name ?? ''}`)
