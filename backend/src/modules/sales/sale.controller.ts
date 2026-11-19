@@ -434,10 +434,12 @@ router.get('/:id/temsilci-gecmisi', async (req: Request, res: Response, next: Ne
   }
 });
 
-router.get('/payment-banks', async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/payment-banks', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // 19.11.2026 — ?tumu=1: pasif bankalar da (geçmiş ödemelerde banka ADINI göstermek için)
+    const tumu = req.query.tumu === '1';
     const banks = await prisma.bank.findMany({
-      where: { isActive: true },
+      where: tumu ? {} : { isActive: true },
       include: { posDevices: { where: { isActive: true } } },
       orderBy: { name: 'asc' },
     });

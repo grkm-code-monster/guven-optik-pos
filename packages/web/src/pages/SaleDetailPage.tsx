@@ -481,7 +481,19 @@ export default function SaleDetailPage() {
       .catch(() => {})
   }, [payType])
 
-  const bankNameById = useMemo(() => new Map(banks.map((b) => [b.id, b.name])), [banks])
+  // 19.11.2026 — ödeme listesinde banka adı: bankalar sadece "Kart" ödemesi seçilince yükleniyordu,
+  // bu yüzden Ödemeler bölümünde banka kodu (uuid) görünüyordu. Adlar sayfa açılınca yüklenir.
+  const [bankaAdlari, setBankaAdlari] = useState<Array<{ id: string; name: string }>>([])
+  useEffect(() => {
+    apiClient
+      .get('/sales/payment-banks?tumu=1')
+      .then((res) => setBankaAdlari((res.data?.data ?? []).map((b: any) => ({ id: b.id, name: b.name }))))
+      .catch(() => {})
+  }, [])
+  const bankNameById = useMemo(
+    () => new Map([...bankaAdlari, ...banks].map((b) => [b.id, b.name])),
+    [banks, bankaAdlari],
+  )
 
   const items = useMemo(
     () => (sale?.items ?? []).filter((i: any) => String(i.status).toUpperCase() !== 'VOID'),
@@ -1184,7 +1196,7 @@ export default function SaleDetailPage() {
                   <div style={{ color: '#9ca3af', marginTop: 4, fontSize: 12 }}>{fmtDate(p.createdAt)}</div>
                   {p.paymentType === 'CARD' ? (
                     <div style={{ marginTop: 6, color: '#6b7280', fontSize: 12 }}>
-                      {p.bankId ? `Banka: ${bankNameById.get(p.bankId) ?? p.bankId}` : null}
+                      {p.bankId ? `Banka: ${bankNameById.get(p.bankId) ?? '—'}` : null}
                       {p.installment ? ` · Taksit: ${p.installment}` : null}
                       {p.commissionAmount ? ` · Komisyon: ${money(p.commissionAmount)}` : null}
                     </div>
