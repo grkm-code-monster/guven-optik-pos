@@ -16,7 +16,9 @@ export function hamEtiketKoduIndir(kod: string, dil: EtiketDil): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `etiket-${dil === 'zpl' ? 'zebra' : 'argox'}-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.txt`
+  // 25.11.2026 — dosya adı sabit: stock_labels.txt (kullanıcı isteği). Dil bilgisi dosya içeriğinde.
+  void dil
+  a.download = 'stock_labels.txt'
   document.body.appendChild(a)
   a.click()
   a.remove()
