@@ -73,9 +73,12 @@ export async function buildPtavMap(ptavIds: number[]): Promise<Map<number, PtavE
     { fields: ['id', 'attribute_id', 'product_attribute_value_id'] },
   );
   for (const p of ptavlar ?? []) {
+    const attrName = p.attribute_id?.[1] ?? '';
     ptavMap.set(p.id, {
-      attrName: p.attribute_id?.[1] ?? '',
-      valueName: p.product_attribute_value_id?.[1] ?? '',
+      attrName,
+      // 25.11.2026 — Odoo değer adını "MODEL (Çoklu): 104AO" biçiminde döndürür; önek burada atılır
+      // (Stok Kontrol'de ürün adı "(MODEL (Çoklu): 104AO, …)" görünüyordu).
+      valueName: attrValueOnly(attrName, p.product_attribute_value_id?.[1] ?? ''),
     });
   }
   return ptavMap;
