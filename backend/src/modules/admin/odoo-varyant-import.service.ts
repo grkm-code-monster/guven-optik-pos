@@ -1,6 +1,7 @@
 import { execute } from '../odoo/odoo.service';
 import { resolveOrCreateCategoryId } from '../odoo/odoo-category.util';
 import { ptavKey } from './varyant-import-temizlik.service';
+import { stokluArsivKorumasiIle } from './stoklu-arsiv-koruma.service';
 
 export type VaryantImportSatir = {
   index: number;
@@ -83,6 +84,34 @@ function varyantKey(model: string, renk: string, olcu: string): string {
  * (SWING gibi sıfırdan/temizlenmiş bir ürün) yeni (dinamik tek şablon) yol.
  */
 export async function importVaryantlarForTemplate(
+  tmplId: number,
+  satirlar: VaryantImportSatir[],
+): Promise<VaryantImportSonuc> {
+  // 25.11.2026 — STOKLU ARŞİV KORUMASI: yazmadan önce fotoğraf, sonra karşılaştır;
+  // arşive düşen stoklu şablon/varyant geri açılır, açılamazsa işlem DURUR.
+  // Bkz. stoklu-arsiv-koruma.service.ts (Polo Village #11214 olayı).
+  const { sonuc, rapor } = await stokluArsivKorumasiIle(
+    Number(tmplId),
+    `varyant-import #${tmplId}`,
+    () => importVaryantlarForTemplateHam(tmplId, satirlar),
+  );
+  if (rapor.ikizDegisimi.length) {
+    // Odoo'nun yeni açtığı boş ikiz arşive alındı, eski (stoklu) varyant aktif —
+    // stok bundan sonra ESKİ varyanta girmeli.
+    const esle = new Map(rapor.ikizDegisimi.map((d) => [d.ikizId, d.stokluId]));
+    for (const [k, id] of sonuc.varyantIdByKey) {
+      const yeni = esle.get(id);
+      if (yeni) sonuc.varyantIdByKey.set(k, yeni);
+    }
+    for (const r of sonuc.sonuclar) {
+      const yeni = esle.get(r.varyantId);
+      if (yeni) r.varyantId = yeni;
+    }
+  }
+  return sonuc;
+}
+
+async function importVaryantlarForTemplateHam(
   tmplId: number,
   satirlar: VaryantImportSatir[],
 ): Promise<VaryantImportSonuc> {

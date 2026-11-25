@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { execute } from '../odoo/odoo.service';
 import { ptavKey } from './varyant-import-temizlik.service';
+import { sablonAktifMi, sablonStokVeDurum } from './stoklu-arsiv-koruma.service';
 import {
   ENVANTER_IMPORT_HEADERS,
   ENVANTER_ZORUNLU_ALANLAR,
@@ -546,23 +547,42 @@ async function findTemplate(
  * olanlar, yoksa kategori adını içerenler; aralarından AKTİF VARYANTI EN ÇOK olan şablon seçilir
  * (eşitlikte ilk sıradaki). Önizleme (findTemplate) ve uygulama (findTemplateId) aynı fonksiyonu kullanır.
  */
+//
+// 25.11.2026 — STOKLU ARŞİV KORUMASI: önce ARŞİVLİ şablonlar elenir (aktif aday varsa arşivli
+// asla seçilmez); kategori filtresinden sonra İÇ LOKASYON STOĞU en çok olan seçilir, eşitlikte
+// aktif varyantı en çok olan. (Polo Village: stoklu kart yerine başka kopya seçilip yeni varyant
+// oraya açılınca rafta duran ürünler bulunamaz hale geliyordu.)
 export async function sablonAdayiSec(
   adaylar: { id: number; categName: string }[],
   kategori: string,
 ): Promise<number> {
   if (adaylar.length === 1) return adaylar[0].id;
+  let durum = new Map<number, { aktif: boolean; stok: number }>();
+  try {
+    durum = await sablonStokVeDurum(adaylar.map((a) => a.id));
+  } catch (e) {
+    console.error('[envanter-import] şablon stok/durum okunamadı:', e instanceof Error ? e.message : e);
+  }
+  const aktifler = adaylar.filter((a) => durum.get(a.id)?.aktif !== false);
+  const temel = aktifler.length ? aktifler : adaylar;
   const katUpper = kategori.trim().toUpperCase();
-  const esit = adaylar.filter((c) => c.categName.trim().toUpperCase() === katUpper);
-  const icerir = adaylar.filter((c) =>
+  const esit = temel.filter((c) => c.categName.trim().toUpperCase() === katUpper);
+  const icerir = temel.filter((c) =>
     c.categName.toUpperCase().includes(katUpper) || katUpper.includes(c.categName.toUpperCase()),
   );
-  const havuz = esit.length ? esit : icerir.length ? icerir : adaylar;
+  const havuz = esit.length ? esit : icerir.length ? icerir : temel;
   if (havuz.length === 1) return havuz[0].id;
   let enIyi = havuz[0].id;
+  let enStok = -1;
   let enCok = -1;
   for (const c of havuz) {
+    const stok = durum.get(c.id)?.stok ?? 0;
     const n = await aktifVaryantSayisi(c.id);
-    if (n > enCok) { enCok = n; enIyi = c.id; }
+    if (stok > enStok || (stok === enStok && n > enCok)) {
+      enStok = stok;
+      enCok = n;
+      enIyi = c.id;
+    }
   }
   return enIyi;
 }
@@ -695,6 +715,8 @@ export async function previewEnvanterImport(
   rows: ParsedEnvanterRow[],
 ): Promise<EnvanterOnizlemeSonuc> {
   const lookup = await loadOdooLookup();
+  // 25.11.2026 — arşivli şablona yazmayı önizlemede yakalamak için (şablon başına 1 sorgu).
+  const sablonAktifCache = new Map<number, boolean>();
   const excelBirimler = new Map<string, number>();
   // 16.10.2026 — excel'in KENDİ İÇİNDE aynı barkodun farklı model/renk/ölçü
   // (ya da muaf kategorilerde farklı ürün adı) ile tekrar etmesini yakalamak
@@ -874,6 +896,20 @@ export async function previewEnvanterImport(
         ...row,
         durum: 'YENI_SABLON',
         mesaj: 'Yeni şablon + yeni varyant oluşturulacak',
+      });
+      continue;
+    }
+
+    let tmplAktif = sablonAktifCache.get(tmpl.id);
+    if (tmplAktif === undefined) {
+      tmplAktif = await sablonAktifMi(tmpl.id);
+      sablonAktifCache.set(tmpl.id, tmplAktif);
+    }
+    if (!tmplAktif) {
+      satirlar.push({
+        ...row,
+        durum: 'HATA',
+        mesaj: `"${tmpl.name}" adında sadece ARŞİVLİ ürün kartı var (#${tmpl.id}) — önce kart arşivden çıkarılmalı (yöneticiye bildirin)`,
       });
       continue;
     }

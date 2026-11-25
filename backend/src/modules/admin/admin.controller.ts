@@ -76,6 +76,7 @@ import {
   type UtsGirisLot,
 } from '../uts/uts-giris.service';
 import camEnvanterImportRouter from './cam-envanter-import.controller';
+import { StokluArsivKorumaHatasi, sablonStokVeDurum } from './stoklu-arsiv-koruma.service';
 import sablonExcelImportRouter from './sablon-excel-import.controller';
 import deployRouter from './deploy.controller';
 import { sendReportEmail } from '../mail/mail.service';
@@ -7005,12 +7006,22 @@ router.post('/odoo-sablon-mukerrer-temizle', async (req, res, next) => {
       gruplar.set(key, arr);
     }
 
+    // 25.11.2026 — STOKLU ARŞİV KORUMASI: stoğu olan şablon ASLA arşivlenmez; grupta stoklu
+    // kopya varsa tutulan o olur (en eski değil). Stoklu birden fazla kopya varsa grup atlanır.
+    const mukerrerIdler = [...gruplar.values()].filter((g) => g.length >= 2).flat().map((t) => t.id);
+    const stokDurum = await sablonStokVeDurum(mukerrerIdler);
     const arsivlenecekIdler: number[] = [];
-    const detay: { ad: string; tutulanId: number; arsivlenenIdler: number[] }[] = [];
+    const detay: { ad: string; tutulanId: number; arsivlenenIdler: number[]; not?: string }[] = [];
     for (const grup of gruplar.values()) {
       if (grup.length < 2) continue;
       const sirali = [...grup].sort((a, b) => a.id - b.id);
-      const [tutulan, ...fazlalar] = sirali;
+      const stoklular = sirali.filter((t) => (stokDurum.get(t.id)?.stok ?? 0) > 0);
+      if (stoklular.length > 1) {
+        detay.push({ ad: sirali[0].name, tutulanId: sirali[0].id, arsivlenenIdler: [], not: `${stoklular.length} kopyada stok var — arşivlenmedi, elle birleştirilmeli` });
+        continue;
+      }
+      const tutulan = stoklular[0] ?? sirali[0];
+      const fazlalar = sirali.filter((t) => t.id !== tutulan.id);
       arsivlenecekIdler.push(...fazlalar.map((f) => f.id));
       detay.push({ ad: tutulan.name, tutulanId: tutulan.id, arsivlenenIdler: fazlalar.map((f) => f.id) });
     }
@@ -7085,6 +7096,10 @@ router.post('/odoo-varyant-import', async (req, res, next) => {
       detay: { hatalar: sonuc.hatalar.slice(0, 50), sonuclar: sonuc.sonuclar },
     });
   } catch (err) {
+    // 25.11.2026 — stoklu ürün arşive düştü ve geri alınamadı: kullanıcı GERÇEK mesajı görsün.
+    if (err instanceof StokluArsivKorumaHatasi) {
+      return res.status(409).json({ error: err.message, message: err.message, detay: err.rapor });
+    }
     next(err);
   }
 });

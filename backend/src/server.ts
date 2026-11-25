@@ -8,6 +8,7 @@ import { startShiftAutoCloseCron } from './modules/shifts/shift-auto-close.cron'
 import { startDovizKuruCron } from './modules/admin/doviz-kuru.cron';
 import { startEticaretSiparisCron } from './modules/eticaret/eticaret-siparis.cron';
 import { startUtsBekleyenGirisCron } from './modules/uts/uts-giris.cron';
+import { startStokluArsivGeceCron } from './modules/admin/stoklu-arsiv-koruma.service';
 
 const port = Number(process.env.PORT) || 3000;
 const app = createApp();
@@ -53,3 +54,4 @@ startShiftAutoCloseCron();
 startDovizKuruCron();
 startEticaretSiparisCron();
 startUtsBekleyenGirisCron();
+startStokluArsivGeceCron();

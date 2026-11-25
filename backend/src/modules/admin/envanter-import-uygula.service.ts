@@ -20,6 +20,7 @@ import {
   type VaryantImportSatir,
 } from './odoo-varyant-import.service';
 import { applyStockAdjustmentForLot } from './stock-adjustment.service';
+import { sablonAktifMi, stokGirilenleriAcikTut } from './stoklu-arsiv-koruma.service';
 import {
   getOrCreateStockLot,
   rollbackCreatedLot,
@@ -301,6 +302,11 @@ export async function uygulaEnvanterImport(input: {
       tmplId = await findTemplateId(ilk.urunAdi, ilk.kategori);
       if (!tmplId) {
         sablonHata = `Şablon bulunamadı: ${ilk.urunAdi}`;
+      } else if (!(await sablonAktifMi(tmplId))) {
+        // 25.11.2026 — Arşivli şablona ASLA varyant/stok yazılmaz.
+        sablonHata = `"${ilk.urunAdi}" adında sadece ARŞİVLİ ürün kartı var (#${tmplId}). ` +
+          'Stok girişi yapılmadı — önce kart arşivden çıkarılmalı (yöneticiye bildirin).';
+        tmplId = null;
       }
     }
 
@@ -524,7 +530,22 @@ export async function uygulaEnvanterImport(input: {
         islenenSatirNolar.add(row.satirNo);
       }
     }
-    await varyantlariAktifEt([...stokGirilenVaryantlar]);
+    // 25.11.2026 — stok girilen varyant/şablon arşivdeyse aç (boş ikizle yer
+    // değiştirme dahil). Açılamayan varsa ilgili satırlara UYARI yazılır.
+    try {
+      const rapor = await stokGirilenleriAcikTut([...stokGirilenVaryantlar], `envanter-import ${lokasyonKodu} #${tmplId}`);
+      if (rapor.cozulemeyen.length) {
+        const liste = rapor.cozulemeyen.map((c) => `#${c.id} ${c.ad}: ${c.sebep}`).join(' | ');
+        const uyari = ` — UYARI: stok girdi ama ürün ARŞİVDE kaldı, satış ekranında görünmeyebilir (${liste}). Yöneticiye bildirin.`;
+        const grupNolar = new Set(grupSatirlari.map((r) => r.satirNo));
+        for (const s of sonuclar) {
+          if (grupNolar.has(s.satirNo) && s.durum === 'BASARILI') s.mesaj += uyari;
+        }
+      }
+    } catch (e) {
+      console.error('[envanter-import] stok girilenler açık tutulamadı:', e instanceof Error ? e.message : e);
+      await varyantlariAktifEt([...stokGirilenVaryantlar]);
+    }
   }
 
   sonuclar.sort((a, b) => a.satirNo - b.satirNo);
