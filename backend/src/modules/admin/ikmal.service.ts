@@ -98,9 +98,11 @@ async function nitelikHaritasi(urunler: Urun[]) {
     for (const id of u.product_template_attribute_value_ids ?? []) {
       const p = pm.get(id);
       if (!p) continue;
-      if (p.attr.startsWith('MODEL')) n.model = p.deger;
-      else if (p.attr.startsWith('RENK')) n.renk = p.deger;
-      else if (p.attr.startsWith('ÖLÇÜ') || p.attr.startsWith('OLCU')) n.olcu = p.deger;
+      // 25.11.2026 — (Çoklu) değer öncelikli (sıra bağımsız).
+      const cok = /ÇOKLU/i.test(p.attr);
+      if (p.attr.startsWith('MODEL')) { if (cok || !n.model) n.model = p.deger; }
+      else if (p.attr.startsWith('RENK')) { if (cok || !n.renk) n.renk = p.deger; }
+      else if (p.attr.startsWith('ÖLÇÜ') || p.attr.startsWith('OLCU')) { if (cok || !n.olcu) n.olcu = p.deger; }
     }
     if (!n.model) {
       // Model bazlı ayrı şablonlar: "ALYSON SASSO OPTİK ÇERÇEVE SP8254PO"

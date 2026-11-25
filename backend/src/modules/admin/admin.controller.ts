@@ -1294,15 +1294,20 @@ router.get('/stock', async (req: Request, res: Response) => {
       for (const p of prods) {
         let modelAd: string | null = null;
         let renk: string | null = null;
+        let olcuAd: string | null = null;
         const diger: string[] = [];
+        // 25.11.2026 — (Çoklu) değer ÖNCELİKLİ: bazı kartlarda yanında tek sabit değerli eski MODEL/RENK/ÖLÇÜ satırı var (örn. OSSE #11219: OS13351/C3/51); ekranda o sabit değer görünüyordu.
         for (const id of p.product_template_attribute_value_ids ?? []) {
           const v = ptavMap.get(id);
           if (!v) continue;
           const n = v.nitelik.toLocaleUpperCase('tr-TR');
-          if (!modelAd && n.includes('MODEL')) modelAd = v.ad;
-          else if (!renk && n.includes('RENK')) renk = v.ad;
+          const cok = n.includes('ÇOKLU');
+          if (n.includes('MODEL')) { if (cok || !modelAd) modelAd = v.ad; }
+          else if (n.includes('RENK')) { if (cok || !renk) renk = v.ad; }
+          else if (n.includes('ÖLÇÜ') || n.includes('OLCU')) { if (cok || !olcuAd) olcuAd = v.ad; }
           else diger.push(v.ad);
         }
+        if (olcuAd) diger.unshift(olcuAd);
         urunBilgi.set(p.id, {
           model: modelAd ?? (p.default_code || null),
           renk,
@@ -6728,9 +6733,10 @@ router.get('/odoo-sablon/:tmplId/varyantlar', async (req, res, next) => {
         lst_price: v.lst_price || 0,
         standard_price: v.standard_price || 0,
         stok: stockMap.get(v.id) ?? 0,
-        model: attrs.MODEL || attrs['MODEL (Çoklu)'] || '',
-        renk: attrs.RENK || attrs['RENK (Çoklu)'] || '',
-        olcu: attrs['ÖLÇÜ'] || attrs['ÖLÇÜ (Çoklu)'] || '',
+        // 25.11.2026 — (Çoklu) önce: yanında tek sabit değerli eski satır olan kartlarda sabit değer görünmesin.
+        model: attrs['MODEL (Çoklu)'] || attrs.MODEL || '',
+        renk: attrs['RENK (Çoklu)'] || attrs.RENK || '',
+        olcu: attrs['ÖLÇÜ (Çoklu)'] || attrs['ÖLÇÜ'] || '',
         attrs,
       };
     });

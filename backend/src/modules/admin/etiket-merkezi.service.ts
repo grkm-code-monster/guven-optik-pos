@@ -224,9 +224,11 @@ async function quantlardanSatir(quantlar: QuantKaydi[]): Promise<EtiketSatir[]> 
     for (const pid of u.product_template_attribute_value_ids ?? []) {
       const p = ptavMap.get(pid);
       if (!p) continue;
-      if (p.attr.startsWith('MODEL')) model = p.deger;
-      else if (p.attr.startsWith('RENK')) renk = p.deger;
-      else if (p.attr.startsWith('ÖLÇÜ') || p.attr.startsWith('OLCU')) olcu = p.deger;
+      // 25.11.2026 — (Çoklu) değer öncelikli (sıra bağımsız); sabit eski değer sadece boşsa.
+      const cok = /ÇOKLU/i.test(p.attr);
+      if (p.attr.startsWith('MODEL')) { if (cok || !model) model = p.deger; }
+      else if (p.attr.startsWith('RENK')) { if (cok || !renk) renk = p.deger; }
+      else if (p.attr.startsWith('ÖLÇÜ') || p.attr.startsWith('OLCU')) { if (cok || !olcu) olcu = p.deger; }
     }
     if (!model && ek) model = ek;
     const lotId = m2oId(q.lot_id);

@@ -806,9 +806,13 @@ export async function getUrunLotlari(tmplId: number, lokasyon: string) {
       const urunler = (await execute('product.product', 'read', [pids], { fields: ['product_template_attribute_value_ids'] })) ?? [];
       const ptavMap = await buildPtavMap((urunler as any[]).flatMap((u) => u.product_template_attribute_value_ids ?? []));
       for (const u of urunler as Array<{ id: number; product_template_attribute_value_ids?: number[] }>) {
-        const bul = (on: string) => (u.product_template_attribute_value_ids ?? [])
-          .map((id) => ptavMap.get(id))
-          .find((p) => p && p.attrName.toLocaleUpperCase('tr-TR').startsWith(on))?.valueName ?? '';
+        // 25.11.2026 — (Çoklu) değer ÖNCELİKLİ: bazı kartlarda yanında tek sabit değerli eski MODEL/RENK/ÖLÇÜ satırı var (örn. OSSE #11219: OS13351/C3/51); ekranda o sabit değer görünüyordu.
+        const bul = (on: string) => {
+          const es = (u.product_template_attribute_value_ids ?? [])
+            .map((id) => ptavMap.get(id))
+            .filter((p) => p && p.attrName.toLocaleUpperCase('tr-TR').startsWith(on));
+          return (es.find((p) => p!.attrName.toLocaleUpperCase('tr-TR').includes('ÇOKLU')) ?? es[0])?.valueName ?? '';
+        };
         nitelikMap.set(u.id, [bul('MODEL'), bul('RENK'), bul('ÖLÇÜ')].filter(Boolean).join(' / '));
       }
     }

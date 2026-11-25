@@ -19,9 +19,20 @@ export function attrsFromPtavIds(
   ptavMap: Map<number, PtavEntry>,
 ): Record<string, string> {
   const attrs: Record<string, string> = {};
+  const cokluDolu = new Set<string>();
+  // 25.11.2026 — (Çoklu) değer ÖNCELİKLİ: bazı kartlarda yanında tek sabit değerli eski MODEL/RENK/ÖLÇÜ satırı var (örn. OSSE #11219: OS13351/C3/51); ekranda o sabit değer görünüyordu.
+  // "MODEL (Çoklu)" değeri MODEL anahtarına yazılır ve sabit eski değeri ezer; tersi olmaz.
   for (const ptavId of ptavIds ?? []) {
     const ptav = ptavMap.get(ptavId);
-    if (ptav) attrs[ptav.attrName] = ptav.valueName;
+    if (!ptav) continue;
+    const m = ptav.attrName.match(/^(MODEL|RENK|ÖLÇÜ) \(Çoklu\)$/i);
+    if (m) {
+      const k = m[1].toLocaleUpperCase('tr-TR');
+      attrs[k] = ptav.valueName;
+      cokluDolu.add(k);
+    } else if (!cokluDolu.has(ptav.attrName)) {
+      attrs[ptav.attrName] = ptav.valueName;
+    }
   }
   return attrs;
 }

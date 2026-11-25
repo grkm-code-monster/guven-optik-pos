@@ -1097,12 +1097,11 @@ export async function searchCerceve(params) {
                     continue;
                 const attr = TR_UP(m2oName(p.attribute_id));
                 const deger = ptavValueLabel(p);
-                if (attr.startsWith('MODEL'))
-                    vModel = deger;
-                else if (attr.startsWith('RENK'))
-                    vRenk = deger;
-                else if (attr.startsWith('ÖLÇÜ') || attr.startsWith('OLCU'))
-                    vOlcu = deger;
+                // 25.11.2026 — (Çoklu) değer öncelikli (sıra bağımsız).
+                const cok = /ÇOKLU/i.test(attr);
+                if (attr.startsWith('MODEL')) { if (cok || !vModel) vModel = deger; }
+                else if (attr.startsWith('RENK')) { if (cok || !vRenk) vRenk = deger; }
+                else if (attr.startsWith('ÖLÇÜ') || attr.startsWith('OLCU')) { if (cok || !vOlcu) vOlcu = deger; }
             }
             const sablonAdi = m2oName(v.product_tmpl_id) || row.ad;
             if (!vModel) {
