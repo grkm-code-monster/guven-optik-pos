@@ -9,8 +9,12 @@ import {
 import { createTransfer, searchTransferProductLots } from '../../api/transfer.api'
 import { extractApiErrorMessage } from '../../utils/extractApiErrorMessage'
 import { transferHataMesaji } from '../../utils/transferError'
+import { AccordionSection, PRIMARY } from '../StokSorgulaPage'
 
 const LOKASYONLAR = ['GVN1', 'GVN3', 'GVN4', 'GVN6', 'GVN8', 'GVN9', 'GVNP', 'GVN2', 'GVN7', 'GVN10', 'GUVENP2', 'ANADEPO', 'ETICARET', 'GVN5']
+// 25.11.2026 — filtre paneli Depo › Stok Durumu ile aynı görünümde: şube radyo listesi (alfabetik)
+const LOKASYON_ETIKET: Record<string, string> = { ANADEPO: 'ANA-DEPO', ETICARET: 'E-TİCARET' }
+const LOKASYON_SIRALI = [...LOKASYONLAR].sort((a, b) => (LOKASYON_ETIKET[a] ?? a).localeCompare(LOKASYON_ETIKET[b] ?? b, 'tr', { numeric: true }))
 
 type LotSatir = {
   lotId: number | null
@@ -137,6 +141,8 @@ function lokasyonBadgeStyle(miktar: number): React.CSSProperties {
 export default function StokKontrolTab() {
   const [kategoriler, setKategoriler] = useState<Array<{ id: number; complete_name: string }>>([])
   const [arama, setArama] = useState('')
+  const [modelArama, setModelArama] = useState('')
+  const [acikBolum, setAcikBolum] = useState({ arama: true, sube: true, kategori: true, diger: true })
   const [kategoriId, setKategoriId] = useState('')
   const [fiyatMin, setFiyatMin] = useState('')
   const [fiyatMax, setFiyatMax] = useState('')
@@ -170,7 +176,7 @@ export default function StokKontrolTab() {
   }, [])
 
   const ara = useCallback(async (): Promise<StokKontrolUrun[]> => {
-    const hasFilter = arama.trim() || kategoriId || fiyatMin || fiyatMax
+    const hasFilter = arama.trim() || modelArama.trim() || kategoriId || fiyatMin || fiyatMax
       || stokDurumu !== 'tumu' || lokasyon || kdv
     if (!hasFilter) {
       setMesaj({ tip: 'err', text: 'En az bir filtre seçin veya arama yapın.' })
@@ -188,6 +194,7 @@ export default function StokKontrolTab() {
         : (stokDurumu !== 'tumu' ? stokDurumu : undefined)
       const data = await getStokKontrol({
         q: arama.trim() || undefined,
+        model: modelArama.trim() || undefined,
         kategoriId: kategoriId ? Number(kategoriId) : undefined,
         fiyatMin: fiyatMin ? Number(fiyatMin) : undefined,
         fiyatMax: fiyatMax ? Number(fiyatMax) : undefined,
@@ -442,92 +449,121 @@ export default function StokKontrolTab() {
   const transferEdilebilirIds = urunler.filter((u) => primaryStockBranch(u)).map((u) => u.productId)
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20, alignItems: 'start' }}>
-      <div style={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
-        <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 12 }}>Filtreler</div>
-
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Arama</span>
+    <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20, alignItems: 'start' }}>
+      <aside style={{ backgroundColor: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 12, padding: '4px 16px 16px' }}>
+        <AccordionSection title="ARAMA" open={acikBolum.arama} onToggle={() => setAcikBolum((s) => ({ ...s, arama: !s.arama }))}>
           <input
             value={arama}
             onChange={(e) => setArama(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void ara() }}
-            placeholder="Ürün adı / iç ref / barkod"
-            style={{ ...inp, marginTop: 4 }}
+            placeholder="Ürün adı, renk, barkod, UTS, lot no…"
+            style={inp}
           />
-        </label>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, lineHeight: 1.4 }}>
+            Kelime kelime arar (hepsi geçmeli): ürün adı, model, renk/nitelik, barkod, lot no, UTS karekodu.
+            Karekodu okutabilirsiniz.
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', marginTop: 12, marginBottom: 4 }}>MODEL ARA</div>
+          <input
+            value={modelArama}
+            onChange={(e) => setModelArama(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void ara() }}
+            placeholder="Örn. MU2237"
+            style={inp}
+          />
+        </AccordionSection>
 
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Kategori</span>
-          <select value={kategoriId} onChange={(e) => setKategoriId(e.target.value)} style={{ ...inp, marginTop: 4 }}>
+        <AccordionSection title="ŞUBE / LOKASYON" open={acikBolum.sube} onToggle={() => setAcikBolum((s) => ({ ...s, sube: !s.sube }))}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {['', ...LOKASYON_SIRALI].map((l) => (
+              <label
+                key={l || 'tumu'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer',
+                  color: lokasyon === l ? PRIMARY : '#374151', fontWeight: lokasyon === l ? 700 : 400,
+                }}
+              >
+                <input type="radio" name="stok-kontrol-lokasyon" checked={lokasyon === l} onChange={() => setLokasyon(l)} style={{ accentColor: PRIMARY }} />
+                {l ? (LOKASYON_ETIKET[l] ?? l) : 'Tümü'}
+              </label>
+            ))}
+          </div>
+        </AccordionSection>
+
+        <AccordionSection title="KATEGORİ" open={acikBolum.kategori} onToggle={() => setAcikBolum((s) => ({ ...s, kategori: !s.kategori }))}>
+          <select value={kategoriId} onChange={(e) => setKategoriId(e.target.value)} style={inp}>
             <option value="">Tümü</option>
             {kategoriler.map((k) => <option key={k.id} value={k.id}>{k.complete_name}</option>)}
           </select>
-        </label>
+        </AccordionSection>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-          <label>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Min ₺</span>
-            <input type="number" value={fiyatMin} onChange={(e) => setFiyatMin(e.target.value)} style={{ ...inp, marginTop: 4 }} />
+        <AccordionSection title="DİĞER" open={acikBolum.diger} onToggle={() => setAcikBolum((s) => ({ ...s, diger: !s.diger }))}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+            <label>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Min ₺</span>
+              <input type="number" value={fiyatMin} onChange={(e) => setFiyatMin(e.target.value)} style={{ ...inp, marginTop: 4 }} />
+            </label>
+            <label>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Max ₺</span>
+              <input type="number" value={fiyatMax} onChange={(e) => setFiyatMax(e.target.value)} style={{ ...inp, marginTop: 4 }} />
+            </label>
+          </div>
+
+          <label style={{ display: 'block', marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Stok durumu</span>
+            <select
+              value={stokDurumu}
+              onChange={(e) => {
+                const v = e.target.value as 'tumu' | 'var' | 'sifir'
+                setStokDurumu(v)
+                if (v === 'sifir') setSadeceStokta(false)
+              }}
+              style={{ ...inp, marginTop: 4 }}
+            >
+              <option value="tumu">Tümü</option>
+              <option value="var">Stokta var</option>
+              <option value="sifir">Stok sıfır</option>
+            </select>
           </label>
-          <label>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Max ₺</span>
-            <input type="number" value={fiyatMax} onChange={(e) => setFiyatMax(e.target.value)} style={{ ...inp, marginTop: 4 }} />
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={sadeceStokta}
+              onChange={(e) => {
+                setSadeceStokta(e.target.checked)
+                if (e.target.checked && stokDurumu === 'sifir') setStokDurumu('tumu')
+              }}
+            />
+            <span style={{ color: sadeceStokta ? '#1a1a2e' : '#374151', fontWeight: sadeceStokta ? 600 : 400 }}>
+              Sadece stokta olanlar
+            </span>
           </label>
-        </div>
 
-        <label style={{ display: 'block', marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Stok durumu</span>
-          <select
-            value={stokDurumu}
-            onChange={(e) => {
-              const v = e.target.value as 'tumu' | 'var' | 'sifir'
-              setStokDurumu(v)
-              if (v === 'sifir') setSadeceStokta(false)
-            }}
-            style={{ ...inp, marginTop: 4 }}
-          >
-            <option value="tumu">Tümü</option>
-            <option value="var">Stokta var</option>
-            <option value="sifir">Stok sıfır</option>
-          </select>
-        </label>
+          <label style={{ display: 'block' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>KDV</span>
+            <select value={kdv} onChange={(e) => setKdv(e.target.value)} style={{ ...inp, marginTop: 4 }}>
+              <option value="">Tümü</option>
+              <option value="10">%10</option>
+              <option value="20">%20</option>
+            </select>
+          </label>
+        </AccordionSection>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={sadeceStokta}
-            onChange={(e) => {
-              setSadeceStokta(e.target.checked)
-              if (e.target.checked && stokDurumu === 'sifir') setStokDurumu('tumu')
-            }}
-          />
-          <span style={{ color: sadeceStokta ? '#1a1a2e' : '#374151', fontWeight: sadeceStokta ? 600 : 400 }}>
-            Sadece stokta olanlar
-          </span>
-        </label>
-
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>Şube</span>
-          <select value={lokasyon} onChange={(e) => setLokasyon(e.target.value)} style={{ ...inp, marginTop: 4 }}>
-            <option value="">Tümü</option>
-            {LOKASYONLAR.map((l) => <option key={l} value={l}>{l}</option>)}
-          </select>
-        </label>
-
-        <label style={{ display: 'block', marginBottom: 16 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>KDV</span>
-          <select value={kdv} onChange={(e) => setKdv(e.target.value)} style={{ ...inp, marginTop: 4 }}>
-            <option value="">Tümü</option>
-            <option value="10">%10</option>
-            <option value="20">%20</option>
-          </select>
-        </label>
-
-        <button type="button" onClick={() => void ara()} disabled={loading} style={{ ...btnPrimary, width: '100%', opacity: loading ? 0.7 : 1 }}>
+        <button type="button" onClick={() => void ara()} disabled={loading} style={{ ...btnPrimary, width: '100%', marginTop: 14, opacity: loading ? 0.7 : 1 }}>
           {loading ? 'Aranıyor...' : 'Ara'}
         </button>
-      </div>
+        <button
+          type="button"
+          onClick={() => {
+            setArama(''); setModelArama(''); setLokasyon(''); setKategoriId(''); setFiyatMin(''); setFiyatMax('')
+            setStokDurumu('tumu'); setSadeceStokta(true); setKdv(''); setUrunler([]); setSearched(false); setMesaj(null); setSecili(new Set())
+          }}
+          style={{ ...btn, width: '100%', marginTop: 8, backgroundColor: '#f3f4f6', color: '#374151' }}
+        >
+          Temizle
+        </button>
+      </aside>
 
       <div>
         {mesaj ? (

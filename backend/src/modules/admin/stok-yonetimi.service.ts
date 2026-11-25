@@ -1005,6 +1005,7 @@ export type StokKontrolUrun = {
 
 type StokKontrolFiltre = {
   q?: string;
+  model?: string;
   kategoriId?: number;
   fiyatMin?: number;
   fiyatMax?: number;
@@ -1013,10 +1014,67 @@ type StokKontrolFiltre = {
   kdv?: number;
 };
 
+/**
+ * 25.11.2026 — Stok Kontrol araması Depo › Stok Durumu ile aynı mantıkta:
+ * "Arama" kelime kelime (hepsi geçmeli); her kelime ürün adı, iç ref, barkod, nitelik
+ * (model/renk/ölçü), lot no ya da UTS karekodunda aranır; GS1 karekod okutulursa içindeki
+ * GTIN ile barkod eşleşir. "Model" ayrı kutu (iç ref ya da nitelik değeri).
+ * Dönen: eşleşen ürün (varyant) id'leri; arama yoksa null.
+ */
+async function stokKontrolAramaUrunleri(q: string | undefined, model: string | undefined): Promise<number[] | null> {
+  const kelimeler = [...new Set((q ?? '').trim().split(/\s+/).filter(Boolean))].slice(0, 8);
+  const modelTerm = (model ?? '').trim();
+  if (!kelimeler.length && !modelTerm) return null;
+  const trBicimler = (k: string) => [...new Set([k, k.toLocaleUpperCase('tr-TR'), k.toLocaleLowerCase('tr-TR')])];
+  const orla = (kosullar: unknown[]) => (kosullar.length > 1 ? [...Array(kosullar.length - 1).fill('|'), ...kosullar] : kosullar);
+  const ptavIdleri = async (k: string): Promise<number[]> => {
+    const rows = (await execute('product.template.attribute.value', 'search_read',
+      [orla(trBicimler(k).map((b) => ['name', 'ilike', b]))],
+      { fields: ['id'], limit: 5000, ...ODOO_ALL_COMPANIES_KWARGS })) ?? [];
+    return rows.map((r: { id: number }) => r.id).filter(Boolean);
+  };
+  const urunAra = async (kosullar: unknown[]): Promise<Set<number>> => {
+    if (!kosullar.length) return new Set();
+    const rows = (await execute('product.product', 'search_read',
+      [[['type', 'in', ['product', 'consu']], ['active', '=', true], ...orla(kosullar)]],
+      { fields: ['id'], limit: 30000, ...ODOO_ALL_COMPANIES_KWARGS })) ?? [];
+    return new Set(rows.map((r: { id: number }) => r.id));
+  };
+  let sonuc: Set<number> | null = null;
+  const kesis = (s: Set<number>) => { sonuc = sonuc ? new Set([...sonuc].filter((id) => s.has(id))) : s; };
+  for (const k of kelimeler) {
+    const kosullar: unknown[] = [];
+    for (const b of trBicimler(k)) kosullar.push(['name', 'ilike', b], ['default_code', 'ilike', b]);
+    kosullar.push(['barcode', 'ilike', k]);
+    const gs1 = k.match(/^\(?01\)?(\d{14})/);
+    if (gs1) kosullar.push(['barcode', 'in', [gs1[1], gs1[1].replace(/^0+/, '')]]);
+    const ptav = await ptavIdleri(k);
+    if (ptav.length) kosullar.push(['product_template_attribute_value_ids', 'in', ptav]);
+    const s = await urunAra(kosullar);
+    // lot no / UTS karekodu (kısa ya da rakamsız kelimelerde taranmaz — çok geniş sonuç)
+    if (k.length >= 4 && /\d/.test(k)) {
+      const lots = (await execute('stock.lot', 'search_read',
+        [['|', '|', ['name', 'ilike', k], ['ref', 'ilike', k], ['x_uts_kodu', 'ilike', k]]],
+        { fields: ['product_id'], limit: 2000, ...ODOO_ALL_COMPANIES_KWARGS })) ?? [];
+      for (const l of lots as Array<{ product_id: unknown }>) { const pid = m2oId(l.product_id); if (pid) s.add(pid); }
+    }
+    kesis(s);
+    if (!(sonuc as Set<number> | null)?.size) return [];
+  }
+  if (modelTerm) {
+    const kosullar: unknown[] = trBicimler(modelTerm).map((b) => ['default_code', 'ilike', b]);
+    const ptav = await ptavIdleri(modelTerm);
+    if (ptav.length) kosullar.push(['product_template_attribute_value_ids', 'in', ptav]);
+    kesis(await urunAra(kosullar));
+  }
+  return [...((sonuc as Set<number> | null) ?? new Set<number>())];
+}
+
 export async function listStokKontrol(filtre: StokKontrolFiltre): Promise<StokKontrolUrun[]> {
   const q = filtre.q?.trim();
+  const model = filtre.model?.trim();
   const hasFilter = Boolean(
-    q || filtre.kategoriId || filtre.fiyatMin != null || filtre.fiyatMax != null
+    q || model || filtre.kategoriId || filtre.fiyatMin != null || filtre.fiyatMax != null
     || filtre.stokDurumu || filtre.lokasyon || filtre.kdv,
   );
   if (!hasFilter) return [];
@@ -1025,13 +1083,10 @@ export async function listStokKontrol(filtre: StokKontrolFiltre): Promise<StokKo
     ['type', 'in', ['product', 'consu']],
     ['active', '=', true],
   ];
-  if (q) {
-    productDomain.push(
-      '|', '|',
-      ['name', 'ilike', q],
-      ['default_code', 'ilike', q],
-      ['barcode', 'ilike', q],
-    );
+  const aramaIdleri = await stokKontrolAramaUrunleri(q, model);
+  if (aramaIdleri) {
+    if (!aramaIdleri.length) return [];
+    productDomain.push(['id', 'in', aramaIdleri]);
   }
   if (filtre.kategoriId) {
     productDomain.push(['categ_id', 'child_of', filtre.kategoriId]);

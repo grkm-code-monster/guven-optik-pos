@@ -6,7 +6,7 @@ import { useAuthStore } from '../store/auth.store'
 import FiyatDegisenUrunlerTab from '../components/stok/FiyatDegisenUrunlerTab'
 import { trIncludes } from '../utils/turkishSearch'
 
-const PRIMARY = '#c0392b'
+export const PRIMARY = '#c0392b'
 
 const CATEGORIES = [
   'Optik Cam',
@@ -51,7 +51,7 @@ type StockGroupRow = {
   locations: StockLocationRow[]
 }
 
-function AccordionSection({
+export function AccordionSection({
   title,
   open,
   onToggle,

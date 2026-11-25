@@ -7256,9 +7256,10 @@ async function kullaniciSubeKodu(branchId: string): Promise<string | undefined> 
 
 router.get('/stok-kontrol', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { q, kategoriId, fiyatMin, fiyatMax, stokDurumu, lokasyon, kdv } = req.query;
+    const { q, model, kategoriId, fiyatMin, fiyatMax, stokDurumu, lokasyon, kdv } = req.query;
     const data = await stokYonetimi.listStokKontrol({
       q: q ? String(q) : undefined,
+      model: model ? String(model) : undefined,
       kategoriId: kategoriId ? Number(kategoriId) : undefined,
       fiyatMin: fiyatMin != null && fiyatMin !== '' ? Number(fiyatMin) : undefined,
       fiyatMax: fiyatMax != null && fiyatMax !== '' ? Number(fiyatMax) : undefined,

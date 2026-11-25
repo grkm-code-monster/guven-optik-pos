@@ -244,6 +244,7 @@ export type StokKontrolUrun = {
 
 export type StokKontrolParams = {
   q?: string
+  model?: string
   kategoriId?: number
   fiyatMin?: number
   fiyatMax?: number
