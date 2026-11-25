@@ -222,6 +222,36 @@ export async function importVaryantlarDinamikTekSablon(
     varyantByPtavKey.set(ptavKey(v.product_template_attribute_value_ids ?? []), v.id);
   }
 
+  // 25.11.2026 — KÖK NEDEN DÜZELTMESİ (Polo Village / OSSE olayı): bazı eski şablonlarda
+  // (Çoklu) satırların YANINDA eski 'always' MODEL/RENK/ÖLÇÜ satırları da var, her biri TEK
+  // sabit değerli (örn. OSSE #11219: OS13256 / C1 / 57). Odoo bu şablonda geçerli varyantın
+  // HER satırdan bir değer taşımasını bekler. Önceden yeni varyant sadece 3 (Çoklu) değerle
+  // açılıyordu → (1) mevcut 6 değerli varyant hiç eşleşmiyor, aynı ürün tekrar açılıyordu;
+  // (2) Odoo sonraki nitelik yazımında bu "eksik" varyantları geçersiz sayıp ARŞİVLİYOR
+  // (stoklu ürünler kayboluyor) ya da tamamlamaya çalışıp "duplicate key combination_indices"
+  // hatası veriyordu → izole yol → "{AD} {MODEL}" alt kartları. Artık tek değerli diğer
+  // satırların değeri de varyanta eklenir; eşleşme önce tam, sonra eski 3'lü anahtarla aranır.
+  const ekSabitPtavlar: number[] = [];
+  let cokDegerliDigerSatir = false;
+  {
+    const tumSatirlar = (await execute(
+      'product.template.attribute.line', 'search_read',
+      [[['product_tmpl_id', '=', tmplId]]],
+      { fields: ['id', 'attribute_id', 'value_ids'] },
+    )) as { id: number; attribute_id: [number, string]; value_ids: number[] }[];
+    for (const l of tumSatirlar) {
+      if ([modelAttrId, renkAttrId, olcuAttrId].includes(l.attribute_id[0])) continue;
+      if (l.value_ids.length !== 1) { cokDegerliDigerSatir = true; continue; }
+      const pid = ptavByValueId.get(l.value_ids[0]);
+      if (pid) ekSabitPtavlar.push(pid);
+    }
+    if (cokDegerliDigerSatir) {
+      console.log(`[varyant-import-dinamik] UYARI şablon #${tmplId}: (Çoklu) dışında BİRDEN FAZLA değerli nitelik satırı var — yeni varyant eksik bileşimli açılabilir.`);
+    } else if (ekSabitPtavlar.length) {
+      console.log(`[varyant-import-dinamik] Şablon #${tmplId}: ${ekSabitPtavlar.length} sabit tek değerli satır yeni varyantlara eklenecek.`);
+    }
+  }
+
   console.log(`[varyant-import-dinamik] Şablon #${tmplId}: ${parsedRows.length} satır işlenecek, ${attrUniqueValues.get(modelAttrId)?.size ?? 0} farklı model, mevcut varyant: ${mevcutVaryantlar.length}.`);
 
   for (const row of parsedRows) {
@@ -234,11 +264,13 @@ export async function importVaryantlarDinamikTekSablon(
         continue;
       }
 
-      const ptavIds = [modelPtavId, renkPtavId, olcuPtavId];
+      const ucluPtav = [modelPtavId, renkPtavId, olcuPtavId];
+      const ptavIds = [...ucluPtav, ...ekSabitPtavlar];
       const key = ptavKey(ptavIds);
       const vKey = varyantKey(row.model, row.renk, row.olcu);
 
-      const mevcutVaryantId = varyantByPtavKey.get(key);
+      // Önce tam bileşimli, yoksa eski usul 3 değerli (eksik bileşimli) mevcut varyant.
+      const mevcutVaryantId = varyantByPtavKey.get(key) ?? varyantByPtavKey.get(ptavKey(ucluPtav));
       if (mevcutVaryantId) {
         varyantIdByKey.set(vKey, mevcutVaryantId);
         zatenMevcut++;
@@ -490,5 +522,9 @@ export async function findVariantProductIdDinamik(
   ) as { id: number; product_template_attribute_value_ids: number[] }[];
 
   const match = variants.find((v) => ptavKey(v.product_template_attribute_value_ids ?? []) === key);
-  return match?.id ?? null;
+  if (match) return match.id;
+  // 25.11.2026 — 3 (Çoklu) değer + sabit tek değerli eski satırlar taşıyan (tam bileşimli) varyant.
+  const uc = ptavlar.map((p) => p.id);
+  const tam = variants.find((v) => uc.every((id) => (v.product_template_attribute_value_ids ?? []).includes(id)));
+  return tam?.id ?? null;
 }
