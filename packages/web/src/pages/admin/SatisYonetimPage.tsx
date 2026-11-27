@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminApi } from './AdminLayout'
+import { GecmisBolumu, OdemelerBolumu, TarihBolumu, TemsilciBolumu, type MudahalePayment } from './MudahaleFaz1'
 
 // Yönetim paneli — TÜM şubelerin satışlarını görüp müdahale (KDV/reçete/durum
 // düzeltme) edebilme sayfası (16.10.2026). Daha önce ADMIN sadece kendi
@@ -41,6 +42,13 @@ type SaleItemDetail = {
 type SaleDetail = {
   id: string
   status: string
+  referansNo?: string | null
+  createdAt: string
+  userId: string
+  branchId: string
+  eFaturaDurum?: string | null
+  odooSaleOrderId?: number | null
+  payments: MudahalePayment[]
   grossTotal: string | number
   discountTotal: string | number
   netTotal: string | number
@@ -107,6 +115,14 @@ export default function SatisYonetimPage() {
   const [receteSaving, setReceteSaving] = useState(false)
 
   const [durumSaving, setDurumSaving] = useState(false)
+  const [gecmisSayac, setGecmisSayac] = useState(0)
+
+  async function mudahaleBitti(mesaj: string) {
+    setDetayHata(null)
+    setBasari(mesaj)
+    setGecmisSayac((n) => n + 1)
+    await reloadDetay()
+  }
 
   useEffect(() => {
     // NOT (16.10.2026): '/admin/branches' Odoo stock.location listesini
@@ -417,7 +433,7 @@ export default function SatisYonetimPage() {
       </div>
 
       {selectedId ? (
-        <div style={{ width: 420, flexShrink: 0, position: 'sticky', top: 24, background: 'white', border: '1px solid #e5e7eb', borderRadius: 16, padding: 18, maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
+        <div style={{ width: 460, flexShrink: 0, position: 'sticky', top: 24, background: 'white', border: '1px solid #e5e7eb', borderRadius: 16, padding: 18, maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div style={{ fontWeight: 900, fontSize: 15 }}>Müdahale Paneli</div>
             <button type="button" onClick={() => setSelectedId(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: '#9ca3af' }}>✕</button>
@@ -431,8 +447,20 @@ export default function SatisYonetimPage() {
           ) : !detay ? null : (
             <>
               <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+                <div style={{ fontWeight: 800, color: '#1a1a2e', fontFamily: 'monospace' }}>{detay.referansNo ?? detay.id}</div>
                 {detay.customer?.name} · {detay.customer?.phone}
+                <div style={{ marginTop: 2 }}>
+                  Odoo: {detay.odooSaleOrderId ? 'gönderildi' : 'gönderilmedi'} · E-fatura: {detay.eFaturaDurum === 'GONDERILDI' ? 'gönderildi' : detay.eFaturaDurum ?? '—'}
+                </div>
               </div>
+
+              {detay.status !== 'DRAFT' && detay.status !== 'VOID' && (
+                <>
+                  <OdemelerBolumu saleId={detay.id} payments={detay.payments ?? []} branchId={detay.branchId} onDegisti={(m) => void mudahaleBitti(m)} />
+                  <TarihBolumu saleId={detay.id} createdAt={detay.createdAt} payments={detay.payments ?? []} onDegisti={(m) => void mudahaleBitti(m)} />
+                  <TemsilciBolumu saleId={detay.id} userId={detay.userId} onDegisti={(m) => void mudahaleBitti(m)} />
+                </>
+              )}
 
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase' }}>Durum Değiştir</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
@@ -549,6 +577,8 @@ export default function SatisYonetimPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ color: '#6b7280' }}>KDV</span><span>{money(detay.taxTotal)}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}><span>Genel toplam</span><span>{money(detay.netTotal)}</span></div>
               </div>
+
+              <GecmisBolumu saleId={detay.id} yenile={gecmisSayac} />
             </>
           )}
         </div>

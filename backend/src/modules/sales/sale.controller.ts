@@ -1,5 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { ItemStatus, Role, SaleStatus } from '@prisma/client';
+import { ItemStatus, PaymentType, Role, SaleStatus } from '@prisma/client';
 import { prisma } from '../../database/prisma';
 import { authenticate } from '../../middleware/authenticate';
 import { authorize } from '../../middleware/authorize';
@@ -21,6 +21,8 @@ import { listHazirGunesCamlari, listOzelIslemUrunleri } from './ozel-islem';
 import { getMusteriSatisDetaylari } from './musteri-satis-detay.service';
 import { subeToSirketAyarId } from '../efatura/uyumsoft-efatura.service';
 import { getOutboxInvoicePdf } from '../uyumsoft/uyumsoft.service';
+import { z } from 'zod';
+import * as mudahale from './satis-mudahale.service';
 
 const router = Router();
 router.use(authenticate);
@@ -61,6 +63,10 @@ function handleSaleError(err: unknown, res: Response): boolean {
     USER_BRANCH_MISMATCH: { status: 400, message: 'Seçilen personel bu satışın şubesinde değil.' },
   };
 
+  if (code === 'MUDAHALE_HATASI') {
+    res.status(409).json({ error: code, message: (err as Error).message });
+    return true;
+  }
   const m = map[code];
   if (!m) return false;
   res.status(m.status).json({ error: code, message: m.message });
@@ -650,6 +656,70 @@ router.get('/:id/fatura-pdf', async (req: Request, res: Response, next: NextFunc
     if (err instanceof Error && err.message.includes('PDF')) {
       return res.status(502).json({ error: 'FATURA_PDF_ERROR', message: err.message });
     }
+    next(err);
+  }
+});
+
+// ───────── 27.11.2026 Müdahale Paneli Faz 1 — SADECE ADMIN (bkz. satis-mudahale.service.ts) ─────────
+const MudahaleOdemeInput = z.object({
+  paymentId: z.string().min(1),
+  yeniler: z.array(z.object({
+    tur: z.nativeEnum(PaymentType),
+    tutar: z.number().positive(),
+    tarih: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    bankId: z.string().nullish(),
+    posDeviceId: z.string().nullish(),
+    taksit: z.number().int().min(1).max(36).nullish(),
+  })).min(1).max(4),
+  sebep: z.string().trim().max(300).optional(),
+});
+const MudahaleTarihInput = z.object({
+  tarih: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  saat: z.string().regex(/^\d{2}:\d{2}$/).nullish(),
+  odemeIdler: z.array(z.string()).max(20),
+  sebep: z.string().trim().max(300).optional(),
+});
+
+function mudahaleRota(
+  schema: z.ZodTypeAny,
+  calistir: (req: Request, body: any, uygula: boolean) => Promise<unknown>,
+) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Geçersiz istek gövdesi.', details: parsed.error.errors });
+      const uygula = req.path.endsWith('/uygula');
+      if (uygula && String(parsed.data.sebep ?? '').trim().length < 5) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Düzeltme sebebini en az 5 karakter yazın.' });
+      }
+      return res.status(200).json(await calistir(req, parsed.data, uygula));
+    } catch (err) {
+      if (handleSaleError(err, res)) return;
+      next(err);
+    }
+  };
+}
+
+const odemeRota = mudahaleRota(MudahaleOdemeInput, (req, b, uygula) =>
+  uygula
+    ? mudahale.odemeDuzeltUygula(req.params.id, b.paymentId, b.yeniler, b.sebep.trim(), req.user!.userId)
+    : mudahale.odemeDuzeltPlan(req.params.id, b.paymentId, b.yeniler),
+);
+router.post('/:id/mudahale/odeme/onizle', authorize(Role.ADMIN), odemeRota);
+router.post('/:id/mudahale/odeme/uygula', authorize(Role.ADMIN), odemeRota);
+
+const tarihRota = mudahaleRota(MudahaleTarihInput, (req, b, uygula) =>
+  uygula
+    ? mudahale.tarihDuzeltUygula(req.params.id, { tarih: b.tarih, saat: b.saat ?? null, odemeIdler: b.odemeIdler }, b.sebep.trim(), req.user!.userId)
+    : mudahale.tarihDuzeltPlan(req.params.id, { tarih: b.tarih, saat: b.saat ?? null, odemeIdler: b.odemeIdler }),
+);
+router.post('/:id/mudahale/tarih/onizle', authorize(Role.ADMIN), tarihRota);
+router.post('/:id/mudahale/tarih/uygula', authorize(Role.ADMIN), tarihRota);
+
+router.get('/:id/mudahale/gecmis', authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    return res.status(200).json({ success: true, data: await mudahale.duzeltmeGecmisi(req.params.id) });
+  } catch (err) {
     next(err);
   }
 });
