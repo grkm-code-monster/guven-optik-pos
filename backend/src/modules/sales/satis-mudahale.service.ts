@@ -23,6 +23,8 @@ import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 import { faturaAlacakHesabi, faturaSirketi, odooTahsilatOlustur, odooTahsilatiFaturayaBagla, tahsilatYevmiyesi } from '../odoo/odoo-tahsilat';
 import { calculateCommission } from '../payments/commission.service';
 import { parseGs1DataMatrix } from '../odoo/gs1-parser.util';
+import { resolvePosLineTax } from '../odoo/odoo-tax.util';
+import { calcInclusiveLineAmounts } from './sale-tax.util';
 
 // ───────────────────────── yardımcılar ─────────────────────────
 
@@ -664,6 +666,7 @@ const GECMIS_AD: Record<string, string> = {
   SALE_ITEM_RECETE_DUZELT: 'Reçete düzeltme',
   ODOO_TAHSILAT_BAGLANAMADI: 'Odoo tahsilatı faturaya bağlanamadı',
   MUDAHALE_LOT: 'Lot / UTS düzeltme',
+  MUDAHALE_FIYAT: 'Fiyat / indirim / KDV düzeltme',
 };
 
 export async function duzeltmeGecmisi(saleId: string) {
@@ -858,4 +861,356 @@ export async function lotDuzeltUygula(saleId: string, g: LotGirdi, sebep: string
     throw mudahaleHatasi(`POS kaydı yazılamadı: ${(e as Error).message} (${geri})`);
   }
   return { ok: true, satirlar: p.satirlar, uyarilar: p.uyarilar, odoo: [`teslimat satırı ${lot.name} lotuna çevrildi, stok doğrulandı`] };
+}
+
+// ───────────────────────── FİYAT / İNDİRİM / KDV DÜZELT (Faz 2b-1) ─────────────────────────
+//
+// E-fatura GÖNDERİLMEMİŞ satışta kalemlerin birim fiyatı, indirimi ve KDV oranı düzeltilir:
+//   POS kalemleri + satış toplamı, Odoo sipariş satırı ve fatura (taslağa → satır → yeniden onay).
+// Toplam değişirse fark AYNI işlemde kapatılır: artışta yeni ödeme satırı (ya da açık hesap),
+// azalışta seçilen ödeme o kadar düşürülür. Ödeme toplamı = satış toplamı her zaman korunur.
+// E-fatura gönderilmişse resmi belge değişmez → engel (Faz 3: iptal + yeniden giriş).
+
+export type FiyatKalemGirdi = { itemId: string; unitPrice: number; discount: number; taxRate: number };
+export type FiyatGirdi = {
+  kalemler: FiyatKalemGirdi[];
+  farkEkle?: YeniOdemeGirdi | null;
+  farkAzaltPaymentId?: string | null;
+};
+
+type OdooSoSatir = { id: number; product_id: [number, string]; price_unit: number; discount: number; tax_id: number[]; product_uom_qty: number; price_total: number; invoice_lines: number[] };
+type OdooFaturaSatir = { id: number; sale_line_ids: number[]; price_unit: number; discount: number; tax_ids: number[]; quantity: number };
+
+/** Tek yeni ödeme satırını doğrular / hazırlar (Faz 1'deki kurallarla aynı). */
+async function yeniOdemeHazirla(sale: { branchId: string }, y: YeniOdemeGirdi, saat: string, engeller: string[], uyarilar: string[]): Promise<OdemeIc | null> {
+  const tutar = yuvarla(Number(y.tutar));
+  if (!(tutar > 0)) { engeller.push('Fark ödemesi tutarı 0 olamaz.'); return null; }
+  if (!DUZELTILEBILIR.includes(y.tur)) { engeller.push('Fark ödemesi türü geçersiz.'); return null; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(y.tarih)) { engeller.push('Fark ödemesi tarihi geçersiz.'); return null; }
+  if (y.tarih < KILIT_GUN) engeller.push('Ekim ve öncesine tarih yazılamaz.');
+  if (y.tarih > bugunTR()) engeller.push('İleri tarih yazılamaz.');
+  let an = trAn(y.tarih, saat);
+  let bankId: string | null = null; let bankAd: string | null = null; let posDeviceId: string | null = null; let taksit: number | null = null;
+  let komisyonOran: number | null = null; let komisyonTutar: number | null = null; let net = tutar;
+  if (y.tur === PaymentType.CARD || y.tur === PaymentType.TRANSFER) {
+    const b = await prisma.bank.findUnique({ where: { id: String(y.bankId ?? '') }, include: { posDevices: true } });
+    if (!b) { engeller.push('Fark ödemesi için banka seçin.'); return null; }
+    bankId = b.id; bankAd = b.name;
+    if (y.tur === PaymentType.CARD) {
+      const cihaz = b.posDevices.find((d) => d.id === y.posDeviceId);
+      if (!cihaz) { engeller.push(`${b.name} için POS cihazı seçin.`); return null; }
+      posDeviceId = cihaz.id;
+      taksit = Math.max(1, Math.floor(Number(y.taksit ?? 1)));
+      try {
+        const c = await calculateCommission(b.id, taksit, String(tutar), an);
+        komisyonOran = Number(c.commissionRate); komisyonTutar = Number(c.commissionAmount); net = Number(c.netAmount);
+      } catch {
+        engeller.push(`${b.name} ${taksit} taksit için ${y.tarih} tarihinde komisyon oranı tanımlı değil.`);
+        return null;
+      }
+    }
+  }
+  let shift: Shift | null = null;
+  if (y.tur === PaymentType.CASH) {
+    const v = await vardiyaBul(sale.branchId, an);
+    if (!v) { engeller.push(`${y.tarih.split('-').reverse().join('.')} günü bu şubede kasa açılmamış — nakit yazılamaz.`); return null; }
+    if (v.an.getTime() !== an.getTime()) uyarilar.push(`Nakit saati kasa saatlerine çekildi: ${trYaz(v.an)}.`);
+    shift = v.shift; an = v.an;
+  }
+  return { tur: y.tur, tutar, an, bankId, bankAd, posDeviceId, taksit, komisyonOran, komisyonTutar, net, shift };
+}
+
+async function fiyatPlanla(saleId: string, g: FiyatGirdi) {
+  const satirlar: string[] = [];
+  const uyarilar: string[] = [];
+  const engeller: string[] = [];
+  const sale = await satisGetir(saleId);
+  durumKontrol(sale.status, engeller);
+  if (gunTR(sale.createdAt) < KILIT_GUN) engeller.push(`Satış ${trYaz(sale.createdAt)} tarihli — Ekim ve öncesine dokunulmaz.`);
+  if (sale.eFaturaDurum === 'GONDERILDI') engeller.push("E-fatura gönderilmiş — resmi belge değişmez. Sadece POS kaydını düzeltmek için kalemdeki 'KDV Düzelt / Brüt Tutar Düzelt'i, resmi düzeltme için iptal + yeniden giriş (Faz 3) kullanın.");
+  if (!g.kalemler.length) throw mudahaleHatasi('Değişen kalem yok.');
+
+  const items = await prisma.saleItem.findMany({ where: { saleId, status: { not: 'VOID' } }, include: { product: { select: { name: true } } } });
+  type Degisim = { item: (typeof items)[number]; ad: string; eski: { unitPrice: number; discount: number; taxRate: number; lineTotal: number; taxAmount: number }; yeni: { unitPrice: number; discount: number; taxRate: number; lineTotal: number; taxAmount: number } };
+  const degisimler: Degisim[] = [];
+  for (const k of g.kalemler) {
+    const it = items.find((x) => x.id === k.itemId);
+    if (!it) throw mudahaleHatasi('Kalem bu satışta bulunamadı.');
+    const ad = it.odooProductName ?? it.product?.name ?? 'Ürün';
+    const up = yuvarla(Number(k.unitPrice)); const dc = yuvarla(Number(k.discount)); const tr = Number(k.taxRate);
+    if (!(up >= 0)) engeller.push(`${ad}: birim fiyat geçersiz.`);
+    if (!(dc >= 0) || dc > up * it.qty + 0.005) engeller.push(`${ad}: indirim 0 ile satır tutarı arasında olmalı.`);
+    if (![0, 1, 8, 10, 18, 20].includes(tr)) engeller.push(`${ad}: KDV oranı %0, %1, %10 ya da %20 olmalı.`);
+    const { taxAmount, lineTotal } = calcInclusiveLineAmounts({ unitPrice: up, qty: it.qty, discount: dc, taxRate: tr });
+    const eski = { unitPrice: Number(it.unitPrice), discount: Number(it.discount), taxRate: Number(it.taxRate ?? 0), lineTotal: Number(it.lineTotal), taxAmount: Number(it.taxAmount) };
+    const yeni = { unitPrice: up, discount: dc, taxRate: tr, lineTotal: yuvarla(Number(lineTotal)), taxAmount: yuvarla(Number(taxAmount)) };
+    if (eski.unitPrice === yeni.unitPrice && Math.abs(eski.discount - yeni.discount) < 0.005 && eski.taxRate === yeni.taxRate) continue;
+    degisimler.push({ item: it, ad, eski, yeni });
+  }
+  if (!degisimler.length) engeller.push('Hiçbir kalemde değişiklik yok.');
+
+  const eskiToplam = Number(sale.netTotal);
+  const fark = yuvarla(degisimler.reduce((s, d) => s + (d.yeni.lineTotal - d.eski.lineTotal), 0));
+  const yeniToplam = yuvarla(eskiToplam + fark);
+
+  satirlar.push(`Satış ${sale.referansNo ?? sale.id} — ${sale.customer.name}`);
+  for (const d of degisimler) {
+    const parca: string[] = [];
+    if (d.eski.unitPrice !== d.yeni.unitPrice) parca.push(`fiyat ${tl(d.eski.unitPrice)} → ${tl(d.yeni.unitPrice)}`);
+    if (Math.abs(d.eski.discount - d.yeni.discount) >= 0.005) parca.push(`indirim ${tl(d.eski.discount)} → ${tl(d.yeni.discount)}`);
+    if (d.eski.taxRate !== d.yeni.taxRate) parca.push(`KDV %${d.eski.taxRate} → %${d.yeni.taxRate}`);
+    satirlar.push(`${d.ad} (${d.item.qty} adet): ${parca.join(', ')} — satır ${tl(d.eski.lineTotal)} → ${tl(d.yeni.lineTotal)}`);
+  }
+  satirlar.push(`Satış toplamı: ${tl(eskiToplam)} → ${tl(yeniToplam)}${fark ? ` (${fark > 0 ? '+' : ''}${tl(fark)})` : ''}`);
+
+  // ── fark ödemesi
+  const vardiya = new Map<string, VardiyaEtki>();
+  let ekle: OdemeIc | null = null;
+  let azalt: { pay: (typeof sale.payments)[number]; yeniTutar: number; odoo: OdooTahsilat | null; hareket: { id: string; amount: number } | null; yeniNet: number; yeniKomTutar: number | null } | null = null;
+  if (fark > 0.005) {
+    if (!g.farkEkle) engeller.push(`Toplam ${tl(fark)} arttı — farkın nasıl ödendiğini seçin (yeni ödeme ya da açık hesap).`);
+    else {
+      if (Math.abs(Number(g.farkEkle.tutar) - fark) > 0.005) engeller.push(`Fark ödemesi ${tl(fark)} olmalı.`);
+      ekle = await yeniOdemeHazirla(sale, { ...g.farkEkle, tutar: fark }, saatTR(new Date()), engeller, uyarilar);
+      if (ekle) {
+        satirlar.push(`YENİ ödeme: ${TUR_AD[ekle.tur]} ${tl(ekle.tutar)} — ${trYaz(ekle.an)}${ekle.bankAd ? ` — ${ekle.bankAd}` : ''}${ekle.taksit ? ` — ${ekle.taksit} taksit` : ''}`);
+        if (ekle.shift) vardiyaEtkiEkle(vardiya, ekle.shift, ekle.tutar);
+      }
+    }
+  } else if (fark < -0.005) {
+    const pay = sale.payments.find((p) => p.id === g.farkAzaltPaymentId);
+    if (!pay) engeller.push(`Toplam ${tl(-fark)} azaldı — hangi ödemeden düşüleceğini seçin.`);
+    else if (!DUZELTILEBILIR.includes(pay.paymentType)) engeller.push(`${TUR_AD[pay.paymentType]} ödemesinden düşülemez.`);
+    else if (Number(pay.grossAmount) + fark < -0.005) engeller.push(`Seçilen ödeme (${tl(Number(pay.grossAmount))}) farktan (${tl(-fark)}) küçük.`);
+    else if (gunTR(pay.createdAt) < KILIT_GUN) engeller.push('Seçilen ödeme Ekim ve öncesinde — dokunulmaz.');
+    else {
+      const yeniTutar = yuvarla(Number(pay.grossAmount) + fark);
+      let yeniNet = yeniTutar; let yeniKomTutar: number | null = null;
+      if (pay.paymentType === PaymentType.CARD && pay.commissionRate != null) {
+        yeniKomTutar = yuvarla(yeniTutar * Number(pay.commissionRate)); yeniNet = yuvarla(yeniTutar - yeniKomTutar);
+      }
+      let hareket: { id: string; amount: number } | null = null;
+      if (pay.paymentType === PaymentType.CASH) {
+        const v = await vardiyaBul(pay.tahsilatBranchId ?? sale.branchId, pay.createdAt);
+        if (v && v.an.getTime() === pay.createdAt.getTime()) vardiyaEtkiEkle(vardiya, v.shift, fark);
+        const h = await prisma.cashMovement.findFirst({ where: { type: CashMovementType.CASH_IN, description: `SALE_CASH_PAYMENT:${saleId}`, amount: pay.grossAmount } });
+        if (h) hareket = { id: h.id, amount: Number(h.amount) };
+      }
+      azalt = { pay, yeniTutar, odoo: null, hareket, yeniNet, yeniKomTutar };
+      satirlar.push(`Ödeme düşülür: ${TUR_AD[pay.paymentType]} ${tl(Number(pay.grossAmount))} (${trYaz(pay.createdAt)}) → ${tl(yeniTutar)}${yeniTutar === 0 ? ' (ödeme satırı silinir)' : ''}`);
+    }
+  }
+  satirlar.push(...vardiyaSatirlari(vardiya, uyarilar));
+
+  // ── Odoo
+  const odoo = await odooBilgi(sale);
+  const eslesme: Array<{ d: Degisim; so: OdooSoSatir | null; fs: OdooFaturaSatir | null; taxId: number | null; priceUnit: number; discountPct: number }> = [];
+  if (odoo.so) {
+    const soCid = odoo.so.company_id?.[0] ?? 1;
+    const [soTam] = (await execute('sale.order', 'read', [[odoo.so.id], ['order_line', 'state', 'locked']], TUM)) as any[];
+    if (soTam?.locked) engeller.push(`Odoo sipariş ${odoo.so.name} kilitli — önce kilidi açılmalı.`);
+    const soSatirlar = (await execute('sale.order.line', 'read', [soTam.order_line, ['product_id', 'price_unit', 'discount', 'tax_id', 'product_uom_qty', 'price_total', 'invoice_lines', 'display_type']], TUM)) as Array<OdooSoSatir & { display_type: string | false }>;
+    const faturaSatirlar = odoo.fatura
+      ? ((await execute('account.move.line', 'search_read', [[['move_id', '=', odoo.fatura.id], ['display_type', '=', 'product']]], { fields: ['sale_line_ids', 'price_unit', 'discount', 'tax_ids', 'quantity'], ...TUM })) as OdooFaturaSatir[])
+      : [];
+    const kullanilan = new Set<number>();
+    for (const d of degisimler) {
+      const pid = d.item.odooProductId ? parseInt(d.item.odooProductId, 10) : null;
+      const aday = soSatirlar
+        .filter((s) => !s.display_type && pid && s.product_id?.[0] === pid && !kullanilan.has(s.id) && s.product_uom_qty === d.item.qty)
+        .sort((a, b) => Math.abs(a.price_total - d.eski.lineTotal) - Math.abs(b.price_total - d.eski.lineTotal))[0] ?? null;
+      if (!aday) {
+        if (pid) engeller.push(`${d.ad}: Odoo siparişinde karşılık gelen satır bulunamadı — güvenli eşleşme yok.`);
+        else uyarilar.push(`${d.ad}: Odoo'ya gönderilmemiş kalem — sadece POS'ta düzelir.`);
+        eslesme.push({ d, so: null, fs: null, taxId: null, priceUnit: 0, discountPct: 0 });
+        continue;
+      }
+      kullanilan.add(aday.id);
+      if (Math.abs(aday.price_total - d.eski.lineTotal) > 0.05) uyarilar.push(`${d.ad}: Odoo satır toplamı (${tl(aday.price_total)}) POS'takinden (${tl(d.eski.lineTotal)}) zaten farklıydı — düzeltmeyle POS değerine eşitlenir.`);
+      const fs = faturaSatirlar.find((f) => f.sale_line_ids?.includes(aday.id)) ?? null;
+      if (odoo.fatura && !fs) engeller.push(`${d.ad}: faturada karşılık gelen satır bulunamadı.`);
+      const t = await resolvePosLineTax({ companyId: soCid, taxRate: d.yeni.taxRate, unitPriceInclusive: d.yeni.unitPrice });
+      const brut = d.yeni.unitPrice * d.item.qty;
+      eslesme.push({ d, so: aday, fs, taxId: t.taxId, priceUnit: t.priceUnit, discountPct: brut > 0 ? Math.min(100, (d.yeni.discount / brut) * 100) : 0 });
+    }
+    satirlar.push(`Odoo sipariş ${odoo.so.name}: ${eslesme.filter((e) => e.so).length} satır güncellenir.`);
+    if (odoo.fatura) satirlar.push(`Odoo fatura ${odoo.fatura.name}: taslağa alınır, satırlar güncellenir, yeniden onaylanır, tahsilatlar yeniden bağlanır.`);
+    else uyarilar.push("Odoo'da onaylı fatura yok — sadece sipariş satırları güncellenir.");
+    if (azalt && azalt.pay.paymentType !== PaymentType.OPEN_ACCOUNT && odoo.fatura) {
+      azalt.odoo = tahsilatEslestir(odoo.tahsilatlar, azalt.pay.paymentType, Number(azalt.pay.grossAmount), gunTR(azalt.pay.createdAt), new Set());
+      if (azalt.odoo) satirlar.push(`Odoo tahsilat ${azalt.odoo.name} iptal edilir${azalt.yeniTutar > 0 ? `, yerine ${tl(azalt.yeniTutar)} açılır` : ''}.`);
+      else engeller.push("Düşülecek ödemenin Odoo tahsilatı bulunamadı — fatura fazla ödenmiş kalmasın diye durduruldu.");
+    }
+    if (ekle && ekle.tur !== PaymentType.OPEN_ACCOUNT && odoo.fatura) satirlar.push(`Odoo: yeni ${TUR_AD[ekle.tur]} tahsilatı ${tl(ekle.tutar)} açılır.`);
+  } else {
+    uyarilar.push("Satış Odoo'ya gönderilmemiş — sadece POS kaydı düzeltilir.");
+  }
+  if (sale.eFaturaDurum && sale.eFaturaDurum !== 'GONDERILDI') uyarilar.push(`E-fatura durumu ${sale.eFaturaDurum} — gönderildiğinde düzeltilmiş POS tutarlarıyla gider.`);
+
+  return { satirlar, uyarilar, engeller, sale, degisimler, fark, yeniToplam, ekle, azalt, vardiya, odoo, eslesme };
+}
+
+export async function fiyatDuzeltPlan(saleId: string, g: FiyatGirdi): Promise<PlanSonuc> {
+  const p = await fiyatPlanla(saleId, g);
+  return { satirlar: p.satirlar, uyarilar: p.uyarilar, engeller: p.engeller };
+}
+
+async function faturaSatirlariYaz(f: OdooFatura, yazilacak: Array<{ fsId: number; vals: Record<string, unknown> }>) {
+  const ctx = sirketCtx(f.company_id[0]);
+  await cagir('account.move', 'button_draft', [[f.id]], ctx);
+  if (yazilacak.length) await cagir('account.move', 'write', [[f.id], { invoice_line_ids: yazilacak.map((y) => [1, y.fsId, y.vals]) }], ctx);
+  await cagir('account.move', 'action_post', [[f.id]], ctx);
+}
+
+export async function fiyatDuzeltUygula(saleId: string, g: FiyatGirdi, sebep: string, userId: string) {
+  const p = await fiyatPlanla(saleId, g);
+  if (p.engeller.length) throw mudahaleHatasi(`Uygulanamaz: ${p.engeller.join(' | ')}`);
+  const { sale, odoo, eslesme, ekle, azalt } = p;
+  const yapilan: string[] = [];
+  const geriAdim: Array<() => Promise<void>> = [];
+  const soCid = odoo.so?.company_id?.[0] ?? 1;
+
+  const odooGeriAl = async () => {
+    const notlar: string[] = [];
+    for (const f of [...geriAdim].reverse()) {
+      try { await f(); } catch (e) { notlar.push((e as Error).message); }
+    }
+    if (odoo.fatura) { try { notlar.push(...(await tumTahsilatlariBagla(saleId, odoo.fatura))); } catch (e) { notlar.push((e as Error).message); } }
+    return notlar.length ? `geri alma notları: ${notlar.join('; ')}` : 'Odoo eski hâline döndürüldü';
+  };
+
+  if (odoo.so) {
+    try {
+      const soYaz = eslesme.filter((e) => e.so);
+      // 1) sipariş satırları
+      for (const e of soYaz) {
+        await cagir('sale.order.line', 'write', [[e.so!.id], { price_unit: e.priceUnit, discount: e.discountPct, ...(e.taxId ? { tax_id: [[6, 0, [e.taxId]]] } : {}) }], sirketCtx(soCid));
+        const eski = e.so!;
+        geriAdim.push(async () => { await cagir('sale.order.line', 'write', [[eski.id], { price_unit: eski.price_unit, discount: eski.discount, tax_id: [[6, 0, eski.tax_id]] }], sirketCtx(soCid)); });
+      }
+      if (soYaz.length) yapilan.push(`sipariş ${odoo.so.name}: ${soYaz.length} satır güncellendi`);
+      // 2) fatura
+      if (odoo.fatura) {
+        const f = odoo.fatura;
+        const once = (await execute('account.move', 'read', [[f.id], ['amount_total']], TUM)) as any[];
+        await faturaSatirlariYaz(f, soYaz.filter((e) => e.fs).map((e) => ({ fsId: e.fs!.id, vals: { price_unit: e.priceUnit, discount: e.discountPct, ...(e.taxId ? { tax_ids: [[6, 0, [e.taxId]]] } : {}) } })));
+        geriAdim.push(async () => {
+          await faturaSatirlariYaz(f, soYaz.filter((e) => e.fs).map((e) => ({ fsId: e.fs!.id, vals: { price_unit: e.fs!.price_unit, discount: e.fs!.discount, tax_ids: [[6, 0, e.fs!.tax_ids]] } })));
+        });
+        const [son] = (await execute('account.move', 'read', [[f.id], ['amount_total', 'state']], TUM)) as any[];
+        const beklenen = yuvarla(Number(once[0]?.amount_total ?? 0) + soYaz.filter((e) => e.fs).reduce((s, e) => s + (e.d.yeni.lineTotal - e.d.eski.lineTotal), 0));
+        if (son?.state !== 'posted') throw new Error('fatura yeniden onaylanamadı');
+        // Odoo indirim yüzdesi 2 hanelidir → büyük tutarlarda kuruş düzeyinde yuvarlama payı
+        const tolerans = 0.05 + soYaz.filter((e) => e.fs).reduce((s, e) => s + e.d.yeni.unitPrice * e.d.item.qty * 0.00005, 0);
+        if (Math.abs(Number(son.amount_total) - beklenen) > tolerans) throw new Error(`fatura toplamı beklenen ${beklenen}, Odoo ${son.amount_total} — tutmadı`);
+        yapilan.push(`fatura ${f.name}: yeni toplam ${son.amount_total}`);
+      }
+      // 3) fark tahsilatları
+      if (odoo.fatura) {
+        const sirket = await faturaSirketi(odoo.fatura.id);
+        const alacak = await faturaAlacakHesabi(odoo.fatura.id);
+        const ac = async (tur: PaymentType, tutar: number, gun: string, bankAd: string | null, not: string) => {
+          const yev = await tahsilatYevmiyesi(sirket, tur);
+          const refTur = tur === PaymentType.TRANSFER ? 'HAVALE' : tur;
+          const id = await odooTahsilatOlustur({ companyId: yev.companyId, journalId: yev.journalId, partnerId: odoo.so.partner_id[0], amount: tutar, date: gun, alacakHesapId: yev.yedek ? null : alacak, ref: `POS ${refTur}${bankAd ? ' ' + bankAd : ''} - ${saleId} (${not})` });
+          geriAdim.push(async () => { await odooTahsilatIptal(id, yev.companyId); });
+          return id;
+        };
+        if (azalt?.odoo) {
+          const eo = azalt.odoo;
+          await odooTahsilatIptal(eo.id, eo.company_id[0]);
+          geriAdim.push(async () => { await odooEskiyiGeriAl(eo, null); });
+          yapilan.push(`${eo.name} iptal edildi`);
+          if (azalt.yeniTutar > 0) {
+            const bankAd = azalt.pay.bankId ? (await prisma.bank.findUnique({ where: { id: azalt.pay.bankId } }))?.name ?? null : null;
+            const id = await ac(azalt.pay.paymentType, azalt.yeniTutar, eo.date, bankAd, 'fiyat düzeltme, düşürüldü');
+            yapilan.push(`yerine ${tl(azalt.yeniTutar)} tahsilat #${id}`);
+          }
+        }
+        if (ekle && ekle.tur !== PaymentType.OPEN_ACCOUNT) {
+          const id = await ac(ekle.tur, ekle.tutar, gunTR(ekle.an), ekle.bankAd, 'fiyat düzeltme farkı');
+          yapilan.push(`fark tahsilatı #${id}`);
+        }
+        const h = await tumTahsilatlariBagla(saleId, odoo.fatura);
+        if (h.length) throw new Error(`tahsilatlar faturaya bağlanamadı: ${h.join('; ')}`);
+        yapilan.push('tahsilatlar faturaya bağlandı');
+      }
+    } catch (e) {
+      const geri = await odooGeriAl();
+      throw mudahaleHatasi(`Odoo adımı başarısız, POS'a dokunulmadı: ${(e as Error).message} (${geri})`);
+    }
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const d of p.degisimler) {
+        await tx.saleItem.update({
+          where: { id: d.item.id },
+          data: {
+            unitPrice: new Prisma.Decimal(d.yeni.unitPrice), discount: new Prisma.Decimal(d.yeni.discount), taxRate: new Prisma.Decimal(d.yeni.taxRate),
+            taxAmount: new Prisma.Decimal(d.yeni.taxAmount), lineTotal: new Prisma.Decimal(d.yeni.lineTotal),
+          },
+        });
+      }
+      const tum = await tx.saleItem.findMany({ where: { saleId, status: { not: 'VOID' } } });
+      let gross = new Prisma.Decimal(0); let disc = new Prisma.Decimal(0); let tax = new Prisma.Decimal(0);
+      for (const k of tum) { gross = gross.plus(k.unitPrice.times(k.qty)); disc = disc.plus(k.discount); tax = tax.plus(k.taxAmount); }
+      await tx.sale.update({ where: { id: saleId }, data: { grossTotal: gross, discountTotal: disc, netTotal: gross.minus(disc), taxTotal: tax } });
+      const not = `${gunTR(new Date())} fiyat düzeltme (${sebep})`.slice(0, 300);
+      if (ekle) {
+        await tx.payment.create({
+          data: {
+            saleId, paymentType: ekle.tur, bankId: ekle.bankId, posDeviceId: ekle.posDeviceId, installment: ekle.taksit,
+            grossAmount: new Prisma.Decimal(ekle.tutar), commissionRate: ekle.komisyonOran != null ? new Prisma.Decimal(ekle.komisyonOran) : null,
+            commissionAmount: ekle.komisyonTutar != null ? new Prisma.Decimal(ekle.komisyonTutar) : null, netAmount: new Prisma.Decimal(ekle.net),
+            createdAt: ekle.an, aciklama: not, createdByUserId: userId,
+          },
+        });
+        if (ekle.tur === PaymentType.CASH && ekle.shift) {
+          await tx.cashMovement.create({ data: { branchId: ekle.shift.branchId, shiftId: ekle.shift.id, userId: sale.userId, type: CashMovementType.CASH_IN, amount: new Prisma.Decimal(ekle.tutar), description: `SALE_CASH_PAYMENT:${saleId}`, createdAt: ekle.an } });
+        }
+      }
+      if (azalt) {
+        if (azalt.yeniTutar > 0) {
+          await tx.payment.update({
+            where: { id: azalt.pay.id },
+            data: {
+              grossAmount: new Prisma.Decimal(azalt.yeniTutar), netAmount: new Prisma.Decimal(azalt.yeniNet),
+              ...(azalt.yeniKomTutar != null ? { commissionAmount: new Prisma.Decimal(azalt.yeniKomTutar) } : {}),
+              aciklama: `${azalt.pay.aciklama ? azalt.pay.aciklama + ' | ' : ''}${not}: ${tl(Number(azalt.pay.grossAmount))} → ${tl(azalt.yeniTutar)}`.slice(0, 1000),
+            },
+          });
+        } else {
+          await tx.payment.delete({ where: { id: azalt.pay.id } });
+        }
+        if (azalt.hareket) {
+          if (azalt.yeniTutar > 0) await tx.cashMovement.update({ where: { id: azalt.hareket.id }, data: { amount: new Prisma.Decimal(azalt.yeniTutar) } });
+          else await tx.cashMovement.delete({ where: { id: azalt.hareket.id } });
+        }
+      }
+      await vardiyalariUygula(tx, p.vardiya);
+      const sonOdemeler = await tx.payment.findMany({ where: { saleId } });
+      const sgk = yuvarla(sonOdemeler.filter((x) => x.paymentType === PaymentType.SGK).reduce((s, x) => s + Number(x.grossAmount), 0));
+      const vakif = yuvarla(sonOdemeler.filter((x) => x.paymentType === PaymentType.VAKIF).reduce((s, x) => s + Number(x.grossAmount), 0));
+      await tx.sale.update({ where: { id: saleId }, data: { sgkAmount: sgk > 0 ? new Prisma.Decimal(sgk) : null, prescriptionAmount: vakif > 0 ? new Prisma.Decimal(vakif) : null } });
+      await tx.auditLog.create({
+        data: {
+          userId, action: 'MUDAHALE_FIYAT', entity: 'Sale', entityId: saleId,
+          payload: {
+            saleId, sebep, fark: p.fark,
+            kalemler: p.degisimler.map((d) => ({ itemId: d.item.id, ad: d.ad, eski: d.eski, yeni: d.yeni })),
+            eskiToplam: { gross: sale.grossTotal.toString(), discount: sale.discountTotal.toString(), net: sale.netTotal.toString(), tax: sale.taxTotal.toString() },
+            farkEkle: ekle ? { tur: ekle.tur, tutar: ekle.tutar, tarih: ekle.an.toISOString(), bankId: ekle.bankId, taksit: ekle.taksit } : null,
+            farkAzalt: azalt ? { eski: JSON.parse(JSON.stringify(azalt.pay)), yeniTutar: azalt.yeniTutar, odooIptal: azalt.odoo?.id ?? null } : null,
+            odoo: { soSatirlari: eslesme.filter((e) => e.so).map((e) => ({ id: e.so!.id, eski: { price_unit: e.so!.price_unit, discount: e.so!.discount, tax_id: e.so!.tax_id }, faturaSatir: e.fs ? { id: e.fs.id, price_unit: e.fs.price_unit, discount: e.fs.discount, tax_ids: e.fs.tax_ids } : null })) },
+            ozet: p.satirlar,
+          },
+        },
+      });
+    });
+  } catch (e) {
+    const geri = odoo.so ? await odooGeriAl() : '';
+    throw mudahaleHatasi(`POS kaydı yazılamadı, hiçbir şey değiştirilmedi: ${(e as Error).message}${geri ? ` (${geri})` : ''}`);
+  }
+  return { ok: true, satirlar: p.satirlar, uyarilar: p.uyarilar, odoo: yapilan };
 }

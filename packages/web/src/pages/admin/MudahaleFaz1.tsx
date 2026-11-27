@@ -492,3 +492,160 @@ export function LotDuzelt({ saleId, itemId, onDegisti }: { saleId: string; itemI
     </div>
   )
 }
+
+// ───────────────────────── Fiyat / İndirim / KDV (Faz 2b-1) ─────────────────────────
+
+export type FiyatKalem = { id: string; name: string; qty: number; unitPrice: string | number; discount: string | number; taxRate: string | number | null; lineTotal: string | number }
+type FiyatSatir = { unitPrice: string; discount: string; taxRate: string }
+const sayi = (v: string) => Number(String(v).replace(',', '.'))
+
+export function FiyatBolumu({ saleId, items, payments, branchId, eFaturaGitti, onDegisti }: {
+  saleId: string; items: FiyatKalem[]; payments: MudahalePayment[]; branchId: string | null; eFaturaGitti: boolean; onDegisti: (m: string) => void
+}) {
+  const [acik, setAcik] = useState(false)
+  const [bankalar, setBankalar] = useState<Bank[]>([])
+  const [degerler, setDegerler] = useState<Record<string, FiyatSatir>>({})
+  const [farkOdeme, setFarkOdeme] = useState<Satir>({ tur: 'CASH', tutar: '0', tarih: gunTR(new Date().toISOString()), bankId: '', posDeviceId: '', taksit: '1' })
+  const [azaltId, setAzaltId] = useState('')
+  const [sebep, setSebep] = useState('')
+  const [plan, setPlan] = useState<Plan | null>(null)
+  const [planAnahtar, setPlanAnahtar] = useState('')
+  const [yukleniyor, setYukleniyor] = useState(false)
+  const [hata, setHata] = useState<string | null>(null)
+  useEffect(() => { setAcik(false) }, [saleId])
+
+  function ac() {
+    const d: Record<string, FiyatSatir> = {}
+    for (const it of items) d[it.id] = { unitPrice: String(Number(it.unitPrice)), discount: String(Number(it.discount)), taxRate: String(Number(it.taxRate ?? 0)) }
+    setDegerler(d); setAzaltId(''); setSebep(''); setPlan(null); setHata(null); setAcik(true)
+    if (!bankalar.length) adminApi.get('/sales/payment-banks', { params: { tumu: 1 } }).then((r) => setBankalar(Array.isArray(r.data?.data) ? r.data.data : [])).catch(() => {})
+  }
+
+  const kalemler = items
+    .map((it) => ({ it, v: degerler[it.id] }))
+    .filter(({ it, v }) => v && (sayi(v.unitPrice) !== Number(it.unitPrice) || Math.abs(sayi(v.discount) - Number(it.discount)) >= 0.005 || sayi(v.taxRate) !== Number(it.taxRate ?? 0)))
+    .map(({ it, v }) => ({ itemId: it.id, unitPrice: sayi(v.unitPrice), discount: sayi(v.discount), taxRate: sayi(v.taxRate) }))
+  const fark = Math.round(kalemler.reduce((s, k) => {
+    const it = items.find((x) => x.id === k.itemId)!
+    return s + (k.unitPrice * it.qty - k.discount) - Number(it.lineTotal)
+  }, 0) * 100) / 100
+  const govde = {
+    kalemler,
+    farkEkle: fark > 0.005 ? {
+      tur: farkOdeme.tur, tutar: fark, tarih: farkOdeme.tarih,
+      bankId: farkOdeme.tur === 'CARD' || farkOdeme.tur === 'TRANSFER' ? farkOdeme.bankId || null : null,
+      posDeviceId: farkOdeme.tur === 'CARD' ? farkOdeme.posDeviceId || null : null,
+      taksit: farkOdeme.tur === 'CARD' ? Number(farkOdeme.taksit) || 1 : null,
+    } : null,
+    farkAzaltPaymentId: fark < -0.005 ? azaltId || null : null,
+  }
+  const anahtar = JSON.stringify(govde)
+
+  async function onizle() {
+    if (!kalemler.length) { setHata('Hiçbir kalemde değişiklik yok.'); return }
+    setYukleniyor(true); setHata(null)
+    try {
+      const r = await adminApi.post(`/sales/${saleId}/mudahale/fiyat/onizle`, govde)
+      setPlan(r.data); setPlanAnahtar(anahtar)
+    } catch (e) { setHata(hataMesaji(e, 'Önizleme alınamadı.')); setPlan(null) } finally { setYukleniyor(false) }
+  }
+  async function uygula() {
+    if (sebep.trim().length < 5) { setHata('Düzeltme sebebini en az 5 karakter yazın.'); return }
+    setYukleniyor(true); setHata(null)
+    try {
+      const r = await adminApi.post(`/sales/${saleId}/mudahale/fiyat/uygula`, { ...govde, sebep: sebep.trim() })
+      setAcik(false)
+      onDegisti(`Fiyat/indirim/KDV düzeltildi.${r.data?.odoo?.length ? ' Odoo: ' + r.data.odoo.join(', ') + '.' : ''}`)
+    } catch (e) { setHata(hataMesaji(e, 'Düzeltilemedi.')) } finally { setYukleniyor(false) }
+  }
+  const onayHazir = !!plan && plan.engeller.length === 0 && planAnahtar === anahtar
+  const b = bankalar.find((x) => x.id === farkOdeme.bankId)
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={S.baslik}>Fiyat / İndirim / KDV (Odoo faturası dahil)</div>
+      <div style={S.kutu}>
+        {eFaturaGitti ? (
+          <div style={{ fontSize: 11.5, color: '#92400e' }}>E-fatura gönderilmiş — resmi belge değişmez. Sadece POS kaydı için kalemdeki "KDV Düzelt / Brüt Tutar Düzelt"; resmi düzeltme için iptal + yeniden giriş (Faz 3).</div>
+        ) : !acik ? (
+          <button type="button" style={S.btn} onClick={ac}>Fiyat / indirim / KDV düzelt</button>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {items.map((it) => {
+              const v = degerler[it.id]
+              if (!v) return null
+              const set = (alan: keyof FiyatSatir, deger: string) => setDegerler((p) => ({ ...p, [it.id]: { ...p[it.id], [alan]: deger } }))
+              return (
+                <div key={it.id} style={{ border: '1px dashed #d1d5db', borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{it.name} <span style={{ color: '#6b7280', fontWeight: 400 }}>· {it.qty} adet · şimdi {tl(it.lineTotal)}</span></div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 70px', gap: 6 }}>
+                    <div><div style={S.etiket}>Birim fiyat (KDV dahil)</div><input value={v.unitPrice} onChange={(e) => set('unitPrice', e.target.value)} style={S.input} /></div>
+                    <div><div style={S.etiket}>İndirim (₺)</div><input value={v.discount} onChange={(e) => set('discount', e.target.value)} style={S.input} /></div>
+                    <div><div style={S.etiket}>KDV %</div>
+                      <select value={v.taxRate} onChange={(e) => set('taxRate', e.target.value)} style={S.input}>
+                        {['0', '1', '10', '20'].concat(['0', '1', '10', '20'].includes(v.taxRate) ? [] : [v.taxRate]).map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+            <div style={{ fontSize: 12, fontWeight: 700, color: fark ? '#92400e' : '#166534' }}>
+              {fark > 0.005 ? `Toplam ${tl(fark)} artıyor — fark nasıl ödendi?` : fark < -0.005 ? `Toplam ${tl(-fark)} azalıyor — hangi ödemeden düşülsün?` : 'Toplam değişmiyor.'}
+            </div>
+            {fark > 0.005 && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                <div><div style={S.etiket}>Tür</div>
+                  <select value={farkOdeme.tur} onChange={(e) => setFarkOdeme((p) => ({ ...p, tur: e.target.value }))} style={S.input}>
+                    {DUZELTILEBILIR.map((t) => <option key={t} value={t}>{TUR_AD[t]}</option>)}
+                  </select>
+                </div>
+                <div><div style={S.etiket}>Tarih</div><input type="date" value={farkOdeme.tarih} onChange={(e) => setFarkOdeme((p) => ({ ...p, tarih: e.target.value }))} style={S.input} /></div>
+                {(farkOdeme.tur === 'CARD' || farkOdeme.tur === 'TRANSFER') && (
+                  <div><div style={S.etiket}>Banka</div>
+                    <select value={farkOdeme.bankId} onChange={(e) => {
+                      const bk = bankalar.find((x) => x.id === e.target.value)
+                      const cihazlar = (bk?.posDevices ?? []).filter((d) => d.isActive)
+                      setFarkOdeme((p) => ({ ...p, bankId: e.target.value, posDeviceId: (cihazlar.find((d) => d.branchId === branchId) ?? cihazlar[0])?.id ?? '' }))
+                    }} style={S.input}>
+                      <option value="">Seçin</option>
+                      {bankalar.filter((x) => x.isActive).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                {farkOdeme.tur === 'CARD' && (
+                  <>
+                    <div><div style={S.etiket}>POS cihazı</div>
+                      <select value={farkOdeme.posDeviceId} onChange={(e) => setFarkOdeme((p) => ({ ...p, posDeviceId: e.target.value }))} style={S.input}>
+                        <option value="">Seçin</option>
+                        {(b?.posDevices ?? []).filter((d) => d.isActive).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </div>
+                    <div><div style={S.etiket}>Taksit</div><input type="number" min={1} max={36} value={farkOdeme.taksit} onChange={(e) => setFarkOdeme((p) => ({ ...p, taksit: e.target.value }))} style={S.input} /></div>
+                  </>
+                )}
+              </div>
+            )}
+            {fark < -0.005 && (
+              <select value={azaltId} onChange={(e) => setAzaltId(e.target.value)} style={S.input}>
+                <option value="">Ödeme seçin</option>
+                {payments.filter((p) => DUZELTILEBILIR.includes(p.paymentType) && Number(p.grossAmount) + fark >= -0.005).map((p) => (
+                  <option key={p.id} value={p.id}>{TUR_AD[p.paymentType]} {tl(p.grossAmount)} — {trYaz(p.createdAt)}</option>
+                ))}
+              </select>
+            )}
+            <input value={sebep} onChange={(e) => setSebep(e.target.value)} placeholder="Düzeltme sebebi" style={S.input} />
+            {hata && <div style={{ color: '#991b1b', fontSize: 11.5, fontWeight: 600 }}>{hata}</div>}
+            {plan && <PlanGoster plan={plan} />}
+            {plan && planAnahtar !== anahtar && <div style={{ fontSize: 11, color: '#92400e' }}>Form değişti — yeniden önizleyin.</div>}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button type="button" onClick={() => setAcik(false)} style={{ ...S.btn, flex: 1 }}>Vazgeç</button>
+              <button type="button" disabled={yukleniyor} onClick={() => void onizle()} style={{ ...S.btn, flex: 1 }}>{yukleniyor ? '...' : 'Önizle'}</button>
+              <button type="button" disabled={!onayHazir || yukleniyor} onClick={() => void uygula()} style={{ ...S.btnAna, opacity: onayHazir ? 1 : 0.4, cursor: onayHazir ? 'pointer' : 'not-allowed' }}>Onayla ve uygula</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -739,6 +739,32 @@ const lotRota = mudahaleRota(MudahaleLotInput, (req, b, uygula) =>
 router.post('/:id/mudahale/lot/onizle', authorize(Role.ADMIN), lotRota);
 router.post('/:id/mudahale/lot/uygula', authorize(Role.ADMIN), lotRota);
 
+// Faz 2b-1 — fiyat / indirim / KDV düzeltme
+const MudahaleFiyatInput = z.object({
+  kalemler: z.array(z.object({
+    itemId: z.string().min(1),
+    unitPrice: z.number().min(0),
+    discount: z.number().min(0),
+    taxRate: z.number().min(0).max(100),
+  })).min(1).max(30),
+  farkEkle: z.object({
+    tur: z.nativeEnum(PaymentType),
+    tutar: z.number().positive(),
+    tarih: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    bankId: z.string().nullish(),
+    posDeviceId: z.string().nullish(),
+    taksit: z.number().int().min(1).max(36).nullish(),
+  }).nullish(),
+  farkAzaltPaymentId: z.string().nullish(),
+  sebep: z.string().trim().max(300).optional(),
+});
+const fiyatRota = mudahaleRota(MudahaleFiyatInput, (req, b, uygula) => {
+  const g = { kalemler: b.kalemler, farkEkle: b.farkEkle ?? null, farkAzaltPaymentId: b.farkAzaltPaymentId ?? null };
+  return uygula ? mudahale.fiyatDuzeltUygula(req.params.id, g, b.sebep.trim(), req.user!.userId) : mudahale.fiyatDuzeltPlan(req.params.id, g);
+});
+router.post('/:id/mudahale/fiyat/onizle', authorize(Role.ADMIN), fiyatRota);
+router.post('/:id/mudahale/fiyat/uygula', authorize(Role.ADMIN), fiyatRota);
+
 router.get('/:id/mudahale/gecmis', authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     return res.status(200).json({ success: true, data: await mudahale.duzeltmeGecmisi(req.params.id) });

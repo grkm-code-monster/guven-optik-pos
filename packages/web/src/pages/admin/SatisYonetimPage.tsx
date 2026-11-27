@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminApi } from './AdminLayout'
-import { GecmisBolumu, LotDuzelt, OdemelerBolumu, TarihBolumu, TemsilciBolumu, type MudahalePayment } from './MudahaleFaz1'
+import { FiyatBolumu, GecmisBolumu, LotDuzelt, OdemelerBolumu, TarihBolumu, TemsilciBolumu, type MudahalePayment } from './MudahaleFaz1'
 
 // Yönetim paneli — TÜM şubelerin satışlarını görüp müdahale (KDV/reçete/durum
 // düzeltme) edebilme sayfası (16.10.2026). Daha önce ADMIN sadece kendi
@@ -458,6 +458,7 @@ export default function SatisYonetimPage() {
               {detay.status !== 'DRAFT' && detay.status !== 'VOID' && (
                 <>
                   <OdemelerBolumu saleId={detay.id} payments={detay.payments ?? []} branchId={detay.branchId} onDegisti={(m) => void mudahaleBitti(m)} />
+                  <FiyatBolumu saleId={detay.id} items={detay.items} payments={detay.payments ?? []} branchId={detay.branchId} eFaturaGitti={detay.eFaturaDurum === 'GONDERILDI'} onDegisti={(m) => void mudahaleBitti(m)} />
                   <TarihBolumu saleId={detay.id} createdAt={detay.createdAt} payments={detay.payments ?? []} onDegisti={(m) => void mudahaleBitti(m)} />
                   <TemsilciBolumu saleId={detay.id} userId={detay.userId} onDegisti={(m) => void mudahaleBitti(m)} />
                 </>
