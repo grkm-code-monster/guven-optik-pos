@@ -716,6 +716,29 @@ const tarihRota = mudahaleRota(MudahaleTarihInput, (req, b, uygula) =>
 router.post('/:id/mudahale/tarih/onizle', authorize(Role.ADMIN), tarihRota);
 router.post('/:id/mudahale/tarih/uygula', authorize(Role.ADMIN), tarihRota);
 
+// Faz 2a — lot / UTS düzeltme
+router.get('/:id/mudahale/kalem/:itemId/lot-ara', authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    return res.status(200).json(await mudahale.lotAra(req.params.id, req.params.itemId, String(req.query.q ?? '')));
+  } catch (err) {
+    if (handleSaleError(err, res)) return;
+    next(err);
+  }
+});
+const MudahaleLotInput = z.object({
+  itemId: z.string().min(1),
+  mlId: z.number().int().positive(),
+  lotId: z.number().int().positive(),
+  sebep: z.string().trim().max(300).optional(),
+});
+const lotRota = mudahaleRota(MudahaleLotInput, (req, b, uygula) =>
+  uygula
+    ? mudahale.lotDuzeltUygula(req.params.id, { itemId: b.itemId, mlId: b.mlId, lotId: b.lotId }, b.sebep.trim(), req.user!.userId)
+    : mudahale.lotDuzeltPlan(req.params.id, { itemId: b.itemId, mlId: b.mlId, lotId: b.lotId }),
+);
+router.post('/:id/mudahale/lot/onizle', authorize(Role.ADMIN), lotRota);
+router.post('/:id/mudahale/lot/uygula', authorize(Role.ADMIN), lotRota);
+
 router.get('/:id/mudahale/gecmis', authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     return res.status(200).json({ success: true, data: await mudahale.duzeltmeGecmisi(req.params.id) });

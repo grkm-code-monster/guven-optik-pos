@@ -396,3 +396,99 @@ export function GecmisBolumu({ saleId, yenile }: { saleId: string; yenile: numbe
     </div>
   )
 }
+
+// ───────────────────────── Lot / UTS (Faz 2a) ─────────────────────────
+
+type LotSatir = { mlId: number; lotAdi: string; utsKodu: string | null; qty: number; pickingAdi: string; locationAdi: string }
+type LotAday = { id: number; name: string; utsKodu: string | null; stoklar: Array<{ locationAdi: string; qty: number }> }
+
+export function LotDuzelt({ saleId, itemId, onDegisti }: { saleId: string; itemId: string; onDegisti: (m: string) => void }) {
+  const [acik, setAcik] = useState(false)
+  const [satirlar, setSatirlar] = useState<LotSatir[]>([])
+  const [adaylar, setAdaylar] = useState<LotAday[]>([])
+  const [not, setNot] = useState<string | null>(null)
+  const [kod, setKod] = useState('')
+  const [mlId, setMlId] = useState<number | null>(null)
+  const [lotId, setLotId] = useState<number | null>(null)
+  const [sebep, setSebep] = useState('')
+  const [plan, setPlan] = useState<Plan | null>(null)
+  const [planAnahtar, setPlanAnahtar] = useState('')
+  const [yukleniyor, setYukleniyor] = useState(false)
+  const [hata, setHata] = useState<string | null>(null)
+
+  async function ara(q: string) {
+    setYukleniyor(true); setHata(null)
+    try {
+      const r = await adminApi.get(`/sales/${saleId}/mudahale/kalem/${itemId}/lot-ara`, { params: { q } })
+      setSatirlar(r.data.satirlar ?? []); setAdaylar(r.data.adaylar ?? []); setNot(r.data.not ?? null)
+      if ((r.data.satirlar ?? []).length === 1) setMlId(r.data.satirlar[0].mlId)
+      if ((r.data.adaylar ?? []).length === 1) setLotId(r.data.adaylar[0].id)
+    } catch (e) { setHata(hataMesaji(e, 'Lotlar getirilemedi.')) } finally { setYukleniyor(false) }
+  }
+  function ac() {
+    setAcik(true); setKod(''); setMlId(null); setLotId(null); setSebep(''); setPlan(null); setAdaylar([])
+    void ara('')
+  }
+  const govde = { itemId, mlId, lotId }
+  const anahtar = JSON.stringify(govde)
+  async function onizle() {
+    if (!mlId || !lotId) { setHata('Değişecek satırı ve doğru lotu seçin.'); return }
+    setYukleniyor(true); setHata(null)
+    try {
+      const r = await adminApi.post(`/sales/${saleId}/mudahale/lot/onizle`, govde)
+      setPlan(r.data); setPlanAnahtar(anahtar)
+    } catch (e) { setHata(hataMesaji(e, 'Önizleme alınamadı.')); setPlan(null) } finally { setYukleniyor(false) }
+  }
+  async function uygula() {
+    if (sebep.trim().length < 5) { setHata('Düzeltme sebebini en az 5 karakter yazın.'); return }
+    setYukleniyor(true); setHata(null)
+    try {
+      await adminApi.post(`/sales/${saleId}/mudahale/lot/uygula`, { ...govde, sebep: sebep.trim() })
+      setAcik(false)
+      onDegisti('Lot düzeltildi — Odoo teslimatı ve şube stoğu güncellendi.')
+    } catch (e) { setHata(hataMesaji(e, 'Lot düzeltilemedi.')) } finally { setYukleniyor(false) }
+  }
+  const onayHazir = !!plan && plan.engeller.length === 0 && planAnahtar === anahtar
+
+  if (!acik) return <button type="button" style={S.btn} onClick={ac}>Lot / UTS düzelt</button>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, width: '100%', border: '1px dashed #d1d5db', borderRadius: 8, padding: 8 }}>
+      <div>
+        <div style={S.etiket}>Satılan (Odoo teslimatındaki) lot</div>
+        {satirlar.length === 0 && !yukleniyor && <div style={{ fontSize: 11.5, color: '#9ca3af' }}>—</div>}
+        {satirlar.map((s) => (
+          <label key={s.mlId} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11.5, marginTop: 3 }}>
+            <input type="radio" checked={mlId === s.mlId} onChange={() => setMlId(s.mlId)} />
+            {s.lotAdi}{s.utsKodu ? ` · UTS ${s.utsKodu}` : ''} · {s.qty} adet · {s.locationAdi}
+          </label>
+        ))}
+      </div>
+      <div>
+        <div style={S.etiket}>Doğru lot — karekodu okutun ya da lot/UTS yazın</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input value={kod} onChange={(e) => setKod(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void ara(kod) }} style={S.input} autoFocus />
+          <button type="button" style={S.btn} disabled={yukleniyor} onClick={() => void ara(kod)}>Ara</button>
+        </div>
+        {adaylar.map((a) => (
+          <label key={a.id} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11.5, marginTop: 4 }}>
+            <input type="radio" checked={lotId === a.id} onChange={() => setLotId(a.id)} />
+            <span>
+              <b>{a.name}</b>{a.utsKodu ? ` · UTS ${a.utsKodu}` : ''}
+              <span style={{ color: '#6b7280' }}> — {a.stoklar.length ? a.stoklar.map((s) => `${s.locationAdi}: ${s.qty}`).join(', ') : 'stokta yok'}</span>
+            </span>
+          </label>
+        ))}
+        {not && <div style={{ fontSize: 11, color: '#92400e', marginTop: 4 }}>{not}</div>}
+      </div>
+      <input value={sebep} onChange={(e) => setSebep(e.target.value)} placeholder="Düzeltme sebebi (ör. satışta yanlış kutu okutulmuş)" style={S.input} />
+      {hata && <div style={{ color: '#991b1b', fontSize: 11.5, fontWeight: 600 }}>{hata}</div>}
+      {plan && <PlanGoster plan={plan} />}
+      {plan && planAnahtar !== anahtar && <div style={{ fontSize: 11, color: '#92400e' }}>Seçim değişti — yeniden önizleyin.</div>}
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button type="button" onClick={() => setAcik(false)} style={{ ...S.btn, flex: 1 }}>Vazgeç</button>
+        <button type="button" disabled={yukleniyor} onClick={() => void onizle()} style={{ ...S.btn, flex: 1 }}>{yukleniyor ? '...' : 'Önizle'}</button>
+        <button type="button" disabled={!onayHazir || yukleniyor} onClick={() => void uygula()} style={{ ...S.btnAna, opacity: onayHazir ? 1 : 0.4, cursor: onayHazir ? 'pointer' : 'not-allowed' }}>Onayla ve uygula</button>
+      </div>
+    </div>
+  )
+}

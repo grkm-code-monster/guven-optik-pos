@@ -22,6 +22,7 @@ import { prisma } from '../../database/prisma';
 import { execute, ODOO_ALL_COMPANY_IDS } from '../odoo/odoo.service';
 import { faturaAlacakHesabi, faturaSirketi, odooTahsilatOlustur, odooTahsilatiFaturayaBagla, tahsilatYevmiyesi } from '../odoo/odoo-tahsilat';
 import { calculateCommission } from '../payments/commission.service';
+import { parseGs1DataMatrix } from '../odoo/gs1-parser.util';
 
 // ───────────────────────── yardımcılar ─────────────────────────
 
@@ -662,6 +663,7 @@ const GECMIS_AD: Record<string, string> = {
   SALE_ITEM_FIYAT_DUZELT: 'Brüt tutar düzeltme',
   SALE_ITEM_RECETE_DUZELT: 'Reçete düzeltme',
   ODOO_TAHSILAT_BAGLANAMADI: 'Odoo tahsilatı faturaya bağlanamadı',
+  MUDAHALE_LOT: 'Lot / UTS düzeltme',
 };
 
 export async function duzeltmeGecmisi(saleId: string) {
@@ -683,4 +685,177 @@ export async function duzeltmeGecmisi(saleId: string) {
       ozet: Array.isArray(pl.ozet) ? (pl.ozet as string[]) : null,
     };
   });
+}
+
+// ───────────────────────── LOT / UTS DÜZELT (Faz 2a) ─────────────────────────
+//
+// Satışta yanlış lot okutulmuş / Odoo serbest bir lot ya da "STOKSUZ-…" yer tutucu seçmişse: teslimatın
+// (done) hareket satırındaki lot doğru lotla değiştirilir. Odoo 17 bitmiş satırda lot değişince stoğu
+// kendisi düzeltir (eski lot şubeye +, yeni lot şubeden −); uygulamada bu ayrıca ölçülüp doğrulanır,
+// stok kıpırdamadıysa lot eski hâline döndürülür ve iş durdurulur.
+// NOT: POS satışında UTS "tüketiciye verme" bildirimi otomatik gönderilmiyor (sadece özel sipariş
+// tesliminde) — bu yüzden lot düzeltmesi UTS'ye bir şey göndermez; elle yapılmış bildirim varsa uyarır.
+
+type SatisMl = {
+  id: number; lotId: number | null; lotAdi: string; utsKodu: string | null; qty: number; productId: number; productAdi: string;
+  pickingId: number; pickingAdi: string; locationId: number; locationAdi: string; companyId: number;
+};
+
+async function satisHareketSatirlari(odooSaleOrderId: number | null): Promise<SatisMl[]> {
+  if (!odooSaleOrderId) return [];
+  const [so] = (await execute('sale.order', 'read', [[odooSaleOrderId], ['picking_ids']], TUM)) as any[];
+  if (!so?.picking_ids?.length) return [];
+  const pks = ((await execute('stock.picking', 'read', [so.picking_ids, ['name', 'state', 'picking_type_code', 'location_id', 'company_id', 'move_line_ids']], TUM)) as any[])
+    .filter((p) => p.state === 'done' && p.picking_type_code === 'outgoing');
+  const mlIds = pks.flatMap((p) => p.move_line_ids);
+  if (!mlIds.length) return [];
+  const mls = (await execute('stock.move.line', 'read', [mlIds, ['lot_id', 'quantity', 'product_id', 'location_id', 'picking_id']], TUM)) as any[];
+  const lotIds = [...new Set(mls.filter((m) => m.lot_id).map((m) => m.lot_id[0]))];
+  const lotlar = lotIds.length ? ((await execute('stock.lot', 'read', [lotIds, ['x_uts_kodu']], TUM)) as any[]) : [];
+  return mls.map((m) => {
+    const pk = pks.find((p) => p.id === m.picking_id[0]);
+    const lt = m.lot_id ? lotlar.find((l) => l.id === m.lot_id[0]) : null;
+    return {
+      id: m.id, lotId: m.lot_id ? m.lot_id[0] : null, lotAdi: m.lot_id ? m.lot_id[1] : '-', utsKodu: lt?.x_uts_kodu || null,
+      qty: Number(m.quantity), productId: m.product_id[0], productAdi: m.product_id[1],
+      pickingId: pk?.id, pickingAdi: pk?.name, locationId: m.location_id[0], locationAdi: m.location_id[1], companyId: pk?.company_id?.[0] ?? 1,
+    };
+  });
+}
+
+async function lotStoklari(lotIds: number[]) {
+  if (!lotIds.length) return [] as Array<{ lotId: number; locationId: number; locationAdi: string; qty: number }>;
+  const qs = (await execute('stock.quant', 'search_read', [[['lot_id', 'in', lotIds], ['location_id.usage', '=', 'internal']]], { fields: ['lot_id', 'location_id', 'quantity'], ...TUM })) as any[];
+  return qs.filter((q) => Math.abs(Number(q.quantity)) > 0.0001).map((q) => ({ lotId: q.lot_id[0], locationId: q.location_id[0], locationAdi: q.location_id[1], qty: Number(q.quantity) }));
+}
+
+async function lotKonumStok(lotId: number, locationId: number) {
+  const qs = (await execute('stock.quant', 'search_read', [[['lot_id', '=', lotId], ['location_id', '=', locationId]]], { fields: ['quantity'], ...TUM })) as any[];
+  return yuvarla(qs.reduce((s, q) => s + Number(q.quantity), 0));
+}
+
+async function kalemGetir(saleId: string, itemId: string) {
+  const item = await prisma.saleItem.findUnique({ where: { id: itemId } });
+  if (!item || item.saleId !== saleId) throw mudahaleHatasi('Kalem bu satışta bulunamadı.');
+  if (!item.odooProductId) throw mudahaleHatasi("Bu kalemin Odoo ürünü yok (hizmet/özel kalem) — lotu olmaz.");
+  return { item, productId: parseInt(item.odooProductId, 10) };
+}
+
+/** Kalemin satıldığı hareket satırları + aranan koda uyan, AYNI ürüne ait lot adayları (stoklarıyla). */
+export async function lotAra(saleId: string, itemId: string, q: string) {
+  const sale = await satisGetir(saleId);
+  const { productId } = await kalemGetir(saleId, itemId);
+  const tumMl = await satisHareketSatirlari(sale.odooSaleOrderId);
+  const satirlar = tumMl.filter((m) => m.productId === productId);
+  const kod = q.trim();
+  let adaylar: Array<{ id: number; name: string; utsKodu: string | null; companyId: number | null; stoklar: Array<{ locationAdi: string; qty: number }> }> = [];
+  if (kod.length >= 2) {
+    const terimler = new Set<string>([kod]);
+    const gs1 = parseGs1DataMatrix(kod);
+    if (gs1?.lot) terimler.add(gs1.lot);
+    if (gs1?.serial) terimler.add(gs1.serial);
+    const or: unknown[] = [];
+    for (const t of terimler) or.push(['name', 'ilike', t], ['x_uts_kodu', 'ilike', t]);
+    const dom = [['product_id', '=', productId], ...Array(or.length - 1).fill('|'), ...or];
+    const lotlar = (await execute('stock.lot', 'search_read', [dom], { fields: ['id', 'name', 'x_uts_kodu', 'company_id'], limit: 20, ...TUM })) as any[];
+    const st = await lotStoklari(lotlar.map((l) => l.id));
+    adaylar = lotlar.map((l) => ({
+      id: l.id, name: l.name, utsKodu: l.x_uts_kodu || null, companyId: l.company_id ? l.company_id[0] : null,
+      stoklar: st.filter((s) => s.lotId === l.id).map((s) => ({ locationAdi: s.locationAdi, qty: s.qty })),
+    }));
+  }
+  return {
+    satirlar: satirlar.map((m) => ({ mlId: m.id, lotAdi: m.lotAdi, utsKodu: m.utsKodu, qty: m.qty, pickingAdi: m.pickingAdi, locationAdi: m.locationAdi })),
+    adaylar,
+    not: !satirlar.length ? "Bu kalemin Odoo'da tamamlanmış teslimat satırı yok — lot düzeltilemez." : (kod.length >= 2 && !adaylar.length ? 'Bu ürüne ait böyle bir lot/UTS bulunamadı. Okutulan ürün başka model/renk/ölçü ise bu "kalem değiştirme"dir (Faz 2b).' : null),
+  };
+}
+
+export type LotGirdi = { itemId: string; mlId: number; lotId: number };
+
+async function lotPlanla(saleId: string, g: LotGirdi) {
+  const satirlar: string[] = [];
+  const uyarilar: string[] = [];
+  const engeller: string[] = [];
+  const sale = await satisGetir(saleId);
+  durumKontrol(sale.status, engeller);
+  if (gunTR(sale.createdAt) < KILIT_GUN) engeller.push(`Satış ${trYaz(sale.createdAt)} tarihli — Ekim ve öncesine dokunulmaz.`);
+  const { item, productId } = await kalemGetir(saleId, g.itemId);
+  const ml = (await satisHareketSatirlari(sale.odooSaleOrderId)).find((m) => m.id === g.mlId);
+  if (!ml || ml.productId !== productId) throw mudahaleHatasi('Seçilen teslimat satırı bu kaleme ait değil.');
+  const [lot] = (await execute('stock.lot', 'read', [[g.lotId], ['name', 'product_id', 'company_id', 'x_uts_kodu']], TUM)) as any[];
+  if (!lot) throw mudahaleHatasi('Lot bulunamadı.');
+  if (lot.product_id?.[0] !== productId) engeller.push('Seçilen lot başka bir ürüne ait.');
+  if (lot.company_id && lot.company_id[0] !== ml.companyId) engeller.push(`Seçilen lot başka şirkette (${lot.company_id[1]}) — bu teslimatın şirketinde değil.`);
+  if (ml.lotId === lot.id) engeller.push('Satırda zaten bu lot var.');
+
+  const yeniStok = await lotKonumStok(lot.id, ml.locationId);
+  const tum = await lotStoklari([lot.id]);
+  satirlar.push(`Satış ${sale.referansNo ?? sale.id} — ${sale.customer.name}`);
+  satirlar.push(`Kalem: ${ml.productAdi} (${ml.qty} adet) — teslimat ${ml.pickingAdi}, ${ml.locationAdi}`);
+  satirlar.push(`ESKİ lot: ${ml.lotAdi}${ml.utsKodu ? ` (UTS ${ml.utsKodu})` : ''} → şube stoğuna +${ml.qty} geri döner`);
+  satirlar.push(`YENİ lot: ${lot.name}${lot.x_uts_kodu ? ` (UTS ${lot.x_uts_kodu})` : ''} → şube stoğundan −${ml.qty} (şimdi ${yeniStok}, sonra ${yuvarla(yeniStok - ml.qty)})`);
+  if (ml.lotAdi.startsWith('STOKSUZ-')) satirlar.push('Eski lot satış anında açılmış yer tutucu (STOKSUZ) — eksi stoğu sıfırlanır.');
+  if (yeniStok < ml.qty) {
+    const baska = tum.filter((s) => s.locationId !== ml.locationId && s.qty > 0);
+    uyarilar.push(`Yeni lot bu şubede stokta görünmüyor (${yeniStok}) — eksiye düşer.${baska.length ? ` Stokta olduğu yer: ${baska.map((s) => `${s.locationAdi} ${s.qty}`).join(', ')} (önce transfer gerekebilir).` : ''}`);
+  }
+  if (item.lotNo && item.lotNo !== ml.lotAdi && item.lotNo !== ml.utsKodu) uyarilar.push(`POS kalemindeki lot (${item.lotNo}) Odoo satırındakiyle (${ml.lotAdi}) zaten farklıydı.`);
+  satirlar.push(`POS kalemindeki lot: ${item.lotNo ?? '-'} → ${lot.name}`);
+  const uts = sale.referansNo ? await prisma.utsBildirim.findFirst({ where: { tip: 'TUKETICIYE_VERME', belgeNo: sale.referansNo, durum: 'GONDERILDI' } }) : null;
+  if (uts) uyarilar.push(`Bu satış için UTS'ye elle "tüketiciye verme" bildirimi gönderilmiş (${uts.utsBildirimId ?? uts.id}) — UTS Yönetimi'nden eski bildirimi iptal edip doğru lotla yeniden bildirin.`);
+  return { satirlar, uyarilar, engeller, sale, item, ml, lot, yeniStok };
+}
+
+export async function lotDuzeltPlan(saleId: string, g: LotGirdi): Promise<PlanSonuc> {
+  const p = await lotPlanla(saleId, g);
+  return { satirlar: p.satirlar, uyarilar: p.uyarilar, engeller: p.engeller };
+}
+
+export async function lotDuzeltUygula(saleId: string, g: LotGirdi, sebep: string, userId: string) {
+  const p = await lotPlanla(saleId, g);
+  if (p.engeller.length) throw mudahaleHatasi(`Uygulanamaz: ${p.engeller.join(' | ')}`);
+  const { ml, lot, item } = p;
+  const kw = { context: { allowed_company_ids: [ml.companyId, ...ODOO_ALL_COMPANY_IDS.filter((c) => c !== ml.companyId)], company_id: ml.companyId } };
+  const eskiStokOnce = ml.lotId ? await lotKonumStok(ml.lotId, ml.locationId) : null;
+  const yeniStokOnce = await lotKonumStok(lot.id, ml.locationId);
+  const geriYaz = async () => { await cagir('stock.move.line', 'write', [[ml.id], { lot_id: ml.lotId }], kw); };
+
+  try {
+    await cagir('stock.move.line', 'write', [[ml.id], { lot_id: lot.id }], kw);
+  } catch (e) {
+    throw mudahaleHatasi(`Odoo lotu değiştirmedi, hiçbir şey yazılmadı: ${(e as Error).message}`);
+  }
+  // doğrulama: satır yeni lotta mı, stok gerçekten kaydı mı?
+  const [son] = (await execute('stock.move.line', 'read', [[ml.id], ['lot_id']], TUM)) as any[];
+  const yeniStokSonra = await lotKonumStok(lot.id, ml.locationId);
+  const eskiStokSonra = ml.lotId ? await lotKonumStok(ml.lotId, ml.locationId) : null;
+  const satirTamam = son?.lot_id?.[0] === lot.id;
+  const stokTamam = Math.abs(yeniStokSonra - (yeniStokOnce - ml.qty)) < 0.001 && (eskiStokOnce == null || Math.abs((eskiStokSonra ?? 0) - (eskiStokOnce + ml.qty)) < 0.001);
+  if (!satirTamam || !stokTamam) {
+    let geri = '';
+    try { await geriYaz(); geri = 'lot eski hâline döndürüldü'; } catch (e) { geri = `ESKİ HÂLİNE DÖNDÜRÜLEMEDİ: ${(e as Error).message}`; }
+    throw mudahaleHatasi(`Odoo stoğu beklendiği gibi güncellemedi (yeni lot ${yeniStokOnce}→${yeniStokSonra}, eski lot ${eskiStokOnce ?? '-'}→${eskiStokSonra ?? '-'}) — ${geri}. Bana bildirin.`);
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.saleItem.update({ where: { id: item.id }, data: { lotNo: lot.name } });
+      await tx.auditLog.create({
+        data: {
+          userId, action: 'MUDAHALE_LOT', entity: 'Sale', entityId: saleId,
+          payload: {
+            saleId, sebep, itemId: item.id, eskiPosLot: item.lotNo,
+            odoo: { mlId: ml.id, eskiLotId: ml.lotId, eskiLot: ml.lotAdi, yeniLotId: lot.id, yeniLot: lot.name, lokasyon: ml.locationAdi, adet: ml.qty, stok: { eskiOnce: eskiStokOnce, eskiSonra: eskiStokSonra, yeniOnce: yeniStokOnce, yeniSonra: yeniStokSonra } },
+            ozet: p.satirlar,
+          },
+        },
+      });
+    });
+  } catch (e) {
+    let geri = '';
+    try { await geriYaz(); geri = "Odoo'da lot eski hâline döndürüldü"; } catch (e2) { geri = `Odoo GERİ ALINAMADI: ${(e2 as Error).message}`; }
+    throw mudahaleHatasi(`POS kaydı yazılamadı: ${(e as Error).message} (${geri})`);
+  }
+  return { ok: true, satirlar: p.satirlar, uyarilar: p.uyarilar, odoo: [`teslimat satırı ${lot.name} lotuna çevrildi, stok doğrulandı`] };
 }

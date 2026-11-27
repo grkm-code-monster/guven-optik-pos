@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminApi } from './AdminLayout'
-import { GecmisBolumu, OdemelerBolumu, TarihBolumu, TemsilciBolumu, type MudahalePayment } from './MudahaleFaz1'
+import { GecmisBolumu, LotDuzelt, OdemelerBolumu, TarihBolumu, TemsilciBolumu, type MudahalePayment } from './MudahaleFaz1'
 
 // Yönetim paneli — TÜM şubelerin satışlarını görüp müdahale (KDV/reçete/durum
 // düzeltme) edebilme sayfası (16.10.2026). Daha önce ADMIN sadece kendi
@@ -37,6 +37,7 @@ type SaleItemDetail = {
   lineTotal: string | number
   status: string
   prescription?: Record<string, any> | null
+  lotNo?: string | null
 }
 
 type SaleDetail = {
@@ -488,7 +489,7 @@ export default function SatisYonetimPage() {
                   <div key={it.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 10 }}>
                     <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 2 }}>{it.name}</div>
                     <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
-                      KDV %{it.taxRate != null ? Number(it.taxRate) : '—'} · {money(it.taxAmount)} · Toplam {money(it.lineTotal)}
+                      KDV %{it.taxRate != null ? Number(it.taxRate) : '—'} · {money(it.taxAmount)} · Toplam {money(it.lineTotal)}{it.lotNo ? ` · Lot ${it.lotNo}` : ''}
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {kdvItemId !== it.id && (
@@ -508,6 +509,9 @@ export default function SatisYonetimPage() {
                         >
                           Brüt Tutar Düzelt
                         </button>
+                      )}
+                      {detay.status !== 'DRAFT' && detay.status !== 'VOID' && (
+                        <LotDuzelt saleId={detay.id} itemId={it.id} onDegisti={(m) => void mudahaleBitti(m)} />
                       )}
                     </div>
                     {kdvItemId === it.id && (
